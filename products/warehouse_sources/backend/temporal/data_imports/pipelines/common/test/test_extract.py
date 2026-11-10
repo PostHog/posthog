@@ -16,6 +16,7 @@ from redis import exceptions as redis_exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -278,6 +279,11 @@ class TestPersistPrimaryKeys:
 
 
 class TestTrimSourceJobInputs:
+    @pytest.fixture(autouse=True)
+    def _read_inputs_as_stored(self):
+        with read_unsaved_source_inputs_as_stored():
+            yield
+
     @parameterized.expand(
         [
             ("list_is_skipped", ["a", "b"]),

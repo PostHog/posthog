@@ -15,7 +15,7 @@ from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.property import TableColumn
 from posthog.schema_enums import MaterializationMode
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.experiments.backend.health.context import ExposureFilterSource
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.models.experiment import Experiment
@@ -239,7 +239,7 @@ class TestLoadFiltersWithoutColumn(BaseTest):
     def test_names_the_filters_of_an_action(
         self, _name: str, criteria: Callable[[dict[str, Any]], dict[str, Any]], expected: list[str]
     ) -> None:
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Started checkout",
             steps_json=[
@@ -251,7 +251,7 @@ class TestLoadFiltersWithoutColumn(BaseTest):
         experiment.exposure_criteria = {
             "filterTestAccounts": False,
             **criteria(
-                {"kind": "ActionsNode", "id": action.pk, "properties": [_filter("source", "event")]},
+                {"kind": "ActionsNode", "id": action.id, "properties": [_filter("source", "event")]},
             ),
         }
 

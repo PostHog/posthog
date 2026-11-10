@@ -1,7 +1,7 @@
 import re
 import uuid
+import dataclasses
 from typing import Any, cast
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -16,7 +16,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import filters, parsers, request, response, serializers, status, viewsets
+from rest_framework import exceptions, filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
 
@@ -39,6 +39,7 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 
+from products.access_control.backend.facade.api import InvalidObjectAccessControlError, object_has_access_rules
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -53,12 +54,16 @@ from products.warehouse_sources.backend.facade.api import (
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    copy_access_rules_to_history_table,
     denied_table_ids,
     hosted_upload_s3_path,
     pending_source_ids_for_tables,
+    registered_history_table_for,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
+    HistoryAccessRulesNotAllowedError,
+    NoHistoryTableError,
     UnreadableUploadError,
     UploadedFileRef,
 )
@@ -66,12 +71,10 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     can_replace_file,
     create_file_upload_source,
     discard_unused_upload,
-    file_upload_sources_enabled,
     has_file_upload_source,
     hosted_upload_in_use,
     is_legacy_upload_url,
     is_safe_upload_filename,
-    object_storage_sources_enabled,
     read_upload_in_place,
     replace_file_upload,
     sanitize_upload_filename,
@@ -124,24 +127,9 @@ _EVENT_SOURCE_TO_CREATED_VIA = {
 
 
 SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
-    "You can't create self-managed tables when managed object storage sources are enabled. "
-    "Add {provider} as a source instead."
+    "PostHog no longer links tables that read your bucket directly. "
+    "Add an Amazon S3, Google Cloud Storage, Azure Blob or Cloudflare R2 source instead."
 )
-
-MANAGED_SOURCE_NAME_BY_HOST_SUFFIX = (
-    ("r2.cloudflarestorage.com", "Cloudflare R2"),
-    ("amazonaws.com", "Amazon S3"),
-    ("googleapis.com", "Google Cloud Storage"),
-    ("blob.core.windows.net", "Azure Blob Storage"),
-)
-
-
-def _managed_source_name_for_url(url_pattern: str | None) -> str:
-    host = (urlparse(url_pattern or "").hostname or "").lower()
-    for suffix, name in MANAGED_SOURCE_NAME_BY_HOST_SUFFIX:
-        if host == suffix or host.endswith(f".{suffix}"):
-            return name
-    return "your bucket's provider (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2)"
 
 
 def resolve_created_via(request: request.Request) -> str:
@@ -450,52 +438,6 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             return None
         return SimpleExternalDataSchemaSerializer(schema, read_only=True).data
 
-    def create(self, validated_data):
-        team_id = self.context["team_id"]
-
-        validated_data["team_id"] = team_id
-        validated_data["created_by"] = cast(User, self.context["request"].user)
-        validated_data["created_via"] = resolve_created_via(self.context["request"])
-        credential = validated_data.get("credential")
-
-        if not credential:
-            raise serializers.ValidationError("Credentials are required")
-
-        access_key: str | None = credential.get("access_key")
-        access_secret: str | None = credential.get("access_secret")
-
-        # CRITICAL: users MUST provide an access key and secret, otherwise we'll fall back to using the EC2 node's internal role.
-        # this would allow an external user to then access one of PostHog's internal S3 buckets
-        if not access_key or not access_secret:
-            raise serializers.ValidationError("Access key and secret are required")
-        if len(access_key.strip()) == 0 or len(access_secret.strip()) == 0:
-            raise serializers.ValidationError("Access key and secret can't be blank")
-
-        validated_data["credential"] = DataWarehouseCredential.objects.create(
-            team_id=team_id,
-            access_key=access_key,
-            access_secret=access_secret,
-        )
-        table = DataWarehouseTable(**validated_data)
-        if table._is_csv_format() and table.csv_allow_double_quotes is not None:
-            try:
-                table._validate_csv_double_quotes_setting()
-            except Exception as err:
-                raise serializers.ValidationError(str(err))
-        try:
-            table.columns = table.get_columns()
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
-        try:
-            table.save()
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
-        log_table_activity(table, "created")
-
-        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
-
-        return table
-
     def validate_url_pattern(self, url_pattern):
         # A credential-less table reads from PostHog's own storage by design - PostHog built the URL
         # when the file was uploaded. Editing anything else about such a table resubmits that URL
@@ -523,7 +465,8 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         ):
             raise serializers.ValidationError(
                 "PostHog manages where this table reads from, so its URL can't be changed. "
-                "To read from your own bucket, add it as a self-managed source with an access key and secret."
+                "To read from your own bucket, add a managed Amazon S3, Google Cloud Storage, "
+                "Azure Blob, or Cloudflare R2 source."
             )
 
         return url_pattern
@@ -606,6 +549,26 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
             )
             for field in fields
         ]
+
+
+class HistoryTableRefSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the history table.")
+    name = serializers.CharField(help_text="Name the history table is queried by in HogQL.")
+    user_can_manage_access = serializers.BooleanField(
+        help_text="Whether you can change who can access the history table."
+    )
+
+
+class TableHistoryTableSerializer(serializers.Serializer):
+    main_table_has_copyable_rules = serializers.BooleanField(
+        help_text="Whether this table has access rules of its own that you can manage, so there are rules to copy "
+        "to its history table.",
+    )
+    history_table = HistoryTableRefSerializer(
+        allow_null=True,
+        help_text="The table's history table, which keeps every past version of its rows. `null` when the table "
+        "has none or you can't view it.",
+    )
 
 
 class FileUploadResponseSerializer(serializers.Serializer):
@@ -712,15 +675,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        # Checked before the serializer runs, so a blocked request never reaches URL validation.
-        if object_storage_sources_enabled(self.team_id):
-            url_pattern = request.data.get("url_pattern") if hasattr(request.data, "get") else None
-            raise serializers.ValidationError(
-                SELF_MANAGED_CREATE_BLOCKED_MESSAGE.format(
-                    provider=_managed_source_name_for_url(url_pattern if isinstance(url_pattern, str) else None)
-                )
-            )
-        return super().create(request, *args, **kwargs)
+        # Uploads go through `create_from_upload` and the file upload source, never this endpoint.
+        raise serializers.ValidationError(SELF_MANAGED_CREATE_BLOCKED_MESSAGE)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
@@ -849,14 +805,72 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
     @extend_schema(
         request=None,
+        responses={200: TableHistoryTableSerializer},
+        summary="Get the table's history table",
+        description=(
+            "The history table of a table that keeps the past versions of its rows. The history table is a "
+            "table of its own, so access rules set on this table don't apply to it."
+        ),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["warehouse_table:read"])
+    def history_table(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+        history_table = registered_history_table_for(
+            team_id=self.team_id, table_id=table.id, user_access_control=self.user_access_control
+        )
+        payload = {
+            "history_table": dataclasses.asdict(history_table) if history_table is not None else None,
+            "main_table_has_copyable_rules": self.user_access_control.check_can_modify_access_levels_for_object(table)
+            and object_has_access_rules(team_id=self.team_id, resource="warehouse_table", resource_id=str(table.id)),
+        }
+        return response.Response(TableHistoryTableSerializer(payload).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: TableHistoryTableSerializer},
+        summary="Copy the table's access rules to its history table",
+        description=(
+            "Replace the access rules of the table's history table with the table's own rules. Requires the "
+            "right to manage access to both tables."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["access_control:write"])
+    def copy_access_rules_to_history_table(
+        self, request: request.Request, *args: Any, **kwargs: Any
+    ) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+        try:
+            history_table = copy_access_rules_to_history_table(
+                team_id=self.team_id,
+                table_id=table.id,
+                user_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except NoHistoryTableError as e:
+            raise exceptions.NotFound(str(e))
+        except HistoryAccessRulesNotAllowedError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except InvalidObjectAccessControlError as e:
+            raise serializers.ValidationError(str(e))
+        payload = {
+            "history_table": dataclasses.asdict(history_table),
+            "main_table_has_copyable_rules": object_has_access_rules(
+                team_id=self.team_id, resource="warehouse_table", resource_id=str(table.id)
+            ),
+        }
+        return response.Response(TableHistoryTableSerializer(payload).data)
+
+    @extend_schema(
+        request=None,
         responses={200: OpenApiResponse(description="Schema refreshed from the table's underlying source")},
         summary="Refresh table schema from source",
         description=(
-            "Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying "
+            "Re-introspect an existing direct-read warehouse table's schema from its underlying "
             "source files and overwrite its stored column list. Use when the source schema has evolved "
             "(e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the "
             "new columns, because PostHog serves a cached column snapshot until the table is refreshed. "
-            "Not for tables managed by an external data source sync — those refresh on their own schedule."
+            "This applies only to existing direct-read tables. New direct-read tables cannot be created. "
+            "Tables managed by an external data source sync refresh on their own schedule."
         ),
     )
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
@@ -891,7 +905,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             }
         },
         responses={201: FileUploadResponseSerializer},
-        summary="Upload a file for a new self-managed warehouse table",
+        summary="Upload a file for a new warehouse table and FileUpload source",
     )
     @action(
         methods=["POST"],
@@ -900,7 +914,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         parser_classes=[parsers.MultiPartParser, parsers.FormParser],
     )
     def upload_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Store an uploaded file in object storage so a self-managed table can be created from it.
+        """Store an uploaded file for a new warehouse table and FileUpload source.
 
         Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
         this returns an `upload_id` the caller passes back to build the table. The file is written under
@@ -924,7 +938,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 data={
                     "message": f"Upload exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
-                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                    "For larger files, connect the bucket with a managed Amazon S3, Google Cloud Storage, "
+                    "Azure Blob, or Cloudflare R2 source."
                 },
             )
 
@@ -953,7 +968,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
                     "message": f"File size exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
-                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                    "For larger files, connect the bucket with a managed Amazon S3, Google Cloud Storage, "
+                    "Azure Blob, or Cloudflare R2 source."
                 },
             )
 
@@ -982,15 +998,15 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     @extend_schema(
         request=CreateTableFromUploadSerializer,
         responses={201: TableSerializer},
-        summary="Create a self-managed warehouse table from an uploaded file",
+        summary="Create a warehouse table and FileUpload source from an uploaded file",
     )
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_table:write"])
     def create_from_upload(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Turn a previously uploaded file into a self-managed warehouse table.
+        """Turn a previously uploaded file into a warehouse table with a FileUpload source.
 
         The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
-        at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
-        S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+        at it for the initial direct read. The source imports it on its first sync. The read location
+        is always derived from the caller's own team, so a client-supplied
         `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
         fall back to the node role, never a user-supplied key).
 
@@ -1049,9 +1065,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.save()
         log_table_activity(table, "created")
-        if file_upload_sources_enabled(self.team_id):
-            # The table reads the file in place until the source's first sync imports it.
-            create_file_upload_source(self.team_id, table.pk, upload, read_settings)
+        # The table reads the file in place until the source's first sync imports it.
+        create_file_upload_source(self.team_id, table.pk, upload, read_settings)
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 

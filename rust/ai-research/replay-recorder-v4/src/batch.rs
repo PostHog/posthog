@@ -98,7 +98,7 @@ pub struct Block {
     /// Remote image URLs the block's DOM referenced.
     pub image_urls: Vec<String>,
     pub font_urls: Vec<String>,
-    /// Set when the inspector could not read the block in full, so that the block must not be stored.
+    /// Set when the inspector could not read the block in full, so that a URL in the unread part stays as it arrived.
     pub url_limit: Option<UrlLimit>,
     pub edits: Vec<EventEdits>,
     pub unplaced: bool,
@@ -127,7 +127,7 @@ const FLUSH_EVENTS_BUDGET: usize = 1024 * 1024 * 1024;
 const FLUSH_RESOLVED_BUDGET: usize = 64 * 1024 * 1024;
 
 /// The memory the blocks of one flush hold for their edits until they are written. A short repeated `url()` in a
-/// compressed style sheet takes more memory as an edit than it expands to, so a block past this is dropped.
+/// compressed style sheet takes more memory as an edit than it expands to, so a block past this keeps no edits.
 const FLUSH_EDIT_BUDGET: usize = 256 * 1024 * 1024;
 
 struct DecodeBudget {

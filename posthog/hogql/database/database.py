@@ -94,7 +94,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, join_persons_to_flag_evaluations
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -142,12 +142,14 @@ from posthog.hogql.database.schema.session_replay_features import SessionReplayF
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
-from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
+from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansKafkaMetricsTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDimensionalPreAggregatedTable,
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
+    WebStatsDimensionalPreAggregatedTable,
 )
 from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
 from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
@@ -213,6 +215,7 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
+    from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
     from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
     from products.revenue_analytics.backend.views.core import SourceHandle
     from products.warehouse_sources.backend.facade.models import (
@@ -265,6 +268,7 @@ class HogQLDatabaseSources:
     user_access_control: Optional[UserAccessControl]
     denied_system_table_names: set[str]  # node names under the "system" node to remove during build
     group_types: list[dict[str, Any]]
+    mcp_custom_harness_rules: Sequence[CustomHarnessRule]
     saved_queries: list[DataWarehouseSavedQuery]
     endpoint_saved_queries: list[DataWarehouseSavedQuery]
     revenue_views: list[RevenueAnalyticsBaseView]
@@ -307,6 +311,7 @@ class HogQLDatabaseSources:
                 dict(self.direct_connection_metadata) if self.direct_connection_metadata is not None else None
             ),
             group_types=list(self.group_types),
+            mcp_custom_harness_rules=tuple(self.mcp_custom_harness_rules),
             saved_queries=list(self.saved_queries),
             endpoint_saved_queries=list(self.endpoint_saved_queries),
             revenue_views=[view.model_copy(deep=True) for view in self.revenue_views],
@@ -406,6 +411,17 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     # Web analytics pre-aggregated tables (internal use only)
     "web_pre_aggregated_stats": TableNode(name="web_pre_aggregated_stats", table=WebPreAggregatedStatsTable()),
     "web_pre_aggregated_bounces": TableNode(name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()),
+    # Justified exceptions to the "do not add" rule: the dimensional precompute
+    # tables are the v2 tables' read successors and must live in the root namespace
+    # for the same reason v2 does — the web-analytics query builder qualifies columns
+    # as `table.col` (single-identifier), which only resolves at the root. Namespacing
+    # them under `posthog.` would require reworking that shared builder.
+    "web_stats_dimensional_preaggregated": TableNode(
+        name="web_stats_dimensional_preaggregated", table=WebStatsDimensionalPreAggregatedTable()
+    ),
+    "web_bounces_dimensional_preaggregated": TableNode(
+        name="web_bounces_dimensional_preaggregated", table=WebBouncesDimensionalPreAggregatedTable()
+    ),
     "preaggregation_results": TableNode(name="preaggregation_results", table=PreaggregationResultsTable()),
     "experiment_exposures_preaggregated": TableNode(
         name="experiment_exposures_preaggregated", table=ExperimentExposuresPreaggregatedTable()
@@ -611,6 +627,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "flag_evaluations": TableNode(name="flag_evaluations", table=FlagEvaluationsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+                    "trace_spans_kafka_metrics": TableNode(
+                        name="trace_spans_kafka_metrics", table=TraceSpansKafkaMetricsTable()
+                    ),
                     "session_replay_features": TableNode(
                         name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
@@ -1538,15 +1557,18 @@ class Database(BaseModel):
                 continue
 
             fields_dict: dict[str, DatabaseSchemaField] = {}
+            table = self.get_table(table_name)
+            table_description = table.description if isinstance(table, Table) else None
             if include_fields:
                 field_input: dict[str, Any] = {}
-                table = self.get_table(table_name)
                 if isinstance(table, Table):
                     field_input = _schema_field_input(table)
 
                 fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
                 fields_dict = {field.name: field for field in fields}
-            tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
+            tables[table_name] = DatabaseSchemaPostHogTable(
+                fields=fields_dict, id=table_name, name=table_name, description=table_description
+            )
 
         # System tables
         system_tables = [] if self._is_direct_query() else self.get_system_table_names()
@@ -1555,15 +1577,18 @@ class Database(BaseModel):
                 continue
 
             fields_dict = {}
+            table = self.get_table(table_key)
+            table_description = table.description if isinstance(table, Table) else None
             if include_fields:
                 system_field_input: dict[str, Any] = {}
-                table = self.get_table(table_key)
                 if isinstance(table, Table):
                     system_field_input = _schema_field_input(table)
 
                 fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
                 fields_dict = {field.name: field for field in fields}
-            tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
+            tables[table_key] = DatabaseSchemaSystemTable(
+                fields=fields_dict, id=table_key, name=table_key, description=table_description
+            )
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
         warehouse_table_names = self.get_warehouse_table_names()
@@ -2018,6 +2043,7 @@ class Database(BaseModel):
             flag_calls_only_in_flag_evaluations=False,
             read_flag_calls_with_union=False,
             group_types=[],
+            mcp_custom_harness_rules=(),
             saved_queries=[],
             endpoint_saved_queries=[],
             revenue_views=[],
@@ -2059,6 +2085,7 @@ class Database(BaseModel):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
         from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
+        from products.mcp_analytics.backend.facade.api import custom_harness_rules  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
             ExternalDataSource,
@@ -2120,8 +2147,8 @@ class Database(BaseModel):
 
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
-            # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true under DEBUG for an
-            # organization still on EVENTS.
+            # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true on Cloud and under
+            # DEBUG for an organization still on EVENTS.
             read_mode: int = FlagEvaluationsMode.EVENTS
             if include_flag_evaluations_table:
                 read_mode = get_flag_evaluations_read_mode(team.organization_id)
@@ -2201,6 +2228,9 @@ class Database(BaseModel):
                 [] if is_direct_query else list(get_group_types_for_project(team.project_id))
             )
 
+        with timings.measure("mcp_custom_harnesses", emit_span=True):
+            mcp_custom_harness_rules = () if is_direct_query else custom_harness_rules(team)
+
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             saved_queries: list[DataWarehouseSavedQuery] = []
             all_saved_queries: list[DataWarehouseSavedQuery] = []
@@ -2216,11 +2246,11 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
-                    # Raw Trino views hold Trino SQL, which HogQL cannot expand.
                     saved_queries = [
                         sq
                         for sq in all_saved_queries
-                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None) and not sq.is_raw_managed_trino
+                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None)
+                        and sq.engine.referenceable_from_clickhouse.available
                     ]
 
         with timings.measure("endpoint_saved_query", emit_span=True):
@@ -2411,6 +2441,7 @@ class Database(BaseModel):
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
             group_types=group_types,
+            mcp_custom_harness_rules=mcp_custom_harness_rules,
             saved_queries=saved_queries,
             endpoint_saved_queries=endpoint_saved_queries,
             revenue_views=revenue_views,
@@ -2509,6 +2540,8 @@ class Database(BaseModel):
                         join_table=database.get_table("persons"),
                         resolver=PERSONS,
                     )
+                    if database.has_table(["posthog", "flag_evaluations"]):
+                        join_persons_to_flag_evaluations(database)
 
                 _add_error_tracking_fields(database)
 
@@ -2587,7 +2620,7 @@ class Database(BaseModel):
 
         with timings.measure("virtual_fields", emit_span=True):
             if not database._is_direct_query():
-                _use_virtual_fields(database, modifiers, timings)
+                _use_virtual_fields(database, modifiers, timings, sources.mcp_custom_harness_rules)
 
         with timings.measure("group_type_mapping", emit_span=True):
             if not database._is_direct_query():
@@ -3325,7 +3358,12 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
                 )
 
 
-def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
+def _use_virtual_fields(
+    database: Database,
+    modifiers: HogQLQueryModifiers,
+    timings: HogQLTimings,
+    mcp_custom_harness_rules: Sequence[CustomHarnessRule],
+) -> None:
     events_table = database.get_table("events")
     persons_table = database.get_table("persons")
     groups_table = database.get_table("groups")
@@ -3389,7 +3427,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 
         events_table.fields["$virt_mcp_harness"] = ExpressionField(
             name="$virt_mcp_harness",
-            expr=mcp_harness_virtual_field_expr(),
+            expr=mcp_harness_virtual_field_expr(mcp_custom_harness_rules),
             isolate_scope=True,
             description="MCP client label computed from this event's client identity signals.",
         )
@@ -3931,4 +3969,8 @@ def serialize_fields(
                     chain=field.chain,
                 )
             )
+    for schema_field in field_output:
+        source_field = field_input.get(schema_field.name)
+        if isinstance(source_field, FieldOrTable) and source_field.description:
+            schema_field.description = source_field.description
     return field_output

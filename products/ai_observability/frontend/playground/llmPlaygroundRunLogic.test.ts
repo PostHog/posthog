@@ -58,6 +58,20 @@ function useSystemOneKeyMocks(): void {
                       ]
                     : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
             ],
+            '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                200,
+                params.key_id
+                    ? [
+                          {
+                              id: 'jev-1',
+                              name: 'jev-1',
+                              provider: 'System One',
+                              supports_decisions: true,
+                              supports_chat: false,
+                          },
+                      ]
+                    : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
+            ],
         },
     })
 }
@@ -234,6 +248,15 @@ describe('llmPlaygroundRunLogic', () => {
                 },
                 '/api/llm_proxy/models/': ({ request }) => {
                     const keyId = new URL(request.url).searchParams.get('provider_key_id')
+                    if (keyId === 'key-s1') {
+                        return systemOneStatus === 200
+                            ? [200, [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]]
+                            : [systemOneStatus, { detail: 'Could not list models' }]
+                    }
+                    return [200, [{ id: 'gpt-5-mini', name: 'gpt-5-mini', provider: 'OpenAI', description: '' }]]
+                },
+                '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                    const keyId = params.key_id
                     if (keyId === 'key-s1') {
                         return systemOneStatus === 200
                             ? [200, [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]]

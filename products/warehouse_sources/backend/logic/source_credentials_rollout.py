@@ -1,32 +1,26 @@
-"""Dual write, shadow read and read switch of source credentials, behind per-team flags.
+"""Reads and writes of source credentials in the credentials row and the reference column.
 
-With the dual-write flag on, `SourceInputsStore` keeps the source's `credentials_integration_id` column in
-step with each write, and compares the typed-in row with `job_inputs` on some reads. The column holds the
-one integration row that the source uses:
+The `credentials_integration_id` column of a source holds the one integration row that the source uses:
 
-- An OAuth source: the OAuth row that its in-use `*_integration_id` input points at.
-- A source with typed-in credentials: the credentials row. The first copy creates the row, and later
-  copies update it.
-- Any other source: nothing.
+- An OAuth source: the OAuth row that its in-use `*_integration_id` input points at. A read puts the column
+  value at the path of that input.
+- A source with typed-in credentials: the credentials row, which holds the connection fields. A read merges
+  the row with the selectors, sync settings and runtime state of `job_inputs`.
+- Any other source: nothing. A read returns `job_inputs`.
 
-With the read flag on as well, `SourceInputsStore` returns the connection fields of the row and the OAuth
-pointer of the column, with the other inputs (selectors, sync settings, runtime state) of `job_inputs`.
-`job_inputs` still holds a full copy, so a read falls back to it when the row is missing, unreadable, empty
-or older than `job_inputs`, and when the column does not match the OAuth pointer of `job_inputs`. A read
-never raises because of the row or the flags. The read flag has no effect while the dual-write flag is off
-for the team, because the row and the column are then not kept up to date.
+A write of a source with typed-in connection fields or an OAuth pointer strips the source: the connection
+fields go only to the row, the OAuth pointer only to the column, and `job_inputs` gets the marker
+`CONNECTION_FIELDS_STRIPPED_KEY`. A row write that fails raises before `job_inputs` changes.
 
-The copy and the compare count and log what they find. They never change the inputs that the store saves,
-and they never raise, except when the API asks for a confirmation of an edit of a shared row, or when a
-copy fails while the team reads from the row.
+A read never takes connection fields or an OAuth pointer from `job_inputs`. When the row is missing or
+unreadable, or the column of an OAuth source is empty, the read raises `SourceCredentialsMissingError`. A
+database error re-raises, so that the sync activity retries.
 """
 
 import json
-import time
 import asyncio
-import threading
 from collections.abc import Iterable, Mapping
-from contextlib import nullcontext
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -38,9 +32,13 @@ from prometheus_client import Counter
 from posthog.integrations import IntegrationReference
 
 from products.warehouse_sources.backend.facade.contracts import (
+    CONNECTION_FIELDS_STRIPPED_KEY,
+    CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY,
     CREDENTIALS_REFERENCE_INPUT_KEY,
+    STRIPPED_STORE_KEYS,
     SharedCredentialsEdit,
-    SharedCredentialsError,
+    SourceCredentialsMissingError,
+    UnreadableSourceInputsError,
     UnusableCredentialsReferenceError,
 )
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
@@ -49,11 +47,9 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsUnreadable,
     CredentialsUnreadableError,
     WarehouseSourceCredentialsStore,
-    same_connection_fields,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_team_flag_enabled
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import source_key
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
@@ -66,213 +62,39 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-DUAL_WRITE_FLAG = "warehouse-source-credentials-dual-write"
-READ_FLAG = "warehouse-source-credentials-read"
-
-FLAG_CACHE_TTL_SECONDS = 60.0
-# `load` runs on hot paths (the HogQL database build reads every source of a team), so each process
-# compares one source at most once in this interval.
-SHADOW_COMPARE_INTERVAL_SECONDS = 600.0
-_MAX_CACHE_ENTRIES = 10_000
-
-DUAL_WRITE_COUNTER = Counter(
-    "posthog_warehouse_source_credentials_dual_write_total",
-    "Copies of warehouse source connection fields to the credentials row, by outcome",
-    labelnames=["outcome"],
-)
-
-SHADOW_COMPARE_COUNTER = Counter(
-    "posthog_warehouse_source_credentials_shadow_compare_total",
-    "Comparisons of warehouse source job_inputs with the credentials row, by result",
-    labelnames=["result", "source_type"],
-)
-
-
 READ_COUNTER = Counter(
     "posthog_warehouse_source_credentials_read_total",
-    "Reads of warehouse source inputs with the read flag on, by the storage that gave the connection fields",
+    "Reads of warehouse source inputs, by the storage that gave the credentials",
     labelnames=["result", "source_type"],
 )
 
-
-class _ExpiringFlags:
-    def __init__(self, flag: str, ttl_seconds: float) -> None:
-        self._flag = flag
-        self._ttl_seconds = ttl_seconds
-        self._entries: dict[int, tuple[float, bool]] = {}
-        self._lock = threading.Lock()
-
-    def enabled(self, team_id: int) -> bool:
-        now = time.monotonic()
-        with self._lock:
-            entry = self._entries.get(team_id)
-        if entry is not None and entry[0] > now:
-            return entry[1]
-        try:
-            # Inside a caller's transaction, a savepoint keeps a failed `Team` query from aborting it. Outside
-            # one, no transaction is opened, so the remote flag evaluation does not hold one open.
-            with transaction.atomic() if transaction.get_connection().in_atomic_block else nullcontext():
-                enabled = is_team_flag_enabled(team_id, self._flag, raise_on_error=True)
-        except Exception:
-            # Not cached: a failure in one context (for example a query from an event loop thread, or a
-            # flag service error) must not turn the flag off for the other callers of the process.
-            return False
-        with self._lock:
-            if len(self._entries) >= _MAX_CACHE_ENTRIES:
-                self._entries.clear()
-            self._entries[team_id] = (now + self._ttl_seconds, enabled)
-        return enabled
-
-    def peek(self, team_id: int) -> bool | None:
-        """The cached value, or None when it is not cached. It never queries."""
-        with self._lock:
-            entry = self._entries.get(team_id)
-        if entry is None or entry[0] <= time.monotonic():
-            return None
-        return entry[1]
-
-    def clear(self) -> None:
-        with self._lock:
-            self._entries.clear()
-
-
-class _CompareSchedule:
-    def __init__(self, interval_seconds: float) -> None:
-        self._interval_seconds = interval_seconds
-        self._next_due: dict[UUID, float] = {}
-        self._lock = threading.Lock()
-
-    def claim(self, source_id: UUID) -> bool:
-        """True when the source is due for a compare. The claim makes it not due for one interval."""
-        now = time.monotonic()
-        with self._lock:
-            if self._next_due.get(source_id, 0.0) > now:
-                return False
-            if len(self._next_due) >= _MAX_CACHE_ENTRIES:
-                self._next_due.clear()
-            self._next_due[source_id] = now + self._interval_seconds
-            return True
-
-    def clear(self) -> None:
-        with self._lock:
-            self._next_due.clear()
-
-
 _PRELOADED_ROW_ATTR = "_warehouse_source_credentials_row"
-
-_dual_write_flags = _ExpiringFlags(DUAL_WRITE_FLAG, FLAG_CACHE_TTL_SECONDS)
-_read_flags = _ExpiringFlags(READ_FLAG, FLAG_CACHE_TTL_SECONDS)
-_compare_schedule = _CompareSchedule(SHADOW_COMPARE_INTERVAL_SECONDS)
-
-
-def dual_write_enabled(team_id: int) -> bool:
-    return _dual_write_flags.enabled(team_id)
-
-
-def read_enabled(team_id: int) -> bool:
-    """True when reads take the connection fields from the credentials row. Needs both flags."""
-    return _read_flags.enabled(team_id) and dual_write_enabled(team_id)
-
-
-def reset_caches() -> None:
-    _dual_write_flags.clear()
-    _read_flags.clear()
-    _compare_schedule.clear()
 
 
 def assign_credentials_reference(
     source: ExternalDataSource,
     inputs: Mapping[str, Any],
     *,
-    shared_credentials: SharedCredentialsEdit = SharedCredentialsEdit.SKIP,
     reference: IntegrationReference | None = None,
 ) -> None:
-    """Set the source's `credentials_integration_id` for the ``inputs`` that the caller stages. Does not save.
+    """Set the source's `credentials_integration_id` for ``inputs`` that hold no typed-in connection fields and no
+    OAuth pointer, so `strippable` is False for them. Does not save.
 
-    ``reference`` is a row that an API edit picked. It replaces the stored reference, and the row is not
-    written. With the flag on:
-
-    - An in-use OAuth pointer goes to the column. A source whose selected options hold an OAuth field gets
-      no typed-in row, because the sync uses the OAuth row (Pardot keeps a typed-in `environment` next to
-      its OAuth pointer).
-    - Typed-in connection fields go to the credentials row, and the column points at it. When the column
-      holds no typed-in row, the stored value under the source lock decides the row. A failure is counted
-      and logged, and the caller continues with its `job_inputs` write, except when the team reads from the
-      row: then the failure raises before `job_inputs` changes. An edit of a row that other objects also use
-      follows ``shared_credentials``.
-    - Any other source gets no reference.
-
-    With the flag off, the column keeps its value.
+    Such a source uses no row (a select switched away from its typed-in option, a managed source that now gets its
+    credentials elsewhere), so the column is cleared. A kept reference would leave the source a user of its old
+    row, so the row could not be deleted.
     """
     source.__dict__.pop(_PRELOADED_ROW_ATTR, None)
     if reference is not None:
         source.credentials_integration_id = str(reference)
-    if _in_event_loop():
-        # A query here raises SynchronousOnlyOperation. Async callers use `asave`, which runs in a thread.
-        DUAL_WRITE_COUNTER.labels(outcome="skipped_event_loop").inc()
-        logger.warning("warehouse_source_credentials.mirror_skipped_in_event_loop", **_log_context(source))
-        return
-    if not dual_write_enabled(source.team_id):
-        return
     try:
-        source_class = _source_class(source.source_type)
-        slot = source_class.in_use_oauth_slot(inputs)
-        pointer = source_class.in_use_oauth_pointer(inputs)
-        connection = _typed_in_connection_fields(source.source_type, inputs) if slot is None else {}
+        pointer = in_use_oauth_pointer(source.source_type, inputs)
     except Exception:
-        # An unknown source type, or a shape that the walk does not read: nothing can tell which row the
-        # inputs use, so the column keeps its value.
-        DUAL_WRITE_COUNTER.labels(outcome="split_error").inc()
+        # A shape that the walk does not read: nothing can tell which row the inputs use, so the column keeps
+        # its value.
         logger.warning("warehouse_source_credentials.split_failed", **_log_context(source), exc_info=True)
         return
-    if connection:
-        if reference is not None:
-            # A picked row keeps its fields: `with_credentials_of` took the connection fields from it, so only
-            # parser defaults can differ, and a write would turn them into an edit of the row.
-            return
-        _mirror_connection_fields(source, connection, shared_credentials)
-        return
-    # The source uses its OAuth row, or no row (a select switched away from its typed-in option, a managed
-    # source that now gets its credentials elsewhere). A kept typed-in reference would leave the source a
-    # user of its old row, so the row could not be deleted.
     source.credentials_integration_id = _reference_of(pointer)
-    if pointer is not None:
-        DUAL_WRITE_COUNTER.labels(outcome="oauth_reference").inc()
-
-
-def _mirror_connection_fields(
-    source: ExternalDataSource,
-    connection: Mapping[str, Any],
-    shared_credentials: SharedCredentialsEdit,
-) -> None:
-    current = source.credentials_integration_id
-    try:
-        # A savepoint, so a failed copy leaves a caller's transaction usable. The source lock serializes the
-        # copies of one source. The caller's instance can be older than the stored column (another writer made
-        # the row after the caller read the source), so the stored reference is read under the lock.
-        with transaction.atomic():
-            stored = _locked_typed_in_reference(source)
-            current = stored
-            source.credentials_integration_id = current
-            outcome = _write_row(source, connection, shared_credentials)
-    except SharedCredentialsError:
-        source.credentials_integration_id = current
-        if shared_credentials == SharedCredentialsEdit.REFUSE:
-            raise
-        DUAL_WRITE_COUNTER.labels(outcome="shared_skip").inc()
-        logger.info("warehouse_source_credentials.shared_row_skipped", **_log_context(source))
-        return
-    except Exception:
-        # The savepoint undid a row that the copy created, so the source must not point at it.
-        source.credentials_integration_id = current
-        DUAL_WRITE_COUNTER.labels(outcome="upsert_error").inc()
-        logger.exception("warehouse_source_credentials.upsert_failed", **_log_context(source))
-        # Reads of this team return the row, so a `job_inputs` write without the row would make reads
-        # return the old connection fields. The write fails instead, before `job_inputs` changes.
-        if _read_flags.enabled(source.team_id):
-            raise
-        return
-    DUAL_WRITE_COUNTER.labels(outcome=outcome).inc()
 
 
 def _locked_typed_in_reference(source: ExternalDataSource) -> str | None:
@@ -309,20 +131,19 @@ def _write_row(
     source: ExternalDataSource,
     connection: Mapping[str, Any],
     shared_credentials: SharedCredentialsEdit,
-) -> str:
-    """Create or update the row of the source, and point the source at it. Returns the counter outcome."""
+) -> None:
+    """Create or update the row of the source, and point the source at it."""
     if source.credentials_integration_id is None:
         WarehouseSourceCredentialsStore.create(source, connection)
-        return "success"
+        return
     try:
         WarehouseSourceCredentialsStore.update(
             source, connection, allow_shared=shared_credentials == SharedCredentialsEdit.CONFIRMED
         )
-        return "success"
     except CredentialsNotFoundError:
-        # The reference points at no usable row. A new row keeps the copy complete.
+        # The reference points at no usable row. A new row keeps the credentials of the write.
+        logger.warning("warehouse_source_credentials.missing_row_recreated", **_log_context(source))
         WarehouseSourceCredentialsStore.create(source, connection)
-        return "missing_row_recreated"
 
 
 def in_use_oauth_pointer(source_type: str, inputs: Mapping[str, Any]) -> "OAuthPointer | None":
@@ -341,31 +162,49 @@ def _reference_of(pointer: "OAuthPointer | None") -> str | None:
 def read_connection_fields(source: ExternalDataSource, inputs: dict[str, Any]) -> dict[str, Any]:
     """The inputs that `load` returns for the source. ``inputs`` is the decoded `job_inputs`.
 
-    With the read flag off, the result is ``inputs`` and the shadow compare runs.
+    Raises `SourceCredentialsMissingError` when the row or the column that the source needs is missing or
+    unreadable, `UnreadableSourceInputsError` when the OAuth walk cannot read the inputs, and `RuntimeError`
+    when such a source is read in an event loop thread. A database error re-raises. A source of an unknown
+    type reads ``inputs`` as stored.
     """
-    if not _reads_from_credentials(source):
-        shadow_compare(source, inputs)
-        return inputs
+    kept = _without_store_keys(inputs)
     try:
-        stored: dict[str, Any] | CredentialsUnreadable | None
-        if _PRELOADED_ROW_ATTR in source.__dict__:
-            stored = source.__dict__[_PRELOADED_ROW_ATTR]
-        elif not _needs_row(source, inputs):
-            stored = None
-        else:
-            try:
-                with transaction.atomic():  # A savepoint, as in `shadow_compare`.
-                    stored = WarehouseSourceCredentialsStore.get(source)
-            except CredentialsUnreadableError:
-                stored = CredentialsUnreadable()
-        result, merged = _merge(source, inputs, stored)
+        source_class = _source_class(source.source_type)
+    except ValueError:
+        # No source class declares the type, so no write can have given the source a row or an OAuth pointer.
+        _count_read(source, "no_row")
+        return kept
+    try:
+        slot = _slot_of(source_class, inputs)
+        reads_row = slot is None and _reads_typed_in_row(source, inputs)
+    except ValueError as error:
+        # The OAuth walk cannot read the shape of the inputs, so callers handle them like inputs that do not decode.
+        _count_read_error(source)
+        raise UnreadableSourceInputsError("job_inputs hold an OAuth field in a shape that cannot be read") from error
     except Exception:
         _count_read_error(source)
-        return inputs
-    _count_read(source, result)
-    if result in _TYPED_IN_RESULTS:
-        _compare_fetched(source, inputs, stored)
-    return merged
+        raise
+    if slot is None and not reads_row:
+        _count_read(source, "no_row")
+        return kept
+    if _in_event_loop():
+        # A query here raises SynchronousOnlyOperation, and `job_inputs` holds no copy of the credentials.
+        _count_read(source, "event_loop")
+        raise RuntimeError("A warehouse source with credentials must be loaded with aload from async code")
+    if slot is not None:
+        return _with_column_pointer(source, inputs, kept, slot)
+    stored: dict[str, Any] | CredentialsUnreadable | None
+    if _PRELOADED_ROW_ATTR in source.__dict__:
+        stored = source.__dict__[_PRELOADED_ROW_ATTR]
+    else:
+        try:
+            stored = WarehouseSourceCredentialsStore.get(source)
+        except CredentialsUnreadableError:
+            stored = CredentialsUnreadable()
+        except Exception:
+            _count_read_error(source)
+            raise
+    return _merge_row(source, kept, stored)
 
 
 def preload_connection_fields(sources: Iterable[ExternalDataSource]) -> None:
@@ -375,166 +214,245 @@ def preload_connection_fields(sources: Iterable[ExternalDataSource]) -> None:
     A write through the store drops the preloaded row of that instance. A failure leaves the sources as
     they were, so `load` queries the row itself.
     """
+    sources = list(sources)
     try:
-        if _in_event_loop():
+        if _in_event_loop() or not sources:
             return
-        reading = [source for source in sources if read_enabled(source.team_id)]
-        if not reading:
-            return
-        with transaction.atomic():  # A savepoint, as in `shadow_compare`.
-            stored = WarehouseSourceCredentialsStore.get_many(reading)
+        # A savepoint, so a failed query leaves a transaction of the caller usable for the `load` calls.
+        with transaction.atomic():
+            stored = WarehouseSourceCredentialsStore.get_many(sources)
     except Exception:
         logger.warning("warehouse_source_credentials.preload_failed", exc_info=True)
         return
-    for source in reading:
+    for source in sources:
         source.__dict__[_PRELOADED_ROW_ATTR] = stored.get(source.id)
 
 
 def read_connection_fields_many(
     sources: Iterable[ExternalDataSource], loaded: Mapping[UUID, dict[str, Any]]
 ) -> dict[UUID, dict[str, Any]]:
-    """`read_connection_fields` for a list of sources, with one credentials query per team and source type."""
-    reading: list[ExternalDataSource] = []
-    comparing: list[ExternalDataSource] = []
+    """`read_connection_fields` for a list of sources, with one credentials query per team and source type.
+
+    A source whose row or column is missing or unreadable is left out of the result, like a source whose
+    `job_inputs` does not decode. A caller that needs it calls `load`, which raises.
+    """
+    result: dict[UUID, dict[str, Any]] = {}
+    typed_in: list[tuple[ExternalDataSource, dict[str, Any]]] = []
     for source in sources:
         if source.id not in loaded:
             continue
-        (reading if _reads_from_credentials(source) else comparing).append(source)
-    shadow_compare_many(comparing, loaded)
-    if not reading:
-        return dict(loaded)
-
-    result_inputs = dict(loaded)
-    try:
-        with transaction.atomic():  # A savepoint, as in `shadow_compare`.
-            stored = WarehouseSourceCredentialsStore.get_many(
-                source for source in reading if _needs_row(source, loaded[source.id])
-            )
-    except Exception:
-        for source in reading:
-            _count_read_error(source)
-        return result_inputs
-    for source in reading:
         inputs = loaded[source.id]
+        kept = _without_store_keys(inputs)
         try:
-            result, result_inputs[source.id] = _merge(source, inputs, stored.get(source.id))
+            source_class = _source_class(source.source_type)
+        except ValueError:
+            _count_read(source, "no_row")
+            result[source.id] = kept
+            continue
+        try:
+            slot = _slot_of(source_class, inputs)
+            reads_row = slot is None and _reads_typed_in_row(source, inputs)
         except Exception:
             _count_read_error(source)
             continue
-        _count_read(source, result)
-        if result in _TYPED_IN_RESULTS:
-            _compare_fetched(source, inputs, stored.get(source.id))
-    return result_inputs
+        if slot is not None:
+            try:
+                result[source.id] = _with_column_pointer(source, inputs, kept, slot)
+            except SourceCredentialsMissingError:
+                pass
+        elif reads_row:
+            typed_in.append((source, kept))
+        else:
+            _count_read(source, "no_row")
+            result[source.id] = kept
+    _merge_rows_into(result, typed_in)
+    return {source_id: result[source_id] for source_id in loaded if source_id in result}
 
 
-def shadow_compare(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
-    """Compare the connection fields of ``inputs`` with the credentials row and count the result."""
-    try:
-        if not _due_for_compare(source):
-            return
-        connection = _typed_in_connection(source, inputs)
-        if connection is None:
-            return
-        try:
-            # A savepoint: a failed query (for example a statement timeout) must not abort a transaction
-            # of the caller, such as a password rotation that loads the source inside `atomic`.
-            with transaction.atomic():
-                stored: dict[str, Any] | CredentialsUnreadable | None = WarehouseSourceCredentialsStore.get(source)
-        except CredentialsUnreadableError:
-            stored = CredentialsUnreadable()
-        _count_compare(source, connection, stored)
-    except Exception:
-        _count_compare_error(source)
-
-
-def shadow_compare_many(sources: Iterable[ExternalDataSource], loaded: Mapping[UUID, Mapping[str, Any]]) -> None:
-    """`shadow_compare` for a list of sources, with one credentials query per team and source type."""
-    due: list[tuple[ExternalDataSource, dict[str, Any]]] = []
-    try:
-        for source in sources:
-            if source.id not in loaded or not _due_for_compare(source):
-                continue
-            connection = _typed_in_connection(source, loaded[source.id])
-            if connection is not None:
-                due.append((source, connection))
-        if not due:
-            return
-        with transaction.atomic():  # A savepoint, as in `shadow_compare`.
-            stored = WarehouseSourceCredentialsStore.get_many(source for source, _ in due)
-    except Exception:
-        for source, _ in due:
-            _count_compare_error(source)
+def _merge_rows_into(
+    result: dict[UUID, dict[str, Any]], typed_in: list[tuple[ExternalDataSource, dict[str, Any]]]
+) -> None:
+    if not typed_in:
         return
-    for source, connection in due:
+    try:
+        # A savepoint, so a failed query leaves a transaction of the caller usable for the rest of the list.
+        with transaction.atomic():
+            stored = WarehouseSourceCredentialsStore.get_many(source for source, _ in typed_in)
+    except Exception:
+        for source, _ in typed_in:
+            _count_read_error(source)
+        return
+    for source, kept in typed_in:
         try:
-            _count_compare(source, connection, stored.get(source.id))
-        except Exception:
-            _count_compare_error(source)
+            result[source.id] = _merge_row(source, kept, stored.get(source.id))
+        except SourceCredentialsMissingError:
+            pass
 
 
-# Results of a read of a source with typed-in credentials. The shadow compare runs after each of them.
-_TYPED_IN_RESULTS = frozenset(
-    {"integration", "fallback_missing", "fallback_unreadable", "fallback_empty", "fallback_mismatch"}
-)
+def is_stripped(inputs: Mapping[str, Any]) -> bool:
+    """True when ``inputs`` (the decoded `job_inputs`) belong to a stripped source."""
+    return CONNECTION_FIELDS_STRIPPED_KEY in inputs
 
 
-def _reads_from_credentials(source: ExternalDataSource) -> bool:
-    try:
-        if _in_event_loop():
-            # The flag lookup and the row read are queries, which raise SynchronousOnlyOperation here. The read
-            # keeps `job_inputs`. The counter shows such call sites for teams whose flag is in the cache.
-            if _read_flags.peek(source.team_id):
-                READ_COUNTER.labels(result="fallback_event_loop", source_type=str(source.source_type)).inc()
-            return False
-        if not _read_flags.enabled(source.team_id):
-            return False
-        if not dual_write_enabled(source.team_id):
-            READ_COUNTER.labels(result="fallback_dual_write_off", source_type=str(source.source_type)).inc()
-            return False
+def stripped_at_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def strippable(source: ExternalDataSource, inputs: Mapping[str, Any]) -> bool:
+    """True when ``inputs`` hold something that a strip moves out: typed-in connection fields, or an in-use
+    OAuth pointer."""
+    if _source_class(source.source_type).in_use_oauth_pointer(inputs) is not None:
         return True
-    except Exception:
-        return False
+    return _typed_in_connection(source, inputs) is not None
 
 
-def _needs_row(source: ExternalDataSource, inputs: Mapping[str, Any]) -> bool:
-    try:
-        return _reads_typed_in_row(source, inputs)
-    except Exception:
-        # A shape that the OAuth walk does not read. `_merge` counts it, and the read keeps `job_inputs`.
-        return False
+def stripped_job_inputs(source_type: str, inputs: Mapping[str, Any], stripped_at: str) -> dict[str, Any]:
+    """The `job_inputs` of a stripped source, with the marker.
+
+    A source with typed-in credentials keeps the selectors, sync settings and runtime state of ``inputs``. An
+    OAuth source keeps all of ``inputs`` except its OAuth pointers. Both lose every OAuth pointer, also a stale
+    one under an option that is not selected, because the column holds the one row that the source uses.
+
+    Raises ValueError when the source type is unknown, because then no key can be classified as safe to keep,
+    and `OAuthPointerShapeError` (a ValueError) for a shape that the OAuth walk does not read.
+    """
+    source_class = _source_class(source_type)
+    typed_in = _slot_of(source_class, inputs) is None
+    if typed_in:
+        split = _split(source_type, inputs)
+        kept = {**split.references, **split.selectors, **split.settings, **split.runtime}
+    else:
+        kept = dict(inputs)
+    stripped = {
+        key: value
+        for key, value in _without_oauth_pointers(kept, source_class.oauth_pointer_paths).items()
+        if key not in STRIPPED_STORE_KEYS
+    }
+    if typed_in and source_class.in_use_oauth_slot(stripped) is not None:
+        # Without the connection fields the source would read as an OAuth source (Slack), so keep the mode.
+        stripped[CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY] = "true"
+    return {**stripped, CONNECTION_FIELDS_STRIPPED_KEY: stripped_at}
 
 
-def _merge(
+def write_stripped_credentials(
     source: ExternalDataSource,
-    inputs: dict[str, Any],
+    inputs: Mapping[str, Any],
+    *,
+    shared_credentials: SharedCredentialsEdit = SharedCredentialsEdit.SKIP,
+    reference: IntegrationReference | None = None,
+) -> None:
+    """Write the credentials of ``inputs`` for a stripped source: the in-use OAuth pointer to the column, or the
+    connection fields to the credentials row. Sets the column on the source and does not save it.
+
+    The row and the column are the only storage of the credentials, so a failure raises and the caller must not
+    save `job_inputs`. An edit of a shared row raises `SharedCredentialsError` unless ``shared_credentials``
+    confirms it, because a skipped write would lose the change.
+    """
+    source.__dict__.pop(_PRELOADED_ROW_ATTR, None)
+    if reference is not None:
+        source.credentials_integration_id = str(reference)
+    try:
+        source_class = _source_class(source.source_type)
+        if _slot_of(source_class, inputs) is not None:
+            pointer = source_class.in_use_oauth_pointer(inputs)
+            if pointer is not None:
+                source.credentials_integration_id = _reference_of(pointer)
+            # Without a pointer in the write, the column keeps the row it names.
+            return
+        connection = _typed_in_connection_fields(source.source_type, inputs)
+        if not connection:
+            return
+        current = source.credentials_integration_id
+        try:
+            with transaction.atomic():
+                stored = _locked_typed_in_reference(source)
+                source.credentials_integration_id = current if reference is not None else stored
+                current = source.credentials_integration_id
+                _write_row(
+                    source,
+                    connection,
+                    SharedCredentialsEdit.CONFIRMED
+                    if shared_credentials == SharedCredentialsEdit.CONFIRMED
+                    else SharedCredentialsEdit.REFUSE,
+                )
+        except Exception:
+            source.credentials_integration_id = current
+            raise
+    except Exception:
+        logger.exception("warehouse_source_credentials.stripped_upsert_failed", **_log_context(source))
+        raise
+
+
+def _without_oauth_pointers(inputs: Mapping[str, Any], paths: Iterable["PointerPath"]) -> dict[str, Any]:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (  # noqa: PLC0415 — see `_source_class`
+        OAuthPointerShapeError,
+        with_pointer_at,
+    )
+
+    result = dict(inputs)
+    for path in paths:
+        try:
+            result = with_pointer_at(result, path, None)
+        except OAuthPointerShapeError:
+            # The group on the path is not a mapping, so it holds no pointer at this path.
+            continue
+    return result
+
+
+def _without_store_keys(inputs: Mapping[str, Any]) -> dict[str, Any]:
+    # The store keys are internal to the store, so a caller never sees them.
+    return {key: value for key, value in inputs.items() if key not in STRIPPED_STORE_KEYS}
+
+
+def _with_column_pointer(
+    source: ExternalDataSource, inputs: Mapping[str, Any], kept: dict[str, Any], slot: "PointerPath"
+) -> dict[str, Any]:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (  # noqa: PLC0415 — see `_source_class`
+        pointer_at,
+        with_pointer_at,
+    )
+
+    column = _column_legacy_id(source)
+    if column is None and not is_stripped(inputs):
+        # A source not yet stripped may have never had a column written, so `job_inputs` stay the only source.
+        _count_read(source, "oauth_reference" if pointer_at(kept, slot) is not None else "no_row")
+        return kept
+    if column is None:
+        _count_read(source, "missing")
+        logger.error("warehouse_source_credentials.reference_missing", **_log_context(source))
+        raise SourceCredentialsMissingError()
+    _count_read(source, "oauth_reference")
+    return with_pointer_at(kept, slot, column)
+
+
+def _merge_row(
+    source: ExternalDataSource,
+    kept: dict[str, Any],
     stored: dict[str, Any] | CredentialsUnreadable | None,
-) -> tuple[str, dict[str, Any]]:
-    """The counter result and the inputs to return."""
-    if not _reads_typed_in_row(source, inputs):
-        return _merge_oauth_reference(source, inputs)
+) -> dict[str, Any]:
     if stored is None:
-        return "fallback_missing", inputs
+        _count_read(source, "missing")
+        logger.error("warehouse_source_credentials.row_missing", **_log_context(source))
+        raise SourceCredentialsMissingError()
     if isinstance(stored, CredentialsUnreadable):
-        return "fallback_unreadable", inputs
-    if not stored:
-        return "fallback_empty", inputs
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (  # noqa: PLC0415
+        _count_read(source, "unreadable")
+        logger.error("warehouse_source_credentials.row_unreadable", **_log_context(source))
+        raise SourceCredentialsMissingError()
+    _count_read(source, "integration")
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (  # noqa: PLC0415 — see `_split`
         SplitJobInputs,
         merge_job_inputs,
     )
 
-    split = _split(source.source_type, inputs)
-    # A key that the row holds but that is now a reference, a selector, a setting or a runtime key is
-    # dropped, because `job_inputs` is the storage of those parts.
+    # The row is the storage of the connection fields, so connection fields that a source not yet stripped still
+    # keeps in `job_inputs` are ignored. `job_inputs` is the storage of the other parts, so a row key that is now
+    # a reference, a selector, a setting or a runtime key is dropped.
+    split = _split(source.source_type, kept)
     kept_elsewhere = {*split.references, *split.selectors, *split.settings, *split.runtime}
     connection = {
         key: value for key, value in _split(source.source_type, stored).connection.items() if key not in kept_elsewhere
     }
-    if split.connection and not same_connection_fields(split.connection, connection):
-        # `job_inputs` still holds the connection fields, and a write can skip the row (the dual-write flag
-        # was off, a shared row, an event loop thread). The row is then old, so the read keeps `job_inputs`.
-        return "fallback_mismatch", inputs
-    return "integration", merge_job_inputs(
+    return merge_job_inputs(
         SplitJobInputs(
             connection=connection,
             references=split.references,
@@ -543,34 +461,6 @@ def _merge(
             runtime=split.runtime,
         )
     )
-
-
-def _merge_oauth_reference(source: ExternalDataSource, inputs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """The read of a source without typed-in credentials: the OAuth pointer comes from the column.
-
-    While `job_inputs` holds the pointer too, the column is used only when it holds the same row. On a
-    mismatch the read keeps `job_inputs`, because a write may have skipped the column (the dual-write flag
-    was off). When `job_inputs` holds no pointer, the column alone gives it, at the path of the OAuth field
-    that the selected options use.
-    """
-    # The walk loads the source registry, so it is off the import path of this module.
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (  # noqa: PLC0415
-        pointer_at,
-        with_pointer_at,
-    )
-
-    slot = _source_class(source.source_type).in_use_oauth_slot(inputs)
-    if slot is None:
-        return "no_row", inputs
-    in_inputs = pointer_at(inputs, slot)
-    column = _column_legacy_id(source)
-    if in_inputs is not None:
-        if column == in_inputs.integration_id:
-            return "oauth_reference", inputs
-        return ("fallback_oauth_missing" if column is None else "fallback_oauth_mismatch"), inputs
-    if column is None:
-        return "no_row", inputs
-    return "oauth_reference", with_pointer_at(inputs, slot, column)
 
 
 def _column_legacy_id(source: ExternalDataSource) -> int | None:
@@ -583,29 +473,13 @@ def _column_legacy_id(source: ExternalDataSource) -> int | None:
         return None
 
 
-def _compare_fetched(
-    source: ExternalDataSource,
-    inputs: Mapping[str, Any],
-    stored: dict[str, Any] | CredentialsUnreadable | None,
-) -> None:
-    # `job_inputs` is still the fallback of a read, so drift between it and the row stays visible. The row
-    # is already fetched, so this compare adds no query.
-    try:
-        if _compare_schedule.claim(source.id):
-            connection = _typed_in_connection(source, inputs)
-            if connection is not None:
-                _count_compare(source, connection, stored)
-    except Exception:
-        _count_compare_error(source)
-
-
 def _count_read(source: ExternalDataSource, result: str) -> None:
     READ_COUNTER.labels(result=result, source_type=str(source.source_type)).inc()
 
 
 def _count_read_error(source: ExternalDataSource) -> None:
     try:
-        READ_COUNTER.labels(result="fallback_error", source_type=str(source.source_type)).inc()
+        READ_COUNTER.labels(result="error", source_type=str(source.source_type)).inc()
         logger.warning("warehouse_source_credentials.read_failed", **_log_context(source), exc_info=True)
     except Exception:
         pass
@@ -613,7 +487,7 @@ def _count_read_error(source: ExternalDataSource) -> None:
 
 def _typed_in_connection(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any] | None:
     """The connection fields that the row of the source must hold, or None when the source has no typed-in row."""
-    if _source_class(source.source_type).in_use_oauth_slot(inputs) is not None:
+    if _slot_of(_source_class(source.source_type), inputs) is not None:
         return None
     return _typed_in_connection_fields(source.source_type, inputs) or None
 
@@ -621,9 +495,10 @@ def _typed_in_connection(source: ExternalDataSource, inputs: Mapping[str, Any]) 
 def _reads_typed_in_row(source: ExternalDataSource, inputs: Mapping[str, Any]) -> bool:
     """Whether the read takes the connection fields from the typed-in row of the source.
 
-    Once `job_inputs` no longer holds the connection fields, the column alone tells that the source has a row.
+    A stripped source has no connection fields in `job_inputs`, so the column alone tells that it has a row. A
+    source of a typed-in type with neither (a select on an option without connection fields) has no row.
     """
-    if _source_class(source.source_type).in_use_oauth_slot(inputs) is not None:
+    if _slot_of(_source_class(source.source_type), inputs) is not None:
         return False
     if not has_typed_in_credentials(str(source.source_type)):
         return False
@@ -634,42 +509,6 @@ def _typed_in_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> 
     if not has_typed_in_credentials(str(source_type)):
         return {}
     return _connection_fields(source_type, inputs)
-
-
-def _due_for_compare(source: ExternalDataSource) -> bool:
-    # A query in an event loop thread raises SynchronousOnlyOperation. `aload` runs `load` in a worker
-    # thread, so only a direct sync call from async code skips the compare.
-    if _in_event_loop():
-        return False
-    # A deferred field loads with one more query per source. The compare must not add queries to a read.
-    if {"team_id", "source_type"} & source.get_deferred_fields():
-        return False
-    # The flag goes first, so only flag-on sources take a place in the schedule.
-    return dual_write_enabled(source.team_id) and _compare_schedule.claim(source.id)
-
-
-def _count_compare(
-    source: ExternalDataSource,
-    connection: Mapping[str, Any],
-    stored: dict[str, Any] | CredentialsUnreadable | None,
-) -> None:
-    if stored is None:
-        result = "missing_row"
-    elif isinstance(stored, CredentialsUnreadable):
-        result = "unreadable"
-    elif not same_connection_fields(connection, stored):
-        result = "field_mismatch"
-    else:
-        result = "match"
-    SHADOW_COMPARE_COUNTER.labels(result=result, source_type=str(source.source_type)).inc()
-
-
-def _count_compare_error(source: ExternalDataSource) -> None:
-    try:
-        SHADOW_COMPARE_COUNTER.labels(result="error", source_type=str(source.source_type)).inc()
-        logger.warning("warehouse_source_credentials.shadow_compare_failed", **_log_context(source), exc_info=True)
-    except Exception:
-        pass
 
 
 def _connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
@@ -684,7 +523,7 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
         split_job_inputs,
     )
 
-    return split_job_inputs(ExternalDataSourceType(source_type), inputs)
+    return split_job_inputs(source_key(source_type), inputs)
 
 
 def _source_class(source_type: str) -> Any:
@@ -692,12 +531,15 @@ def _source_class(source_type: str) -> Any:
         SourceRegistry,
     )
 
-    return SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    return SourceRegistry.get_source(source_key(source_type))
 
 
-def connection_fields_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
-    """True when two connection field mappings hold the same stored values."""
-    return same_connection_fields(left, right)
+def _slot_of(source_class: Any, inputs: Mapping[str, Any]) -> "PointerPath | None":
+    # A stripped source with typed-in credentials can lose the field that told its authentication mode (Slack's
+    # pasted token wins over its legacy OAuth pointer). The strip then keeps a key that says so.
+    if CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY in inputs:
+        return None
+    return source_class.in_use_oauth_slot(inputs)
 
 
 def split_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
@@ -711,7 +553,7 @@ def in_use_oauth_slot(source_type: str, inputs: Mapping[str, Any]) -> "PointerPa
     Raises ValueError for an unknown source type, and `OAuthPointerShapeError` (a ValueError) when the inputs
     cannot tell which OAuth field is in use.
     """
-    return _source_class(source_type).in_use_oauth_slot(inputs)
+    return _slot_of(_source_class(source_type), inputs)
 
 
 def _in_event_loop() -> bool:

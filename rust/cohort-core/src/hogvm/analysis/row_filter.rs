@@ -26,10 +26,10 @@ pub struct EventEqualities {
 /// A necessary condition for the program to return true: the row's `event` is [`Self::event`], and
 /// every conjunct has some `(key, value)` with `properties[key] == value` under HogVM equality.
 ///
-/// HogVM equality coerces, so besides the string `value` it also holds for any JSON boolean
-/// (compared with `value.to_lowercase() == "true"`) and for an object carrying a temporal marker
-/// (compared by epoch). A value that parses as a number is never kept, because it would also equal a
-/// JSON number. A consumer that renders a row filter must admit all of these.
+/// HogVM equality coerces, so besides the string `value` it also holds for the JSON boolean whose
+/// text is `value` and for an object carrying a temporal marker (compared by epoch). A value that
+/// parses as a number is never kept, because it would also equal a JSON number. A consumer that
+/// renders a row filter must admit all of these.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventRowFilter {
     pub event: String,
@@ -651,7 +651,7 @@ mod tests {
                     AND,
                     vec![
                         event_is("e"),
-                        fold(OR, vec![property_is("k", "a"), property_is("k", "TRUE")]),
+                        fold(OR, vec![property_is("k", "a"), property_is("k", "true")]),
                         property_is("j", "b"),
                     ],
                 ),
@@ -730,8 +730,7 @@ mod tests {
         }
 
         for literal in [
-            "", "5", "-1", "1e3", "inf", "true", "TRUE", "False", "null", "{}", "[1]", "\"q\"",
-            " 5",
+            "", "5", "-1", "1e3", "inf", "true", "null", "{}", "[1]", "\"q\"", " 5",
         ] {
             let body = fold(AND, vec![event_is("e"), property_is("k", literal)]);
             assert_eq!(exact_keys(body), BTreeSet::new(), "{literal:?}");
@@ -760,6 +759,8 @@ mod tests {
             Just("a\"b\\c\n".to_owned()),
             Just("é😀".to_owned()),
             // Exact, but close to retyped text.
+            Just("True".to_owned()),
+            Just("FALSE".to_owned()),
             Just("True ".to_owned()),
             Just("5a".to_owned()),
             Just("nul".to_owned()),
@@ -792,6 +793,7 @@ mod tests {
                 Just("[1]".to_owned()),
                 Just("{}".to_owned()),
                 Just(" 5".to_owned()),
+                Just(" false ".to_owned()),
                 "\\PC{0,6}",
             ]
             .prop_map(Value::String),
@@ -841,23 +843,19 @@ mod tests {
             if let EvalOutcome::Matched(true) = evaluate_detailed(&bytecode, globals) {
                 let admitted = match &actual {
                     Value::String(value) => *value == expected,
-                    Value::Bool(_) | Value::Object(_) => true,
+                    Value::Bool(flag) => flag.to_string() == expected,
+                    Value::Object(_) => true,
                     Value::Null | Value::Number(_) | Value::Array(_) => false,
                 };
                 prop_assert!(admitted, "the VM matched {actual} against {expected:?}");
             }
         }
 
-        /// The string `"false"` is excluded: the column returns it as the boolean.
         #[test]
         fn an_exact_literal_answers_a_column_rebuilt_value_like_the_stored_one(
             actual in prop::option::of(property_value()),
             literal in exact_literal(),
         ) {
-            let reads_as_false = |text: &str| {
-                serde_json::from_str::<Value>(text).is_ok_and(|value| value == Value::Bool(false))
-            };
-            prop_assume!(!matches!(&actual, Some(Value::String(text)) if reads_as_false(text)));
             let bytecode = program(fold(AND, vec![event_is("e"), property_is("k", &literal)]));
             prop_assert_eq!(
                 event_equalities(&bytecode).column_exactness.and_then(|keys| keys.get("k")),

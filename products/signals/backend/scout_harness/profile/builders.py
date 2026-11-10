@@ -49,14 +49,14 @@ from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action_inventory
 from products.alerts.backend.facade.destinations import redact_urls_in_name
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.experiments.backend.facade import scout as experiments_scout
 from products.experiments.backend.facade.contracts import RecentExperiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -426,20 +426,15 @@ def _recent_dashboards(team: Team) -> list[dict[str, Any]]:
     "what's the team currently looking at" rather than "what's most trafficked." The
     name reflects what we actually have.
     """
-    rows = (
-        Dashboard.objects.filter(team=team, deleted=False, last_accessed_at__isnull=False)
-        .order_by("-last_accessed_at")[:RECENT_DASHBOARDS_LIMIT]
-        .values("id", "name", "last_accessed_at", "last_refresh", "created_at")
-    )
     return [
         {
-            "id": row["id"],
-            "name": row["name"] or "",
-            "last_accessed_at": row["last_accessed_at"].isoformat() if row["last_accessed_at"] else None,
-            "last_refresh": row["last_refresh"].isoformat() if row["last_refresh"] else None,
-            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "id": dashboard.id,
+            "name": dashboard.name or "",
+            "last_accessed_at": dashboard.last_accessed_at.isoformat() if dashboard.last_accessed_at else None,
+            "last_refresh": dashboard.last_refresh.isoformat() if dashboard.last_refresh else None,
+            "created_at": dashboard.created_at.isoformat() if dashboard.created_at else None,
         }
-        for row in rows
+        for dashboard in dashboards_api.recently_accessed_dashboards(team_id=team.id, limit=RECENT_DASHBOARDS_LIMIT)
     ]
 
 
@@ -710,18 +705,16 @@ def _recent_actions(team: Team) -> dict[str, Any]:
     this user behavior as a named thing"). Sort by `updated_at` so both new actions
     and edits to step definitions surface.
     """
-    qs = Action.objects.filter(team=team, deleted=False)
-    total = qs.count()
-    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "name", "updated_at")
+    inventory = get_action_inventory(team_id=team.pk, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
+        "total_count": inventory.total_count,
         "recent": [
             {
-                "id": row["id"],
-                "name": (row["name"] or "").strip(),
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "id": entry.id,
+                "name": (entry.name or "").strip(),
+                "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
             }
-            for row in recent
+            for entry in inventory.recent
         ],
     }
 

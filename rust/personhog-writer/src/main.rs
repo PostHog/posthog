@@ -4,13 +4,15 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
+use common_kafka::config::KafkaConfig;
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics::counter;
 use personhog_coordination::changelog::{load_changelog_config, CHANGELOG_BOOT_POLL_INTERVAL};
-use personhog_coordination::follow::{follow_changelog, Follower, Reporter};
+use personhog_coordination::follow::{follow_changelog, FollowTarget, Follower, Reporter};
 use personhog_coordination::store::PersonhogStore;
+use personhog_coordination::types::ClusterEndpoint;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
@@ -86,8 +88,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     // Oldest undrained generation first, so a restart mid-drain resumes it.
     let mut follower = Follower::default();
-    let topic = follower
-        .select_topic(&loaded, |topic| drained(&config, topic))
+    let FollowTarget { topic, cluster } = follower
+        .select_topic(&loaded, |target| drained(&config, target))
         .await?;
 
     let mut manager = Manager::builder("personhog-writer")
@@ -188,11 +190,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let kafka_consumer = Arc::new(PersonConsumer::from_config(
-        &config.kafka,
-        &config.kafka_consumer_group,
-        topic.clone(),
-    )?);
+    let kafka_consumer = Arc::new(
+        PersonConsumer::from_config(
+            &changelog_kafka(&config.kafka, cluster.as_ref()),
+            &config.kafka_consumer_group,
+            topic.clone(),
+        )?
+        .on_cluster(cluster.clone()),
+    );
     kafka_consumer.set_draining(topic != loaded.topic);
     tracing::info!(topic = %topic, draining = kafka_consumer.is_draining(), "Subscribed to Kafka topic");
 
@@ -258,14 +263,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 loaded,
                 follower,
                 consumer,
-                |topic: String| drained(&config, topic),
+                |target: FollowTarget| drained(&config, target),
                 Reporter::for_group(&config.kafka_consumer_group),
                 |_, _| counter!("personhog_writer_resubscriptions_total").increment(1),
                 cancel.clone(),
             );
             tokio::select! {
                 _ = handle.shutdown_signal() => cancel.cancel(),
-                _ = follow => {}
+                rebind = follow => {
+                    // The pod's restart subscribes on the next generation's cluster.
+                    if rebind.is_some() {
+                        handle.request_shutdown();
+                        handle.shutdown_signal().await;
+                    }
+                }
             }
         });
     }
@@ -274,9 +285,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Whether the writer group has read every partition of `topic` to its end.
-async fn drained(config: &Config, topic: String) -> Result<bool, String> {
-    let base = base_client_config(&config.kafka);
+fn changelog_kafka(base: &KafkaConfig, cluster: Option<&ClusterEndpoint>) -> KafkaConfig {
+    match cluster {
+        Some(cluster) => base.with_endpoint(&cluster.hosts, cluster.tls),
+        None => base.clone(),
+    }
+}
+
+async fn drained(config: &Config, target: FollowTarget) -> Result<bool, String> {
+    let base = base_client_config(&changelog_kafka(&config.kafka, target.cluster.as_ref()));
+    let topic = target.topic;
     let group = config.kafka_consumer_group.clone();
     tokio::task::spawn_blocking(move || {
         common_kafka::probe::group_drained(&base, &group, &topic, Duration::from_secs(10))

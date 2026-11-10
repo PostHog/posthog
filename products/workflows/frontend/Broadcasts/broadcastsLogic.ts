@@ -32,6 +32,7 @@ import {
     ManagedBroadcast,
     confirmArchiveBroadcast,
     confirmDeleteBroadcast,
+    manageDisabledReason,
     restoreBroadcast,
 } from './broadcastLifecycle'
 
@@ -142,6 +143,15 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
         paths.size === 2 &&
         paths.has(`${trigger[0].id}->${message[0].id}`) &&
         paths.has(`${message[0].id}->${exit[0].id}`)
+    )
+}
+
+/** Anything else opens as the read-only summary: a sent broadcast, a graph the wizard can't show, or a viewer's draft. */
+export function opensInWizard(broadcast: HogFlowApi): boolean {
+    return (
+        broadcast.status === 'draft' &&
+        !manageDisabledReason(broadcast.user_access_level) &&
+        canEditInWizard(broadcast.actions as FlowStep[], broadcast.edges as FlowEdge[])
     )
 }
 
@@ -525,7 +535,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 !objectsEqual(filters, loadedFilters),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         // Each change moves the row between status filters, so the page reloads rather than patching the row.
         archiveBroadcast: ({ broadcast }) => {
             if (values.currentProjectId) {
@@ -557,8 +567,9 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             // Best-effort per-row enrichment: batch jobs decide the status chip, metric totals fill
             // the engagement counts. The run is stored before its metrics load, so a slow or failed
             // metrics query can't leave the status unknown.
+            const { disposables } = cache
             const generation = values.listGeneration
-            const isCurrent = (): boolean => values.listGeneration === generation
+            const isCurrent = (): boolean => !disposables.isDisposed && values.listGeneration === generation
             for (const broadcast of broadcasts.results ?? []) {
                 void (async () => {
                     let latestBatchJob: HogFlowBatchJobApi | null

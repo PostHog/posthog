@@ -1206,6 +1206,15 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('reply suggestions', () => {
+        it('keeps the newer turn when an older frame lands late', () => {
+            logic.actions.setReplySuggestions({ turnIndex: 3, replies: ['Newer'] })
+            logic.actions.setReplySuggestions({ turnIndex: 2, replies: ['Older'] })
+
+            expect(logic.values.replySuggestionsFrame).toEqual({ turnIndex: 3, replies: ['Newer'] })
+        })
+    })
+
     describe('pushHumanMessage', () => {
         it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
             logic.actions.pushHumanMessage('hello agent')

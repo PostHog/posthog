@@ -15,6 +15,7 @@ from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DatabaseField,
+    EventsRetentionTable,
     SavedQuery,
     StringJSONDatabaseField,
     StructDatabaseField,
@@ -29,8 +30,8 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
+    escape_clickhouse_json_path,
     escape_clickhouse_string,
-    quote_clickhouse_identifier,
     safe_identifier,
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
@@ -52,7 +53,7 @@ from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sq
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS, TEMPORARY_PROPERTIES_COLUMN
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -81,8 +82,10 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
-    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
+def retention_floor_for_table(
+    table_type: ast.TableOrSelectType, retention_months: int, field_name: str = "timestamp"
+) -> ast.Expr:
+    """Floor an events-derived scan to ``<field_name> > now() - toIntervalMonth(retention_months)``.
 
     Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
     events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
@@ -91,7 +94,7 @@ def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_month
     field_table_type = _table_filter_type(table_type)
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Gt,
-        left=ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=field_table_type)),
+        left=ast.Field(chain=[field_name], type=ast.FieldType(name=field_name, table_type=field_table_type)),
         right=ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
             left=ast.Call(name="now", args=[]),
@@ -692,23 +695,17 @@ class ClickHousePrinter(BasePrinter):
             return None
 
         prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
-        null_keys_sql = f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[resolved_field.name])}"
         if resolved_field.name == "properties":
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
-            temporary_null_keys_sql = (
-                f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[TEMPORARY_PROPERTIES_COLUMN])}"
-            )
             serialized = event_document_sql(
                 field_sql,
-                null_keys_sql,
                 temporary_properties_sql,
-                temporary_null_keys_sql,
                 self._document_feature_flags_sql(type, field_sql),
             )
         elif resolved_field.name == "person_properties":
-            serialized = person_document_sql(field_sql, null_keys_sql)
+            serialized = person_document_sql(field_sql)
         else:
-            serialized = json_document_sql(field_sql, null_keys_sql)
+            serialized = json_document_sql(field_sql)
         return serialized
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
@@ -1064,7 +1061,7 @@ class ClickHousePrinter(BasePrinter):
 
         # In ClickHouse `equals(x, NULL)` is always NULL, so `IS [NOT] NULL` must print as a null check even when
         # the shortcut below skips the ifNull wrapping (for example on the $ai_* bloom-filter columns).
-        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq) and not in_join_constraint:
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             null_check = "isNull" if node.op == ast.CompareOperationOp.Eq else "isNotNull"
             if isinstance(node.right, ast.Constant) and node.right.value is None:
                 return f"{null_check}({left})"
@@ -1258,16 +1255,12 @@ class ClickHousePrinter(BasePrinter):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
     ) -> ast.Expr | None:
-        from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
-
         months = self.context.events_retention_months
         if months is None or node_type is None or not isinstance(table_type, ast.TableType):
             return None
-        # flag_evaluations holds flag calls that are events too, and a query on events can read them from there.
-        if not isinstance(table_type.table, (EventsTable, FlagEvaluationsTable)):
+        if not isinstance(table_type.table, EventsRetentionTable):
             return None
-        return retention_floor_for_table(node_type, months)
+        return retention_floor_for_table(node_type, months, field_name=table_type.table.events_retention_field)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         table = table_type.table
@@ -1525,20 +1518,23 @@ class ClickHousePrinter(BasePrinter):
             expr = self.visit(node.expr)
 
         # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
-        # dot inside one key must not read as a path separator. The escaped key then takes the bound-parameter
-        # branch below, as `%` would otherwise break the SQL's own parameter placeholders.
+        # dot inside one key must not read as a path separator.
         keys = [key.replace(".", "%2E") for key in node.keys]
 
-        if any("%" in key for key in keys):
+        # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
+        # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.
+        if any(not key for key in keys):
             if node.access_type == "sub_object":
-                for key in keys:
-                    subcolumn = f"^{quote_clickhouse_identifier(key)}"
-                    expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
-                return expr
-            subcolumn = ".".join(keys)
-            return f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+                # getSubcolumn's path parser reads a backslash-escaped backtick, not SQL's doubled backtick.
+                escaped_keys = (key.replace("\\", "\\\\").replace("`", "\\`") for key in keys)
+                subcolumns = [f"^`{key}`" for key in escaped_keys]
+            else:
+                subcolumns = [".".join(keys)]
+            for subcolumn in subcolumns:
+                expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+            return expr
 
         for index, key in enumerate(keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
-            expr = f"{expr}{separator}{escape_clickhouse_identifier(key)}"
+            expr = f"{expr}{separator}{escape_clickhouse_json_path(key)}"
         return expr

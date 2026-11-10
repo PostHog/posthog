@@ -9,6 +9,7 @@ import requests
 from products.warehouse_sources.sources.genesys_cloud import genesys_cloud
 from products.warehouse_sources.sources.genesys_cloud._config import GenesysCloudSourceConfig
 from products.warehouse_sources.sources.genesys_cloud.genesys_cloud import (
+    _GENESYS_CLOUD_RETRY,
     GenesysCloudResumeConfig,
     validate_credentials,
 )
@@ -364,3 +365,20 @@ class TestValidateCredentials:
         assert result == (False, "Select the Genesys Cloud region your organization is hosted in.")
         assert network.requests_log == []
         assert network.session_options == []
+
+
+class TestRetryPolicy:
+    @pytest.mark.parametrize(
+        "status_code,expected_retry",
+        [
+            (429, True),
+            (504, True),
+            (404, False),
+        ],
+    )
+    def test_analytics_post_retries_like_the_listing_gets(self, status_code, expected_retry):
+        # The analytics/user-analytics endpoints are read via POST; without the override below,
+        # DEFAULT_RETRY would only retry the listing/scan endpoints' GETs and let a transient
+        # 429/5xx on the POST query bubble up as an unhandled HTTPError.
+        for method in ("GET", "POST"):
+            assert _GENESYS_CLOUD_RETRY.is_retry(method, status_code) is expected_retry

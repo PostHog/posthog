@@ -95,10 +95,12 @@ See [Authenticated local checks](docs/TESTING.md#authenticated-local-checks) for
 | Variable                                                           | Use                                                                                                                                                                                                                                                                   |
 | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `EXPO_PUBLIC_POSTHOG_KEY`                                          | Project API key for the app's own usage analytics. Analytics are off when it is not set.                                                                                                                                                                              |
+| `EXPO_PUBLIC_POSTHOG_REPLAY`                                       | `1` opts an internal native build into masked demo-only recording. Requires a rebuilt native binary and recording enabled in the analytics project.                                                                                                                   |
+| `EXPO_PUBLIC_POSTHOG_HANDOFF`                                      | `1` enables internal-build handoff correlation and preserves the native SDK session across app restarts within SDK timeouts. The receiving web app must enable `mobile-session-handoff`.                                                                              |
 | `EXPO_PUBLIC_POSTHOG_HOST`                                         | Host for those analytics, for example `https://us.i.posthog.com`.                                                                                                                                                                                                     |
 | `EXPO_PUBLIC_DEMO_MODE`                                            | `1` starts a development bundle in demo mode. Release bundles ignore it, so **Try the demo** is the only way into demo mode there.                                                                                                                                    |
 | `EXPO_PUBLIC_SIGNUP_LINK`                                          | `0` hides the "Create an account" link on the sign-in screen, for store builds where a link out to sign-up is not allowed. Production builds and OTA bundles set it to `0`.                                                                                           |
-| `EXPO_PUBLIC_OAUTH_US_CLIENT_ID`, `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` | Separate non-first-party Cloud OAuth application IDs for native development and preview builds. Required for Cloud sign-in in these builds; see [AUTH.md](docs/AUTH.md#redirect-uris).                                                                                |
+| `EXPO_PUBLIC_OAUTH_US_CLIENT_ID`, `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` | Separate non-first-party Cloud OAuth application IDs for native development and preview builds. Required for Cloud sign-in in these builds.                                                                                                                           |
 | `APP_VARIANT`                                                      | Build-time only: `development`, `preview` or `production` (the default). It sets the app name, bundle id, URL scheme, App Group and icon, so the variants install side by side. `eas.json` sets it per profile. See [RELEASING.md](docs/RELEASING.md#build-variants). |
 | `GOOGLE_SERVICES_JSON`                                             | Build-time only: path to the Firebase `google-services.json` that Android push needs. On EAS it is a file variable; locally, a `google-services.json` in this directory is used instead. See [PUSH.md](docs/PUSH.md#credentials).                                     |
 
@@ -122,14 +124,19 @@ It does not compare newer patch metadata from a remote service.
 
 ## Assets
 
-The app icon, adaptive icon, favicon and the iOS 26 `app.icon` bundle are copies of the
-PostHog Desktop mobile host's logomark assets.
+The app icon, adaptive icon and favicon use the PostHog Desktop mobile host's logomark assets.
+The iOS `app.icon` bundle uses the transparent color logomark from MobileHog and the
+monochrome logomark from PostHog Desktop for Clear and Tinted. Its Dark layer uses the white
+logomark from `@posthog/brand` on the official square canvas. With `rsvg-convert` installed,
+run `pnpm brand:generate icon` from `products/mobile` to refresh the production Dark layer.
 `splash-icon.png` is the gradient logomark from [brand.posthog.com](https://brand.posthog.com/logo),
 rendered from `frontend/src/assets/posthog-icon.svg` with `rsvg-convert -w 1040`.
-The in-app logomark and landscape lockup (`src/ui/icons/PostHogLogomark.tsx`, `PostHogLogo.tsx`)
-are the same brand geometry ported to `react-native-svg`.
+See [Splash and in-app branding](docs/DESIGN.md#splash-and-in-app-branding) for how to refresh
+the dark splash and in-app logos.
 `icon-dev.png`, `icon-preview.png` and their `adaptive-icon-*` copies add a DEV or PREVIEW band to the icon.
-Regenerate them after an icon change with `uv run --with pillow python scripts/make_variant_icons.py`.
+The iOS `app-dev.icon` and `app-preview.icon` bundles add the same bands as separate layers.
+After generating or editing the production icons, update both variants with
+`uv run --with pillow python scripts/make_variant_icons.py`.
 
 ## Docs
 
@@ -138,6 +145,7 @@ Regenerate them after an icon change with `uv run --with pillow python scripts/m
 - [Decisions](docs/DECISIONS.md): choices the build contract left open
 - [Gaps](docs/GAPS.md): known gaps and local-only behavior
 - [API](docs/API.md), [Push](docs/PUSH.md)
+- [Live](docs/LIVE.md): the Web analytics Live screen, its queries, polling and budget
 - [Releasing](docs/RELEASING.md): workflow builds, TestFlight and the Play internal track
 - [Release checks](../../docs/internal/mobile-release-checks.md): build checks and manual smoke checks before sharing a release
 - [OTA updates](docs/OTA.md): update channels, runtime version, rollbacks

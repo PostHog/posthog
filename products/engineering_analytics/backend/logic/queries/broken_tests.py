@@ -292,7 +292,7 @@ def query_broken_tests(
     # through. Keyed on (workflow_name, job_name) so a job name shared across workflows doesn't collapse.
     master_by_key: dict[tuple[str | None, str, str], tuple[str | None, int | None]] = {}
     breaking_master_jobs: set[str] = set()
-    jobs_source = curated.jobs_source(created_floor=True)
+    jobs_source = curated.jobs_source(created_floor=True, since=date_from)
     if jobs_source is not None:
         master_rows = (
             curated.run(

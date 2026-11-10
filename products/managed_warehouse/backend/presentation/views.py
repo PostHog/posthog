@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable
 from datetime import date
 from functools import partial
-from typing import Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -34,6 +34,9 @@ from products.managed_warehouse.backend.facade.access import (
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.presentation import hogtower
+
+if TYPE_CHECKING:
+    from posthog.models import Organization, User
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +79,9 @@ class PresentedTrinoStatus(TypedDict):
     state: TrinoStatusState
     ready_at: str | None
     connection: PresentedTrinoConnection | None
+    # The Trino catalog is a hoglake catalog that hoglake has created. Only then do hoglake
+    # credentials reach anything: a DuckLake catalog has no hoglake behind it.
+    hoglake: bool
 
 
 _TRINO_LIFECYCLE_STATES = frozenset({"pending", "provisioning", "ready", "failed"})
@@ -460,6 +466,7 @@ def _strip_bucket_fields(body: dict) -> None:
     """Drop the internal bucket fields from a UI-facing response body, in place."""
     body.pop("bucket", None)
     body.pop("bucket_region", None)
+    body.pop("bucket_prefix", None)
 
 
 def _validate_schema_name(name: str | None) -> str | None:
@@ -1206,12 +1213,12 @@ def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
     The control plane's Trino status is an operator payload. Only the lifecycle state, the ready
     time, and the connection target leave this function.
     """
-    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None)
+    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None, hoglake=False)
     resp = _request("GET", organization_id, "/trino", timeout=10)
     if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
         return unavailable
     if resp.data.get("enabled") is not True:
-        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None)
+        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None, hoglake=False)
 
     trino_status = resp.data.get("status")
     if not isinstance(trino_status, dict):
@@ -1236,10 +1243,12 @@ def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
         logger.warning("unexpected_trino_lifecycle_state", organization_id=str(organization_id), state=str(raw_state))
         return unavailable
     ready_at = trino_status.get("ready_at")
+    backend = resp.data.get("backend") or trino_status.get("backend")
     return PresentedTrinoStatus(
         state=state,
         ready_at=ready_at if isinstance(ready_at, str) else None,
         connection=_present_trino_connection(trino_status) if state == "ready" else None,
+        hoglake=backend == "hoglake" and resp.data.get("hoglake_initialized") is True,
     )
 
 
@@ -1283,6 +1292,22 @@ def trino_monitoring_series_for(
     )
 
 
+def _cp_status_body(organization_id: UUID | str) -> dict | None:
+    resp = _request("GET", organization_id, "/warehouse/status", require_enabled=False)
+    if resp.status_code != 200 or not isinstance(resp.data, dict):
+        return None
+
+    response_org = resp.data.get("org_id")
+    if response_org is not None and str(response_org) != str(organization_id):
+        logger.warning(
+            "Refusing to use control-plane bucket: status org_id mismatch",
+            requested_organization_id=str(organization_id),
+            response_org_id=str(response_org),
+        )
+        return None
+    return resp.data
+
+
 def cp_bucket_for(organization_id: UUID | str) -> str | None:
     """Authoritative S3 bucket for the org's duckling, straight from the control plane.
 
@@ -1296,21 +1321,25 @@ def cp_bucket_for(organization_id: UUID | str) -> str | None:
     Also reconciles the stored `DuckgresServer` row so it converges for next time. Returns
     None when the control plane is unreachable, unconfigured, or names no bucket.
     """
-    resp = _request("GET", organization_id, "/warehouse/status", require_enabled=False)
-    if resp.status_code != 200 or not isinstance(resp.data, dict):
+    body = _cp_status_body(organization_id)
+    if body is None:
         return None
+    _reconcile_bucket_from_status(organization_id, body)
+    return body.get("bucket") or None
 
-    response_org = resp.data.get("org_id")
-    if response_org is not None and str(response_org) != str(organization_id):
-        logger.warning(
-            "Refusing to use control-plane bucket: status org_id mismatch",
-            requested_organization_id=str(organization_id),
-            response_org_id=str(response_org),
-        )
+
+def cp_data_path_for(organization_id: UUID | str) -> str | None:
+    """S3 URI of the org's DuckLake data path, as `s3://<bucket>/` or `s3://<bucket>/<prefix>/`.
+
+    Same control-plane request and org-id check as `cp_bucket_for`. DuckLake registers file paths
+    relative to this root, so files must land under it. None when the control plane names no bucket.
+    """
+    body = _cp_status_body(organization_id)
+    if body is None or not body.get("bucket"):
         return None
-
-    _reconcile_bucket_from_status(organization_id, resp.data)
-    return resp.data.get("bucket") or None
+    prefix = str(body.get("bucket_prefix") or "").strip("/")
+    root = f"s3://{body['bucket']}/"
+    return f"{root}{prefix}/" if prefix else root
 
 
 def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> None:
@@ -1382,6 +1411,291 @@ def reset_password(organization_id: UUID | str, *, triggered_by: str) -> Respons
                 {"error": "The password was rotated but could not be saved. Retry the password reset."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+    return resp
+
+
+def _hogtower_only() -> Response | None:
+    """Hoglake credentials are served by hogtower alone; duckgres has no such route.
+
+    They are also useless until hoglake has a public endpoint in this deployment, so
+    HOGLAKE_OAUTH_TOKEN_URL being set is what turns the feature on.
+    """
+    if not hogtower.is_configured():
+        return Response(
+            {"error": "Hoglake credentials need the hogtower control plane"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    if not getattr(settings, "HOGLAKE_OAUTH_TOKEN_URL", None):
+        return Response(
+            {"error": "Hoglake credentials are not available in this region yet"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    return None
+
+
+def _hoglake_connect(organization_id: UUID | str) -> dict[str, str]:
+    """Where a hoglake credential is used: the catalog is the org id."""
+    connect = {"catalog": str(organization_id)}
+    if url := getattr(settings, "HOGLAKE_PUBLIC_URL", None):
+        connect["hoglake_url"] = url
+    if token_url := getattr(settings, "HOGLAKE_OAUTH_TOKEN_URL", None):
+        connect["token_url"] = token_url
+    return connect
+
+
+def _add_owners(organization_id: UUID | str, credentials: list[dict[str, Any]]) -> None:
+    """Name the owner of each personal (team) credential, from the organization's own members.
+
+    A uuid that is no longer a member of the organization keeps no name: the credential
+    stops minting tokens when its owner leaves, and is listed only so it can be revoked.
+    """
+    from posthog.models.organization import OrganizationMembership
+
+    uuids = {c["owner_user_uuid"] for c in credentials if c.get("owner_user_uuid")}
+    if not uuids:
+        return
+    members = {
+        str(m.user.uuid): m.user
+        for m in OrganizationMembership.objects.filter(
+            organization_id=organization_id, user__uuid__in=uuids
+        ).select_related("user")
+    }
+    for c in credentials:
+        if (user := members.get(str(c.get("owner_user_uuid")))) is not None:
+            c["owner_email"] = user.email
+            c["owner_name"] = user.first_name or user.email
+
+
+def list_hoglake_credentials(organization_id: UUID | str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("GET", organization_id, "/hoglake-credentials")
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        _add_owners(organization_id, resp.data.get("hoglake_credentials") or [])
+        resp.data["connect"] = _hoglake_connect(organization_id)
+    return resp
+
+
+def _refuse_rotating_a_personal_credential(organization_id: UUID | str, credential_id: str) -> Response | None:
+    """Fails closed: the list's error when hogtower cannot list the organization's
+    credentials, 404 when it does not have this one, 403 when it is a member's personal
+    credential, and None only for an org credential."""
+    resp = _request("GET", organization_id, "/hoglake-credentials")
+    if not status.is_success(resp.status_code):
+        return resp
+    listed = resp.data.get("hoglake_credentials") if isinstance(resp.data, dict) else None
+    if not isinstance(listed, list):
+        return Response({"error": "Unexpected response from the control plane"}, status=status.HTTP_502_BAD_GATEWAY)
+    kind = next((c.get("kind") or "org" for c in listed if c.get("client_id") == credential_id), None)
+    if kind is None:
+        return Response({"error": "credential not found"}, status=status.HTTP_404_NOT_FOUND)
+    if kind != "org":
+        return Response(
+            {"error": "This is a member's personal credential: only its owner can rotate it. Revoke it instead."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
+def create_hoglake_credential(
+    organization_id: UUID | str, *, name: str, scope: str, ttl_seconds: int | None, triggered_by: str
+) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    body: dict[str, Any] = {"name": name, "scope": scope}
+    if ttl_seconds:
+        body["ttl_seconds"] = ttl_seconds
+    resp = _request("POST", organization_id, "/hoglake-credentials", json_body=body)
+    _log_hoglake_action(resp, "create_hoglake_credential", organization_id, triggered_by, scope=scope)
+    return resp
+
+
+def rotate_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    # A personal credential's tokens name its owner, so its secret is for its owner alone.
+    # An admin may revoke one, never take a working secret for it.
+    if (refused := _refuse_rotating_a_personal_credential(organization_id, credential_id)) is not None:
+        return refused
+    resp = _request("POST", organization_id, f"/hoglake-credentials/{credential_id}/rotate")
+    _log_hoglake_action(resp, "rotate_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
+    return resp
+
+
+def revoke_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("DELETE", organization_id, f"/hoglake-credentials/{credential_id}")
+    _log_hoglake_action(resp, "revoke_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
+    return resp
+
+
+def _log_hoglake_action(
+    resp: Response, action: str, organization_id: UUID | str, triggered_by: str, **fields: str
+) -> None:
+    """The audit line for a hoglake credential change. Never the secret: only ids and scope."""
+    if not status.is_success(resp.status_code):
+        return
+    if not action.startswith("revoke_") and isinstance(resp.data, dict):
+        fields.setdefault("credential_id", str(resp.data.get("client_id", "")))
+    logger.info(
+        "managed_warehouse_action",
+        action=action,
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        **fields,
+    )
+
+
+# --- personal hoglake credentials -------------------------------------------------------
+#
+# A member's own credentials: owned by them and limited to projects they choose among the
+# ones they can see. hogtower narrows every token to the owner's current projects and
+# levels (its copy of them is the member-teams push), so these never reach further than
+# the member can in PostHog. Every call here is held to the caller's own credentials, and
+# names the caller to hogtower, which holds it to them too.
+
+
+def _personal_credentials_off() -> Response | None:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    from products.managed_warehouse.backend.facade.member_teams import member_teams_push_enabled
+
+    # Without the push, hogtower holds no projects for anyone and refuses every create.
+    if not getattr(settings, "HOGLAKE_TEAM_CREDENTIALS_ENABLED", False) or not member_teams_push_enabled():
+        return Response(
+            {"error": "Personal hoglake credentials are not available in this region yet"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    return None
+
+
+def _my_hoglake_credentials(organization_id: UUID | str, user_uuid: str) -> Response:
+    return _request("GET", organization_id, "/hoglake-credentials", params={"owner_user_uuid": user_uuid})
+
+
+def _hoglake_enabled_teams(organization_id: UUID | str) -> set[int] | None:
+    """The projects the managed warehouse serves, or None when the control plane can't say.
+
+    hogtower gives a project a namespace and tokens only while it is enabled, and refuses a
+    personal credential for any other.
+    """
+    from products.managed_warehouse.backend.facade.cp_teams import list_org_team_memberships
+
+    rows = list_org_team_memberships(str(organization_id))
+    return None if rows is None else {row.team_id for row in rows if row.enabled}
+
+
+def _my_projects(organization: "Organization", user: "User") -> list[dict[str, Any]]:
+    """The projects ``user`` may put in a personal credential, with the access it would get."""
+    from posthog.models import Team
+
+    from products.managed_warehouse.backend.facade.member_teams import visible_member_teams
+
+    teams = visible_member_teams(organization, user)
+    if (enabled := _hoglake_enabled_teams(organization.id)) is not None:
+        teams = {team_id: access for team_id, access in teams.items() if team_id in enabled}
+    names = dict(Team.objects.filter(organization_id=organization.id, id__in=teams).values_list("id", "name"))
+    return [
+        {"id": team_id, "name": names.get(team_id, str(team_id)), "access": teams[team_id]} for team_id in sorted(teams)
+    ]
+
+
+def list_my_hoglake_credentials(organization: "Organization", user: "User") -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    resp = _my_hoglake_credentials(organization.id, str(user.uuid))
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        resp.data["connect"] = _hoglake_connect(organization.id)
+        resp.data["projects"] = _my_projects(organization, user)
+    return resp
+
+
+def create_my_hoglake_credential(
+    organization: "Organization",
+    user: "User",
+    *,
+    name: str,
+    scope: str,
+    team_ids: list[int],
+    ttl_seconds: int | None,
+    triggered_by: str,
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    from products.managed_warehouse.backend.facade.member_teams import refresh_member_teams, visible_member_teams
+
+    visible = visible_member_teams(organization, user)
+    enabled = _hoglake_enabled_teams(organization.id)
+    usable = visible.keys() & enabled if enabled is not None else visible.keys()
+    if hidden := sorted(set(team_ids) - usable):
+        return Response(
+            {"error": f"You can't use project {', '.join(map(str, hidden))} in a hoglake credential"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    # hogtower checks the projects against its own copy of the member's. Bring it current
+    # first, so a project granted moments ago is not refused while its push is queued.
+    refresh_member_teams(str(organization.id), str(user.uuid))  # on failure, hogtower answers from its copy
+    body: dict[str, Any] = {
+        "name": name,
+        "scope": scope,
+        "owner_user_uuid": str(user.uuid),
+        "team_ids": sorted(set(team_ids)),
+    }
+    if ttl_seconds:
+        body["ttl_seconds"] = ttl_seconds
+    resp = _request("POST", organization.id, "/hoglake-credentials", json_body=body)
+    _log_hoglake_action(resp, "create_my_hoglake_credential", organization.id, triggered_by, scope=scope)
+    return resp
+
+
+def _not_mine(organization_id: UUID | str, user: "User", credential_id: str) -> Response | None:
+    """None when ``credential_id`` is one of ``user``'s live personal credentials; otherwise the
+    response to send instead: 404, or hogtower's error when it could not list them."""
+    resp = _my_hoglake_credentials(organization_id, str(user.uuid))
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        return resp
+    for c in resp.data.get("hoglake_credentials") or []:
+        if c.get("client_id") == credential_id and c.get("kind") == "team" and not c.get("revoked_at"):
+            return None
+    return Response({"error": "You have no such hoglake credential"}, status=status.HTTP_404_NOT_FOUND)
+
+
+def rotate_my_hoglake_credential(
+    organization: "Organization", user: "User", credential_id: str, *, triggered_by: str
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    if (refused := _not_mine(organization.id, user, credential_id)) is not None:
+        return refused
+    resp = _request(
+        "POST",
+        organization.id,
+        f"/hoglake-credentials/{credential_id}/rotate",
+        json_body={"owner_user_uuid": str(user.uuid)},
+    )
+    _log_hoglake_action(
+        resp, "rotate_my_hoglake_credential", organization.id, triggered_by, credential_id=credential_id
+    )
+    return resp
+
+
+def revoke_my_hoglake_credential(
+    organization: "Organization", user: "User", credential_id: str, *, triggered_by: str
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    if (refused := _not_mine(organization.id, user, credential_id)) is not None:
+        return refused
+    resp = _request(
+        "DELETE",
+        organization.id,
+        f"/hoglake-credentials/{credential_id}",
+        params={"owner_user_uuid": str(user.uuid)},
+    )
+    _log_hoglake_action(
+        resp, "revoke_my_hoglake_credential", organization.id, triggered_by, credential_id=credential_id
+    )
     return resp
 
 

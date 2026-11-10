@@ -4,13 +4,12 @@ import type { PinView } from '@/model/views'
 
 import { type PinHintDismissReason, trackPinHintDismissed, trackPinHintShown } from './analytics'
 import { usePinHintHydrated, usePinHintStore } from './pinHintStore'
-import { pinModes } from './pinHooks'
 import type { PinDisplayPrefs } from './smartPinDisplay'
 
 /**
- * The pin the long-press hint points at: the first pin that offers Number and Chart and already shows an automatic
- * visual, so "Show as" has something real to change. Null once any pin has a display chosen on this phone, because
- * that person has found the menu.
+ * The pin the long-press hint points at: the first pin that already shows an automatic visual, so "Show as" has
+ * something real to change. Null once any pin has a display chosen on this phone, because that person has found the
+ * menu.
  */
 export function pinHintTarget(
     pins: readonly PinView[],
@@ -20,7 +19,7 @@ export function pinHintTarget(
     if (pins.some((pin) => explicit[pin.shortcutId] !== undefined)) {
         return null
     }
-    return pins.find((pin) => pinModes(pin).length > 1 && automatic[pin.shortcutId] !== undefined) ?? null
+    return pins.find((pin) => automatic[pin.shortcutId] !== undefined) ?? null
 }
 
 export interface PinHintInput {

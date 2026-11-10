@@ -58,7 +58,7 @@ export function useModelCatalogue(enabled: boolean, keepModel: string | undefine
     const scope = useProjectScope()
     const query = useQuery({
         queryKey: runOptionKeys.models(scope),
-        queryFn: ({ signal }) => getTaskModels(signal),
+        queryFn: ({ signal }) => getTaskModels(scope, signal),
         enabled: enabled && !demo && scope !== null,
         staleTime: CATALOGUE_STALE_MS,
     })
@@ -81,7 +81,7 @@ export function useRunDefaults(enabled: boolean): ResolvedAiRunDefaultsApi | und
     const scope = useProjectScope()
     const query = useQuery({
         queryKey: runOptionKeys.myConfig(scope),
-        queryFn: ({ signal }) => getMyTaskConfig(signal),
+        queryFn: ({ signal }) => getMyTaskConfig(scope, signal),
         enabled: enabled && !demo && scope !== null,
         staleTime: DEFAULTS_STALE_MS,
     })
@@ -96,7 +96,7 @@ export async function fetchRunDefaults(
         const config = await whileOnline(() =>
             queryClient.fetchQuery({
                 queryKey: runOptionKeys.myConfig(scope),
-                queryFn: ({ signal }) => getMyTaskConfig(signal),
+                queryFn: ({ signal }) => getMyTaskConfig(scope, signal),
                 staleTime: DEFAULTS_STALE_MS,
                 // The hand-off is waiting on this, and a failure only means the server picks the defaults.
                 retry: false,

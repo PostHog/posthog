@@ -1,14 +1,18 @@
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
+import { z } from 'zod'
 
 import { HogError } from '@/core/errors'
 import type { Secrets } from '@/core/runtime'
-import { fakeRuntime, type FakeRuntime } from '@/testing'
+import { fakeRuntime, readJson, type FakeRuntime } from '@/testing'
 
 import { PostHogApi } from './api'
 import { resolveCredentials, type Credentials } from './credentials'
+import { parseHost } from './host'
 import { KeySession } from './key-session'
 import { HOG_CLIENT_ID } from './oauth'
+
+const SettingsLogins = z.object({ logins: z.record(z.string(), z.record(z.string(), z.unknown())) })
 
 const EU = 'https://eu.posthog.com'
 const START = Date.UTC(2026, 0, 1)
@@ -41,7 +45,7 @@ function stored(
 }
 
 function sessionFor(runtime: FakeRuntime, credentials: Credentials): KeySession {
-    return new KeySession(runtime, credentials.key, credentials.source === 'store' ? credentials.storage : null)
+    return new KeySession(runtime, credentials.key, credentials.storage)
 }
 
 const OK = { name: 'Hedgebox' }
@@ -71,12 +75,12 @@ describe('OAuth credentials', () => {
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
         await runtime.sleep(commandRunsMs)
 
-        const outcome = await api.get<{ name: string }>('').catch((error: unknown) => error)
+        const outcome = await api.get('', z.looseObject({ name: z.string() })).catch((error: unknown) => error)
 
         expect(outcome).toMatchObject(expected)
         expect(tokenRequests(runtime)).toHaveLength(1)
         expect(runtime.requests.filter((request) => request.url.includes('/api/'))).toHaveLength(apiCalls)
-        expect(JSON.parse(runtime.keychain[EU] ?? '{}').accessToken).toBe(renewedToken)
+        expect(readJson(runtime.keychain[EU] ?? '{}')).toMatchObject({ accessToken: renewedToken })
     })
 
     test('a 401 that a renewed token gets too stops renewing for the rest of the command', async () => {
@@ -90,8 +94,8 @@ describe('OAuth credentials', () => {
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
 
         const outcomes = [
-            await api.get('').catch((error: unknown) => error),
-            await api.get('').catch((error: unknown) => error),
+            await api.get('', z.unknown()).catch((error: unknown) => error),
+            await api.get('', z.unknown()).catch((error: unknown) => error),
         ]
 
         expect(outcomes).toMatchObject([REJECTED, REJECTED])
@@ -105,12 +109,12 @@ describe('OAuth credentials', () => {
             respond: () => ({ status: 401, body: { detail: 'Invalid token' } }),
         })
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
-        const replaced = JSON.parse(settings(3_600_000))
+        const replaced = readJson(settings(3_600_000), SettingsLogins)
         replaced.logins[EU] = { ...replaced.logins[EU], projectId: '99', loginId: 'login-2' }
         runtime.files[SETTINGS_FILE] = JSON.stringify(replaced)
         runtime.keychain[EU] = secret('pha_other')
 
-        const outcome = await api.get('').catch((error: unknown) => error)
+        const outcome = await api.get('', z.unknown()).catch((error: unknown) => error)
 
         expect(outcome).toMatchObject({ code: 'login_changed' })
         expect(tokenRequests(runtime)).toEqual([])
@@ -125,7 +129,7 @@ describe('OAuth credentials', () => {
         })
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
 
-        const outcome = await api.get('').catch((error: unknown) => error)
+        const outcome = await api.get('', z.unknown()).catch((error: unknown) => error)
 
         expect(outcome).toMatchObject(REJECTED)
         expect(runtime.requests).toHaveLength(1)
@@ -144,8 +148,8 @@ describe('OAuth credentials', () => {
         expect(tokenRequests(runtime).map((request) => request.body)).toEqual([
             { grant_type: 'refresh_token', refresh_token: 'phr_old', client_id: HOG_CLIENT_ID },
         ])
-        expect(JSON.parse(runtime.keychain[EU] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_old' })
-        expect(JSON.parse(runtime.files[SETTINGS_FILE] ?? '{}').logins[EU]).toMatchObject({
+        expect(readJson(runtime.keychain[EU] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_old' })
+        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}', SettingsLogins).logins[EU]).toMatchObject({
             expiresAt: START + 3_600_000,
             scopes: ['openid'],
             loginId: 'login-1',
@@ -170,7 +174,7 @@ describe('OAuth credentials', () => {
 
         expect(credentials.key).toMatchObject({ token: 'pha_new' })
         expect(tokenRequests(runtime)).toHaveLength(2)
-        expect(JSON.parse(runtime.keychain[EU] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_new' })
+        expect(readJson(runtime.keychain[EU] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_new' })
     })
 
     test('use a token with time left as it is', async () => {
@@ -228,7 +232,7 @@ describe('OAuth credentials', () => {
             respond: () => ({ status: 200, body: { access_token: 'pha_new', expires_in: 3600 } }),
         })
 
-        const error = await resolveCredentials(runtime, { configHost: 'https://us.posthog.com' }).catch(
+        const error = await resolveCredentials(runtime, { configHost: parseHost('https://us.posthog.com') }).catch(
             (caught: unknown) => caught
         )
 

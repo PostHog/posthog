@@ -251,24 +251,6 @@ export interface DraftStatusResponseApi {
     has_draft: boolean
 }
 
-export type GenerateRequestApiStepsItem = { [key: string]: unknown }
-
-export interface GenerateRequestApi {
-    title?: string
-    goal?: string
-    steps?: GenerateRequestApiStepsItem[]
-}
-
-export interface GenerateStepResponseApi {
-    step_id: string
-    title: string
-    description: string
-}
-
-export interface GenerateResponseApi {
-    steps: GenerateStepResponseApi[]
-}
-
 export type ProductToursListParams = {
     /**
      * Number of results to return per page.

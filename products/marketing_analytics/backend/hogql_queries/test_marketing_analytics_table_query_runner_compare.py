@@ -25,7 +25,8 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
@@ -107,7 +108,7 @@ class DataConfig:
 
 
 def _create_action(team, name: str = "test_action") -> Action:
-    return Action.objects.create(
+    return create_action(
         team=team,
         name=name,
         steps_json=[{"event": "test_event"}],

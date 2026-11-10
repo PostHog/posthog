@@ -119,16 +119,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -281,16 +282,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -443,16 +445,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -605,16 +608,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -771,16 +775,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -918,16 +923,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -1065,16 +1071,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -1229,16 +1236,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -1375,16 +1383,17 @@
             LEFT JOIN (
             SELECT
               person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
+              arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(touchpoint_timestamp), campaign_name, source_name, medium_name, content_name, term_name, referring_domain_name, gclid_name, fbclid_name, gad_source_name))), -500) AS utm_touchpoints,
+              arrayMap(_tp -> _tp.1, utm_touchpoints) AS utm_timestamps,
+              arrayMap(_tp -> _tp.2, utm_touchpoints) AS utm_campaigns,
+              arrayMap(_tp -> _tp.3, utm_touchpoints) AS utm_sources,
+              arrayMap(_tp -> _tp.4, utm_touchpoints) AS utm_mediums,
+              arrayMap(_tp -> _tp.5, utm_touchpoints) AS utm_contents,
+              arrayMap(_tp -> _tp.6, utm_touchpoints) AS utm_terms,
+              arrayMap(_tp -> _tp.7, utm_touchpoints) AS utm_referring_domains,
+              arrayMap(_tp -> _tp.8, utm_touchpoints) AS utm_gclids,
+              arrayMap(_tp -> _tp.9, utm_touchpoints) AS utm_fbclids,
+              arrayMap(_tp -> _tp.10, utm_touchpoints) AS utm_gad_sources
             FROM
             (
               SELECT

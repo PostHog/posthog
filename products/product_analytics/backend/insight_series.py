@@ -106,12 +106,11 @@ def _run(
     status = result.get("query_status") or {}
     if raise_on_pending and (result.get("error") or status.get("error")):
         raise ValueError("Insight query failed")
-    if raise_on_pending and result.get("results") is None:
+    if raise_on_pending and _pending(result, status):
         if not status.get("id"):
             raise ValueError("Insight query returned no results or query status")
         raise InsightSeriesNotReady(status["id"])
-    if blocking and wait_until is not None and result.get("results") is None:
-        status = result.get("query_status") or {}
+    if blocking and wait_until is not None and _pending(result, status):
         while status and not status.get("complete") and not status.get("error"):
             remaining = wait_until - monotonic()
             if remaining <= 0:
@@ -121,6 +120,12 @@ def _run(
         if status.get("complete") and not status.get("error"):
             return status["results"] if isinstance(status.get("results"), dict) else {}
     return result
+
+
+def _pending(result: dict[str, Any], status: dict[str, Any]) -> bool:
+    return result.get("results") is None or bool(
+        status.get("id") and not status.get("complete") and not status.get("error")
+    )
 
 
 def _value_key(query: dict[str, Any], result: dict[str, Any], position: int) -> str:

@@ -34,7 +34,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         `0.+` resolves to the latest `0.x` release. The SDK is a pre-release, so the API can change
                         between minor versions – pin an exact version from [Maven
                         Central](https://central.sonatype.com/artifact/com.posthog/posthog-kmp) if you would rather
-                        upgrade deliberately.
+                        upgrade deliberately. The setup below requires `0.8.0` or higher.
                     </Markdown>
                     <CalloutBox type="fyi" title="Supported targets">
                         <Markdown>
@@ -78,7 +78,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     import com.posthog.kmp.SessionRecordingConfig
 
                                     val config = PostHogConfig(
-                                        apiKey = "<ph_project_token>",
+                                        projectToken = "<ph_project_token>",
                                         host = "<ph_client_api_host>",
 
                                         // Enable session recording. Requires enabling in your project settings as well.

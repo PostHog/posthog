@@ -550,6 +550,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
         },
+        "$conversation_ticket_tag_added": {
+            "label": "Conversation ticket tag added",
+            "description": "Fires when a tag is added to a support conversation ticket.",
+        },
         "$slack_message_received": {
             "label": "Slack message received",
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
@@ -1463,6 +1467,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$app_build": {
             "label": "App build",
             "description": "The build number for the app.",
+        },
+        "$app_language": {
+            "label": "App language",
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
         },
         "$app_name": {
             "label": "App name",
