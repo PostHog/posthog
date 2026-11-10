@@ -7,7 +7,7 @@ import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { businessKnowledgeSettingsLogic } from 'products/business_knowledge/frontend/scenes/settings/businessKnowledgeSettingsLogic'
+import { supportTicketsBannerLogic } from './supportTicketsBannerLogic'
 
 const SELF_LEARNING_DISMISS_KEY = 'support-self-learning-banner'
 
@@ -30,7 +30,7 @@ export function SupportTicketsBanner({ aiEnabled }: SupportTicketsBannerProps): 
 }
 
 function SelfLearningOrFeedbackBanner({ aiEnabled }: SupportTicketsBannerProps): JSX.Element | null {
-    const { settings, settingsLoading } = useValues(businessKnowledgeSettingsLogic)
+    const { settings, settingsLoading } = useValues(supportTicketsBannerLogic)
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: SELF_LEARNING_DISMISS_KEY }))
 
     // Wait for the first load, so the feedback banner does not flash before the self-learning one.
