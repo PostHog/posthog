@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, call, patch
@@ -18,6 +19,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
 from products.signals.backend.models import (
     SignalActorKind,
@@ -1007,22 +1009,30 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("claiming_agent", "claude-code", False, False, status.HTTP_200_OK),
-            ("responsible_user", None, False, False, status.HTTP_200_OK),
-            ("responsible_user_with_claim_id", None, False, True, status.HTTP_200_OK),
-            ("different_agent", "codex", False, True, status.HTTP_409_CONFLICT),
-            ("different_user", None, True, True, status.HTTP_409_CONFLICT),
+            ("claiming_agent", "claude-code", False, False, status.HTTP_200_OK, False),
+            ("responsible_user", None, False, False, status.HTTP_200_OK, False),
+            ("responsible_user_with_claim_id", None, False, True, status.HTTP_200_OK, False),
+            ("different_agent", "codex", False, True, status.HTTP_409_CONFLICT, False),
+            ("different_user", None, True, True, status.HTTP_409_CONFLICT, False),
+            ("persons_own_agent", "codex", False, True, status.HTTP_200_OK, True),
+            ("other_persons_agent", "codex", True, True, status.HTTP_409_CONFLICT, True),
         ]
     )
     def test_only_current_actor_or_responsible_user_can_release_and_pr_is_preserved(
-        self, _name: str, agent: str | None, different_user: bool, include_claim_id: bool, expected_status: int
+        self,
+        _name: str,
+        agent: str | None,
+        different_user: bool,
+        include_claim_id: bool,
+        expected_status: int,
+        claimed_by_person: bool,
     ) -> None:
         report = self._create_report()
         claim = self.client.post(
             self._claim_url(report),
             data={"pr_url": "https://github.com/PostHog/posthog/pull/123"},
             format="json",
-            headers=self._agent_headers("claude-code"),
+            headers={} if claimed_by_person else self._agent_headers("claude-code"),
         )
         assert claim.status_code == status.HTTP_200_OK
 
@@ -1049,6 +1059,27 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert released.json()["implementation_pr_state"] == "unknown"
         assert released.json()["work_state"] == "in_review"
         assert released.json()["assignee"] is None
+
+    @parameterized.expand(
+        [
+            ("dismissed", SignalReport.Status.SUPPRESSED, True),
+            ("resolved", SignalReport.Status.RESOLVED, False),
+        ]
+    )
+    def test_dismissing_a_report_releases_its_claim(self, _name: str, to_status: str, expect_released: bool) -> None:
+        report = self._create_report()
+        claim = self.client.post(self._claim_url(report), data={}, format="json")
+        assert claim.status_code == status.HTTP_200_OK
+
+        report.status = to_status
+        report._transition_actor = ArtefactAttribution.from_user(self.user.id)  # type: ignore[attr-defined]
+        report.save(update_fields=["status"])
+
+        assert (get_active_claim(team_id=self.team.id, report_id=report.id) is None) is expect_released
+        releases = SignalReportArtefact.objects.filter(report=report, type="work_release")
+        assert [(r.claim_id, r.created_by_id) for r in releases] == (
+            [(UUID(claim.json()["assignee"]["claim_id"]), self.user.id)] if expect_released else []
+        )
 
     @parameterized.expand(
         [

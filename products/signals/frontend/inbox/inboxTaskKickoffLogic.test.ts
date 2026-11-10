@@ -975,8 +975,8 @@ describe('inboxTaskKickoffLogic', () => {
             expect(prompt).toContain('inbox-reports-set-state')
             expect(prompt).toContain('fixed_outside_posthog')
             expect(prompt).toContain('suppressed')
-            // Suppressing leaves the claim standing, so the run has to drop it itself.
-            expect(prompt).toContain('then release your claim')
+            // Suppressing releases the claim, so the run must not try to release it again.
+            expect(prompt).toContain('Suppressing the report also releases its claim')
             // The claim is taken once, at task creation, so a rerun starts unclaimed.
             expect(prompt).toContain('claim it again first')
             // Resolving through the state API closes the report's open PR, so the run must not report
