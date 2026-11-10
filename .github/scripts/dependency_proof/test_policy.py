@@ -28,6 +28,10 @@ NOW = datetime(2026, 11, 9, tzinfo=UTC)
         ("^1.2.3", "link:../pkg", "not a plain registry"),
         ("^1.2.3", "^1.2.4-beta.1", "not a plain registry"),
         ("^1.2.3", ">=1.2.3", "not a plain registry"),
+        ("^1.2.3", "^1.2.4\n", "not a plain registry"),
+        ("^1.20.3", "^1.2.3", "not an upgrade"),
+        ("^1.2.3", "^1.2.2", "not an upgrade"),
+        ("^0.0.3", "^0.0.9", "0.0.x change"),
     ],
 )
 def test_check_bump(old: str, new: str, reason: str | None) -> None:
@@ -42,24 +46,25 @@ def test_check_bump(old: str, new: str, reason: str | None) -> None:
     ("head", "reason"),
     [
         ({"dependencies": {"left-pad": "^1.3.1"}}, None),
-        ({"dependencies": {"left-pad": "^1.3.0"}, "packageManager": "pnpm@11.0.0"}, "more than dependency versions"),
-        (
-            {"dependencies": {"left-pad": "^1.3.0"}, "scripts": {"postinstall": "node x"}},
-            "more than dependency versions",
-        ),
-        ({"dependencies": {"left-pad": "^1.3.0"}, "engines": {"node": ">=26"}}, "more than dependency versions"),
-        (
-            {"dependencies": {"left-pad": "^1.3.0"}, "pnpm": {"allowBuilds": {"x": True}}},
-            "more than dependency versions",
-        ),
+        ({"packageManager": "pnpm@11.0.0"}, "more than dependency versions"),
+        ({"scripts": {"postinstall": "node x"}}, "more than dependency versions"),
+        ({"engines": {"node": ">=26"}}, "more than dependency versions"),
+        ({"pnpm": {"allowBuilds": {"x": True}}}, "more than dependency versions"),
+        ({"exports": {"require": "./a.cjs", "import": "./a.mjs"}}, "more than dependency versions"),
+        ({"private": 1}, "more than dependency versions"),
         ({"dependencies": {"left-pad": "^1.3.0", "extra": "^1.0.0"}}, "adds or removes"),
         ({"dependencies": {}}, "adds or removes"),
-        ({"dependencies": {"left-pad": "^1.3.0"}, "devDependencies": {"x": "^1.0.0"}}, "adds or removes"),
+        ({"devDependencies": {"x": "^1.0.0"}}, "adds or removes"),
         ({"dependencies": {"left-pad": "npm:left-pad@^1.3.1"}}, "not a plain registry"),
     ],
 )
 def test_manifest_changes(head: dict, reason: str | None) -> None:
-    base = {"dependencies": {"left-pad": "^1.3.0"}}
+    base = {
+        "private": True,
+        "exports": {"import": "./a.mjs", "require": "./a.cjs"},
+        "dependencies": {"left-pad": "^1.3.0"},
+    }
+    head = {**base, **head}
     if reason is None:
         assert policy.manifest_changes("package.json", base, head) == [("left-pad", "^1.3.0", "^1.3.1")]
     else:
@@ -128,6 +133,7 @@ BLOCKED = policy.blocked_patterns(
         ("semver", "trustPolicyExclude"),
         ("shiki", "renovate minimumReleaseAge"),
         ("@shikijs/core", "renovate minimumReleaseAge"),
+        ("Shiki", "renovate minimumReleaseAge"),
         ("left-pad", None),
         ("esbuild-wasm", None),
     ],
@@ -137,9 +143,10 @@ def test_blocked_reason(name: str, setting: str | None) -> None:
     assert reason == (None if setting is None else f"{name} is named in {setting}")
 
 
-def test_blocked_reason_refuses_patterns_it_cannot_read() -> None:
+@pytest.mark.parametrize("pattern", ["!left-pad", "/^left-/", "/left.*/", "@scope/{one,two}", "left-pa?", "[l]eft-pad"])
+def test_blocked_reason_refuses_patterns_it_cannot_read(pattern: str) -> None:
     with pytest.raises(Refused, match="pattern this proof does not read"):
-        policy.blocked_reason("left-pad", {"renovate minimumReleaseAge": ["!left-pad"]})
+        policy.blocked_reason("left-pad", {"renovate minimumReleaseAge": [pattern]})
 
 
 @pytest.mark.parametrize(
@@ -247,7 +254,7 @@ def test_new_packages(resolution: dict, reason: str | None) -> None:
     ],
 )
 def test_is_workspace_member(directory: str, member: bool) -> None:
-    globs = [".", "frontend", "products/*", "!products/desktop", "packages/quill/apps/*"]
+    globs = ["frontend", "products/*", "!products/desktop", "packages/quill/apps/*"]
     assert policy.is_workspace_member(directory, globs) is member
 
 

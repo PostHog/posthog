@@ -6,7 +6,6 @@ import re
 import json
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
-from fnmatch import fnmatchcase
 from typing import Any
 
 RENOVATE_BOT_USER_ID = 29139614
@@ -26,7 +25,9 @@ BLOCKING_SETTINGS = (
     "trustPolicyExclude",
 )
 SETTINGS_FILES = (WORKSPACE_FILE, ".npmrc", ".pnpmfile.cjs", "pnpmfile.cjs")
-RANGE = re.compile(r"^(?P<operator>[~^]?)(?P<major>\d+)\.(?P<minor>\d+)\.\d+$")
+RANGE = re.compile(r"(?P<operator>[~^]?)(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)")
+# A package name with `*` wildcards. Other pattern syntax is refused, because pnpm and Renovate each read it their own way.
+PACKAGE_PATTERN = re.compile(r"(@[A-Za-z0-9._~*-]+/)?[A-Za-z0-9._~*-]+")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*$")
 PNPM_VERSION = re.compile(r"^pnpm@(\d+\.\d+\.\d+)$")
 
@@ -129,7 +130,12 @@ def lockfile_dir(path: str, exists: Callable[[str], bool]) -> str:
 
 
 def is_workspace_member(directory: str, globs: list[str]) -> bool:
-    """Whether pnpm-workspace.yaml `packages` globs include ``directory``, relative to the workspace root."""
+    """Whether pnpm-workspace.yaml `packages` globs include ``directory``, relative to the workspace root.
+
+    pnpm includes the root itself whatever the globs say.
+    """
+    if not directory:
+        return True
     included = excluded = False
     for glob in globs:
         negated = glob.startswith("!")
@@ -141,28 +147,38 @@ def is_workspace_member(directory: str, globs: list[str]) -> bool:
 
 
 def _glob(pattern: str) -> re.Pattern[str]:
-    if pattern == ".":
-        return re.compile("^$")
     parts = (re.escape(part).replace(r"\*", "[^/]*") for part in pattern.split("**"))
     return re.compile("^" + ".*".join(parts) + "$")
 
 
 def check_bump(label: str, old: str, new: str) -> None:
-    """Refuse anything but a same-operator, same-major registry range change. A 0.x range keeps its minor too."""
-    before, after = RANGE.match(old), RANGE.match(new)
+    """Refuse anything but a same-operator registry range that moves up without a breaking change.
+
+    A breaking change is a new major, a new minor of a 0.x version, or any new 0.0.x version.
+    """
+    before, after = RANGE.fullmatch(old), RANGE.fullmatch(new)
     if before is None or after is None:
         raise Refused(f"{label} changes from {old} to {new}, which is not a plain registry version change")
-    if before["operator"] != after["operator"] or int(before["major"]) != int(after["major"]):
+    old_version, new_version = (
+        tuple(int(match[part]) for part in ("major", "minor", "patch")) for match in (before, after)
+    )
+    if before["operator"] != after["operator"] or old_version[0] != new_version[0]:
         raise Refused(f"{label} changes from {old} to {new}, which is a major change")
-    if int(after["major"]) == 0 and int(before["minor"]) != int(after["minor"]):
+    if new_version[0] == 0 and old_version[1] != new_version[1]:
         raise Refused(f"{label} changes from {old} to {new}, which is a 0.x minor change")
+    if new_version <= old_version:
+        raise Refused(f"{label} changes from {old} to {new}, which is not an upgrade")
+    if new_version[:2] == (0, 0):
+        raise Refused(f"{label} changes from {old} to {new}, which is a 0.0.x change")
 
 
 def manifest_changes(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) -> list[tuple[str, str, str]]:
     """The (name, old range, new range) bumps in a manifest, refusing any other difference."""
 
-    def rest(manifest: Mapping[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in manifest.items() if key not in DEPENDENCY_FIELDS}
+    def rest(manifest: Mapping[str, Any]) -> str:
+        # Compared as text, because dict equality ignores key order, which `exports` conditions depend on,
+        # and reads `true` as equal to `1`.
+        return json.dumps({key: value for key, value in manifest.items() if key not in DEPENDENCY_FIELDS})
 
     if rest(base) != rest(head):
         raise Refused(f"{path} changes more than dependency versions")
@@ -242,9 +258,11 @@ def blocked_patterns(
 def blocked_reason(name: str, patterns: Mapping[str, Iterable[str]]) -> str | None:
     for setting, entries in patterns.items():
         for entry in entries:
-            if entry.startswith(("!", "/")):
+            pattern = package_name(entry)
+            if not PACKAGE_PATTERN.fullmatch(pattern):
                 raise Refused(f"{setting} uses a pattern this proof does not read: {entry}")
-            if fnmatchcase(name, package_name(entry)):
+            # `*` crosses `/` as it does for pnpm, and case is ignored as it is for Renovate.
+            if re.fullmatch(".*".join(map(re.escape, pattern.split("*"))), name, re.IGNORECASE):
                 return f"{name} is named in {setting}"
     return None
 
