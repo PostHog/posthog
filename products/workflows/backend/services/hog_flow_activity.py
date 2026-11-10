@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Final, Optional, cast
 from uuid import UUID
 
-from django.db import models, transaction
+from django.db import OperationalError, models, transaction
 
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -27,7 +27,12 @@ _SCOPE: Final = "HogFlow"
 
 
 def require_archived_before_delete(instance: HogFlow) -> None:
-    if instance.status != HogFlow.State.ARCHIVED:
+    try:
+        with transaction.atomic():
+            status = HogFlow.objects.select_for_update(nowait=True).values_list("status", flat=True).get(pk=instance.pk)
+    except OperationalError:
+        raise Conflict("This workflow is being saved. Try again in a moment.", code="workflow_busy")
+    if status != HogFlow.State.ARCHIVED:
         raise Conflict("Archive this workflow before you delete it.", code="workflow_not_archived")
 
 
