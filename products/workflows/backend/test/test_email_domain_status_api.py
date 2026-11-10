@@ -296,6 +296,40 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         assert not self.is_verified(other_teams_sender)
         self.reload_workers.assert_called_once_with(self.team.id, [sender])
 
+    def test_verifying_another_projects_sender_keeps_a_changed_mail_from_subdomain(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        other_teams_sender = self.create_sender(f"hello@{DOMAIN}", team=other_team)
+        config = Integration.objects.get(id=sender).config
+        changed = self.client.patch(
+            f"/api/projects/{self.team.id}/integrations/{sender}/email",
+            {"config": {**config, "mail_from_subdomain": "bounce"}},
+            format="json",
+        )
+        assert changed.status_code == status.HTTP_200_OK, changed.json()
+
+        verified = self.client.post(
+            f"/api/projects/{other_team.id}/integrations/{other_teams_sender}/email/verify",
+            HTTP_AUTHORIZATION="Bearer admin_key",
+        )
+
+        assert verified.status_code == status.HTTP_200_OK, verified.json()
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+        assert Integration.objects.get(id=other_teams_sender).config["mail_from_subdomain"] == "bounce"
+
+    def test_a_mail_from_change_that_lands_during_a_verify_is_kept(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        start_verification = self.world.ses._verify_domain_identity
+
+        def another_project_changes_the_mail_from_meanwhile(*, Domain: str) -> dict:
+            self.world.ses.identities[DOMAIN].mail_from_domain = f"bounce.{DOMAIN}"
+            return start_verification(Domain=Domain)
+
+        with patch.object(self.world.ses, "_verify_domain_identity", another_project_changes_the_mail_from_meanwhile):
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+
     def test_a_sender_of_another_organization_is_not_found(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
         foreign_sender = Integration.objects.create(
