@@ -28,6 +28,7 @@ function config(mountDir: string): Config {
         mountDir,
         reloadSeconds: 3600,
         metricsPort: 0,
+        auditRetentionDays: 30,
     }
 }
 

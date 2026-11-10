@@ -254,6 +254,7 @@ describe('server readiness with a database', () => {
             mountDir,
             reloadSeconds: 3600,
             metricsPort: 0,
+            auditRetentionDays: 30,
         }
         if (database) {
             config.database = database

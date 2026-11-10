@@ -34,6 +34,7 @@ function config(mountDir: string, prestopDelayMs: number): Config {
         mountDir,
         reloadSeconds: 3600,
         metricsPort: 0,
+        auditRetentionDays: 30,
     }
 }
 

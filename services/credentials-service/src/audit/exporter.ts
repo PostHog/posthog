@@ -85,6 +85,8 @@ export function captureSender(config: AuditExportConfig, fetchFn: typeof fetch =
             body: JSON.stringify({ api_key: config.apiKey, batch: events }),
             signal: AbortSignal.timeout(config.timeoutMs),
         })
+        // Cancel the body so the connection is freed whatever the status.
+        await res.body?.cancel().catch(() => undefined)
         if (!res.ok) {
             // The body is left out of the error: it could echo the request.
             throw new Error(`capture answered ${res.status}`)
@@ -93,16 +95,30 @@ export function captureSender(config: AuditExportConfig, fetchFn: typeof fetch =
 }
 
 export class AuditExporter {
+    private stopped = false
+
     constructor(
         private readonly pool: Pool,
         private readonly send: Sender,
         private readonly batchSize: number
     ) {}
 
+    /** Ends the current pass after its batch, so shutdown does not wait for the whole backlog. */
+    stop(): void {
+        this.stopped = true
+    }
+
     /** One pass: updates the lag gauge, then, as the leader, exports until nothing waits or a send fails. */
     async tick(): Promise<TickResult> {
         await this.updateLag()
         const client = await this.pool.connect()
+        // A checked-out client has no error listener, so a dropped connection during a send
+        // would otherwise be an uncaught 'error' event.
+        let clientError: Error | undefined
+        const onError = (err: Error): void => {
+            clientError = err
+        }
+        client.on('error', onError)
         let locked = false
         try {
             const lock = await client.query('SELECT pg_try_advisory_lock($1) AS locked', [EXPORT_LOCK_KEY])
@@ -111,21 +127,28 @@ export class AuditExporter {
                 return 'not_leader'
             }
             let exported = 0
-            for (;;) {
+            while (!this.stopped) {
                 const count = await this.exportBatch(client)
                 if (count === 0) {
                     return exported > 0 ? 'exported' : 'idle'
                 }
                 exported += count
             }
+            return exported > 0 ? 'exported' : 'idle'
         } catch (err) {
             logger.error('audit:export_failed', { error: err instanceof Error ? err.message : String(err) })
             return 'failed'
         } finally {
-            if (locked) {
+            if (locked && !clientError) {
                 await client.query('SELECT pg_advisory_unlock($1)', [EXPORT_LOCK_KEY]).catch(() => undefined)
             }
-            client.release()
+            if (clientError) {
+                // Released with its error, so the pool drops it. The listener stays for late errors.
+                client.release(clientError)
+            } else {
+                client.removeListener('error', onError)
+                client.release()
+            }
         }
     }
 

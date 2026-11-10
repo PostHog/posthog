@@ -253,6 +253,7 @@ export class CredentialsServer {
         if (auditExport) {
             const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize)
             this.cancelTimers.push(every(auditExport.intervalSeconds * 1000, async () => void (await exporter.tick())))
+            this.cancelTimers.push(() => exporter.stop())
         }
         this.cancelTimers.push(
             every(
