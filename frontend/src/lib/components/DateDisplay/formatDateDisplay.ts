@@ -11,6 +11,7 @@ export interface FormatDateDisplayInput {
     resolvedDateRange?: ResolvedDateRangeResponse
     timezone?: string
     weekStartDay?: number
+    showFullDate?: boolean
 }
 
 export interface DateDisplayParts {
@@ -31,28 +32,39 @@ const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
     year: 'YYYY',
 }
 
-const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string => {
+// Compare with today in the project timezone, because near New Year the browser timezone can be in another year.
+const isOutsideCurrentYear = (parsedDate: dayjs.Dayjs, timezone: string | undefined): boolean =>
+    parsedDate.year() !== dayjs().tz(timezone).year()
+
+const monthFirstDateFormat = (showYear: boolean): string => (showYear ? 'MMM D, YYYY' : 'MMM D')
+
+const dateHighlight = (
+    parsedDate: dayjs.Dayjs,
+    interval: IntervalType,
+    showFullDate: boolean,
+    showYear: boolean
+): string => {
+    const weekdayFormat = showFullDate ? 'ddd' : 'dd'
     switch (interval) {
         case 'second':
-            return parsedDate.format('MMM D')
         case 'minute':
-            return parsedDate.format('MMM D')
         case 'hour':
-            return parsedDate.format('MMM D')
+            return parsedDate.format(monthFirstDateFormat(showYear))
         case 'day':
-            return parsedDate.format('dd')
         case 'week':
-            return parsedDate.format('dd')
+            return parsedDate.format(weekdayFormat)
         case 'month':
-            return parsedDate.format('YYYY')
         case 'quarter':
             return parsedDate.format('YYYY')
         case 'year':
             return ''
         default:
-            return parsedDate.format('dd')
+            return parsedDate.format(weekdayFormat)
     }
 }
+
+const primaryDateFormat = (interval: IntervalType, showYear: boolean): string =>
+    showYear && (interval === 'day' || interval === 'week') ? 'D MMM YYYY' : DISPLAY_DATE_FORMAT[interval]
 
 export function formatDateDisplay({
     date,
@@ -61,6 +73,7 @@ export function formatDateDisplay({
     resolvedDateRange,
     timezone,
     weekStartDay,
+    showFullDate = false,
 }: FormatDateDisplayInput): DateDisplayParts {
     let parsedDate = dayjs.tz(date, timezone)
     let weekEnd: string | null = null
@@ -73,9 +86,11 @@ export function formatDateDisplay({
         weekEnd = weekBoundaries.end.toJSON()
     }
 
+    const showYear = showFullDate && isOutsideCurrentYear(parsedDate, timezone)
+
     return {
-        highlight: dateHighlight(parsedDate, interval),
-        primary: parsedDate.format(DISPLAY_DATE_FORMAT[interval]),
+        highlight: dateHighlight(parsedDate, interval, showFullDate, showYear),
+        primary: parsedDate.format(primaryDateFormat(interval, showYear)),
         secondary: secondaryDate ? dayjs(secondaryDate).format(DISPLAY_DATE_FORMAT[interval]) : null,
         weekEnd,
     }

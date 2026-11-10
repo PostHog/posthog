@@ -13,6 +13,8 @@ interface DateDisplayProps {
     resolvedDateRange?: ResolvedDateRangeResponse
     timezone?: string
     weekStartDay?: number
+    /** Show a three-letter weekday, and the year when it is not the current year in the project timezone. */
+    showFullDate?: boolean
 }
 
 /* Returns a single line standardized component to display the date depending on context.
@@ -26,6 +28,7 @@ export function DateDisplay({
     resolvedDateRange,
     timezone,
     weekStartDay,
+    showFullDate,
 }: DateDisplayProps): JSX.Element {
     const { highlight, primary, secondary, weekEnd } = formatDateDisplay({
         date,
@@ -34,6 +37,7 @@ export function DateDisplay({
         resolvedDateRange,
         timezone,
         weekStartDay,
+        showFullDate,
     })
 
     return (
@@ -47,7 +51,7 @@ export function DateDisplay({
             {interval === 'week' && !hideWeekRange && weekEnd && (
                 <>
                     {' – '}
-                    <DateDisplay interval="day" date={weekEnd} timezone={timezone} />
+                    <DateDisplay interval="day" date={weekEnd} timezone={timezone} showFullDate={showFullDate} />
                 </>
             )}
         </>
