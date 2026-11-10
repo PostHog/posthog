@@ -1,8 +1,6 @@
 import { execFile, spawn } from 'child_process'
-import { createHash } from 'crypto'
-import { closeSync, openSync, realpathSync } from 'fs'
+import { closeSync, openSync } from 'fs'
 import Redis from 'ioredis'
-import net from 'net'
 import path from 'path'
 import { Client } from 'pg'
 import { promisify } from 'util'
@@ -29,59 +27,39 @@ export function eventsConsumerGroup(specs: RoleSpec[]): string {
     return events?.env.CDP_EVENTS_CONSUMER_GROUP_ID || getDefaultCdpConfig().CDP_EVENTS_CONSUMER_GROUP_ID
 }
 
-async function hogli(repoRoot: string, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
+async function hogliExit(
+    repoRoot: string,
+    args: string[],
+    logFile: string,
+    env: NodeJS.ProcessEnv
+): Promise<number | null> {
     const log = openSync(logFile, 'a')
     const child = spawn(`${repoRoot}/bin/hogli`, args, { cwd: repoRoot, env, stdio: ['ignore', log, log] })
     closeSync(log)
-    const code = await new Promise<number | null>((resolve, reject) => {
+    return await new Promise<number | null>((resolve, reject) => {
         child.once('error', reject)
         child.once('exit', resolve)
     })
+}
+
+async function hogli(repoRoot: string, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
+    const code = await hogliExit(repoRoot, args, logFile, env)
     if (code !== 0) {
         throw new Error(`hogli ${args.join(' ')} exited with ${code}; see ${logFile}`)
     }
 }
 
-function realOrResolved(dir: string): string {
-    try {
-        return realpathSync(dir)
-    } catch {
-        return path.resolve(dir)
-    }
-}
-
-export function phrocsSocketPath(dir: string): string {
-    return `/tmp/phrocs-${createHash('sha256').update(realOrResolved(dir)).digest('hex').slice(0, 8)}.sock`
-}
-
-export function stackIsLive(repoRoot: string): Promise<boolean> {
-    return new Promise((resolve) => {
-        const socket = net.connect(phrocsSocketPath(repoRoot))
-        const settle = (live: boolean): void => {
-            socket.destroy()
-            resolve(live)
-        }
-        socket.setTimeout(PROBE_TIMEOUT_MS, () => settle(false))
-        socket.once('connect', () => settle(true))
-        socket.once('error', () => settle(false))
-    })
-}
-
-export function stackCommands(config: string, live: boolean): string[][] {
-    const launch = [
-        ['dev:generate', '--with', 'workflows', '--without', 'nodejs'],
-        ['up', '-d', '--custom', config],
-    ]
-    return [...(live ? [] : launch), ['wait']]
-}
+const NOT_REACHABLE = 3
 
 export async function startStack(repoRoot: string, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    for (const args of stackCommands(config, await stackIsLive(repoRoot))) {
-        await hogli(repoRoot, args, logFile, hogliEnv)
+    if ((await hogliExit(repoRoot, ['wait', '--timeout', '0'], logFile, hogliEnv)) === NOT_REACHABLE) {
+        await hogli(repoRoot, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
+        await hogli(repoRoot, ['up', '-d', '--custom', config], logFile, hogliEnv)
     }
+    await hogli(repoRoot, ['wait'], logFile, hogliEnv)
 }
 
 export async function syncTemplates(repoRoot: string, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {

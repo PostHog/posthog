@@ -1,13 +1,16 @@
-import { readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'fs'
+import { createHash } from 'crypto'
+import { readFileSync, readdirSync, readlinkSync, realpathSync } from 'fs'
+import net from 'net'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
-import { CdpRole } from '../cards'
+import { getPluginServerCapabilities } from '~/capabilities'
+import { stringToPluginServerMode } from '~/common/config'
 
 export const MARKER = 'SCENARIO_RUNNER=1'
 
 const PROC_ROOT = '/proc'
-const LOCK_FILE = 'runner.lock'
+const HOLDER_READ_TIMEOUT_MS = 2000
 
 export type ProcEntry = { pid: number; pgid: number; cmdline: string; cwd: string | null; environ: string[] | null }
 
@@ -29,29 +32,42 @@ export class StackConflictError extends Error {
 
 const isMarked = (entry: ProcEntry): boolean => entry.environ?.includes(MARKER) ?? false
 
+const ENTRY_POINTS = ['bin/posthog-node', 'src/index.ts', 'dist/index.js']
+
 const entryPointsOf = (nodejsDir: string): string[] => [
     path.join(path.dirname(nodejsDir), 'bin', 'posthog-node'),
-    path.join(nodejsDir, 'src', 'index.ts'),
-    path.join(nodejsDir, 'dist', 'index.js'),
+    ...ENTRY_POINTS.map((entryPoint) => path.join(nodejsDir, entryPoint)),
 ]
 
-const CDP_MODES: string[] = ['', ...CdpRole.options]
-
-function runsCdp(entry: ProcEntry, nodejsDir: string): boolean {
-    if (entry.cwd === null) {
-        return false
+function launchesNode(entry: ProcEntry, nodejsDir: string): boolean {
+    const args = entry.cmdline.split(' ')
+    const cwd = entry.cwd
+    if (cwd === null) {
+        return args.some((arg) =>
+            ENTRY_POINTS.some((entryPoint) => arg === entryPoint || arg.endsWith(`/${entryPoint}`))
+        )
     }
     const entryPoints = entryPointsOf(nodejsDir)
-    const cwd = entry.cwd
-    const launchesNode = entry.cmdline.split(' ').some((arg) => entryPoints.includes(path.resolve(cwd, arg)))
-    if (!launchesNode) {
+    return args.some((arg) => entryPoints.includes(path.resolve(cwd, arg)))
+}
+
+function servesCdp(environ: string[]): boolean {
+    const read = (name: string): string | undefined =>
+        environ.find((variable) => variable.startsWith(`${name}=`))?.slice(name.length + 1)
+    const mode = read('PLUGIN_SERVER_MODE')
+    try {
+        const capabilities = getPluginServerCapabilities({
+            PLUGIN_SERVER_MODE: mode ? (stringToPluginServerMode[mode] ?? null) : null,
+            NODEJS_CAPABILITY_GROUPS: read('NODEJS_CAPABILITY_GROUPS') ?? '',
+        })
+        return Object.entries(capabilities ?? {}).some(([name, enabled]) => name.startsWith('cdp') && enabled)
+    } catch {
         return false
     }
-    if (entry.environ === null) {
-        return true
-    }
-    const mode = entry.environ.find((variable) => variable.startsWith('PLUGIN_SERVER_MODE='))
-    return CDP_MODES.includes(mode?.slice('PLUGIN_SERVER_MODE='.length) ?? '')
+}
+
+function runsCdp(entry: ProcEntry, nodejsDir: string): boolean {
+    return launchesNode(entry, nodejsDir) && (entry.environ === null || servesCdp(entry.environ))
 }
 
 export function planCleanup(entries: ProcEntry[], selfPid: number, nodejsDir: string): CleanupPlan {
@@ -122,44 +138,34 @@ function signal(target: number, sig: NodeJS.Signals | 0): boolean {
     }
 }
 
-function isAlive(pid: number): boolean {
-    try {
-        process.kill(pid, 0)
-        return true
-    } catch (error) {
-        return (error as NodeJS.ErrnoException).code === 'EPERM'
-    }
+function holderOf(address: string): Promise<string> {
+    return new Promise((resolve) => {
+        let said = ''
+        const socket = net.connect(address)
+        socket.setTimeout(HOLDER_READ_TIMEOUT_MS, () => socket.destroy())
+        socket.on('data', (chunk) => (said += chunk))
+        socket.once('error', () => undefined)
+        socket.once('close', () => resolve(said.trim()))
+    })
 }
 
-export function holdRunLock(stateDir: string): () => void {
-    const file = path.join(stateDir, LOCK_FILE)
-    const own = String(process.pid)
-    const release = (): void => {
-        if (readOptional(file) === own) {
-            rmSync(file, { force: true })
+export async function holdRunLock(stateDir: string): Promise<() => Promise<void>> {
+    const address = `\0posthog-scenarios-${createHash('sha256').update(realpathSync(stateDir)).digest('hex').slice(0, 16)}`
+    const server = net.createServer((socket) => socket.end(String(process.pid)))
+    try {
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject)
+            server.listen(address, resolve)
+        })
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') {
+            throw error
         }
+        const holder = (await holderOf(address)) || 'another process'
+        throw new StackConflictError(`Scenario runner ${holder} is already running from ${stateDir}.`, `kill ${holder}`)
     }
-    for (;;) {
-        try {
-            writeFileSync(file, own, { flag: 'wx' })
-            return release
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-                throw error
-            }
-        }
-        const holder = Number(readOptional(file))
-        if (holder === process.pid) {
-            return release
-        }
-        if (holder > 0 && isAlive(holder)) {
-            throw new StackConflictError(
-                `Scenario runner ${holder} is already running from ${stateDir}.`,
-                `kill ${holder}`
-            )
-        }
-        rmSync(file, { force: true })
-    }
+    server.unref()
+    return () => new Promise((resolve) => server.close(() => resolve()))
 }
 
 const targetsOf = ({ groups, pids }: Targets): number[] => [...groups.map((pgid) => -pgid), ...pids]

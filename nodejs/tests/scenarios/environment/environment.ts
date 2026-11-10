@@ -52,7 +52,7 @@ export function createEnvironment(): Environment {
     const restarts = new Set<NodeJS.Timeout>()
     const recorded: RoleExit[] = []
     let edge: ProviderEdge | undefined
-    let releaseLock: (() => void) | undefined
+    let releaseLock: (() => Promise<void>) | undefined
     let stopping = false
 
     const start = (spec: RoleSpec): void => {
@@ -87,7 +87,7 @@ export function createEnvironment(): Environment {
                 throw new Error(`No tsx at ${TSX}; install the nodejs package first.`)
             }
             mkdirSync(stateDir, { recursive: true })
-            releaseLock = holdRunLock(stateDir)
+            releaseLock = await holdRunLock(stateDir)
             stopping = false
             const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
             if (plan.strangers.length > 0) {
@@ -151,7 +151,7 @@ export function createEnvironment(): Environment {
             await terminate({ groups, pids: [] }, STOP_GRACE_MS)
             await edge?.close()
             edge = undefined
-            releaseLock?.()
+            await releaseLock?.()
             releaseLock = undefined
         },
     }
