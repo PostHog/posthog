@@ -2142,7 +2142,6 @@ class _InMemoryS3FileSystem(s3fs.S3FileSystem):
         if path1 not in self.keys:
             raise FileNotFoundError(path1)
         self.copied.append((path1, path2))
-        self.invalidate_cache(path2)
 
 
 def test_copy_prepared_parquet_files_lists_a_reused_folder_again_on_the_same_client(monkeypatch) -> None:
