@@ -609,8 +609,7 @@ export class EmailTrackingService {
         this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
     }
 
-    // Produces what SES recording queued. Each produce is a Kafka round trip, so a caller that records many
-    // notifications flushes once for all of them.
+    // One Kafka round trip for everything SES recording queued.
     public async flush(): Promise<void> {
         await Promise.all([
             this.hogFunctionMonitoringService.flush(),
@@ -643,7 +642,7 @@ export class EmailTrackingService {
         }
     }
 
-    // The signature was verified on the request that queued this envelope. The caller flushes.
+    // The signature was verified on the request that queued this envelope.
     public async recordQueuedSesNotification(envelope: SnsEnvelope): Promise<SesRecordingOutcome> {
         const recording = await this.recordSesNotification({ body: envelope, verifySignature: false })
         if (recording.outcome === 'recorded') {
@@ -686,7 +685,7 @@ export class EmailTrackingService {
         return { status: 200, message: 'queued' }
     }
 
-    // Queues the Kafka writes and does not produce them. The caller flushes.
+    // Queues the Kafka writes; the caller flushes.
     private async recordSesNotification(opts: {
         body: unknown
         verifySignature: boolean

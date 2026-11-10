@@ -13,13 +13,10 @@ import { counterParseError } from './metrics'
 
 type SkipReason = 'unparseable' | 'not_an_sns_envelope' | 'invalid_ses_event' | 'rejected'
 
-// Smaller than the default, because the whole batch must record within the 30s heartbeat health check. With 10 in
-// flight and one Kafka flush per batch, 200 notifications take a few seconds.
+// Below the default, so a batch records well within the 30s heartbeat health check.
 const SES_NOTIFICATIONS_PER_BATCH = 200
 
-// Each write of a notification is an atomic Postgres upsert, an atomic Redis script, or a Kafka append, so
-// notifications can record in any order. The topic is keyed by SNS message id, so other pods already record
-// notifications to the same recipient at the same time.
+// Safe in any order: every write is an atomic upsert, an atomic Redis script or a Kafka append.
 const SES_NOTIFICATIONS_IN_FLIGHT = 10
 
 // A notification that can never record is skipped, as SNS drops it after its last retry, so it cannot hold its
@@ -60,12 +57,8 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
                 }
             }
         }
-        // A failure stops new notifications and waits for those in flight, so no write outlives the failed batch.
         await Promise.all(Array.from({ length: SES_NOTIFICATIONS_IN_FLIGHT }, recordNext))
-        // Offsets commit after processBatch resolves, so the batch commits after the flush returns. The flush services
-        // log their own produce errors and do not throw them. The flush also runs for a failed batch, because the
-        // recorded notifications already grew the Redis counters of unique people, and a redelivery does not count
-        // those people again.
+        // Flush a failed batch too: its recorded opens already grew the unique-person counters, which a redelivery won't.
         try {
             await this.emailTrackingService.flush()
         } catch (error) {
