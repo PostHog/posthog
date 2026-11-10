@@ -74,7 +74,7 @@ def _installation_id(owner: str, organization_ids: Collection[str]) -> str | Non
     """The PostHog GitHub App installation on the repository owner, in one of these organizations."""
     team_ids = list(Team.objects.filter(organization_id__in=organization_ids).values_list("id", flat=True))
     # Only the installation id is read. The newest row wins over one left from an earlier install.
-    rows = IntegrationManager.github.any.list_across_teams(
+    rows = IntegrationManager.github.oauth.list_across_teams(
         CrossTeamFilter(team_ids=tuple(team_ids), where_iexact={"account.name": owner}, newest_first=True, limit=1)
     )
     return rows[0].integration_id if rows else None

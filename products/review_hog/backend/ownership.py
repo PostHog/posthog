@@ -144,7 +144,7 @@ class RepositoryOwnership:
     @staticmethod
     def installation_ids_for_account(account_login: str) -> list[str]:
         """The installations of the PostHog GitHub App on one GitHub account, from any project."""
-        rows = IntegrationManager.github.any.list_across_teams(
+        rows = IntegrationManager.github.oauth.list_across_teams(
             CrossTeamFilter(where_iexact={"account.name": account_login})
         )
         return sorted({row.integration_id for row in rows if row.integration_id})
