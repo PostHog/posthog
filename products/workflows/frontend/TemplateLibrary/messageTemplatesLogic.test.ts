@@ -85,18 +85,26 @@ describe('messageTemplatesLogic', () => {
         expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['growth', 'onboarding'])
     })
 
-    it('removes a deleted template from the project tree and puts it back on undo', async () => {
+    it('deletes a template for good and brings it back on undo, in the library and the project tree', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const treeEntry = { id: 'file-a', path: 'Unfiled/Email templates/Welcome', type: 'message_template', ref: 'a' }
+        let deleted = false
         useMocks({
             get: {
+                '/api/projects/:team_id/messaging_templates/': () => [
+                    200,
+                    { results: deleted ? [] : [template('a', 'Welcome', [])] },
+                ],
                 '/api/environments/:team_id/file_system/': ({ request }) =>
-                    new URL(request.url).searchParams.get('ref') === 'a'
+                    new URL(request.url).searchParams.get('ref') === 'a' && !deleted
                         ? [200, { results: [treeEntry], count: 1 }]
                         : [200, { results: [], count: 0 }],
             },
             patch: {
-                '/api/environments/:team_id/messaging_templates/:id/': template('a', 'Welcome', []),
+                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    deleted = ((await request.json()) as { deleted: boolean }).deleted
+                    return [200, template('a', 'Welcome', [])]
+                },
             },
         })
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
@@ -107,10 +115,14 @@ describe('messageTemplatesLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.deleteTemplate(template('a', 'Welcome', []))
         }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.loadTemplates()).toFinishAllListeners()
+        expect(logic.values.templates.map((t) => t.id)).toEqual([])
         expect(projectTreeDataLogic.values.itemsByRef['message_template::a']).toBeUndefined()
 
         await toast.mock.calls[0][1]?.button?.action?.()
+        await expectLogic(logic).toFinishAllListeners()
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        expect(logic.values.templates.map((t) => t.id)).toEqual(['a'])
         expect(projectTreeDataLogic.values.itemsByRef['message_template::a']?.path).toBe(
             'Unfiled/Email templates/Welcome'
         )

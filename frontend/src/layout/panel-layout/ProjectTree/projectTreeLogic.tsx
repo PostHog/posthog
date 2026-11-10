@@ -1798,7 +1798,11 @@ export function refreshTreeItem(type: string, ref: string): void {
 }
 
 export function isTreeItemLoaded(type: string, ref: string): boolean {
-    return !!projectTreeDataLogic.findMounted()?.values.itemsByRef[`${type}::${ref}`]
+    const treeData = projectTreeDataLogic.findMounted()?.values
+    return (
+        !!treeData?.itemsByRef[`${type}::${ref}`] ||
+        !!treeData?.shortcutData.some((shortcut) => shortcut.type === type && shortcut.ref === ref)
+    )
 }
 
 export function deleteFromTree(type: string, ref: string): void {

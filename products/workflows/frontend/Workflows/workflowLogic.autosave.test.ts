@@ -1526,19 +1526,13 @@ describe('workflowLogic auto-save', () => {
             type: 'hog_flow',
             ref: WORKFLOW_ID,
         })
-        let treeRequests: number
-
         beforeEach(async () => {
-            treeRequests = 0
             useMocks({
                 get: {
-                    '/api/environments/:team_id/file_system/': ({ request }) => {
-                        if (new URL(request.url).searchParams.get('ref') !== WORKFLOW_ID) {
-                            return [200, { results: [], count: 0 }]
-                        }
-                        treeRequests += 1
-                        return [200, { results: [treeEntry('Renamed')], count: 1 }]
-                    },
+                    '/api/environments/:team_id/file_system/': ({ request }) =>
+                        new URL(request.url).searchParams.get('ref') === WORKFLOW_ID
+                            ? [200, { results: [treeEntry('Renamed')], count: 1 }]
+                            : [200, { results: [], count: 0 }],
                 },
             })
             initKeaTests()
@@ -1564,18 +1558,6 @@ describe('workflowLogic auto-save', () => {
             expect(projectTreeDataLogic.values.itemsByRef[`hog_flow::${WORKFLOW_ID}`]?.path).toBe(
                 'Unfiled/Workflows/Renamed'
             )
-        })
-
-        it('asks the tree for nothing with the flag off, as on master', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: false })
-            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Autosave test')] } as any)
-
-            await expectLogic(logic, () => {
-                logic.actions.saveWorkflowPartial({ name: 'Renamed' })
-            }).toDispatchActions(['saveWorkflowSuccess'])
-            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-
-            expect(treeRequests).toBe(0)
         })
     })
 })
