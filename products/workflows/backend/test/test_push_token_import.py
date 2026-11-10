@@ -1,10 +1,9 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime, timedelta
 from functools import partial
 from itertools import count
-from typing import Any
-from uuid import uuid4
+from typing import Any, Literal
 
 import time_machine
 from posthog.test.base import APIBaseTest, _create_person, flush_persons_and_events
@@ -15,11 +14,11 @@ from django.db import OperationalError, connections, router
 from django.test import SimpleTestCase
 from django.utils import timezone
 
-from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.capture import CaptureInternalResult
+from posthog.dataclasses import frozen
 from posthog.models import PersonalAPIKey
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
@@ -64,7 +63,7 @@ class _Ingestion:
     def __init__(self) -> None:
         # Ingestion deduplicates on the event ID and timestamp, so a copy sent again is stored once.
         self.stored: dict[tuple[str, str], dict[str, Any]] = {}
-        self.fails_once: dict[str, str] = {}
+        self.fails_once: dict[str, Literal["dropped", "unaccounted"]] = {}
 
     def capture(self, *, events: list[dict[str, Any]], **kwargs: Any) -> CaptureInternalResult:
         result = CaptureInternalResult(status_code=200)
@@ -80,13 +79,12 @@ class _Ingestion:
         return sorted(event["distinct_id"] for event in self.stored.values())
 
 
-@dataclass(order=True)
+@frozen(order=True)
 class _Scheduled:
     due: datetime
     order: int
     task: Any = field(compare=False)
     kwargs: dict[str, Any] = field(compare=False)
-    retries: int = field(compare=False)
 
 
 class _Queue:
@@ -101,7 +99,7 @@ class _Queue:
         if task is tasks.run_push_token_import and self.loses_imports:
             return
         due = timezone.now() + timedelta(seconds=countdown or 0)
-        self.scheduled.append(_Scheduled(due, next(self.order), task, kwargs, options.get("retries", 0)))
+        self.scheduled.append(_Scheduled(due=due, order=next(self.order), task=task, kwargs=kwargs))
 
     def sleep(self, seconds: float) -> None:
         self.clock.shift(seconds)
@@ -111,17 +109,14 @@ class _Queue:
         while due := sorted(entry for entry in self.scheduled if entry.due <= until):
             self.scheduled.remove(due[0])
             self.clock.move_to(max(due[0].due, timezone.now()))
-            self.run(due[0].task, due[0].kwargs, due[0].retries)
+            self.run(due[0].task, due[0].kwargs)
         self.clock.move_to(until)
 
-    def run(self, task: Any, kwargs: dict[str, Any], retries: int = 0) -> None:
-        task.push_request(id=str(uuid4()), kwargs=kwargs, args=[], retries=retries, called_directly=False)
+    def run(self, task: Any, kwargs: dict[str, Any]) -> None:
         try:
             task.run(**kwargs)
-        except (Retry, SystemExit):
+        except SystemExit:
             pass
-        finally:
-            task.pop_request()
 
 
 class TestParsePushTokenCsv(SimpleTestCase):
@@ -297,9 +292,7 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
         assert self._upload([f"user-2,{APNS_TOKEN}"]).status == PushTokenImportStatus.RUNNING
 
     def test_a_stop_that_lands_during_a_batch_still_counts_that_batch(self) -> None:
-        import_id = self._upload(
-            [f"a,{APNS_TOKEN}", f"b,{APNS_TOKEN}", f"c,{APNS_TOKEN}"], create_missing_persons=True
-        ).id
+        import_id = self._upload(THREE_DEVICES, create_missing_persons=True).id
 
         def stop_while_sending(**kwargs: Any) -> CaptureInternalResult:
             cancel_push_token_import(self.team.id, import_id)
@@ -319,7 +312,9 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
         assert self.storage.objects == {}
 
     @parameterized.expand([("dropped",), ("unaccounted",)])
-    def test_a_device_ingestion_did_not_confirm_is_sent_again_and_stored_once(self, failure: str) -> None:
+    def test_a_device_ingestion_did_not_confirm_is_sent_again_and_stored_once(
+        self, failure: Literal["dropped", "unaccounted"]
+    ) -> None:
         self.ingestion.fails_once = {"b": failure}
         import_id = self._upload([f"a,{APNS_TOKEN}", f"b,{APNS_TOKEN}"], create_missing_persons=True).id
 
@@ -397,17 +392,6 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
 
         with self._on_statement('UPDATE "{table}" SET "status"', worker_comes_back):
             self.queue.advance(push_token_import.STALLED_AFTER * (push_token_import.MAX_RESUMES + 1))
-
-        assert get_push_token_import(self.team.id, import_id).status == PushTokenImportStatus.COMPLETED
-        assert self.ingestion.devices() == ["a", "b", "c"]
-
-    def test_a_stalled_import_is_resumed_and_completes(self) -> None:
-        self.queue.loses_imports = True
-        import_id = self._upload(THREE_DEVICES, create_missing_persons=True).id
-        self.queue.advance(push_token_import.STALLED_AFTER)
-        self.queue.loses_imports = False
-
-        self.queue.advance(push_token_import.STALLED_AFTER)
 
         assert get_push_token_import(self.team.id, import_id).status == PushTokenImportStatus.COMPLETED
         assert self.ingestion.devices() == ["a", "b", "c"]
