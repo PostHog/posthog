@@ -53,8 +53,8 @@ def gitlab_repository_error(integration: IntegrationRecord, repository: str) -> 
         )
     if not bound:
         return (
-            "Coding tasks need a project access token, because the agent holds the token while it works. "
-            f"This connection's token can reach projects other than {gitlab.project_path}. "
-            "Connect GitLab again with a project access token for this project."
+            "Coding tasks need a project access token for this project, because the agent holds the token "
+            "while it works. Personal and group tokens can reach more than this project. "
+            f"Create a project access token in {gitlab.project_path} and connect GitLab again."
         )
     return None
