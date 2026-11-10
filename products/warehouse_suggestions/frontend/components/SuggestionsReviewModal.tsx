@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { waitingSuggestionsText } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { useFocusFollowsRemovedRow } from './useFocusFollowsRemovedRow'
 
 export interface SuggestionsReviewModalProps {
     title: string
@@ -20,7 +21,9 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
     const bodyRef = useRef<HTMLDivElement>(null)
     const returnFocusRef = useRef<HTMLSpanElement>(null)
     const rowIds = listedSuggestions.map((suggestion) => suggestion.id)
-    useFocusFollowsRemovedRow(bodyRef, rowIds)
+    useFocusFollowsRemovedRow(bodyRef, rowIds, () =>
+        bodyRef.current?.querySelector<HTMLElement>('[data-suggestions-done]')?.focus()
+    )
     useFocusFirstRowOfANewBatch(bodyRef, rowIds)
 
     const focusSurfaceIfOpenerLeft = (): void => {
@@ -86,27 +89,6 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
             </LemonModal>
         </>
     )
-}
-
-function useFocusFollowsRemovedRow(bodyRef: React.RefObject<HTMLDivElement>, rowIds: string[]): void {
-    const previousRowIds = useRef(rowIds)
-
-    useEffect(() => {
-        const previous = previousRowIds.current
-        previousRowIds.current = rowIds
-        const removedIndex = previous.findIndex((id) => !rowIds.includes(id))
-        const focusWasLost = !document.activeElement || document.activeElement === document.body
-        if (removedIndex < 0 || !focusWasLost || !bodyRef.current) {
-            return
-        }
-        const nextId = rowIds[removedIndex] ?? rowIds[removedIndex - 1]
-        const target = nextId
-            ? bodyRef.current.querySelector<HTMLElement>(
-                  `[data-suggestion-row="${nextId}"] [data-suggestion-actions] button`
-              )
-            : bodyRef.current.querySelector<HTMLElement>('[data-suggestions-done]')
-        target?.focus()
-    }, [rowIds, bodyRef])
 }
 
 function useFocusFirstRowOfANewBatch(bodyRef: React.RefObject<HTMLDivElement>, rowIds: string[]): void {
