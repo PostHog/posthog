@@ -5,8 +5,6 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.utils import timezone
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -45,13 +43,16 @@ class TestCreateDashboardAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("session", True, None, status.HTTP_201_CREATED),
-            ("flag_off", False, None, status.HTTP_403_FORBIDDEN),
-            ("key_with_scopes", True, ["web_analytics:read", "dashboard:write", "insight:write"], 201),
-            ("key_without_dashboard_write", True, ["web_analytics:write", "insight:write"], 403),
+            ("session", True, True, None, status.HTTP_201_CREATED),
+            ("flag_off", False, True, None, status.HTTP_403_FORBIDDEN),
+            ("no_dashboard_edit_access", True, False, None, status.HTTP_403_FORBIDDEN),
+            ("key_with_scopes", True, True, ["web_analytics:read", "dashboard:write", "insight:write"], 201),
+            ("key_without_dashboard_write", True, True, ["web_analytics:write", "insight:write"], 403),
         ]
     )
-    def test_create_dashboard(self, _name: str, flag_on: bool, scopes: list[str] | None, expected: int) -> None:
+    def test_create_dashboard(
+        self, _name: str, flag_on: bool, can_create: bool, scopes: list[str] | None, expected: int
+    ) -> None:
         self.feature_enabled.return_value = flag_on
         headers: dict[str, Any] = {}
         if scopes is not None:
@@ -62,7 +63,8 @@ class TestCreateDashboardAPI(APIBaseTest):
             self.client.logout()
             headers = {"authorization": f"Bearer {value}"}
 
-        response = self.client.post(self.url, headers=headers)
+        with patch("products.aeo.backend.presentation.views.authorization.check", return_value=can_create):
+            response = self.client.post(self.url, headers=headers)
 
         assert response.status_code == expected, response.json()
         self.client.force_login(self.user)
@@ -94,8 +96,13 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
     # The queries read Postgres through ClickHouse, which only sees committed rows.
     CLASS_DATA_LEVEL_SETUP = False
 
+    def _run(self, query: str) -> list[tuple]:
+        return execute_hogql_query(query, team=self.team, user=self.user).results
+
     def setUp(self) -> None:
         super().setUp()
+        # The queries count days from ClickHouse's clock, so the rows are placed at noon on days counted from it.
+        self.today: dt.date = self._run("SELECT toDate(now())")[0][0]
         other_org = Organization.objects.create(name="other")
         other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
         self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
@@ -163,10 +170,8 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
                 answer_text=answer,
                 cited_urls=urls or [],
             )
-            AEOCitationCheck.objects.filter(pk=check.pk).update(created_at=timezone.now() - dt.timedelta(days=days_ago))
-
-    def _run(self, query: str) -> list[tuple]:
-        return execute_hogql_query(query, team=self.team, user=self.user).results
+            noon = dt.datetime.combine(self.today - dt.timedelta(days=days_ago), dt.time(12), tzinfo=dt.UTC)
+            AEOCitationCheck.objects.filter(pk=check.pk).update(created_at=noon)
 
     @parameterized.expand(
         [
@@ -186,7 +191,7 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
         assert self._run(query) == expected
 
     def test_trend_buckets_weeks_ending_yesterday(self) -> None:
-        yesterday = timezone.now().date() - dt.timedelta(days=1)
+        yesterday = self.today - dt.timedelta(days=1)
 
         assert self._run(TREND_SQL) == [
             (yesterday - dt.timedelta(days=7), 50.0, 50.0, 2),

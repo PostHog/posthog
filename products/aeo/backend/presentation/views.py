@@ -92,6 +92,12 @@ from products.aeo.backend.facade.contracts import (
     RankedPage,
     VisibilityDashboard,
 )
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 
 MAX_PROMPTS_PER_IMPORT = 2000
 MAX_SUGGESTED_PROMPTS = 50
@@ -1171,7 +1177,9 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     def create_dashboard(self, request: Request, **kwargs: Any) -> Response:
         # required_scopes only constrains API keys; session RBAC evaluates this viewset's web_analytics scope object,
         # so the caller's dashboard access is checked here.
-        if not self.user_access_control.check_access_level_for_resource("dashboard", required_level="editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.DASHBOARD, project_id=self.team_id), action=AuthorizationAction.CREATE
+        ):
             raise PermissionDenied("Creating a dashboard requires dashboard edit access.")
         created = create_visibility_dashboard(self.team, cast(User, request.user))
         return Response(AEOVisibilityDashboardSerializer(created).data, status=status.HTTP_201_CREATED)
