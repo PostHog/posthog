@@ -170,8 +170,9 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                     </Markdown>
                     <CalloutBox type="fyi" title="Requirements">
                         <Markdown>
-                            Requires React Native 0.75+, Android API 26+, iOS 15+, and Xcode 26+. Expo Go is not
-                            supported - use a development build. Session replay is only supported on Android and iOS
+                            Requires React Native 0.75+, Android API 26+, iOS 15+, and Xcode 26+. On React Native 0.75
+                            and 0.76, including Expo SDK 52, Android builds also need Kotlin 2.0 or later. Expo Go is
+                            not supported - use a development build. Session replay is only supported on Android and iOS
                             platforms.
                         </Markdown>
                     </CalloutBox>
