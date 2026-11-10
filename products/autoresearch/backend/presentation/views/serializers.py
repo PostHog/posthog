@@ -2051,10 +2051,14 @@ class TrainingRunCapReachedSerializer(serializers.Serializer):
     )
 
 
-_LIMIT_SOURCE_HELP = (
-    "project: an override for this project. default: the fleet-wide default. "
-    "code: the built-in default, because no override is set or no override was readable."
-)
+def _limit_source_field(limit: str) -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        choices=LIMIT_SOURCE_CHOICES,
+        help_text=(
+            f"Where {limit} comes from. project: an override for this project. default: the fleet-wide default. "
+            "code: the built-in default, because no override is set or no override was readable."
+        ),
+    )
 
 
 class ProjectLimitsSerializer(DataclassSerializer):
@@ -2084,15 +2088,9 @@ class ProjectLimitsSerializer(DataclassSerializer):
     live_pipelines = serializers.IntegerField(
         help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
     )
-    max_training_runs_per_day_source = serializers.ChoiceField(
-        choices=LIMIT_SOURCE_CHOICES, help_text=f"Where max_training_runs_per_day comes from. {_LIMIT_SOURCE_HELP}"
-    )
-    max_iterations_per_run_source = serializers.ChoiceField(
-        choices=LIMIT_SOURCE_CHOICES, help_text=f"Where max_iterations_per_run comes from. {_LIMIT_SOURCE_HELP}"
-    )
-    max_live_pipelines_source = serializers.ChoiceField(
-        choices=LIMIT_SOURCE_CHOICES, help_text=f"Where max_live_pipelines comes from. {_LIMIT_SOURCE_HELP}"
-    )
+    max_training_runs_per_day_source = _limit_source_field("max_training_runs_per_day")
+    max_iterations_per_run_source = _limit_source_field("max_iterations_per_run")
+    max_live_pipelines_source = _limit_source_field("max_live_pipelines")
 
     class Meta:
         dataclass = ProjectLimits
