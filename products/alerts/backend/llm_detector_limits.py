@@ -31,9 +31,7 @@ if TYPE_CHECKING:
 
 LLM_DETECTOR_FLAG = "alerts-llm-detector"
 
-# Key inside the flag payload that overrides `DEFAULT_MAX_LLM_ALERTS_PER_TEAM`. The same key
-# inside a `team_configs` or `organization_configs` entry overrides it for that project or
-# organization only.
+# Key inside the flag payload that overrides `DEFAULT_MAX_LLM_ALERTS_PER_TEAM`.
 PAYLOAD_MAX_ALERTS_KEY = "max_llm_alerts_per_team"
 PAYLOAD_TEAM_CONFIGS_KEY = "team_configs"
 PAYLOAD_ORGANIZATION_CONFIGS_KEY = "organization_configs"

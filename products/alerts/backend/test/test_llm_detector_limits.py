@@ -82,8 +82,6 @@ class TestMaxLLMAlertsPerTeam(SimpleTestCase):
         with patch("posthoganalytics.get_feature_flag_payload", return_value=payload) as read:
             assert max_llm_alerts_per_team(team_id=TEAM_ID, organization_id=ORGANIZATION_ID) == expected
 
-        # The flag is boolean, so the payload is read at the true value rather than evaluated per
-        # organization, which would hide the overrides from an organization the flag does not match.
         read.assert_called_once()
         assert read.call_args.args[0] == LLM_DETECTOR_FLAG
         assert read.call_args.kwargs == {"match_value": True}
