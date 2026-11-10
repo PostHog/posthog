@@ -1,6 +1,3 @@
-//! Commits the consumer's offsets to Kafka from a task of its own, one
-//! synchronous commit at a time.
-//!
 //! librdkafka reports the result of a manual commit only when the commit is
 //! synchronous, and it does not retry a rejected one. So every commit here is
 //! synchronous, and a rejected offset goes out again in the next round.
@@ -237,8 +234,6 @@ impl Shared {
         Some(state.in_flight.clone())
     }
 
-    /// A rejected offset goes back in the queue unless a newer one for its
-    /// partition arrived during the round.
     fn finish_round(&self, result: Result<(), CommitError>) -> Round {
         let mut state = self.state();
         let sent = std::mem::take(&mut state.in_flight);
