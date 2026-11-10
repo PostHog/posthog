@@ -17,9 +17,8 @@ import { SettingsSection } from './SettingsSection'
 export function SettingsTab(): JSX.Element {
     const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
     useMountedLogic(integrationsLogic)
-    // The usage widget renders nothing without the billing product, so the section title
-    // must hide with it rather than sit over an empty area.
     const { product: inboxUsageProduct, spendProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
+    const showBillingUsage = inboxUsageProduct != null || spendProduct != null || inboxUsageLoading
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-6">
@@ -44,24 +43,26 @@ export function SettingsTab(): JSX.Element {
             >
                 <SlackNotificationsSection />
             </SettingsSection>
-            {(inboxUsageProduct != null || spendProduct != null || inboxUsageLoading) && (
-                <SettingsSection
-                    title={spendProduct ? 'Billing usage' : usageEnabled ? 'Pull request usage' : 'Usage'}
-                    description={
-                        spendProduct
-                            ? 'Recorded billable usage this billing period.'
-                            : 'Pull requests agents opened this billing period.'
-                    }
-                >
-                    <InboxUsageWidget />
-                </SettingsSection>
-            )}
-            {usageEnabled && (
+            {(showBillingUsage || usageEnabled) && (
                 <SettingsSection
                     title="Usage"
-                    description="Recorded usage for scout runs started and signals received in the last 30 days."
+                    description={
+                        showBillingUsage
+                            ? spendProduct
+                                ? 'Recorded billable usage this billing period.'
+                                : 'Pull requests agents opened this billing period.'
+                            : undefined
+                    }
                 >
-                    <UsageOverview />
+                    {showBillingUsage && <InboxUsageWidget />}
+                    {usageEnabled && (
+                        <div className={showBillingUsage ? 'border-t border-primary pt-3' : undefined}>
+                            <p className="mb-3 text-xs text-secondary">
+                                Recorded usage for scout runs started and signals received in the last 30 days.
+                            </p>
+                            <UsageOverview />
+                        </div>
+                    )}
                 </SettingsSection>
             )}
         </div>
