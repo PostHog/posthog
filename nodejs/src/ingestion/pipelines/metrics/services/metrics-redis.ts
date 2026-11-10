@@ -16,7 +16,15 @@ export const METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS = 2_000
 
 export function createMetricsRateLimiterRedis(config: MetricsRedisConfig): RedisV2 {
     const failOpen = config.METRICS_LIMITER_FAIL_OPEN
-    const failOpenOptions = failOpen ? { commandTimeout: METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS } : {}
+    // Without the offline queue, a command during an outage fails at once instead of piling up and
+    // replaying stale limiter writes when Redis comes back.
+    const failOpenOptions = failOpen
+        ? {
+              commandTimeout: METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS,
+              enableOfflineQueue: false,
+              autoResendUnfulfilledCommands: false,
+          }
+        : {}
     return createRedisV2PoolFromConfig({
         connection: {
             ...(config.METRICS_REDIS_HOST
