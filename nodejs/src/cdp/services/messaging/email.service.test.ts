@@ -1848,13 +1848,21 @@ describe('EmailService', () => {
             })
 
             // The SDK does not abort a call while it waits for its credentials, so this call outlives the deadline
-            // of the email before. The bucket cannot hold a download that way: an aborted download settles at once.
+            // of the email before, still holding that email's files. The bucket refuses every download while the
+            // call runs, so an email that loads its own files beside them fails to load them instead of sending.
             it.each([
-                ['loads its files and sends only once that call settles', true, sent, 1],
-                ['reschedules as a load retry, having loaded nothing, once its deadline passes', false, retriedLoad, 0],
+                [
+                    'loads its files and sends only once that call settles',
+                    true,
+                    sent,
+                    () => [
+                        { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
+                    ],
+                ],
+                ['reschedules as a load retry once its deadline passes', false, retriedLoad, () => []],
             ])(
                 'when a flow sends its next email inline while the SES call of the email before still waits for its credentials, it %s',
-                async (_name, credentialsArrive, expected, emailsSent) => {
+                async (_name, credentialsArrive, expected, inbox) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
                     let giveCredentials!: () => void
                     const credentials = new Promise<{ accessKeyId: string; secretAccessKey: string }>((resolve) => {
@@ -1862,24 +1870,22 @@ describe('EmailService', () => {
                             resolve({ accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' })
                     })
                     emailService.sesV2Client = ses.client({ credentials: () => credentials })
-                    let downloadsWhenItSettles: number | undefined
 
-                    const { first, second, downloadsOfTheFirst } = await inOneAdmission(async () => {
+                    const { first, second } = await inOneAdmission(async () => {
                         const first = await emailService.executeSendEmail(invocation)
-                        const downloadsOfTheFirst = bucket.downloads
+                        bucket.answer = 'refuse'
                         if (credentialsArrive) {
                             setTimeout(() => {
-                                downloadsWhenItSettles = bucket.downloads
+                                bucket.answer = 'pass'
                                 giveCredentials()
                             }, 300)
                         }
-                        return { first, second: await emailService.executeSendEmail(invocation), downloadsOfTheFirst }
+                        return { first, second: await emailService.executeSendEmail(invocation) }
                     })
 
                     expect(outcomeOf(first)).toEqual(retriedLoad)
                     expect(outcomeOf(second)).toEqual(expected)
-                    expect((downloadsWhenItSettles ?? bucket.downloads) - downloadsOfTheFirst).toBe(0)
-                    expect(ses.deliveredTo(recipient)).toHaveLength(emailsSent)
+                    expect(ses.deliveredTo(recipient)).toEqual(inbox())
                 }
             )
 
