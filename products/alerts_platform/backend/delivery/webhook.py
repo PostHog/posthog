@@ -14,7 +14,7 @@ from django.conf import settings
 
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_VERSION
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DestinationMisconfigured
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
 from products.alerts_platform.backend.delivery.wire import credential_digest, rfc3339
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, AnnouncedTransition
@@ -117,9 +117,11 @@ class WebhookTransport(WebhookUrlTransport):
         try:
             scheme = urlsplit(url).scheme
         except ValueError:
-            raise DeliveryError("This webhook destination's URL is not a valid URL.") from None
+            raise DestinationMisconfigured(
+                "This webhook destination's URL is not a valid URL.", reason="invalid_url"
+            ) from None
         if scheme != "https":
-            raise DeliveryError("This webhook destination's URL must use https.")
+            raise DestinationMisconfigured("This webhook destination's URL must use https.", reason="invalid_url")
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
         if self._legacy_body is not None:

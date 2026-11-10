@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageImage
+from products.alerts_platform.backend.temporal.metrics import DeliveryFailureReason
 
 
 @frozen
@@ -29,13 +30,22 @@ class MessageHandle:
 
 
 class DeliveryError(Exception):
-    """A send the provider refused. The caller decides whether to retry."""
+    """A send the provider refused. The caller decides whether to retry.
+
+    `reason` is the class of the refusal for the deliveries metric. It never carries the message
+    text, which can name a destination.
+    """
+
+    def __init__(self, message: str, *, reason: DeliveryFailureReason = "other") -> None:
+        super().__init__(message)
+        self.reason: DeliveryFailureReason = reason
 
 
 class DestinationMisconfigured(DeliveryError):
     """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
 
-    The platform did its part, so its own reliability metrics count this apart from a failure.
+    The platform did its part, so its own reliability metrics count this apart from a failure, and
+    the delivery neither retries it nor fails its workflow.
     """
 
 

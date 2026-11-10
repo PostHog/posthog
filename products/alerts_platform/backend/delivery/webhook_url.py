@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest, post_json
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
 
@@ -38,7 +38,9 @@ class WebhookUrlTransport(ABC):
     ) -> MessageHandle | None:
         url = target.get("webhook_url")
         if not url:
-            raise DeliveryError(f"This {self.display_name} destination has no webhook URL.")
+            raise DestinationMisconfigured(
+                f"This {self.display_name} destination has no webhook URL.", reason="invalid_url"
+            )
         self.check_url(url)
         post_json(
             self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers_for(target)

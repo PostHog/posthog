@@ -259,8 +259,17 @@ class TestDeliveryDispatch(SimpleTestCase):
 
         assert retry.sends == []
         assert [(m.attributes, m.value) for m in metrics if m.name == "alerts_platform_deliveries_total"] == [
-            ({"source": "logs", "provider": "fake", "path": "native", "outcome": "sent"}, 1),
-            ({"source": "logs", "provider": "fake", "path": "native", "outcome": "already_delivered"}, 1),
+            ({"source": "logs", "provider": "fake", "path": "native", "outcome": "sent", "reason": "none"}, 1),
+            (
+                {
+                    "source": "logs",
+                    "provider": "fake",
+                    "path": "native",
+                    "outcome": "already_delivered",
+                    "reason": "none",
+                },
+                1,
+            ),
         ]
         (lag,) = (m for m in metrics if m.name == "alerts_platform_delivery_lag_ms")
         assert lag.attributes == {"source": "logs", "provider": "fake"} and lag.value > 0
@@ -289,7 +298,7 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert [handle for _, handle in later.sends] == [None]
 
     def test_a_send_outside_a_worker_is_counted_in_the_process_registry(self) -> None:
-        labels = {"source": "logs", "provider": "fake", "path": "native", "outcome": "sent"}
+        labels = {"source": "logs", "provider": "fake", "path": "native", "outcome": "sent", "reason": "none"}
         before = REGISTRY.get_sample_value("alerts_platform_deliveries_total", labels) or 0
         lag_before = (
             REGISTRY.get_sample_value("alerts_platform_delivery_lag_ms_count", {"source": "logs", "provider": "fake"})
@@ -306,12 +315,25 @@ class TestDeliveryDispatch(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("outage", ConnectionError("slack unreachable"), "ConnectionError", "failed"),
-            ("misconfigured", DestinationMisconfigured("not_in_channel"), "not_in_channel", "misconfigured"),
+            ("outage", ConnectionError("slack unreachable"), "ConnectionError", "failed", "other"),
+            (
+                "server_error",
+                DeliveryError("status 503", reason="server_error"),
+                "status 503",
+                "failed",
+                "server_error",
+            ),
+            (
+                "misconfigured",
+                DestinationMisconfigured("not_in_channel", reason="provider_refusal"),
+                "not_in_channel",
+                "misconfigured",
+                "provider_refusal",
+            ),
         ]
     )
     def test_a_failed_send_is_counted_by_whose_fix_it_is(
-        self, _name: str, error: Exception, logged: str, outcome: str
+        self, _name: str, error: Exception, logged: str, outcome: str, reason: str
     ) -> None:
         transport = FakeTransport(error=error)
 
@@ -334,7 +356,11 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert recorded.call_args.kwargs["succeeded"] is False
         # An outage's text can carry a credential URL, so only its class reaches the person's log.
         assert recorded.call_args.kwargs["error"] == logged
-        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [outcome]
+        assert [
+            (m.attributes["outcome"], m.attributes["reason"])
+            for m in metrics
+            if m.name == "alerts_platform_deliveries_total"
+        ] == [(outcome, reason)]
 
     def test_a_store_that_remembers_nothing_still_delivers(self) -> None:
         transport = FakeTransport()

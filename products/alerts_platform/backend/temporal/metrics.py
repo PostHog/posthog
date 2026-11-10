@@ -279,7 +279,22 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
 
 DeliveryOutcomeLabel = Literal["sent", "failed", "misconfigured", "already_delivered", "busy", "no_transport"]
 
-_DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
+# Why a send did not land, as a fixed set of classes. A raw status code would add a series for
+# every code a customer endpoint invents, and the alert rules only need the class.
+DeliveryFailureReason = Literal[
+    "none",
+    "client_error",
+    "rate_limited",
+    "server_error",
+    "timeout",
+    "unreachable",
+    "blocked_url",
+    "invalid_url",
+    "provider_refusal",
+    "other",
+]
+
+_DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path, outcome and failure reason"
 _DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition and the send that announced it"
 
 
@@ -289,7 +304,9 @@ _DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition a
 # the same family declared twice makes Prometheus reject the worker's whole scrape.
 @cache
 def _inline_deliveries() -> Counter:
-    return Counter("alerts_platform_deliveries", _DELIVERIES_DESCRIPTION, ["source", "provider", "path", "outcome"])
+    return Counter(
+        "alerts_platform_deliveries", _DELIVERIES_DESCRIPTION, ["source", "provider", "path", "outcome", "reason"]
+    )
 
 
 @cache
@@ -302,15 +319,26 @@ def _inline_delivery_lag() -> Histogram:
     )
 
 
-def increment_deliveries(source: str, provider: str, path: str, outcome: DeliveryOutcomeLabel, count: int = 1) -> None:
+def increment_deliveries(
+    source: str,
+    provider: str,
+    path: str,
+    outcome: DeliveryOutcomeLabel,
+    count: int = 1,
+    *,
+    reason: DeliveryFailureReason = "none",
+) -> None:
     """What happened to each transition a delivery carried, per destination provider.
 
     `already_delivered` is a retry finding its send done, and `busy` a send that waits on another
     one holding the thread. Neither sent anything, so a rising `sent` with a flat `failed` is the
     only reading that says alerts reach people. `misconfigured` is a refusal only the destination's
     owner can fix, so it stays out of `failed`, which measures the platform.
+
+    `reason` classes a `failed` or `misconfigured` send. An alert can then tell the 4xx of one
+    broken destination apart from a payload that the platform broke for every destination.
     """
-    labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
+    labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome, "reason": reason}
     try:
         meter = get_metric_meter(labels)
     except RuntimeError:

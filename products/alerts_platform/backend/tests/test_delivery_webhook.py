@@ -15,7 +15,7 @@ from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import (
@@ -205,6 +205,27 @@ class TestWebhookTransport(SimpleTestCase):
         # The URL is the credential. Temporal records the error and its cause chain.
         assert "not-a-real-token" not in str(raised.value)
         assert raised.value.__cause__ is None
+
+    @parameterized.expand(
+        [
+            ("bad_request", 400, None, True, "client_error"),
+            ("gone", 410, None, True, "client_error"),
+            ("rate_limited", 429, None, False, "rate_limited"),
+            ("request_timeout", 408, None, False, "timeout"),
+            ("server_error", 503, None, False, "server_error"),
+            ("unreachable", 0, requests.ConnectionError("refused"), False, "unreachable"),
+            ("slow", 0, requests.ReadTimeout("read timed out"), False, "timeout"),
+            ("blocked", 0, SSRFBlockedError("resolves to a private address"), True, "blocked_url"),
+        ]
+    )
+    def test_a_failed_send_says_whether_only_its_owner_can_fix_it(
+        self, _name: str, status: int, error: Exception | None, misconfigured: bool, reason: str
+    ) -> None:
+        with pinned_post(status, error):
+            with pytest.raises(DeliveryError) as raised:
+                WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+
+        assert (isinstance(raised.value, DestinationMisconfigured), raised.value.reason) == (misconfigured, reason)
 
 
 class TestWebhookThreads(APIBaseTest):

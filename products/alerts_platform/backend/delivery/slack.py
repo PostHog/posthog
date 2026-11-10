@@ -169,6 +169,12 @@ def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
 _MISCONFIGURED_ERRORS: Final = frozenset({"account_inactive", "not_in_channel"})
 
 
+def _refusal(code: str | None, message: str) -> DeliveryError:
+    if code in _MISCONFIGURED_ERRORS:
+        return DestinationMisconfigured(message, reason="provider_refusal")
+    return DeliveryError(message, reason="rate_limited" if code == "ratelimited" else "provider_refusal")
+
+
 def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
     return error.response.get("error") == IMAGE_REFUSAL and _without_image_content(content) != content
 
@@ -259,8 +265,7 @@ class SlackTransport:
                 response = post(content)
         except SlackApiError as error:
             code = error.response.get("error")
-            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
-            raise refusal(f"Slack refused the message: {code}") from error
+            raise _refusal(code, f"Slack refused the message: {code}") from error
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
@@ -368,8 +373,7 @@ class SlackTransport:
                 update(_without_image_content(content))
         except SlackApiError as error:
             code = error.response.get("error")
-            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
-            raise refusal(f"Slack refused the edit: {code}") from error
+            raise _refusal(code, f"Slack refused the edit: {code}") from error
 
     def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing

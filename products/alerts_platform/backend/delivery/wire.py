@@ -13,13 +13,16 @@ import requests
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured
+from products.alerts_platform.backend.temporal.metrics import DeliveryFailureReason
 
 # Both fit inside the deliver activity's 10-second start_to_close, so a stalled destination fails
 # this attempt instead of outliving it. A send still in flight when Temporal starts the next
 # attempt posts a second copy, because no webhook provider takes an idempotency key.
 CONNECT_TIMEOUT_SECONDS: Final = 3.0
 READ_TIMEOUT_SECONDS: Final = 5.0
+
+_RETRYABLE_CLIENT_STATUSES: Final = frozenset({408, 409, 425, 429})
 
 
 def credential_digest(credential: str) -> str:
@@ -67,12 +70,32 @@ def post_json(url: str, body: dict[str, Any], *, display_name: str, headers: dic
             status = response.status_code
             response.close()
     except SSRFBlockedError:
-        raise DeliveryError(
-            f"The {display_name} destination URL points to an address PostHog does not send to."
+        raise DestinationMisconfigured(
+            f"The {display_name} destination URL points to an address PostHog does not send to.",
+            reason="blocked_url",
         ) from None
     except requests.RequestException as error:
         # Only the class name, and `from None` to keep the original out of the failure chain:
         # the text of a `requests` error carries the whole URL.
-        raise DeliveryError(f"The {display_name} destination could not be reached: {type(error).__name__}") from None
+        raise DeliveryError(
+            f"The {display_name} destination could not be reached: {type(error).__name__}",
+            reason="timeout" if isinstance(error, requests.Timeout) else "unreachable",
+        ) from None
     if not 200 <= status < 300:
-        raise DeliveryError(f"The {display_name} destination refused the message with status {status}.")
+        _raise_for_status(status, display_name=display_name)
+
+
+def _raise_for_status(status: int, *, display_name: str) -> None:
+    message = f"The {display_name} destination refused the message with status {status}."
+    if 400 <= status < 500 and status not in _RETRYABLE_CLIENT_STATUSES:
+        raise DestinationMisconfigured(message, reason="client_error")
+    reason: DeliveryFailureReason
+    if status == 429:
+        reason = "rate_limited"
+    elif status == 408:
+        reason = "timeout"
+    elif status >= 500:
+        reason = "server_error"
+    else:
+        reason = "other"
+    raise DeliveryError(message, reason=reason)

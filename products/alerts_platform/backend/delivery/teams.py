@@ -11,7 +11,7 @@ from typing import Any, Final
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DestinationMisconfigured
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
 
 PROVIDER: Final = "teams"
@@ -93,7 +93,9 @@ class TeamsTransport(WebhookUrlTransport):
 
     def check_url(self, url: str) -> None:
         if not is_microsoft_teams_webhook_url(url):
-            raise DeliveryError("This Microsoft Teams destination's URL is not a Teams workflow URL.")
+            raise DestinationMisconfigured(
+                "This Microsoft Teams destination's URL is not a Teams workflow URL.", reason="invalid_url"
+            )
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
         return card_for(message)

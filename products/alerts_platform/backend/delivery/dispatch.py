@@ -148,7 +148,14 @@ def _send(
             error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
         outcome: DeliveryOutcomeLabel = "misconfigured" if isinstance(error, DestinationMisconfigured) else "failed"
-        safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
+        safe_record(
+            increment_deliveries,
+            message.source.value,
+            transport.provider,
+            DeliveryPath.NATIVE.value,
+            outcome,
+            reason=error.reason if isinstance(error, DeliveryError) else "other",
+        )
         raise
     record_delivery(
         team_id=team_id,

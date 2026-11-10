@@ -12,7 +12,7 @@ from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.slack.channels import clip_text
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DestinationMisconfigured
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
 
 PROVIDER: Final = "discord"
@@ -75,7 +75,9 @@ class DiscordTransport(WebhookUrlTransport):
 
     def check_url(self, url: str) -> None:
         # The URL shape the HogFunction template accepts, so no destination that works today is refused.
-        refused = DeliveryError("This Discord destination's URL is not a Discord webhook URL.")
+        refused = DestinationMisconfigured(
+            "This Discord destination's URL is not a Discord webhook URL.", reason="invalid_url"
+        )
         if has_authority_bypass_chars(url):
             raise refused
         try:

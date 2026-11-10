@@ -15,7 +15,11 @@ from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DeliveryTransport,
+    DestinationMisconfigured,
+)
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
     AlertDeliveryRequest,
@@ -127,6 +131,8 @@ def _deliver_to(
             )
         except ThreadBusy as error:
             busy.append(str(error))
+        except DestinationMisconfigured as error:
+            logger.warning("alerts_platform_receiver_misconfigured", receiver_id=str(receiver.id), error=str(error))
         except DeliveryError as error:
             failures.append(str(error))
         except Exception as error:

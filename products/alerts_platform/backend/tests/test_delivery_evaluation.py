@@ -112,6 +112,13 @@ class RefusingTransport(RecordingTransport):
         raise DeliveryError("The webhook destination refused the message with status 410.")
 
 
+class MisconfiguredTransport(RecordingTransport):
+    provider = "webhook"
+
+    def deliver(self, **kwargs: Any) -> MessageHandle | None:
+        raise DestinationMisconfigured("The webhook destination refused the message with status 410.")
+
+
 class HeldTransport(RecordingTransport):
     provider = "teams"
 
@@ -497,19 +504,30 @@ class TestDeliverEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_refusal_is_raised_after_the_rest_are_sent", DeliveryError, [WEBHOOK, SLACK]),
-            ("a_held_thread_wins_over_a_refusal", ThreadBusy, [WEBHOOK, TEAMS, SLACK]),
+            ("a_refusal_is_raised_after_the_rest_are_sent", RefusingTransport, DeliveryError, [WEBHOOK, SLACK]),
+            ("a_held_thread_wins_over_a_refusal", RefusingTransport, ThreadBusy, [WEBHOOK, TEAMS, SLACK]),
+            ("an_owner_only_refusal_fails_nothing", MisconfiguredTransport, None, [WEBHOOK, SLACK]),
         ]
     )
     def test_one_destination_failing_does_not_cost_the_others_their_message(
-        self, _name: str, raised: type[Exception], destinations: list[AlertDestinationData]
+        self,
+        _name: str,
+        webhook: type[RecordingTransport],
+        raised: type[Exception] | None,
+        destinations: list[AlertDestinationData],
     ) -> None:
-        with pytest.raises(raised, match="status 410"):
+        def run() -> None:
             self._run(
                 _announcement(_transition(AlertEventKind.FIRING)),
                 {FIRING_EVENT: [_group(destination) for destination in destinations]},
-                transports={DestinationType.WEBHOOK: RefusingTransport, DestinationType.TEAMS: HeldTransport},
+                transports={DestinationType.WEBHOOK: webhook, DestinationType.TEAMS: HeldTransport},
             )
+
+        if raised is None:
+            run()
+        else:
+            with pytest.raises(raised, match="status 410"):
+                run()
 
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
 
