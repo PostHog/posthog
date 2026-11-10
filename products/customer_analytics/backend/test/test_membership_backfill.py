@@ -689,7 +689,7 @@ class TestMembershipBackfill(BaseTest):
                     properties=properties,
                     timestamp=start + timedelta(days=days),
                 )
-            for minutes, properties in [
+            activity_events: list[tuple[int, dict[str, object]]] = [
                 (1, {"$group_0": "account-a", "$update_person_last_seen_at": False}),
                 (50, {"$group_0": "account-a", "$update_person_last_seen_at": False}),
                 (50, {"$group_0": "suppressed-account", "$update_person_last_seen_at": False}),
@@ -697,7 +697,8 @@ class TestMembershipBackfill(BaseTest):
                 (5, {"$group_0": "account-a", "$update_person_last_seen_at": "false"}),
                 (5, {"$group_0": "account-a", "$update_person_last_seen_at": 0}),
                 (5, {"$group_0": "account-a", "$update_person_last_seen_at": None}),
-            ]:
+            ]
+            for minutes, properties in activity_events:
                 create_event(
                     event_uuid=uuid4(),
                     event="example_action",

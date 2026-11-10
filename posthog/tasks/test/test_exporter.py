@@ -94,10 +94,10 @@ class TestExporterTask(APIBaseTest):
         assert self.exported_asset.content_location is None
 
         exporter.export_asset_direct(self.exported_asset, source=source)
-        self.exported_asset.refresh_from_db()
+        exported_asset = ExportedAsset.objects.get(pk=self.exported_asset.pk)
 
-        assert self.exported_asset.content is None
-        assert self.exported_asset.content_location is not None
+        assert exported_asset.content is None
+        assert exported_asset.content_location is not None
         assert [call.kwargs["event"] for call in mock_capture.call_args_list] == ["export started", "export succeeded"]
         for call in mock_capture.call_args_list:
             assert call.kwargs["distinct_id"] == self.user.distinct_id
