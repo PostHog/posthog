@@ -16,7 +16,6 @@ const FETCHABLE_PROTOCOLS = ['https:', 'http:', 'data:', 'blob:']
 const MAX_IMAGE_LOADS_PER_SAMPLE = 4
 const MAX_DECODED_PIXELS = 4096 * 4096
 const MAX_STACK_DEPTH = 32
-const FALLBACK_COLOR: Rgba = [0, 0, 0, 255]
 const BLEND_TIME_CONSTANT_MS = 1500
 const BLEND_SETTLE_DELTA = 2
 
@@ -94,7 +93,11 @@ export class AmbientFrameSampler {
             for (let column = 0; column < columns; column++) {
                 const x = edgeAligned(column, columns, recording.width)
                 const y = edgeAligned(row, rows, recording.height)
-                pixels.set(this.colorAt(doc, view, x, y) ?? fallback, (row * columns + column) * 4)
+                // A cell with no opaque color stays transparent, so the bars keep the player's own background there.
+                const color = this.colorAt(doc, view, x, y) ?? fallback
+                if (color) {
+                    pixels.set(color, (row * columns + column) * 4)
+                }
             }
         }
         this.canvasesThisSample.clear()
@@ -130,14 +133,14 @@ export class AmbientFrameSampler {
         return this.elementColorsThisSample.get(element) ?? null
     }
 
-    private documentColor(doc: Document, view: Window): Rgba {
+    private documentColor(doc: Document, view: Window): Rgba | null {
         for (const element of [doc.body, doc.documentElement]) {
             const color = element ? opaque(parseCssColor(view.getComputedStyle(element).backgroundColor)) : null
             if (color) {
                 return color
             }
         }
-        return FALLBACK_COLOR
+        return null
     }
 
     private backgroundImageColor(backgroundImage: string, view: Window & typeof globalThis): Rgba | null {
