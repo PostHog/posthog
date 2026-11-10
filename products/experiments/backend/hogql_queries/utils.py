@@ -52,6 +52,7 @@ from products.experiments.stats.shared.statistics import (
     choose_quantile_bounds,
     quantile_grid_levels,
 )
+from products.experiments.stats.shared.utils import validate_statistic_inputs
 
 if TYPE_CHECKING:
     from products.experiments.stats.shared.statistics import RelativeEffectBaseline
@@ -354,9 +355,10 @@ def validate_variant_result(
 
     if isinstance(metric, ExperimentQuantileMetric):
         quantile_stat = quantile_statistic(metric, variant_result)
-        # Zero variance means too few events or too many tied values for the outer interval, and no test can
-        # run on it. Flag it here, so the result shows why the variant has no inference.
-        if quantile_stat is None or quantile_stat.has_zero_variance:
+        # The statistical tests refuse a quantile whose variance is zero or unreliable: too few events, too many
+        # tied values, or a few users with most of the events. Flag it here, so the result shows why the variant
+        # has no inference.
+        if quantile_stat is None or validate_statistic_inputs(quantile_stat):
             validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
         # sum holds the count of events at or below the quantile, so the baseline check reads the quantile instead.
         # Only a relative difference divides by the baseline, so an absolute difference accepts a zero quantile.
@@ -435,8 +437,9 @@ def metric_variant_to_statistic(
         quantile_stat = quantile_statistic(metric, variant)
         if quantile_stat is None:
             raise StatisticError("Quantile bounds are unavailable - no events or too many tied values")
-        if quantile_stat.has_zero_variance:
-            raise StatisticError("Quantile has zero variance - not enough events or too many tied values")
+        errors = validate_statistic_inputs(quantile_stat)
+        if errors:
+            raise StatisticError("; ".join(errors))
         return quantile_stat
     else:
         # ExperimentFunnelMetric case

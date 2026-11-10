@@ -1,3 +1,4 @@
+import re
 import math
 from typing import Any, cast
 
@@ -199,16 +200,14 @@ class TestTwoSidedTTest(TestCase):
 
     @parameterized.expand(
         [
-            (f"{name}_{mode}", treatment, control, sequential)
-            for name, treatment, control in DEGENERATE_QUANTILE_CASES
+            (f"{name}_{mode}", treatment, control, error, sequential)
+            for name, treatment, control, error in DEGENERATE_QUANTILE_CASES
             for mode, sequential in [("fixed_horizon", False), ("sequential", True)]
         ]
     )
-    def test_rejects_quantile_with_zero_variance(self, _name, treatment, control, sequential):
+    def test_rejects_quantile_without_usable_variance(self, _name, treatment, control, error, sequential):
         method = FrequentistMethod(FrequentistConfig(sequential_testing_enabled=sequential))
-        with self.assertRaisesRegex(
-            StatisticError, "Treatment statistic validation failed: Quantile has zero variance"
-        ):
+        with self.assertRaisesRegex(StatisticError, re.escape(f"Treatment statistic validation failed: {error}")):
             method.run_test(treatment, control)
 
 
