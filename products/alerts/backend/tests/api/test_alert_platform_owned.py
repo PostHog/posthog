@@ -330,7 +330,16 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             )
 
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
-        self._edit_on_the_platform(lambda stored: replace(stored, name="Edited on the platform"))
+        stored_config = self._copy().source_config
+        # A platform edit names only the settings it sends, so the insight check settings stay as stored.
+        self._edit_on_the_platform(
+            lambda stored: replace(
+                stored,
+                name="Edited on the platform",
+                source_config={key: stored_config[key] for key in ("insight_id", "condition")},
+            )
+        )
+        assert self._copy().source_config["config"] == stored_config["config"] is not None
         insight_edit = self.client.patch(
             f"{self.url}/{self.alert.id}/",
             {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
@@ -344,6 +353,33 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             "Edited on the platform",
             {"upper": 200},
         )
+
+    @parameterized.expand(
+        [
+            ("rename", {"name": "Renamed"}, "firing"),
+            (
+                "threshold",
+                {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
+                "not_firing",
+            ),
+        ]
+    )
+    def test_an_insight_edit_to_a_copy_without_the_check_settings_ends_a_firing_only_on_a_real_change(
+        self, _name: str, payload: dict[str, Any], state: str
+    ) -> None:
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            older = {key: stored_config[key] for key in ("insight_id", "condition")}
+            platform_testing.set_source_config(self.copy_id, older)
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self.now)
+
+        response = self.client.patch(f"{self.url}/{self.alert.id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        with team_scope(self.team.id):
+            instance = platform_testing.alert_for(self.copy_id)
+        assert instance is not None
+        assert instance.state == state
 
     @parameterized.expand(
         [
