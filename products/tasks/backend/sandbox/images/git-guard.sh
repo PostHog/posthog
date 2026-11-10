@@ -6,6 +6,9 @@
 # All other git subcommands (including the tool's own add/fetch/reset/
 # ls-remote/update-ref) pass straight through to the real git.
 #
+# GitLab runs (POSTHOG_GIT_PROVIDER=gitlab) pass through, because the signed-
+# commit tools work only with GitHub and GitLab runs push with plain git.
+#
 # Escape hatch: set POSTHOG_ALLOW_UNSIGNED_GIT=1 to bypass (debugging only).
 
 native_git=""
@@ -20,7 +23,7 @@ if [ -z "$native_git" ]; then
     exit 127
 fi
 
-if [ "${POSTHOG_ALLOW_UNSIGNED_GIT:-}" = "1" ]; then
+if [ "${POSTHOG_ALLOW_UNSIGNED_GIT:-}" = "1" ] || [ "${POSTHOG_GIT_PROVIDER:-}" = "gitlab" ]; then
     exec "$native_git" "$@"
 fi
 

@@ -291,6 +291,80 @@ describe("checkoutExistingPullRequest", () => {
     expect(result).toEqual({ status: "failed", error: "gh unavailable" });
   });
 
+  describe("GitLab merge requests", () => {
+    const MR_URL = "https://gitlab.com/acme/platform/api/-/merge_requests/7";
+    const mergeRequest = {
+      iid: 7,
+      web_url: MR_URL,
+      title: "Draft: Fix",
+      state: "opened",
+      draft: true,
+      source_branch: PR_BRANCH,
+      target_branch: "main",
+      sha: PR_HEAD_OID,
+      created_at: null,
+      author_username: null,
+      source_project_id: 1,
+      target_project_id: 1,
+    };
+
+    it.each([
+      {
+        name: "fetches and checks out the MR source branch from origin",
+        originUrl:
+          "https://oauth2:glpat-secret@gitlab.com/acme/platform/api.git",
+        mr: mergeRequest,
+        expectedStatus: "checked_out",
+      },
+      {
+        name: "refuses an MR from another project",
+        originUrl: "https://oauth2:glpat-secret@gitlab.com/acme/other.git",
+        mr: mergeRequest,
+        expectedStatus: "failed",
+      },
+      {
+        name: "refuses an MR from a fork",
+        originUrl:
+          "https://oauth2:glpat-secret@gitlab.com/acme/platform/api.git",
+        mr: { ...mergeRequest, source_project_id: 2 },
+        expectedStatus: "failed",
+      },
+    ])("$name", async ({ originUrl, mr, expectedStatus }) => {
+      const { runCommand, calls } = buildRunCommand({
+        currentBranch: "main",
+        currentHead: OTHER_OID,
+        originUrl,
+      });
+      const lookupGitlabMergeRequest = vi.fn(async () => mr);
+
+      const result = await checkoutExistingPullRequest({
+        repositoryPath: "/tmp/repo",
+        prUrl: MR_URL,
+        runCommand,
+        lookupGitlabMergeRequest,
+      });
+
+      expect(result.status).toBe(expectedStatus);
+      expect(JSON.stringify(result)).not.toContain("glpat-secret");
+      expect(lookupGitlabMergeRequest).toHaveBeenCalledWith(
+        "acme/platform/api",
+        7,
+      );
+      const gitArgs = calls.mock.calls
+        .filter(([executable]: string[]) => executable === "git")
+        .map(([, args]) => (args as string[]).join(" "));
+      expect(calls.mock.calls.some(([e]: string[]) => e === "gh")).toBe(false);
+      if (expectedStatus === "checked_out") {
+        expect(gitArgs).toContain(
+          `fetch origin +refs/heads/${PR_BRANCH}:refs/remotes/origin/${PR_BRANCH}`,
+        );
+        expect(gitArgs).toContain(`checkout ${PR_BRANCH}`);
+      } else {
+        expect(gitArgs.some((a) => a.startsWith("checkout"))).toBe(false);
+      }
+    });
+  });
+
   it("rejects a non-PR URL without invoking git or gh", async () => {
     const runCommand = vi.fn();
     const result = await checkoutExistingPullRequest({

@@ -44,5 +44,9 @@ export {
   isFinishReportRequired,
 } from "./tools/finish";
 export { GH_STACK_QUALIFIED_TOOL_NAME } from "./tools/gh-stack";
+export {
+  GITLAB_MERGE_REQUEST_QUALIFIED_TOOL_NAME,
+  GITLAB_MERGE_REQUEST_TOOL_NAME,
+} from "./tools/gitlab-merge-request";
 export { SHOW_ACTIONS_TOOL_NAME } from "./tools/show-actions";
 export { SPEAK_TOOL_NAME } from "./tools/speak";
