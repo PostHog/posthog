@@ -793,14 +793,13 @@ class TestHogFlowRun(APIBaseTest):
         response = self.client.post(self._run_url(workflow.id), {"variables": {"name": "Ada"}}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["status"] == "queued"
-        assert worker.runs == {
-            response.json()["invocation_id"]: {
-                "team_id": self.team.id,
-                "hog_flow_id": str(workflow.id),
-                "user_id": self.user.email,
-                "variables": {"greeting": "Hello", "name": "Ada"},
-            }
+        [invocation_id] = worker.runs
+        assert response.json() == {"status": "queued", "invocation_id": invocation_id}
+        assert worker.runs[invocation_id] == {
+            "team_id": self.team.id,
+            "hog_flow_id": str(workflow.id),
+            "user_id": self.user.email,
+            "variables": {"greeting": "Hello", "name": "Ada"},
         }
 
     @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
