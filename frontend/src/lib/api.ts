@@ -20,6 +20,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { SURVEY_PAGE_SIZE } from 'lib/constants'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
+import { retryWithBackoff } from 'lib/utils/async'
 import { HogQLQueryString } from 'lib/utils/hogql'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
@@ -4449,31 +4450,57 @@ const api = {
             // read limit, so a stalled block falls back instead of holding the loader forever.
             const controller = new AbortController()
             const deadline = setTimeout(() => controller.abort(), 30_000)
+            const fetchBlock = async (url: string): Promise<Uint8Array> => {
+                const response = await fetch(url, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    credentials: 'omit',
+                    signal: controller.signal,
+                })
+                if (!response.ok) {
+                    const data = await response.json().catch(() => null)
+                    throw asRecordingDeletedError(
+                        new ApiError('Block fetch failed', response.status, response.headers, data)
+                    )
+                }
+                // Without a route to recording-api the app shell answers with HTML, which is not a block.
+                if (!response.headers.get('Content-Type')?.startsWith('application/octet-stream')) {
+                    throw new NotAReplayBlockError()
+                }
+                return new Uint8Array(await response.arrayBuffer())
+            }
+            let rateLimit: ApiError | null = null
             const blocks = await Promise.all(
                 urls.map(async (url) => {
                     try {
-                        const response = await fetch(url, {
-                            headers: { Authorization: `Bearer ${token}` },
-                            credentials: 'omit',
+                        // recording-api refills each viewer's budget every second, so only the limited block waits
+                        // and retries while the rest of the batch keeps downloading.
+                        return await retryWithBackoff(() => fetchBlock(url), {
+                            maxAttempts: 4,
+                            initialDelayMs: 1000,
+                            backoffMultiplier: 2,
                             signal: controller.signal,
+                            shouldRetry: (e) => e instanceof ApiError && e.status === 429,
+                            getDelayMs: (e) => {
+                                // Runs only when a retry follows, so the event counts rate-limited batches.
+                                if (!rateLimit) {
+                                    posthog.capture('replay direct block fetch rate limited')
+                                }
+                                rateLimit = e as ApiError
+                                const seconds = Number(rateLimit.headers?.get('Retry-After'))
+                                return seconds > 0 ? seconds * 1000 : undefined
+                            },
                         })
-                        if (!response.ok) {
-                            const data = await response.json().catch(() => null)
-                            throw asRecordingDeletedError(
-                                new ApiError('Block fetch failed', response.status, undefined, data)
-                            )
-                        }
-                        // Without a route to recording-api the app shell answers with HTML, which is not a block.
-                        if (!response.headers.get('Content-Type')?.startsWith('application/octet-stream')) {
-                            throw new NotAReplayBlockError()
-                        }
-                        return new Uint8Array(await response.arrayBuffer())
                     } catch (e) {
                         controller.abort()
                         throw e
                     }
                 })
-            ).finally(() => clearTimeout(deadline))
+            )
+                .catch((e) => {
+                    // A deadline that cuts a rate-limit wait short is still a rate limit, which must not fall back.
+                    throw rateLimit && e instanceof DOMException && e.name === 'AbortError' ? rateLimit : e
+                })
+                .finally(() => clearTimeout(deadline))
             const framed = new Uint8Array(blocks.reduce((total, block) => total + 4 + block.length, 0))
             const view = new DataView(framed.buffer)
             let offset = 0
