@@ -20,9 +20,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
-from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.models import SignalReport
-from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.supersession import pending_replacement
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.summary import RESEARCH_SANDBOX_RETRY_BUDGET, SignalReportSummaryWorkflow
@@ -97,12 +95,8 @@ class Command(BaseCommand):
             raise CommandError("The requested user cannot start another task run")
         if pending_replacement(team_id, report_id) is not None:
             raise CommandError("An implementation replacement is already in progress")
-        if self_driving_quota_gate(report.team).enforced:
-            raise CommandError("The organization's self-driving credits quota blocks research")
         if daily_report_limit_gate(report.team).limited:
             raise CommandError("The project's daily report limit blocks research")
-        if self_driving_free_trial_enabled(report.team):
-            raise CommandError("This organization's free trial does not allow a new implementation run")
         linked_tasks = {
             entry.task_id
             for entry in SignalReport.associated_task_runs(
@@ -161,6 +155,7 @@ class Command(BaseCommand):
             requested_implementation_user_id=user_id,
             requested_implementation_task_id=selected_task_id,
             requested_after_run_count=previous_run_count,
+            operator_rerun=True,
         )
         try:
             async_to_sync(self._start_workflow)(inputs)

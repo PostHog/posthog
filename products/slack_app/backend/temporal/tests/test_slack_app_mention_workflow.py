@@ -102,6 +102,10 @@ class _Recorder:
         self.create_reached: dict[str, asyncio.Event] = {}
         self.picker_posted = asyncio.Event()
         self.picker_workflow_id: str | None = None
+        # ts -> whether a connect offer goes out; missing means none.
+        self.tool_offers: dict[str, bool] = {}
+        self.tool_offer_posted = asyncio.Event()
+        self.tool_offer_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
         # True makes discovery report that the team is out of AI credits.
@@ -297,6 +301,21 @@ def _fake_activities(rec: _Recorder) -> list:
         rec.created.append((ts, repository))
         return rec.creation_succeeds if inputs.report_implementation_message_ts else None
 
+    @activity.defn(name="offer_slack_app_tool_connections_activity")
+    async def offer_tools(
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+        user_id: int,
+        workflow_id: str,
+    ) -> bool:
+        offered = rec.tool_offers.get(inputs.event["ts"], False)
+        if offered:
+            rec.tool_offer_workflow_id = workflow_id
+            rec.tool_offer_posted.set()
+        return offered
+
     @activity.defn(name="post_posthog_code_picker_timeout_activity")
     async def picker_timeout(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         return None
@@ -334,6 +353,7 @@ def _fake_activities(rec: _Recorder) -> list:
         classify_model_override,
         classify_project_route,
         route_model,
+        offer_tools,
         create_task,
         picker_timeout,
         internal_error,
@@ -655,6 +675,24 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/picked"), ("1.2", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("connects", [True, False])
+async def test_a_connect_offer_holds_the_task_until_the_tool_is_connected_or_the_wait_ends(connects: bool):
+    rec = _Recorder()
+    rec.tool_offers["1.1"] = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(rec.tool_offer_posted.wait(), timeout=30)
+        assert rec.created == []
+        if connects:
+            assert rec.tool_offer_workflow_id is not None
+            await h.env.client.get_workflow_handle(rec.tool_offer_workflow_id).signal("tool_connection_resolved")
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == [("1.1", "org/auto-repo")]
 
 
 @pytest.mark.asyncio

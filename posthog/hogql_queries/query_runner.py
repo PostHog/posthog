@@ -75,6 +75,7 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
+    MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
@@ -682,6 +683,7 @@ RunnableQueryNode = Union[
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     MetricsQuery,
+    MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
     MCPModelBreakdownQuery,
     MCPProtocolVersionBreakdownQuery,
@@ -1398,6 +1400,17 @@ def get_query_runner(
 
         return MCPProtocolVersionBreakdownQueryRunner(
             query=cast(MCPProtocolVersionBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPDashboardQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPDashboardQueryRunner
+
+        return MCPDashboardQueryRunner(
+            query=cast(MCPDashboardQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
