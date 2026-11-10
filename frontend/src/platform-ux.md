@@ -72,6 +72,7 @@ People who need more control dig deeper; everyone else is not overwhelmed.
 
 The nav rail is the column of icons at the left edge of the web app behind `today-rail-nav`.
 It holds Home, Chats, Analytics, Products, More, Settings and the account menu.
+When the growth promotion slot has a card to show, a hog tile above More opens it.
 The platform UX team owns it.
 Only that team changes it.
 
@@ -94,6 +95,7 @@ These files make up the rail:
 - `layout/today/TodayRailTile.tsx`
 - `layout/today/todayRailItems.tsx`
 - `layout/today/TodayMoreMenu.tsx`
+- `layout/today/TodayRailPromo.tsx`, `layout/today/TodayRailPromoTile.tsx` and `layout/today/todayRailPromoLogic.ts`
 - `layout/today/todayRailSeverity.ts` and `layout/today/todayRailStatusLogic.ts`
 
 A change to the rail includes:

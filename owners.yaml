@@ -107,6 +107,9 @@ rules:
           - '/frontend/src/layout/today/TodayRailTile.tsx'
           - '/frontend/src/layout/today/todayRailItems.tsx'
           - '/frontend/src/layout/today/TodayMoreMenu.tsx'
+          - '/frontend/src/layout/today/TodayRailPromo.tsx'
+          - '/frontend/src/layout/today/TodayRailPromoTile.tsx'
+          - '/frontend/src/layout/today/todayRailPromoLogic.ts'
           - '/frontend/src/layout/today/todayRailSeverity.ts'
           - '/frontend/src/layout/today/todayRailStatusLogic.ts'
       owners: platform-ux

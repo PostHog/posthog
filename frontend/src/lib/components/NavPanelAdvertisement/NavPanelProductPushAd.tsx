@@ -6,12 +6,18 @@ import { isExternalLink } from 'lib/utils/url'
 
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
 
-import { AdvertisementCard } from './navPanelAdShared'
+import { AdvertisementCard, NAV_PANEL_CARD_TYPE, NavPanelSlot, SIDEBAR_SLOT } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
-import { navPanelProductPushAdLogic } from './navPanelProductPushAdLogic'
+import { navPanelProductPushAdLogic, productPushDismissKey } from './navPanelProductPushAdLogic'
 
-export function NavPanelProductPushAd({ campaign }: { campaign: ProductPushCampaignApi }): JSX.Element | null {
-    const logic = navPanelProductPushAdLogic({ campaign })
+export function NavPanelProductPushAd({
+    campaign,
+    slot = SIDEBAR_SLOT,
+}: {
+    campaign: ProductPushCampaignApi
+    slot?: NavPanelSlot
+}): JSX.Element | null {
+    const logic = navPanelProductPushAdLogic({ campaign, placement: slot.placement })
     const { display, shouldRender, destination, label } = useValues(logic)
     const { reportAdClicked, reportAdDismissed } = useActions(logic)
 
@@ -19,23 +25,24 @@ export function NavPanelProductPushAd({ campaign }: { campaign: ProductPushCampa
         return null
     }
 
-    return (
-        <div className="w-full">
-            <Link
-                to={destination}
-                target={isExternalLink(destination) ? '_blank' : undefined}
-                className="text-primary"
-                onClick={() => reportAdClicked()}
-            >
-                <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: `product-push-${campaign.id}` }}>
-                    <AdvertisementCard
-                        title={label ?? ''}
-                        text={campaign.reason_text || display.tagline}
-                        hero={display}
-                        onClose={() => reportAdDismissed()}
-                    />
-                </BindLogic>
-            </Link>
-        </div>
+    const dismissKey = productPushDismissKey(campaign)
+
+    return slot.frame(
+        <Link
+            to={destination}
+            target={isExternalLink(destination) ? '_blank' : undefined}
+            className="text-primary"
+            onClick={() => reportAdClicked()}
+        >
+            <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey }}>
+                <AdvertisementCard
+                    title={label ?? ''}
+                    text={campaign.reason_text || display.tagline}
+                    hero={display}
+                    onClose={() => reportAdDismissed()}
+                />
+            </BindLogic>
+        </Link>,
+        { id: dismissKey, cardType: NAV_PANEL_CARD_TYPE.PRODUCT_PUSH, title: label ?? '', Hoggie: display.Hoggie }
     )
 }

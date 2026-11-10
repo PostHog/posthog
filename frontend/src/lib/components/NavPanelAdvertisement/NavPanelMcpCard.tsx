@@ -9,10 +9,18 @@ import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { agentConnectionLogic } from 'lib/components/MCPHint/agentConnectionLogic'
 import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
 
-import { AdvertisementCard, NAV_PANEL_CARD_TYPE, ProductPushDisplay } from './navPanelAdShared'
+import {
+    AdvertisementCard,
+    NAV_PANEL_CARD_TYPE,
+    NavPanelSlot,
+    ProductPushDisplay,
+    SIDEBAR_SLOT,
+} from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 
 export const MCP_AD_LOGIC_PROPS = { dismissKey: 'mcp-connect' }
+
+const MCP_TITLE = 'Connect your AI agent'
 
 const MCP_HERO: ProductPushDisplay = {
     Hoggie: pngHoggie(wizardPng),
@@ -20,25 +28,28 @@ const MCP_HERO: ProductPushDisplay = {
     tagline: '',
 }
 
-export function NavPanelMcpCard(): JSX.Element | null {
+export function NavPanelMcpCard({ slot = SIDEBAR_SLOT }: { slot?: NavPanelSlot }): JSX.Element | null {
     const { hasConnectedAgent } = useValues(agentConnectionLogic)
     // `null` means no lookup has succeeded, which never counts as eligible.
     const shouldShow = hasConnectedAgent === false
 
     useEffect(() => {
         if (shouldShow) {
-            posthog.capture('nav panel mcp card shown', { card_type: NAV_PANEL_CARD_TYPE.MCP_CONNECT })
+            posthog.capture('nav panel mcp card shown', {
+                card_type: NAV_PANEL_CARD_TYPE.MCP_CONNECT,
+                placement: slot.placement,
+            })
         }
-    }, [shouldShow])
+    }, [shouldShow, slot.placement])
 
     if (!shouldShow) {
         return null
     }
 
-    return (
+    return slot.frame(
         <BindLogic logic={navPanelAdvertisementLogic} props={MCP_AD_LOGIC_PROPS}>
             <AdvertisementCard
-                title="Connect your AI agent"
+                title={MCP_TITLE}
                 hero={MCP_HERO}
                 text={
                     <span className="flex flex-col items-start gap-2">
@@ -56,15 +67,25 @@ export function NavPanelMcpCard(): JSX.Element | null {
                             onCopy={() =>
                                 posthog.capture('nav panel mcp card command copied', {
                                     card_type: NAV_PANEL_CARD_TYPE.MCP_CONNECT,
+                                    placement: slot.placement,
                                 })
                             }
                         />
                     </span>
                 }
                 onClose={() => {
-                    posthog.capture('nav panel mcp card dismissed', { card_type: NAV_PANEL_CARD_TYPE.MCP_CONNECT })
+                    posthog.capture('nav panel mcp card dismissed', {
+                        card_type: NAV_PANEL_CARD_TYPE.MCP_CONNECT,
+                        placement: slot.placement,
+                    })
                 }}
             />
-        </BindLogic>
+        </BindLogic>,
+        {
+            id: MCP_AD_LOGIC_PROPS.dismissKey,
+            cardType: NAV_PANEL_CARD_TYPE.MCP_CONNECT,
+            title: MCP_TITLE,
+            Hoggie: MCP_HERO.Hoggie,
+        }
     )
 }

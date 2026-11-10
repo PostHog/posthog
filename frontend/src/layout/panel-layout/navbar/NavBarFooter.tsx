@@ -41,7 +41,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                 <PostHogTeamCohortBanner isCollapsed={isLayoutNavCollapsed} />
             </div>
 
-            <NavPanelAdvertisement />
+            {!isLayoutNavCollapsed && <NavPanelAdvertisement />}
 
             {wizardUiEnabled && !isLayoutNavCollapsed && currentProjectId !== null && (
                 <div className="w-full pb-1">

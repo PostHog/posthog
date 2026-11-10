@@ -22,6 +22,41 @@ export const NAV_PANEL_CARD_TYPE = {
     PRODUCT_PUSH: 'product_push',
 } as const
 
+export type NavPanelCardType = (typeof NAV_PANEL_CARD_TYPE)[keyof typeof NAV_PANEL_CARD_TYPE]
+
+/** Where the ad slot renders, sent as `placement` on every ad-slot event. */
+// pinned: analytics property values. Renaming them breaks dashboards.
+export const NAV_PANEL_PLACEMENT = {
+    SIDEBAR: 'sidebar',
+    RAIL: 'rail',
+} as const
+
+export type NavPanelPlacement = (typeof NAV_PANEL_PLACEMENT)[keyof typeof NAV_PANEL_PLACEMENT]
+
+export interface NavPanelCardTeaser {
+    /** The card's dismiss key. A placement that remembers which cards a person has seen keys that state on it. */
+    id: string
+    cardType: NavPanelCardType
+    title: string
+    Hoggie?: React.ComponentType<AssetSvgProps>
+}
+
+export interface NavPanelSlot {
+    placement: NavPanelPlacement
+    /**
+     * Wraps a card that is ready to show. A card that is dismissed or not eligible never calls it,
+     * so anything the frame adds goes away with the card.
+     */
+    frame: (card: JSX.Element, teaser: NavPanelCardTeaser) => JSX.Element
+}
+
+export const SIDEBAR_SLOT: NavPanelSlot = {
+    placement: NAV_PANEL_PLACEMENT.SIDEBAR,
+    // The gap to the nav footer's buttons belongs to the frame, not the footer, so it goes away
+    // with the card when there is nothing to advertise.
+    frame: (card) => <div className="mb-2 w-full">{card}</div>,
+}
+
 export interface BroadcastPayload {
     /** Slug identifying this broadcast, e.g. 'managed-warehouse-beta'. Keys dismissal state. */
     broadcast: string
@@ -179,9 +214,7 @@ export function AdvertisementCard({
     )
 
     return (
-        // The gap to the nav footer's buttons belongs to the card, not the footer, so it goes away
-        // with the card when there is nothing to advertise.
-        <div className="mb-2 overflow-hidden rounded border bg-surface-primary text-xs shadow-sm transition-shadow hover:shadow-md">
+        <div className="overflow-hidden rounded border bg-surface-primary text-xs shadow-sm transition-shadow hover:shadow-md">
             {hero ? (
                 <ProductHogHero hero={hero} title={title} text={text} topRight={dismissButton} />
             ) : (
