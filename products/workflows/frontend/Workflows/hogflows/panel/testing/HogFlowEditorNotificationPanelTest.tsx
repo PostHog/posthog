@@ -18,7 +18,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { isEmail } from 'lib/utils/url'
 import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
 
@@ -53,7 +52,10 @@ export function EmailActionTestContent(): JSX.Element | null {
         sampleGlobals,
         sampleGlobalsLoading,
         sampleGlobalsError,
-        emailAddressOverride,
+        testRecipient,
+        testRecipientDisabledReason,
+        sandboxTestMembers,
+        membersLoading,
     } = useValues(hogFlowEditorNotificationTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -63,10 +65,9 @@ export function EmailActionTestContent(): JSX.Element | null {
         clearPersonSearch,
         loadSamplePersonByDistinctId,
         setEmailAddressOverride,
+        sendTestTo,
         setSampleGlobals,
     } = useActions(hogFlowEditorNotificationTestLogic(logicProps))
-
-    const emailInput = emailAddressOverride || sampleGlobals?.person?.properties?.email || ''
 
     const isLoading = samplePersonsLoading || (sampleGlobalsLoading && !sampleGlobals)
 
@@ -170,34 +171,32 @@ export function EmailActionTestContent(): JSX.Element | null {
                             type="primary"
                             data-attr="test-workflow-panel-new"
                             onClick={() => {
-                                const shouldShowConfirmation = !testInvocation?.mock_async_functions
-
-                                if (shouldShowConfirmation) {
-                                    LemonDialog.open({
-                                        title: 'Confirm email test',
-                                        description: `This will send an email to ${emailInput}, do you want to proceed?`,
-                                        primaryButton: {
-                                            children: 'Send email',
-                                            type: 'primary',
-                                            onClick: () => {
-                                                submitTestInvocation()
-                                            },
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                } else {
+                                if (testInvocation?.mock_async_functions) {
                                     submitTestInvocation()
+                                    return
                                 }
+                                if (!testRecipient) {
+                                    return
+                                }
+                                const confirmedRecipient = testRecipient
+                                LemonDialog.open({
+                                    title: 'Confirm email test',
+                                    description: `This will send an email to ${confirmedRecipient}, do you want to proceed?`,
+                                    primaryButton: {
+                                        children: 'Send email',
+                                        type: 'primary',
+                                        onClick: () => sendTestTo(confirmedRecipient),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
                             }}
                             loading={isTestInvocationSubmitting}
                             disabledReason={
                                 !sampleGlobals
                                     ? 'Must load person to run test'
-                                    : !isEmail(emailInput)
-                                      ? 'Must enter a valid email address'
-                                      : undefined
+                                    : (testRecipientDisabledReason ?? undefined)
                             }
                             size="small"
                         >
@@ -328,11 +327,16 @@ export function EmailActionTestContent(): JSX.Element | null {
                             <div className="flex-1">
                                 <div className="font-semibold mb-2">{sampleGlobals.person.name || 'Sample Person'}</div>
                                 <LemonLabel>Email address</LemonLabel>
-                                {selectedNode.data?.type === 'email_sandbox' ? (
-                                    <SandboxTestRecipientSelect value={emailInput} onChange={setEmailAddressOverride} />
+                                {sandboxTestMembers ? (
+                                    <SandboxTestRecipientSelect
+                                        members={sandboxTestMembers}
+                                        loading={membersLoading}
+                                        value={testRecipient}
+                                        onChange={setEmailAddressOverride}
+                                    />
                                 ) : (
                                     <LemonInput
-                                        value={emailInput}
+                                        value={testRecipient ?? ''}
                                         onChange={setEmailAddressOverride}
                                         placeholder="Enter email address"
                                         type="email"

@@ -39,7 +39,6 @@ const REASONS: Record<string, string> = {
     sandbox_worker_unavailable: "The sandbox sender couldn't be reached.",
 }
 
-/** What the sandbox sender answered for a test of a sandbox email step, or null when the result carries no answer. */
 export function sandboxTestOutcome(result: HogflowTestResult | null): SandboxTestOutcome | null {
     const execResult = result?.execResult as Record<string, unknown> | null | undefined
     if (!execResult || typeof execResult.status !== 'string' || !STATUSES.includes(execResult.status)) {
@@ -52,7 +51,6 @@ export function sandboxTestOutcome(result: HogflowTestResult | null): SandboxTes
     }
 }
 
-/** Records a real test send of a sandbox email step; a mocked test sends nothing. */
 export function reportSandboxTest(workflow: HogFlow, actionId: string | null, result: HogflowTestResult): void {
     const action = workflow.actions?.find((candidate) => candidate.id === actionId)
     const outcome = action?.type === 'email_sandbox' && !result.mocked ? sandboxTestOutcome(result) : null

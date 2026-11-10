@@ -118,7 +118,6 @@ export function withEmailSender(workflow: HogFlow, integrationId: number): { wor
     return { workflow: filled ? { ...workflow, actions } : workflow, filled }
 }
 
-/** Every own email step that has no sender yet, switched to the sandbox sender. */
 export function withSandboxSender(workflow: HogFlow): HogFlow {
     let switched = false
     const actions = workflow.actions.map((action) => {

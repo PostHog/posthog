@@ -4,7 +4,6 @@ import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/Lemon
 
 import type { SandboxSenderChoice } from './SandboxSenderChoiceContext'
 
-// Below every integration ID, so it can't collide with a real sender.
 export const SANDBOX_SENDER_VALUE = -2
 const SANDBOX_SENDER_LABEL = 'Sandbox sender'
 

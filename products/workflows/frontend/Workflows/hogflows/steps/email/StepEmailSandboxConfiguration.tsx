@@ -57,7 +57,6 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
                         key={action.id}
                         type="native_email_sandbox"
                         value={
-                            // Like an own step's input, this form keeps To as { email, name } rather than the type's string.
                             {
                                 ...email.value,
                                 to: { email: '', ...email.value.to },

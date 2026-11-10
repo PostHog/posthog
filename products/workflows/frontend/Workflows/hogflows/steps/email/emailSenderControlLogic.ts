@@ -20,7 +20,6 @@ export interface EmailSenderControlLogicProps {
     actionId: string
 }
 
-/** An own sender's integration ID, or the sandbox sender. */
 export type SenderChoice = number | 'sandbox'
 
 export interface PendingSwitch {

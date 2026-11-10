@@ -17,31 +17,26 @@ export function isEmailStep(action: HogFlowAction | null | undefined): action is
     return action?.type === 'function_email' || action?.type === 'email_sandbox'
 }
 
-/** An own email step with no sender yet, which a project that can use the sandbox sender sends from it instead. */
 export function needsSandboxSender(action: HogFlowAction, canAdoptSandbox: boolean): action is OwnEmailAction {
     return (
         canAdoptSandbox && action.type === 'function_email' && !action.config.inputs?.email?.value?.from?.integrationId
     )
 }
 
-/** The server refuses a sandbox step in a template or in a workflow another product owns. */
 export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, editingTemplate: boolean): boolean {
     return !editingTemplate && !workflow.origin_product
 }
 
-/** Null while the senders are still loading, so a caller can't mistake "not loaded" for "has none". */
 export function hasOwnSender(integrations: IntegrationType[] | null | undefined): boolean | null {
     return integrations
         ? integrations.some((integration) => integration.kind === 'email' && integration.config?.verified === true)
         : null
 }
 
-/** The API saves a sandbox draft without a To, so a missing recipient reads as empty. */
 export function sandboxRecipient(action: SandboxEmailAction): string {
     return action.config.inputs.email.value.to?.email ?? ''
 }
 
-/** The step's own To can be a literal address, so changing only the test person's email would still send to it. */
 export function withSandboxRecipient(workflow: HogFlow, actionId: string | null, email: string | undefined): HogFlow {
     const tested = workflow.actions?.find((action) => action.id === actionId)
     if (!email || tested?.type !== 'email_sandbox') {
@@ -83,10 +78,6 @@ export function toOwnEmailAction(action: SandboxEmailAction, integrationId: numb
     } as OwnEmailAction
 }
 
-/**
- * The sandbox step with an edit to its email applied, keeping only the fields a sandbox step stores.
- * The content editor hands back its own string `to`, which must not replace the step's recipient.
- */
 export function withSandboxEmail(action: SandboxEmailAction, edit: EmailValue): SandboxEmailAction {
     const email = action.config.inputs.email
     const to = edit.to && typeof edit.to === 'object' ? edit.to : email.value.to
@@ -115,7 +106,6 @@ export function ownOnlySettings(action: OwnEmailAction): OwnOnlySetting[] {
     if (value.cc || value.bcc) {
         settings.push('cc_bcc')
     }
-    // Switching back to an own sender starts tracked and untagged, so these are lost too.
     if (action.config.tracking_enabled === false) {
         settings.push('tracking_off')
     }

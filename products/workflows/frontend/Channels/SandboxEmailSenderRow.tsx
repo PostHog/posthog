@@ -9,7 +9,6 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { channelCatalogLogic } from './channelCatalogLogic'
 import { sandboxSenderLogic } from './sandboxSenderLogic'
 
-/** The project's sandbox sender, once it is set up. */
 export function SandboxEmailSenderRow(): JSX.Element | null {
     const { sandboxStatus } = useValues(sandboxSenderLogic)
     const { startChannelSetup } = useActions(channelCatalogLogic)

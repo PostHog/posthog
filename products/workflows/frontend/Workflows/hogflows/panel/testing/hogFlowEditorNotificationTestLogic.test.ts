@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 import { CyclotronJobInvocationGlobals } from '~/types'
 
@@ -27,6 +28,26 @@ const SANDBOX_STEP = {
     config: { inputs: { email: { templating: 'liquid', value: { to: { email: 'ops@example.com' } } } } },
 } as HogFlowAction
 
+const ACCEPTED = { status: 'success', logs: [], nextActionId: null, execResult: { status: 'accepted' } }
+
+function member(firstName: string, verified: boolean): Record<string, unknown> {
+    const uuid = `u-${firstName.toLowerCase()}`
+    return {
+        id: `membership-${uuid}`,
+        level: 1,
+        joined_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        user: {
+            uuid,
+            first_name: firstName,
+            email: `${firstName.toLowerCase()}@example.com`,
+            is_email_verified: verified,
+        },
+    }
+}
+
+const MEMBERS = [member('Bo', true), member('Cy', false), member('Ana', true)]
+
 describe('hogFlowEditorNotificationTestLogic', () => {
     let logic: ReturnType<typeof hogFlowEditorNotificationTestLogic.build>
     let workflowLogicInstance: ReturnType<typeof workflowLogic.build>
@@ -38,7 +59,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/persons/': { results: [] },
-                '/api/environments/@current/hog_flows/test-workflow-id/': {
+                '/api/environments/:team_id/hog_flows/test-workflow-id/': {
                     id: 'test-workflow-id',
                     team_id: 1,
                     name: 'Test Workflow',
@@ -504,62 +525,93 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         })
     })
 
-    it('sends a sandbox step test to the chosen member even when the step names a fixed address', async () => {
-        let sentTo: string | undefined
-        useMocks({
-            post: {
-                '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
-                    const { configuration } = (await request.json()) as { configuration: HogFlow }
-                    sentTo = (configuration.actions[0].config as any).inputs.email.value.to.email
-                    return [
-                        200,
-                        { status: 'success', logs: [], nextActionId: null, execResult: { status: 'accepted' } },
-                    ]
+    describe('sandbox step test', () => {
+        let sentTo: string[]
+
+        beforeEach(() => {
+            sentTo = []
+            useMocks({
+                get: { '/api/organizations/@current/members/': { results: MEMBERS, next: null } },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        const { configuration } = (await request.json()) as { configuration: HogFlow }
+                        sentTo.push((configuration.actions[0].config as any).inputs.email.value.to.email)
+                        return [200, ACCEPTED]
+                    },
                 },
-            },
+            })
         })
-        workflowLogicInstance.actions.setWorkflowValues({ actions: [SANDBOX_STEP] })
-        logic.actions.setTestInvocationValue('globals', '{"person": {"properties": {"email": "lead@example.com"}}}')
-        logic.actions.setTestInvocationValue('mock_async_functions', true)
-        logic.actions.setEmailAddressOverride('member@example.com')
-        logic.actions.setSelectedNodeId('email')
 
-        await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
-            'submitTestInvocationSuccess',
-        ])
+        async function openSandboxTest(chosen: string): Promise<void> {
+            await expectLogic(workflowLogicInstance).toDispatchActions(['loadWorkflowSuccess'])
+            workflowLogicInstance.actions.setWorkflowValues({ actions: [SANDBOX_STEP] })
+            logic.actions.setTestInvocationValue('globals', '{"person": {"properties": {"email": "lead@example.com"}}}')
+            logic.actions.setTestInvocationValue('mock_async_functions', true)
+            logic.actions.setEmailAddressOverride(chosen)
+            logic.actions.setSelectedNodeId('email')
+            membersLogic.actions.ensureAllMembersLoaded()
+            await expectLogic(membersLogic).toFinishAllListeners()
+        }
 
-        expect(sentTo).toBe('member@example.com')
-        expect(logic.values.testResult?.mocked).toBe(true)
-    })
+        it.each([
+            ['an address outside the organization', 'lead@example.com', 'ana@example.com'],
+            ['a member who has not verified their email', 'cy@example.com', 'ana@example.com'],
+            ['a verified member', 'bo@example.com', 'bo@example.com'],
+        ])('sends a sandbox step test chosen for %s only to a verified member', async (_, chosen, expected) => {
+            await openSandboxTest(chosen)
 
-    it('records a sandbox test send for the tested step after the selection moves on', async () => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        let answer: () => void = () => {}
-        const answered = new Promise<void>((resolve) => {
-            answer = resolve
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                'submitTestInvocationSuccess',
+            ])
+
+            expect(sentTo).toEqual([expected])
         })
-        useMocks({
-            post: {
-                '/api/environments/:team_id/hog_flows/:id/invocations': async () => {
-                    await answered
-                    return [
-                        200,
-                        { status: 'success', logs: [], nextActionId: null, execResult: { status: 'accepted' } },
-                    ]
+
+        it.each([
+            ['the members load after the confirmation opened', 'confirmed', true],
+            ['the member lookup failed', 'confirmed', false],
+            ['the member lookup failed', 'mocked', false],
+        ])('sends nothing from a sandbox step when %s (%s run)', async (_, run, membersLoad) => {
+            if (!membersLoad) {
+                useMocks({ get: { '/api/organizations/@current/members/': () => [500, { detail: 'Unavailable' }] } })
+            }
+            await openSandboxTest('lead@example.com')
+
+            if (run === 'confirmed') {
+                logic.actions.sendTestTo('lead@example.com')
+            } else {
+                logic.actions.submitTestInvocation()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(sentTo).toEqual([])
+        })
+
+        it('records a sandbox test send for the tested step after the selection moves on', async () => {
+            let answer: () => void = () => {}
+            const answered = new Promise<void>((resolve) => {
+                answer = resolve
+            })
+            await openSandboxTest({ chosen: 'ana@example.com', members: MEMBERS })
+            logic.actions.setTestInvocationValue('mock_async_functions', false)
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async () => {
+                        await answered
+                        return [200, ACCEPTED]
+                    },
                 },
-            },
+            })
+
+            logic.actions.submitTestInvocation()
+            logic.actions.setSelectedNodeId(null)
+            answer()
+            await expectLogic(logic).toDispatchActions(['submitTestInvocationSuccess'])
+
+            expect(posthog.capture).toHaveBeenCalledWith('workflows sandbox test sent', {
+                status: 'accepted',
+                reason: null,
+            })
         })
-        workflowLogicInstance.actions.setWorkflowValues({ actions: [SANDBOX_STEP] })
-        logic.actions.setTestInvocationValue('globals', '{"person": {"properties": {"email": "lead@example.com"}}}')
-        logic.actions.setTestInvocationValue('mock_async_functions', false)
-        logic.actions.setSelectedNodeId('email')
-
-        logic.actions.submitTestInvocation()
-        logic.actions.setSelectedNodeId(null)
-        answer()
-        await expectLogic(logic).toDispatchActions(['submitTestInvocationSuccess'])
-
-        expect(capture).toHaveBeenCalledWith('workflows sandbox test sent', { status: 'accepted', reason: null })
-        capture.mockRestore()
     })
 })

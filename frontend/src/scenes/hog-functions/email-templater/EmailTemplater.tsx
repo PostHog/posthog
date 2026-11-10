@@ -281,8 +281,6 @@ export function NativeEmailIntegrationChoice({
     // visible again on reopen without any separate reveal state.
     const overridesVisible = value?.email !== undefined || value?.name !== undefined
 
-    // Switching between an own sender and the sandbox sender replaces the step's form, unmounting the
-    // email editor, so a canvas edit still inside its debounce must reach the step first.
     const switchSenderKind = (switchSender: () => void): void => {
         void flushPendingDesignEdit().then(switchSender)
     }

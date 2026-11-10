@@ -1,49 +1,38 @@
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useActions } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { membersLogic } from '~/models/membersLogic'
+import { OrganizationMemberType } from '~/types'
 
-/** Test recipients for a sandbox email step: the sandbox sender only delivers to verified members. */
 export function SandboxTestRecipientSelect({
+    members,
+    loading,
     value,
     onChange,
 }: {
-    value: string
+    members: OrganizationMemberType[]
+    loading: boolean
+    value: string | null
     onChange: (email: string) => void
 }): JSX.Element {
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
 
     useOnMountEffect(ensureAllMembersLoaded)
-
-    const options = meFirstMembers
-        .filter((member) => member.user.is_email_verified)
-        .map((member) => ({
-            value: member.user.email,
-            label: member.user.first_name ? `${member.user.first_name} (${member.user.email})` : member.user.email,
-        }))
-
-    // The test sends to `value` whatever the select shows, so a value that isn't a verified member is replaced.
-    const firstMember = options[0]?.value
-    const valueIsMember = options.some((option) => option.value === value)
-    useEffect(() => {
-        if (!membersLoading && firstMember && !valueIsMember) {
-            onChange(firstMember)
-        }
-    }, [membersLoading, firstMember, valueIsMember]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <LemonSelect
             fullWidth
             className="mt-1"
-            value={valueIsMember ? value : null}
+            value={value}
             onChange={(email) => email && onChange(email)}
-            options={options}
-            loading={membersLoading}
+            options={members.map(({ user }) => ({
+                value: user.email,
+                label: user.first_name ? `${user.first_name} (${user.email})` : user.email,
+            }))}
+            loading={loading}
             placeholder="Choose a verified member"
             data-attr="workflow-sandbox-test-recipient"
         />

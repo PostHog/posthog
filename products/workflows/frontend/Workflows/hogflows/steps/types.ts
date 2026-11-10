@@ -416,7 +416,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
-    // Sends from PostHog's shared sandbox sender, so it has no template, sender, or delivery settings.
     // Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
     z.object({
         ..._commonActionFields,

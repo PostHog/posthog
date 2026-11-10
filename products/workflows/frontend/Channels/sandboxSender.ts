@@ -9,7 +9,6 @@ export function canAdoptSandboxSender(status: WorkflowEmailSandboxStatusApi | nu
     return !!status?.adoption_enabled && !status.organization_blocked && !!status.from_address
 }
 
-// The route sits under /api/projects/ but reads its id as an environment, so callers pass the team id.
 export async function provisionSandboxSender(teamId: string, surface: SandboxSenderSurface): Promise<number> {
     const { integration_id } = await workflowEmailSandboxProvision(teamId)
     // pinned: analytics event name
@@ -17,7 +16,6 @@ export async function provisionSandboxSender(teamId: string, surface: SandboxSen
     return integration_id
 }
 
-/** Whether a new email step can use the sandbox sender, setting the sender up first when it is missing. */
 export async function readySandboxSender(teamId: string, surface: SandboxSenderSurface): Promise<boolean> {
     try {
         const status = await workflowEmailSandboxStatus(teamId)

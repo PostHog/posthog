@@ -205,7 +205,6 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
             team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
         )
         if (!sender) {
-            // Several own senders and no default also resolve to none, and those steps keep an own sender to pick.
             const needsSender =
                 !hasOwnSender(integrations) &&
                 sandboxSenderAllowed(workflow, false) &&
@@ -4356,7 +4355,6 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Add a subject line'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                // A sandbox step always sends from the sandbox sender, so it has no sender to check.
                                 ...(action.type === 'function_email'
                                     ? {
                                           from: !emailValue?.from?.integrationId
