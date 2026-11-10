@@ -1356,22 +1356,35 @@ index aaa..bbb 100644
 """
 
 
-def _approved_run(team_id: int, *, lifted: bool = False) -> None:
-    lifted_files = {"migrations": ["posthog/migrations/0999_x.py"]} if lifted else {}
+def _approved_run(team_id: int, *, lifted: bool | None = False) -> None:
+    attestation = {} if lifted is None else {"gate_attestation": {"attested": True, "lifted": lifted}}
     with team_scope(team_id):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(
             verdict=ReviewVerdict.APPROVED,
             posted_review_id=9,
-            output={"pr": {"base": {"sha": "base-1"}}},
-            gate_result={"classification": {"lifted_files": lifted_files}},
+            output={"pr": {"base": {"sha": "base-1"}}, **attestation},
+            # The sandbox's own report, which says no check lifted anything and must decide nothing.
+            gate_result={"classification": {"lifted_files": {}}},
         )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
     "same_diff,clean_base_merge,lifted,expect_retained",
-    [(True, False, False, True), (False, False, False, False), (False, True, False, True), (True, False, True, False)],
-    ids=["identical_diff_retains", "changed_diff_dismisses", "clean_base_merge_retains", "lifted_approval_dismisses"],
+    [
+        (True, False, False, True),
+        (False, False, False, False),
+        (False, True, False, True),
+        (True, False, True, False),
+        (True, False, None, False),
+    ],
+    ids=[
+        "identical_diff_retains",
+        "changed_diff_dismisses",
+        "clean_base_merge_retains",
+        "lifted_approval_dismisses",
+        "approval_the_worker_did_not_record_dismisses",
+    ],
 )
 def test_push_retains_the_approval_only_when_the_diff_is_identical(
     team, repo_config, same_diff, clean_base_merge, lifted, expect_retained

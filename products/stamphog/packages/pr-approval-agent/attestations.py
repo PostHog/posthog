@@ -17,8 +17,8 @@ all of them, and the server's confirmation that the default branch still holds e
 it read changed, therefore lifts nothing. The list form carries no identity, so it lifts only when
 the entry declares no `publisher_files`.
 
-Everything short of a complete proof lifts nothing: a run from another App, a non-success
-conclusion, no marker or more than one, a path outside the entry's `paths`, a file not in the diff.
+Each of these lifts nothing: a run from another App, a non-success conclusion, no marker or more
+than one, a path outside the entry's `paths`, a file not in the diff.
 """
 
 import re

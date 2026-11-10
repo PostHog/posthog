@@ -1203,6 +1203,15 @@ class StamphogGitHubClient:
         Raises on any HTTP, GraphQL, or shape failure. Most of these queries feed an advisory
         signal, so the default is the sheddable BATCH lane.
         """
+        commit = self._repository_graphql(repo, query, variables, timeout=timeout, priority=priority).get("object")
+        if not isinstance(commit, dict):
+            raise StamphogGitHubError(f"Commit not found in {repo}")
+        return commit
+
+    def _repository_graphql(
+        self, repo: str, query: str, variables: dict[str, Any], *, timeout: int, priority: Priority
+    ) -> dict:
+        """Run a query against ``repo`` and return the repository's fields, raising on any failure."""
         owner, name = repo.split("/", 1)
         response = self._request(
             "POST",
@@ -1222,10 +1231,10 @@ class StamphogGitHubClient:
             raise GitHubRateLimitError(f"GitHub GraphQL rate limit exceeded on {repo}")
         if not isinstance(data, dict) or errors:
             raise StamphogGitHubError(f"GraphQL errors on {repo}")
-        commit = ((data.get("data") or {}).get("repository") or {}).get("object")
-        if not isinstance(commit, dict):
-            raise StamphogGitHubError(f"Commit not found in {repo}")
-        return commit
+        repository = (data.get("data") or {}).get("repository")
+        if not isinstance(repository, dict):
+            raise StamphogGitHubError(f"Repository not found: {repo}")
+        return repository
 
     def get_blame_ranges(self, repo: str, oid: str, path: str, *, timeout: int) -> list[dict]:
         """The blame ranges of ``path`` at commit ``oid``, as GraphQL returns them."""
@@ -1336,17 +1345,19 @@ class StamphogGitHubClient:
         """The blob sha of each of ``paths`` on the default branch now, None for a path it lacks.
 
         One request, one alias per path. The paths come from a check run, so they travel as GraphQL
-        variables and never as query text.
+        variables and never as query text. Each one is read as `object(expression: "HEAD:<path>")`,
+        which answers null for a missing path. `Commit.file` answers that with a NOT_FOUND error,
+        and one such error would fail the whole request.
         """
         declarations = " ".join(f"$p{index}: String!" for index in range(len(paths)))
-        aliases = " ".join(f"p{index}: file(path: $p{index}) {{ oid }}" for index in range(len(paths)))
+        aliases = " ".join(f"p{index}: object(expression: $p{index}) {{ oid }}" for index in range(len(paths)))
         query = (
-            f"query($owner: String!, $name: String!, {declarations}) {{ repository(owner: $owner, name: $name) {{ "
-            f'object(expression: "HEAD") {{ ... on Commit {{ {aliases} }} }} }} }}'
+            f"query($owner: String!, $name: String!, {declarations}) "
+            f"{{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
         )
-        variables = {f"p{index}": path for index, path in enumerate(paths)}
-        commit = self._commit_graphql(repo, query, variables, timeout=15, priority=Priority.CRITICAL)
-        return {path: (commit.get(f"p{index}") or {}).get("oid") for index, path in enumerate(paths)}
+        variables = {f"p{index}": f"HEAD:{path}" for index, path in enumerate(paths)}
+        repository = self._repository_graphql(repo, query, variables, timeout=15, priority=Priority.CRITICAL)
+        return {path: (repository.get(f"p{index}") or {}).get("oid") for index, path in enumerate(paths)}
 
     def get_default_branch_file(self, repo: str, path: str, *, priority: Priority = Priority.CRITICAL) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.

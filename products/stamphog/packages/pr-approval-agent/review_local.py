@@ -626,7 +626,9 @@ def attest(context: dict) -> dict:
 
     def outcome(reason: str) -> dict:
         gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
-        return {"attested": not reason, "reason": reason, "gates": gates}
+        # The server gives an approval that a lift made possible no approval retention.
+        lifted = bool(pipeline.classification.get("lifted_files"))
+        return {"attested": not reason, "reason": reason, "gates": gates, "lifted": lifted}
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         return outcome("bot_author")

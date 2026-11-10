@@ -12,9 +12,13 @@ import json
 
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 
+_MARKER_TAG = "stamphog:v1"
 _MARKER_RE = re.compile(r"<!--\s*stamphog:v1\s+(\{.*?\})\s*-->", re.DOTALL)
-# Any workflow can post a check run with a marker, so both limits bound what a PR can make the
-# server read. A marker over a limit is recorded as stale.
+# A job of any PR can post a check run as this App, and the policy refuses it as a publisher, so
+# its check runs are never read for pins.
+_GITHUB_ACTIONS_APP_ID = 15368
+# Another App's workflow can still post a check run with a marker, so both limits bound what the
+# server reads. A marker over a limit is recorded as stale.
 _MAX_PINNED_PATHS = 64
 _MAX_PINNING_CHECK_RUNS = 5
 
@@ -38,7 +42,13 @@ def get_check_runs_with_pins(client: StamphogGitHubClient, repo: str, head_sha: 
 
 def _pinned_blobs(check_run: dict) -> dict[str, str | None] | None:
     """The marker's `blobs`, `{}` when they are malformed, or None for a check run that pins nothing."""
+    if (check_run.get("app") or {}).get("id") == _GITHUB_ACTIONS_APP_ID:
+        return None
     summary = (check_run.get("output") or {}).get("summary") or ""
+    # The engine accepts exactly one marker. Counting the tag first keeps the pattern from scanning
+    # a summary of many unclosed markers once per marker.
+    if summary.count(_MARKER_TAG) != 1:
+        return None
     markers = _MARKER_RE.findall(summary)
     if len(markers) != 1:
         return None
