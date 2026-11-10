@@ -147,6 +147,32 @@ class TestAccountViewContentValidation(SimpleTestCase):
         content = account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
         self.assertEqual(validate_account_view_content(content), (content, "Dot matrix"))
 
+    @parameterized.expand(
+        [
+            ("scoped", {"query": "select * from engagements where org_id = {account_external_id}"}, None),
+            (
+                "unscoped",
+                {"query": "select * from engagements"},
+                "SQL query must filter by {account_external_id}.",
+            ),
+            ("blank", {"query": "  "}, "SQL query config needs a query."),
+            ("not_a_string", {"query": 1}, "SQL query config needs a query."),
+            (
+                "extra_field",
+                {"query": "select {account_external_id}", "limit": 10},
+                "SQL query config must contain only a query.",
+            ),
+        ]
+    )
+    def test_sql_query_config(self, _name: str, config: dict, expected_error: str | None) -> None:
+        content = account_view_content(f'<SqlQuery nodeId="sql-one" config={{{json.dumps(config)}}} />')
+        if expected_error is None:
+            assert validate_account_view_content(content) == (content, "SQL query")
+        else:
+            with self.assertRaises(InvalidAccountViewContent) as context:
+                validate_account_view_content(content)
+            assert context.exception.errors == [f"Component 1: {expected_error}"]
+
     def test_rejects_span_outside_twelve_columns(self) -> None:
         with self.assertRaises(InvalidAccountViewContent) as context:
             validate_account_view_content(account_view_content('<Usage nodeId="usage-one" span={13} />'))
