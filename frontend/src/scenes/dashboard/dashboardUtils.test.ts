@@ -378,6 +378,7 @@ describe('getInsightWithRetry', () => {
             undefined,
             undefined,
             undefined,
+            undefined,
             MAX_ATTEMPTS,
             1
         )
@@ -412,6 +413,7 @@ describe('getInsightWithRetry', () => {
             undefined,
             undefined,
             undefined,
+            'preview',
             MAX_ATTEMPTS,
             1
         )
@@ -420,7 +422,7 @@ describe('getInsightWithRetry', () => {
 
         expect(getResponseSpy).toHaveBeenCalledTimes(2)
         expect(getResponseSpy).toHaveBeenLastCalledWith(
-            expect.any(String),
+            expect.stringContaining('refresh_reason=preview'),
             { onRequestTiming },
             expect.any(ApiRequestTimingRecorder)
         )
@@ -504,6 +506,7 @@ describe('getInsightWithRetry', () => {
                 undefined,
                 undefined,
                 undefined,
+                undefined,
                 maxAttempts,
                 1
             )
@@ -548,6 +551,7 @@ describe('getInsightWithRetry', () => {
                 60,
                 'query-id',
                 'blocking',
+                undefined,
                 undefined,
                 undefined,
                 undefined,
@@ -607,6 +611,7 @@ describe('getInsightWithRetry', () => {
             60,
             'query-id',
             'blocking',
+            undefined,
             undefined,
             undefined,
             undefined,

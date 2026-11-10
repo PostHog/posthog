@@ -1137,6 +1137,17 @@ describe('dashboardLogic', () => {
                     refresh: () => logic.actions.triggerDashboardRefresh(),
                     mode: 'force_blocking',
                     dateFrom: undefined,
+                    reason: 'manual_refresh',
+                },
+                {
+                    name: 'an auto refresh',
+                    refresh: () => {
+                        logic.actions.updateDashboardLastRefresh(now().subtract(1, 'day'))
+                        logic.actions.setAutoRefresh(true, 900)
+                    },
+                    mode: 'force_blocking',
+                    dateFrom: undefined,
+                    reason: 'auto_refresh',
                 },
                 // The preview has not finished, so settingsForRefresh still holds the saved filters.
                 {
@@ -1144,28 +1155,33 @@ describe('dashboardLogic', () => {
                     refresh: () => logic.actions.setDates('-7d', null),
                     mode: 'blocking',
                     dateFrom: '-7d',
+                    reason: 'preview',
                 },
-            ])('loads a closed group on open with the settings of $name', async ({ refresh, mode, dateFrom }) => {
-                groupTiles({ target: { collapsed: true } })
-                await mountDashboard()
-                const visible = dashboards[5].tiles[1].insight!.short_id
-                refreshInsight.mockImplementation((...args) =>
-                    args[1].short_id === visible ? hangUntilAborted(args[5]?.signal) : Promise.resolve(args[1])
-                )
+            ])(
+                'loads a closed group on open with the settings of $name',
+                async ({ refresh, mode, dateFrom, reason }) => {
+                    groupTiles({ target: { collapsed: true } })
+                    await mountDashboard()
+                    const visible = dashboards[5].tiles[1].insight!.short_id
+                    refreshInsight.mockImplementation((...args) =>
+                        args[1].short_id === visible ? hangUntilAborted(args[5]?.signal) : Promise.resolve(args[1])
+                    )
 
-                refresh()
-                await expectLogic(logic).toDispatchActions(['setWaitingTileRefresh'])
-                expect(loads(target)).toHaveLength(0)
+                    refresh()
+                    await expectLogic(logic).toDispatchActions(['setWaitingTileRefresh'])
+                    expect(loads(target)).toHaveLength(0)
 
-                logic.actions.toggleTileGroup('target')
-                await expectLogic(logic).toDispatchActions(['clearWaitingTileRefresh'])
+                    logic.actions.toggleTileGroup('target')
+                    await expectLogic(logic).toDispatchActions(['clearWaitingTileRefresh'])
 
-                const [[, , , , refreshMode, , filters]] = loads(target)
-                expect(refreshMode).toBe(mode)
-                expect(filters?.date_from).toBe(dateFrom)
-                expect(logic.values.waitingTileRefresh).toBeNull()
-                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
-            })
+                    const [[, , , , refreshMode, , filters, , , refreshReason]] = loads(target)
+                    expect(refreshMode).toBe(mode)
+                    expect(refreshReason).toBe(reason)
+                    expect(filters?.date_from).toBe(dateFrom)
+                    expect(logic.values.waitingTileRefresh).toBeNull()
+                    await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                }
+            )
 
             it('settles a filter preview when every insight sits in a closed group', async () => {
                 groupTiles({ target: { collapsed: true }, other: { collapsed: true } })

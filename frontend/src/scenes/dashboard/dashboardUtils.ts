@@ -436,6 +436,16 @@ async function captureTileRerunAfterStatusExpired(
     }
 }
 
+/** Why a dashboard loads a tile. The values match `RefreshReason` in posthog/clickhouse/query_tagging.py, which tags the query log with them. */
+export type DashboardRefreshReason =
+    | 'initial_load'
+    | 'update'
+    | 'manual_refresh'
+    | 'manual_tile_refresh'
+    | 'auto_refresh'
+    | 'stale_refresh'
+    | 'preview'
+
 /**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
@@ -451,6 +461,7 @@ export async function getInsightWithRetry(
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,
     tileFiltersOverride?: TileFilters,
+    refreshReason?: DashboardRefreshReason,
     maxAttempts: number = 5,
     initialDelay: number = 1200
 ): Promise<InsightModel | null> {
@@ -488,6 +499,7 @@ export async function getInsightWithRetry(
         try {
             const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                 refresh,
+                refresh_reason: refreshReason,
                 from_dashboard: dashboardId, // needed to load insight in correct context
                 client_query_id: queryId,
                 session_id: currentSessionId(),
@@ -510,6 +522,7 @@ export async function getInsightWithRetry(
                         const asyncApiUrl = (asyncRefresh: 'force_async' | 'async'): string =>
                             `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                 refresh: asyncRefresh,
+                                refresh_reason: refreshReason,
                                 from_dashboard: dashboardId,
                                 client_query_id: queryId,
                                 session_id: currentSessionId(),
@@ -521,6 +534,7 @@ export async function getInsightWithRetry(
                             if (finalStatus.complete && !finalStatus.error) {
                                 const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
+                                    refresh_reason: refreshReason,
                                     from_dashboard: dashboardId,
                                     client_query_id: queryId,
                                     session_id: currentSessionId(),

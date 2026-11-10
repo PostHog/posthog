@@ -235,3 +235,15 @@ export function reportDashboardEmptyWebAnalyticsClicked(dashboardId: number | un
 export function reportDashboardAddMenuOpened(source: 'header', dashboardId: number): void {
     posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
 }
+
+export function reportDashboardAutoRefreshChanged(
+    dashboardId: number,
+    enabled: boolean,
+    intervalSeconds: number
+): void {
+    posthog.capture('dashboard auto refresh changed', {
+        dashboard_id: dashboardId,
+        enabled,
+        interval_seconds: intervalSeconds,
+    })
+}
