@@ -104,9 +104,11 @@ export function inStorybookTestRunner(): boolean {
 }
 
 export function inStorybook(): boolean {
+    // The runner sets its user agent before any page script runs, while the preview globals appear only after
+    // Storybook boots, so the runner check also covers code that runs at module scope.
     // `__STORYBOOK_CLIENT_API__` was removed in Storybook 8; `__STORYBOOK_PREVIEW__` is its
     // modern counterpart. Keep both so this works across versions.
-    return '__STORYBOOK_CLIENT_API__' in window || '__STORYBOOK_PREVIEW__' in window
+    return inStorybookTestRunner() || '__STORYBOOK_CLIENT_API__' in window || '__STORYBOOK_PREVIEW__' in window
 }
 
 export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {

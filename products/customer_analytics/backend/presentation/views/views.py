@@ -30,7 +30,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -81,6 +81,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountEmailThreadMessageSerializer,
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
+    AccountNotebookUpdateSerializer,
     AccountNoteSerializer,
     AccountPresenceListRequestSerializer,
     AccountPresenceSerializer,
@@ -2400,7 +2401,22 @@ class AccountNotebookViewSet(
     queryset = None
     lookup_field = "short_id"
 
-    ALLOWED_ORDERING = frozenset({"created_at", "-created_at", "created_by", "-created_by"})
+    @property
+    def requires_resource_level_access(self) -> bool:
+        return self.request.method not in SAFE_METHODS
+
+    ALLOWED_ORDERING = frozenset(
+        {
+            "created_at",
+            "-created_at",
+            "created_by",
+            "-created_by",
+            "last_modified_at",
+            "-last_modified_at",
+            "title",
+            "-title",
+        }
+    )
 
     @extend_schema(
         parameters=[
@@ -2412,12 +2428,30 @@ class AccountNotebookViewSet(
                 description="Full-text search across notebook title and content.",
             ),
             OpenApiParameter(
+                name="tags",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    'JSON-encoded array of tag names, e.g. `["renewal","risk"]`. '
+                    "Returns notebooks that carry any of the listed tags."
+                ),
+            ),
+            OpenApiParameter(
                 name="ordering",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["created_at", "-created_at", "created_by", "-created_by"],
-                description="Sort by creation date or author. Defaults to '-created_at'.",
+                enum=sorted(ALLOWED_ORDERING),
+                description="Sort by creation date, last modification, author or title. Defaults to '-created_at'.",
+            ),
+            OpenApiParameter(
+                name="created_by",
+                type=OpenApiTypes.INT,
+                many=True,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return notebooks created by these user IDs (repeat the param per user).",
             ),
         ],
     )
@@ -2430,6 +2464,8 @@ class AccountNotebookViewSet(
             user_access_control=self.user_access_control,
             search=request.query_params.get("search", "").strip() or None,
             order=ordering,
+            tags=_parse_tags_param(request),
+            created_by_ids=_parse_int_ids_param(request, "created_by") or None,
         )
         if notebooks is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2437,6 +2473,27 @@ class AccountNotebookViewSet(
         if page is not None:
             return self.get_paginated_response(AccountNotebookSerializer(instance=page, many=True).data)
         return Response(AccountNotebookSerializer(instance=notebooks, many=True).data)
+
+    @extend_schema(
+        request=AccountNotebookUpdateSerializer,
+        responses={200: AccountNotebookSerializer},
+        description="Replace the tags of an account notebook. Omit `tags` to leave them as they are.",
+    )
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        serializer = AccountNotebookUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        notebook = api.update_account_notebook(
+            team_id=self.team_id,
+            account_id=self.parents_query_dict["account_id"],
+            short_id=self.kwargs["short_id"],
+            input=contracts.UpdateAccountNotebookInput(tags=data.get("tags")),
+            user=cast(User, request.user),
+            user_access_control=self.user_access_control,
+        )
+        if notebook is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountNotebookSerializer(instance=notebook).data)
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         notebook = api.get_account_notebook(
@@ -2463,6 +2520,7 @@ class AccountNotebookViewSet(
                     content=data.content,
                     text_content=data.text_content,
                     synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
+                    tags=data.tags,
                 ),
                 user=cast(User, request.user),
                 user_access_control=self.user_access_control,
@@ -2542,6 +2600,21 @@ class AccountNotesViewSet(
     queryset = None  # data is reached through the facade; declared for router/schema only
     pagination_class = FacadeLimitOffsetPagination
 
+    ALLOWED_ORDERING = frozenset(
+        {
+            "last_modified_at",
+            "-last_modified_at",
+            "created_at",
+            "-created_at",
+            "title",
+            "-title",
+            "created_by",
+            "-created_by",
+            "account_name",
+            "-account_name",
+        }
+    )
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -2575,9 +2648,29 @@ class AccountNotesViewSet(
                 description="Only return notes on accounts assigned to these user IDs "
                 "(the account's CSM or account executive; repeat the param per user).",
             ),
+            OpenApiParameter(
+                name="tags",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    'JSON-encoded array of tag names, e.g. `["renewal","risk"]`. '
+                    "Only return notes that carry any of the listed tags."
+                ),
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=sorted(ALLOWED_ORDERING),
+                description="Sort order. Defaults to '-last_modified_at'.",
+            ),
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
+        ordering = request.query_params.get("ordering")
+        ordering = ordering if ordering in self.ALLOWED_ORDERING else None
         return facade_page_response(
             self,
             lambda page: api.list_account_notes_for_view(
@@ -2588,6 +2681,8 @@ class AccountNotesViewSet(
                 account_id=_parse_uuid_param(request, "account_id"),
                 created_by_ids=_parse_int_ids_param(request, "created_by") or None,
                 assigned_to_ids=_parse_int_ids_param(request, "assigned_to") or None,
+                tags=_parse_tags_param(request),
+                order=ordering,
             ),
             serializer_class=AccountNoteSerializer,
         )

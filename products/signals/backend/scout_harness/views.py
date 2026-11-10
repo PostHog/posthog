@@ -636,6 +636,7 @@ def emit_report_response_data(result: EmitReportResult) -> dict[str, Any]:
             "safety_explanation": result.safety_explanation,
             "remediation": result.remediation,
             "idempotent_replay": result.idempotent_replay,
+            "quality_hints": [dataclasses.asdict(hint) for hint in result.quality_hints],
         }
     ).data
 
@@ -1467,6 +1468,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "corroboration_collapsed": result.corroboration_collapsed,
                     "decision_fields_set": list(result.decision_fields_set),
                     "warnings": [{"field": w.field, "message": w.message} for w in result.warnings],
+                    "quality_hints": [dataclasses.asdict(hint) for hint in result.quality_hints],
                 }
             ).data,
             status=status.HTTP_200_OK,

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonDisabledArea, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { InsightLogicProps } from '~/types'
@@ -22,13 +22,13 @@ export function PoeFilter({ insightProps }: PoeFilterProps): JSX.Element {
     const { poeMode } = useValues(poeFilterLogic(insightProps))
     const { hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { setPoeMode } = useActions(poeFilterLogic(insightProps))
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
     const disabledReason = hasDataWarehouseSeries
         ? 'Data warehouse insights always use the latest table properties.'
         : undefined
     const onChange = (checked: boolean): void => setPoeMode(checked ? 'person_id_override_properties_joined' : null)
 
-    if (todayRailNav) {
+    if (quillSurface) {
         return (
             <QuillChartOptionSwitch
                 label="Use person properties from query time"
