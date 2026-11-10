@@ -8,9 +8,8 @@
 //!
 //! The broker can reject a commit the client already sent, and librdkafka
 //! does not retry a manual commit rejected with `STALE_MEMBER_EPOCH`. So the
-//! pacer also keeps the offset it last handed out per partition and hands it
-//! out again on the next [`RESENDS`] due takes that carry nothing newer for
-//! that partition. Committing an offset again is idempotent.
+//! pacer re-sends each partition's last handed-out offset on the next
+//! [`RESENDS`] due takes. Committing an offset again is idempotent.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
