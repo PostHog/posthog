@@ -37,11 +37,9 @@ const SESSION_DURATION_DESCRIPTION = 'Average duration of sessions with a page o
 interface HomeTabStatTileProps {
     stat: HomeTabStatQuery
     compare: boolean
-    selected: boolean
-    onSelect: () => void
 }
 
-export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabStatTileProps): JSX.Element {
+export function HomeTabStatTile({ stat, compare }: HomeTabStatTileProps): JSX.Element {
     const { currentTeamId, currentTeam } = useValues(teamLogic)
     const { shouldShowSampleData, sampleDataPending } = useValues(sampleDataStateLogic)
     const sampleData = useMemo(
@@ -166,9 +164,6 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             }
             title={null}
             ariaLabel={stat.title}
-            onClick={onSelect}
-            selected={selected}
-            selectedAppearance="raised"
             loading={loading}
             error={responseError ? 'Could not load' : undefined}
             dataAttr={`home-tab-metric-${stat.key}`}

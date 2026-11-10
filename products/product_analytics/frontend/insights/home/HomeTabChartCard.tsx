@@ -1,7 +1,6 @@
 import '~/queries/nodes/InsightViz/InsightViz.scss'
 import './HomeTabChartCard.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMemo, type ReactNode } from 'react'
 
@@ -26,7 +25,8 @@ interface HomeTabChartCardProps {
     control?: ReactNode
     source?: string
     loadPriority: number
-    className?: string
+    /** Replaces the plain title, for example with a control that switches the chart. */
+    title?: ReactNode
 }
 
 export function HomeTabChartCard({
@@ -35,7 +35,7 @@ export function HomeTabChartCard({
     control,
     source,
     loadPriority,
-    className,
+    title,
 }: HomeTabChartCardProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { shouldShowSampleData, sampleDataPending } = useValues(sampleDataStateLogic)
@@ -66,14 +66,11 @@ export function HomeTabChartCard({
         />
     )
     return (
-        <LemonCard
-            hoverEffect={false}
-            className={clsx('HomeTabChartCard flex min-w-0 flex-col overflow-hidden p-0', className)}
-        >
+        <LemonCard hoverEffect={false} className="HomeTabChartCard flex min-w-0 flex-col overflow-hidden p-0">
             <div className="HomeTabChartCard__header border-b border-primary px-4 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 items-center gap-1">
-                        <h3 className="m-0 truncate text-base font-semibold">{option.title}</h3>
+                        <h3 className="m-0 truncate text-base font-semibold">{title ?? option.title}</h3>
                         {source && (
                             <Tooltip title={`Based on ${source}`}>
                                 <IconInfo className="shrink-0 text-secondary" />

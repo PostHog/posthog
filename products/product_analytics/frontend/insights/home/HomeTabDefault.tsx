@@ -23,6 +23,7 @@ import {
 } from './homeTabDefaultTiles'
 import { HomeTabExplore } from './HomeTabExplore'
 import { homeTabLoadTimeLogic } from './homeTabLoadTimeLogic'
+import { HomeTabMetricDropdown } from './HomeTabMetricDropdown'
 import { homeTabChartInsightId, homeTabStatKey, homeTabStatTrendKey } from './homeTabQueryKeys'
 import { HomeTabReloadButton } from './HomeTabReloadButton'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
@@ -39,6 +40,11 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
     const audienceCharts = getHomeTabAudienceOptions(dateRange)
     const breakdownCharts = getHomeTabBreakdownOptions(dateRange)
     const primaryChart = metricCharts.find((option) => option.key === selectedMetric) ?? metricCharts[0]
+    // The dropdown offers the metrics shown in the stat tiles, in tile order, under their chart titles.
+    const metricOptions = getHomeTabStatQueries(dateRange, compare).flatMap(({ key }) => {
+        const chart = metricCharts.find((option) => option.key === key)
+        return chart ? [{ key, title: chart.title }] : []
+    })
     const retentionChart =
         metricCharts.find((option) => option.key === 'retention') ?? metricCharts[metricCharts.length - 1]
     const contentChart = breakdownCharts.find((option) => option.key === selectedContentKey) ?? breakdownCharts[0]
@@ -105,19 +111,19 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                 </div>
             </div>
 
-            <HomeTabStatTiles
-                dateRange={dateRange}
-                compare={compare}
-                selectedKey={selectedMetric}
-                onSelect={setSelectedMetric}
-            />
+            <HomeTabStatTiles dateRange={dateRange} compare={compare} />
 
             <HomeTabChartCard
                 key={primaryChart.key}
                 option={primaryChart}
                 size="primary"
-                // Matches the selected stat tile's 1px border plus 4px accent edge, tying the tile to this chart.
-                className="!border-t-[5px] !border-t-accent"
+                title={
+                    <HomeTabMetricDropdown
+                        value={selectedMetric}
+                        options={metricOptions}
+                        onChange={setSelectedMetric}
+                    />
+                }
                 source="Pageviews and screen views"
                 loadPriority={0}
             />
