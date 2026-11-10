@@ -254,7 +254,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
 					// TODO capture error to PostHog
-					log.Errorf("Error marshalling payload: %w", err)
+					log.Errorf("Error marshalling payload: %v", err)
 					continue
 				}
 
