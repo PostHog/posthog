@@ -44,6 +44,9 @@ async function doneSteps(run: SetupRun): Promise<DoneStep[]> {
 
 // The count covers the last day at most, so a folder connected long ago doesn't scan every event
 // since. A count that fails, such as without query:read, leaves the summary without it.
+// The count is optional, so a slow query can't hold up `hog setup`.
+const SUMMARY_QUERY_TIMEOUT_MS = 5_000
+
 async function recentEvents(run: SetupRun): Promise<EventsContext | undefined> {
     const { state, context } = run
     if (!state || !context.loggedIn || context.events?.count != null) {
@@ -51,7 +54,7 @@ async function recentEvents(run: SetupRun): Promise<EventsContext | undefined> {
     }
 
     const events = eventsContext(Math.max(state.startedAt, run.ctx.runtime.now() - SUMMARY_EVENTS_WINDOW_MS), null)
-    return countEvents(run, events).then(
+    return countEvents(run, events, SUMMARY_QUERY_TIMEOUT_MS).then(
         (count) => ({ ...events, count }),
         () => events
     )
