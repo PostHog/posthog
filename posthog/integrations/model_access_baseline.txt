@@ -1,15 +1,12 @@
 # Files that use the `Integration` model outside the integrations SDK, and how many findings each
 # file has. Rule: .semgrep/rules/devex/integration-model-through-sdk.yaml. The count only goes down:
 # after you move a file to the SDK, lower its count or remove its line.
-ee/api/vercel/vercel_sso.py 2
-ee/vercel/integration.py 3
 posthog/api/integration.py 2
 posthog/api/organization_integration.py 1
 posthog/github/attribution.py 1
 posthog/github/installations.py 2
 posthog/models/comment/slack_thread.py 1
 posthog/models/integration_repository_cache.py 2
-posthog/models/user.py 1
 posthog/models/user_integration.py 1
 posthog/session_recordings/models/session_recording_external_reference.py 2
 posthog/tasks/integrations.py 4
