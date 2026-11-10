@@ -1,33 +1,16 @@
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import F, Func, JSONField, Value
 
 import structlog
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
-from posthog.models.integration import CONFIG_LEGACY_OAUTH_CLIENT, Integration, issuing_oauth_client_ids
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import CONFIG_LEGACY_OAUTH_CLIENT, issuing_oauth_client_ids
 
 logger = structlog.get_logger(__name__)
 
 # Kinds whose current client id we can name, so `aud` can be compared against it.
 CURRENT_CLIENT_ID_SETTING = {"bing-ads": "BING_ADS_CLIENT_ID"}
-
-# JSON-level merges so a concurrent refresh's read-modify-write of `config` (backoff counters,
-# refreshed_at) can't be clobbered by this pass, nor vice versa.
-_FLAG_SET = Func(
-    F("config"),
-    Value(f"{{{CONFIG_LEGACY_OAUTH_CLIENT}}}"),
-    function="jsonb_set",
-    template="%(function)s(%(expressions)s::text[], 'true'::jsonb)",
-    output_field=JSONField(),
-)
-_FLAG_CLEARED = Func(
-    F("config"),
-    Value(CONFIG_LEGACY_OAUTH_CLIENT),
-    template="%(expressions)s",
-    arg_joiner=" - ",
-    output_field=JSONField(),
-)
 
 
 class Command(BaseCommand):
@@ -54,7 +37,8 @@ class Command(BaseCommand):
             raise CommandError(f"{CURRENT_CLIENT_ID_SETTING[kind]} is not set, so nothing can be compared against it")
 
         counts = {"legacy": 0, "current": 0, "unknown": 0}
-        for integration in Integration.objects.filter(kind=kind).iterator():
+        accessor = getattr(IntegrationManager, kind.replace("-", "_")).oauth
+        for integration in accessor.list_all_teams():
             client_ids = issuing_oauth_client_ids(integration)
             if not client_ids:
                 # No id_token to read, so the refresh path stays the only signal for this row.
@@ -68,7 +52,12 @@ class Command(BaseCommand):
             if already_flagged == is_legacy or dry_run:
                 continue
 
-            Integration.objects.filter(pk=integration.pk).update(config=_FLAG_SET if is_legacy else _FLAG_CLEARED)
+            # The SDK merges the key under a row lock, so a concurrent refresh's write of `config`
+            # (backoff counters, refreshed_at) cannot be clobbered by this pass, nor the reverse.
+            if is_legacy:
+                accessor.update(integration.team_id, integration.id, config_patch={CONFIG_LEGACY_OAUTH_CLIENT: True})
+            else:
+                accessor.update(integration.team_id, integration.id, config_remove=[CONFIG_LEGACY_OAUTH_CLIENT])
 
         self.stdout.write(
             f"{kind}: {counts['legacy']} on a superseded client, {counts['current']} current, "

@@ -4,6 +4,8 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from posthog.integrations.contracts import IntegrationRecord
+
     from . import model
 
 
@@ -165,7 +167,7 @@ def record_oauth_client_used(integration: "model.Integration", *, used_fallback:
         integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
 
 
-def issuing_oauth_client_ids(integration: "model.Integration") -> list[str]:
+def issuing_oauth_client_ids(integration: "IntegrationRecord") -> list[str]:
     """The OAuth client ids the connection was established with. Empty when that can't be read.
 
     OIDC puts the client id in the id_token's `aud` claim, and we keep the id_token from the
@@ -193,7 +195,7 @@ def issuing_oauth_client_ids(integration: "model.Integration") -> list[str]:
     return []
 
 
-def refresh_backoff_active(integration: "model.Integration") -> bool:
+def refresh_backoff_active(integration: "IntegrationRecord") -> bool:
     """Whether the refresh sweep should skip this integration. Reconnecting resets the state
     (the OAuth callback replaces `config` wholesale), and on-demand API refreshes bypass this."""
     if integration.config.get("refresh_terminal"):

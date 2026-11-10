@@ -64,6 +64,7 @@ These reads go across teams, for example to the teams that share one GitHub inst
 - `list_by_external_id(external_id, team_ids=None)` returns the rows with this external id.
 - `get_by_external_id(external_id, id)` returns the row with this id and this external id, or raises `IntegrationNotFound`.
 - `count_by_external_id(external_id)` and `exists_by_external_id(external_id)`.
+- `list_all_teams(team_ids=None)` returns the rows of the accessor scope in every team, oldest id first. Only jobs that run over all teams use it, such as the token refresh sweep and one-off management commands. Request code reads one team with `list`.
 
 They need an accessor with a kind: on `IntegrationManager.any` they raise `ValueError`, because external ids are unique only per provider.
 Do not take the first row of `list_by_external_id` without `team_ids`: the rule `github-installation-first-team` flags it for GitHub.
@@ -88,6 +89,7 @@ Only an accessor with one auth type can write, because a new row has exactly one
 - `upsert(team_id, external_id, config=..., ...)` returns `(row, created)`. It replaces the config of an existing row. It raises `IntegrationConflict` when the existing row is not in the scope, for example a row with another auth type.
 - `update(team_id, id, config_patch=..., config_remove=..., sensitive_config_patch=..., errors=...)` merges a patch. `errors=None` keeps the errors.
 - `update_by_external_id(external_id, patch)` patches the rows of every team that are in the scope. It writes only the rows that the patch changes, in one `bulk_update`, and returns their count. A `bulk_update` sends no `post_save` signal.
+- `change_external_id(team_id, id, external_id)` gives the row another external id. It raises `IntegrationConflict` when the team already has a row of the kind with that id.
 
 Delete rows with `delete(team_id, id)`. It raises `IntegrationInUse` with the usages when other objects use the row. Pass `ignore_usages=True` to delete it anyway.
 `delete_by_external_id(external_id)` deletes the rows of every team in one transaction. It deletes each row on its own, so the delete signals fire. Like `list_by_external_id`, it needs an accessor with a kind.

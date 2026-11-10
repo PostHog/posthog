@@ -228,6 +228,47 @@ class TestIntegrationAccessors(BaseTest):
 
     @parameterized.expand(
         [
+            ("every_team", None, [("github_oauth", "own"), ("github_oauth", "other")]),
+            ("one_team", ["other"], [("github_oauth", "other")]),
+            ("no_team", [], []),
+        ]
+    )
+    def test_list_all_teams_reads_the_scope_of_the_accessor_in_id_order(
+        self, _name: str, teams: list[str] | None, expected: list[tuple[str, str]]
+    ) -> None:
+        by_name = {"own": self.team.id, "other": self.other_team.id}
+        team_ids = None if teams is None else [by_name[team] for team in teams]
+
+        rows = IntegrationManager.github.oauth.list_all_teams(team_ids=team_ids)
+
+        assert [(row.integration_id, "own" if row.team_id == self.team.id else "other") for row in rows] == expected
+        assert [row.id for row in rows] == sorted(row.id for row in rows)
+
+    def test_list_all_teams_skips_other_auth_types_and_source_rows(self) -> None:
+        rows = IntegrationManager.stripe.token.list_all_teams()
+
+        assert {row.integration_id for row in rows} == {"stripe_token"}
+
+    def test_change_external_id(self) -> None:
+        row = IntegrationManager.github.oauth.change_external_id(self.team.id, self.rows["github_oauth"].id, "moved")
+
+        assert row.integration_id == "moved"
+        assert IntegrationManager.github.oauth.get(self.team.id, row.id).integration_id == "moved"
+
+    def test_change_external_id_refuses_an_id_the_team_already_has(self) -> None:
+        newer = IntegrationManager.github.oauth.create(self.team.id, external_id="newer", config={})
+
+        with self.assertRaises(IntegrationConflict):
+            IntegrationManager.github.oauth.change_external_id(self.team.id, newer.id, "github_oauth")
+
+        assert IntegrationManager.github.oauth.get(self.team.id, newer.id).integration_id == "newer"
+
+    def test_change_external_id_does_not_reach_other_teams(self) -> None:
+        with self.assertRaises(IntegrationNotFound):
+            IntegrationManager.github.oauth.change_external_id(self.other_team.id, self.rows["github_oauth"].id, "x")
+
+    @parameterized.expand(
+        [
             ("both_teams", ["own", "other"], "github_oauth"),
             ("other_team_only", ["other"], "other"),
             ("empty", [], None),
@@ -326,6 +367,7 @@ class TestIntegrationAccessors(BaseTest):
             ("get_by_external_id", lambda: IntegrationManager.any.get_by_external_id("github_oauth", 1)),
             ("count_by_external_id", lambda: IntegrationManager.any.count_by_external_id("github_oauth")),
             ("exists_by_external_id", lambda: IntegrationManager.any.exists_by_external_id("github_oauth")),
+            ("list_all_teams", lambda: IntegrationManager.any.list_all_teams()),
         ]
     )
     def test_cross_team_operations_need_a_kind(self, _name: str, call: Callable[[], Any]) -> None:

@@ -372,6 +372,18 @@ class IntegrationReader:
     async def adelete(self, team_id: int, id: int, *, ignore_usages: bool = False) -> None:
         await database_sync_to_async(self.delete)(team_id, id, ignore_usages=ignore_usages)
 
+    @instrumented("list_all_teams", rows="returned")
+    def list_all_teams(self, *, team_ids: Iterable[int] | None = None) -> builtins.list[IntegrationRecord]:
+        """The rows of every team, oldest id first. For jobs that run over all teams, such as a refresh sweep or a one-off command.
+
+        Needs an accessor with a kind, like `list_by_external_id`. Pass `team_ids` to limit the teams.
+        Request code must not use it: it reads by team with `list`.
+        """
+        rows = self._cross_team_rows("list_all_teams")
+        if team_ids is not None:
+            rows = rows.filter(team_id__in=builtins.list(team_ids))
+        return builtins.list(rows.order_by("id"))
+
 
 class AuthAccessor(IntegrationReader):
     """Reads, deletes and writes of the rows of one kind with one auth type."""
@@ -580,6 +592,25 @@ class AuthAccessor(IntegrationReader):
             errors=errors,
         )
 
+    @instrumented("change_external_id")
+    def change_external_id(self, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        """Give the row another external id. Raises `IntegrationConflict` when the team has a row of the kind with that id."""
+        with transaction.atomic():
+            row = self._row(team_id, id, lock=True)
+            if row.integration_id == external_id:
+                return row
+            row.integration_id = external_id
+            try:
+                with transaction.atomic():
+                    row.save(update_fields=["integration_id"])
+            except IntegrityError as error:
+                if not _is_unique_key_violation(error):
+                    raise
+                raise IntegrationConflict(
+                    f"Team {team_id} already has a {self._kind!r} integration with external id {external_id!r}"
+                ) from error
+            return row
+
 
 def _same_json(a: object, b: object) -> bool:
     # Python equality treats `1`, `1.0` and `True` as equal, but JSON stores them as different values.
@@ -593,10 +624,12 @@ def _patch_row(row: Integration, patch: IntegrationPatch) -> list[str]:
     if not _same_json(config, row.config or {}):
         row.config = config
         changed.append("config")
-    sensitive_config = _patched(row.sensitive_config, patch.sensitive_config_patch, patch.sensitive_config_remove)
-    if not _same_json(sensitive_config, row.sensitive_config or {}):
-        row.sensitive_config = sensitive_config
-        changed.append("sensitive_config")
+    # A secret that cannot be decrypted reads back as a raw string. Leave it alone unless the patch touches it.
+    if patch.sensitive_config_patch or patch.sensitive_config_remove:
+        sensitive_config = _patched(row.sensitive_config, patch.sensitive_config_patch, patch.sensitive_config_remove)
+        if not _same_json(sensitive_config, row.sensitive_config or {}):
+            row.sensitive_config = sensitive_config
+            changed.append("sensitive_config")
     if patch.errors is not None and patch.errors != row.errors:
         row.errors = patch.errors
         changed.append("errors")
