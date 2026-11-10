@@ -2,11 +2,11 @@
     "repository": "PostHog/posthog",
     "path": "posthog/migrations, posthog/clickhouse/schema.py",
     "commits": {
-        "clickhouse.sql": "5ede0c303e1e8519e2999cd1cf70e9213b9dd9cb",
-        "postgres.sql": "5ede0c303e1e8519e2999cd1cf70e9213b9dd9cb"
+        "clickhouse.sql": "b71c3cf51974f3d34ed47ebaa068d606c6ccf2dd",
+        "postgres.sql": "b71c3cf51974f3d34ed47ebaa068d606c6ccf2dd"
     },
     "files": {
-        "clickhouse.sql": "9cc9751bc11c3e979ec3c2a01fa89be067c22585eaf6362a0a141e00e5da31ad",
+        "clickhouse.sql": "3008cdd3617c257659e9d190d115d114c3f7e3564d839da925b35c9a9ee130e8",
         "postgres.sql": "e99900bc1ae4fe7e8eb488949d4f71e81926c01d9ff7d4295cdbcde14e21c4b5"
     }
 }

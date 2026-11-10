@@ -39,5 +39,6 @@ GROUPS = [
 
 for queries in GROUPS:
     for query in queries:
-        statement = (query() if callable(query) else query).strip().rstrip(";")
-        print(statement + ";\n")
+        statement = query() if callable(query) else query
+        assert isinstance(statement, str)
+        print(statement.strip().rstrip(";") + ";\n")

@@ -1,8 +1,9 @@
 # ruff: noqa: T201
 """Cut the ClickHouse statements to the objects the Node packages name and what those depend on.
 
-An object is kept when the packages name it, when it is a materialized view writing to a kept object,
-or when a kept statement names it. Statements keep their order, so dependencies are created first.
+An object is kept when the packages name it, when a kept statement names it, or when it writes into a
+kept object: a materialized view whose TO target is kept, or a Distributed table over a kept table, the
+path ingestion's Kafka tables write through. Statements keep their order, so dependencies come first.
 """
 
 import re
@@ -18,6 +19,7 @@ CREATE = re.compile(
     re.I | re.M,
 )
 TO_TARGET = re.compile(r"\bTO\s+(?:`?\w+`?\.)?`?(\w+)`?", re.I)
+DISTRIBUTED_TARGET = re.compile(r"\bDistributed\(\s*'?\w+'?\s*,\s*'?\w+'?\s*,\s*'?(\w+)'?", re.I)
 WORD = re.compile(r"\b\w+\b")
 
 # An object can be created more than once (IF NOT EXISTS, OR REPLACE); its statements are kept together
@@ -40,8 +42,8 @@ while True:
     for name, statement in objects.items():
         if name in keep:
             added |= (set(WORD.findall(statement)) & objects.keys()) - keep
-        elif kinds[name] == "MATERIALIZED VIEW":
-            target = TO_TARGET.search(statement)
+        else:
+            target = (TO_TARGET if kinds[name] == "MATERIALIZED VIEW" else DISTRIBUTED_TARGET).search(statement)
             if target and target.group(1) in keep:
                 added.add(name)
     if not added:
