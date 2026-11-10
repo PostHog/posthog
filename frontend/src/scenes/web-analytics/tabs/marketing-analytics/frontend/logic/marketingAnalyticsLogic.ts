@@ -576,6 +576,18 @@ export interface marketingAnalyticsLogicActions {
     reportRecommendationsShown: (properties: RecommendationsShownProperties) => {
         properties: RecommendationsShownProperties
     }
+    reportSearchNewTagShown: () => {
+        value: true
+    }
+    reportTabSelected: (
+        tab: MarketingAnalyticsTab,
+        previousTab: MarketingAnalyticsTab,
+        searchNewTagVisible: boolean
+    ) => {
+        previousTab: MarketingAnalyticsTab
+        searchNewTagVisible: boolean
+        tab: MarketingAnalyticsTab
+    }
     saveConversionGoal: () => {
         value: true
     }
@@ -922,6 +934,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             location: RecommendationsActionLocation,
             rule?: MarketingAnalyticsRecommendationRule
         ) => ({ action, location, rule }),
+        reportTabSelected: (
+            tab: MarketingAnalyticsTab,
+            previousTab: MarketingAnalyticsTab,
+            searchNewTagVisible: boolean
+        ) => ({ tab, previousTab, searchNewTagVisible }),
+        reportSearchNewTagShown: true,
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -1809,6 +1827,20 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
             reportRecommendationsActionClicked: ({ action, location, rule }) => {
                 posthog.capture('marketing analytics recommendations action clicked', { action, location, rule })
+            },
+            reportTabSelected: ({ tab, previousTab, searchNewTagVisible }) => {
+                // LemonTabs calls onChange when the open tab is clicked again.
+                if (tab === previousTab) {
+                    return
+                }
+                posthog.capture('marketing analytics dashboard tab selected', {
+                    tab,
+                    previous_tab: previousTab,
+                    search_new_tag_visible: searchNewTagVisible,
+                })
+            },
+            reportSearchNewTagShown: () => {
+                posthog.capture('marketing analytics search tab new tag shown')
             },
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
