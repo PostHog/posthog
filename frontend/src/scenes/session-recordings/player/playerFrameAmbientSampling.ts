@@ -15,7 +15,7 @@ const FETCHABLE_PROTOCOLS = ['https:', 'http:', 'data:', 'blob:']
 const MAX_IMAGE_LOADS_PER_SAMPLE = 4
 const MAX_DECODED_PIXELS = 4096 * 4096
 const MAX_STACK_DEPTH = 8
-const FRAME_BACKGROUND: Rgba = [255, 255, 255, 255]
+const FALLBACK_COLOR: Rgba = [0, 0, 0, 255]
 const BLEND_TIME_CONSTANT_MS = 1500
 const THUMBNAIL_HEIGHT = 32
 
@@ -125,7 +125,7 @@ export class AmbientFrameSampler {
                 return color
             }
         }
-        return FRAME_BACKGROUND
+        return FALLBACK_COLOR
     }
 
     private backgroundImageColor(backgroundImage: string, view: Window & typeof globalThis): Rgba | null {
