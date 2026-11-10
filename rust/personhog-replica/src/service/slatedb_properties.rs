@@ -40,6 +40,8 @@ pub(crate) enum Resolved {
 /// record but has none fails closed, so a gap never reads as empty properties. A record behind
 /// the row that predates the row's `created_at` belongs to a previous incarnation: a revival
 /// resets `created_at` and starts the person empty, and its delete marker may not have arrived.
+/// A record behind a row whose `created_at` went down predates a merge, which may follow a
+/// revival; it cannot be tied to the live incarnation, so it fails closed.
 pub(crate) fn resolve(
     read: Result<Option<StoredProperties>, PropertyStoreError>,
     row_version: i64,
@@ -52,6 +54,9 @@ pub(crate) fn resolve(
         Ok(Some(stored)) if stored.deleted => (Resolved::Gone, "deleted"),
         Ok(Some(stored)) if stored.version < row_version && stored.created_at < row_created_at => {
             (Resolved::Served("{}".to_string()), "previous_incarnation")
+        }
+        Ok(Some(stored)) if stored.version < row_version && stored.created_at > row_created_at => {
+            (Resolved::Unavailable, "merged_since")
         }
         Ok(Some(stored)) => {
             let outcome = if stored.version < row_version {
@@ -189,7 +194,13 @@ mod tests {
     #[rstest]
     #[case::at_the_row_version(Some(stored(4, false, 1000)), 4, 1000, Resolved::Served(r#"{"plan":"paid"}"#.into()), "served")]
     #[case::behind_the_row(Some(stored(3, false, 1000)), 4, 1000, Resolved::Served(r#"{"plan":"paid"}"#.into()), "behind")]
-    #[case::behind_after_a_merge_lowered_created_at(Some(stored(3, false, 2000)), 4, 1000, Resolved::Served(r#"{"plan":"paid"}"#.into()), "behind")]
+    #[case::behind_after_a_merge_lowered_created_at(
+        Some(stored(3, false, 2000)),
+        4,
+        1000,
+        Resolved::Unavailable,
+        "merged_since"
+    )]
     #[case::behind_from_a_previous_incarnation(
         Some(stored(3, false, 1000)),
         5,

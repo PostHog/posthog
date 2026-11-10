@@ -21,7 +21,7 @@ With `PROPERTY_SOURCE=slatedb`, person rows still come from Postgres and their p
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `personhog_replica_slatedb_property_reads_total{outcome}` | counter | Person reads by how SlateDB answered: `served`; `behind` (an older version served); `stub` (a version 0 row with no record, served empty); `revived` (a delete marker below the row, served empty); `previous_incarnation` (a record behind the row from before its `created_at`, served empty); `deleted` (read as not found); `missing`, `timeout`, `unavailable`, `undecodable` and `data` fail the RPC `UNAVAILABLE`, and `data` is logged as an error |
+| `personhog_replica_slatedb_property_reads_total{outcome}` | counter | Person reads by how SlateDB answered: `served`; `behind` (an older version served); `stub` (a version 0 row with no record, served empty); `revived` (a delete marker below the row, served empty); `previous_incarnation` (a record behind the row from before its `created_at`, served empty); `deleted` (read as not found); `merged_since` (a record behind a row whose `created_at` a merge lowered, which cannot be tied to the live incarnation), `missing`, `timeout`, `unavailable`, `undecodable` and `data` fail the RPC `UNAVAILABLE`, and `data` is logged as an error |
 | `personhog_replica_slatedb_property_read_ms` | histogram | One SlateDB property read |
 
 ### Known Implementation Details
