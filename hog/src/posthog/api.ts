@@ -147,8 +147,8 @@ export class PostHogApi {
         return this.request('GET', path, schema, undefined, options.timeoutMs)
     }
 
-    post<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {
-        return this.request('POST', path, schema, body)
+    post<T>(path: string, body: unknown, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
+        return this.request('POST', path, schema, body, options.timeoutMs)
     }
 
     patch<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {

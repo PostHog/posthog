@@ -13,6 +13,6 @@ const HogQLResponse = z.looseObject({
 export type HogQLResponse = z.output<typeof HogQLResponse>
 
 // Needs the `query:read` scope.
-export function runHogQL(api: PostHogApi, query: string): Promise<HogQLResponse> {
-    return api.post('query', { query: { kind: 'HogQLQuery', query }, refresh: 'blocking' }, HogQLResponse)
+export function runHogQL(api: PostHogApi, query: string, options: { timeoutMs?: number } = {}): Promise<HogQLResponse> {
+    return api.post('query', { query: { kind: 'HogQLQuery', query }, refresh: 'blocking' }, HogQLResponse, options)
 }
