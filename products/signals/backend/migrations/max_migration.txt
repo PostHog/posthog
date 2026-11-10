@@ -1,1 +1,1 @@
-0238_rated_usage_delivery
+0247_team_slack_notification_min_priority
