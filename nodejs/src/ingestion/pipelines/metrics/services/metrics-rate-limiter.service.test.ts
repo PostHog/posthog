@@ -1,11 +1,14 @@
 import { Message } from 'node-rdkafka'
 
 import { RedisV2 } from '~/common/redis/redis-v2'
+import { killGracefully } from '~/common/utils/utils'
 import { getDefaultMetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
 import { MetricsIngestionMessage } from '~/ingestion/pipelines/metrics/types'
 
 import { MetricsRateLimiterService, metricsRateLimiterRedisErrorsCounter } from './metrics-rate-limiter.service'
-import { METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS } from './metrics-redis'
+import { METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS, createMetricsRateLimiterRedis } from './metrics-redis'
+
+jest.mock('~/common/utils/utils', () => ({ ...jest.requireActual('~/common/utils/utils'), killGracefully: jest.fn() }))
 
 const message = (teamId: number): MetricsIngestionMessage => ({
     token: `token-${teamId}`,
@@ -71,4 +74,21 @@ describe('MetricsRateLimiterService when Redis is unavailable', () => {
             jest.useRealTimers()
         }
     })
+
+    it('allows every message and keeps the process up when fail-open is on and Redis is down', async () => {
+        const config = {
+            ...getDefaultMetricsIngestionConsumerConfig(),
+            METRICS_LIMITER_ENABLED_TEAMS: '*',
+            METRICS_LIMITER_FAIL_OPEN: true,
+            METRICS_REDIS_HOST: '',
+            // Nothing listens on port 1, so every connection attempt fails.
+            REDIS_URL: 'redis://127.0.0.1:1',
+        }
+        const service = new MetricsRateLimiterService(config, createMetricsRateLimiterRedis(config))
+
+        const result = await service.filterMessages(messages)
+
+        expect(result.allowed).toEqual(messages)
+        expect(killGracefully).not.toHaveBeenCalled()
+    }, 15_000)
 })
