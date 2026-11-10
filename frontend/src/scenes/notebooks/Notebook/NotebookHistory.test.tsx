@@ -1,5 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
@@ -280,6 +281,62 @@ converted`)
             .toFinishAllListeners()
 
         expect(apiUpdateSpy).not.toHaveBeenCalled()
+    })
+
+    it('backs off stream retries and reports each connection outage once', async () => {
+        const stream = jest.spyOn(api.notebooks, 'collabStream')
+        const capture = jest.spyOn(posthog, 'captureException')
+        jest.spyOn(api.notebooks, 'get').mockResolvedValue({
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent('# Shared report'),
+        })
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        const connection = stream.mock.calls[stream.mock.calls.length - 1][1]
+        const error = new TypeError('Network connection interrupted')
+        expect(Array.from({ length: 7 }, () => connection.onError(error))).toEqual([
+            1000, 2000, 4000, 8000, 16000, 30000, 30000,
+        ])
+        expect(capture).toHaveBeenCalledTimes(1)
+
+        connection.onOpen?.()
+        expect(connection.onError(error)).toBe(1000)
+        expect(capture).toHaveBeenCalledTimes(2)
+
+        logic.unmount()
+        expect(connection.signal?.aborted).toBe(true)
+        expect(connection.onError(error)).toBeUndefined()
+        expect(capture).toHaveBeenCalledTimes(2)
+    })
+
+    it('pauses a hidden notebook stream and resumes from the last received event', async () => {
+        const hidden = jest.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+        const stream = jest.spyOn(api.notebooks, 'collabStream')
+        jest.spyOn(api.notebooks, 'get').mockResolvedValue({
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent('# Shared report'),
+        })
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        const connection = stream.mock.calls[stream.mock.calls.length - 1][1]
+        connection.onMessage({ id: '10-1', event: 'ping', data: '' })
+        hidden.mockReturnValue(true)
+        document.dispatchEvent(new Event('visibilitychange'))
+        expect(connection.signal?.aborted).toBe(true)
+
+        stream.mockClear()
+        hidden.mockReturnValue(false)
+        document.dispatchEvent(new Event('visibilitychange'))
+        expect(stream).toHaveBeenCalledWith(
+            SHORT_ID,
+            expect.objectContaining({ lastEventId: '10-1', signal: expect.any(AbortSignal) })
+        )
     })
 
     it('refreshes markdown v2 notebooks from the update stream', async () => {

@@ -1709,6 +1709,7 @@ export const notebookLogic = kea<notebookLogicType>([
             cache.disposables.add(
                 () => {
                     const controller = new AbortController()
+                    let retryAttempt = 0
 
                     const onMessage = (msg: EventSourceMessage): void => {
                         if (msg.id) {
@@ -1769,14 +1770,19 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.handleMarkdownStreamEvent({ version, diff, baseCrc, clientId })
                     }
 
-                    const onError = (error: any): void => {
+                    const onError = (error: any): number | void => {
                         if (controller.signal.aborted) {
                             return
                         }
-                        const message = error instanceof Error ? error.message : String(error)
-                        posthog.captureException(error instanceof Error ? error : new Error(message), {
-                            action: 'notebook markdown stream',
-                        })
+                        if (retryAttempt === 0) {
+                            const message = error instanceof Error ? error.message : String(error)
+                            posthog.captureException(error instanceof Error ? error : new Error(message), {
+                                action: 'notebook markdown stream',
+                            })
+                        }
+                        const retryDelay = Math.min(1000 * 2 ** retryAttempt, 30_000)
+                        retryAttempt = Math.min(retryAttempt + 1, 5)
+                        return retryDelay
                     }
 
                     const onClose = (): void => {
@@ -1790,6 +1796,9 @@ export const notebookLogic = kea<notebookLogicType>([
                         .collabStream(values.shortId, {
                             onMessage,
                             onError,
+                            onOpen: () => {
+                                retryAttempt = 0
+                            },
                             onClose,
                             signal: controller.signal,
                             lastEventId: cache.markdownUpdateStreamLastEventId,
@@ -1805,7 +1814,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     return () => controller.abort()
                 },
                 'markdownUpdateStream',
-                { pauseOnPageHidden: false }
+                { pauseOnPageHidden: true }
             )
 
             cache.disposables.add(() => {
