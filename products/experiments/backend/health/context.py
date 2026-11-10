@@ -31,6 +31,7 @@ from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
+from products.experiments.backend.daily_calculation import is_past_daily_calculation
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
@@ -609,6 +610,11 @@ class HealthContext:
     primary_metric_count: int
     secondary_metric_count: int
     hours_since_launch: float | None
+    # From the start date, which can be earlier than the launch. The daily calculation and the experiment list count
+    # from it.
+    hours_since_start: float | None
+    # Whether the daily calculation leaves out the experiment, by the rule the daily jobs apply.
+    past_daily_calculation: bool
     metric_events: tuple[MetricEvents, ...]
     # None when the stored exposure criteria don't parse.
     exposure_events: ExposureEvents | None
@@ -1145,6 +1151,8 @@ def load_health_context(
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         hours_since_launch=experiment.hours_since_launch(read_activity_log=can_read_flag_history),
+        hours_since_start=experiment.hours_since_start,
+        past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
         metric_events=metric_events,
         exposure_events=exposure_events,
         events_received=events_received,

@@ -1,4 +1,4 @@
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -12,11 +12,10 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { canFreezeExposure, confirmFreezeExposure } from '../experimentActions'
 import { METRIC_CONTEXTS } from '../modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { metricSourceModalLogic } from '../modals/MetricSourceModal/metricSourceModalLogic'
 import type { ExperimentHealthFindingActionKind } from './experimentHealthFindingEvents'
-import { getTotalExposures } from './exposureHealth'
+import { HealthFreezeExposureButton } from './HealthFreezeExposureButton'
 
 export function HealthFindingActionButton({
     actionKind,
@@ -25,8 +24,7 @@ export function HealthFindingActionButton({
     actionKind: ExperimentHealthFindingActionKind
     onClick: () => void
 }): JSX.Element | null {
-    const { experiment, exposureCriteria, exposures, freezeExposureLoading } = useValues(experimentLogic)
-    const { freezeExposure } = useAsyncActions(experimentLogic)
+    const { experiment, exposureCriteria } = useValues(experimentLogic)
     const { openDistributionModal, openFinishExperimentModal, openReleaseConditionsModal } = useActions(modalsLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
@@ -156,18 +154,6 @@ export function HealthFindingActionButton({
                 </LemonButton>
             )
         case 'freeze_exposure':
-            // The health answer can predate a freeze or pause made on this page, so the button checks again.
-            return canFreezeExposure(experiment) ? (
-                <LemonButton
-                    {...editProps}
-                    disabledReason={editProps.disabledReason ?? (freezeExposureLoading ? 'Freezing exposure...' : null)}
-                    onClick={() => {
-                        onClick()
-                        confirmFreezeExposure(() => freezeExposure(), getTotalExposures(exposures))
-                    }}
-                >
-                    Freeze exposure
-                </LemonButton>
-            ) : null
+            return <HealthFreezeExposureButton buttonProps={editProps} onClick={onClick} />
     }
 }

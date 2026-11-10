@@ -5,6 +5,7 @@ from typing import assert_never
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from products.experiments.backend.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
     ExperimentHealthCheckKey,
@@ -74,7 +75,7 @@ from products.experiments.backend.health.checks.unserved_variants import (
 )
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures, zero_exposures_values
 from products.experiments.backend.health.context import HealthContext
-from products.experiments.backend.health.delays import DAILY_CALCULATION_DAYS, ZERO_EXPOSURES_GRACE_HOURS
+from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, CheckValues
 
 
@@ -267,9 +268,9 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.STALE_EXPERIMENT,
         name=f"Experiment running past {DAILY_CALCULATION_DAYS} days",
         description=(
-            f"Checks how long the experiment has run. PostHog calculates results every day for the first "
-            f"{DAILY_CALCULATION_DAYS} days only, so after that the chart of results over time and significance "
-            "notifications stop updating."
+            f"Checks how long ago the experiment started. PostHog's daily calculation covers only the first "
+            f"{DAILY_CALCULATION_DAYS} days after the start date, so after that the chart of results over time stops "
+            "updating and PostHog sends no significance notifications."
         ),
         run=stale_experiment,
     ),

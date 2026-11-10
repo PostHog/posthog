@@ -43,12 +43,12 @@ const FIXES: Record<ExperimentHealthFindingActionKind, { title: string; descript
     end_experiment: {
         title: 'End the experiment',
         description:
-            'The results count users and events up to the end date. In the next step you choose whether to roll out a variant or leave the feature flag as it is.',
+            "Users and events after the end date don't count in the results. In the next step you choose whether to roll out a variant or leave the feature flag as it is.",
     },
     freeze_exposure: {
         title: 'Freeze exposure',
         description:
-            'New users stop entering the experiment. Users already in it keep their variant, and their metrics keep updating. You can unfreeze it later.',
+            'New users stop entering the experiment. Users already in it keep their variant, and their events keep counting. You can unfreeze it later.',
     },
 }
 
