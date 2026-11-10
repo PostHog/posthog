@@ -340,14 +340,16 @@ def viewable_experiment_names(*, team: Team, user: User, experiment_ids: Collect
     rows = list(
         ExperimentModel.objects.filter(team_id=team.id, id__in=experiment_ids)
         .exclude(deleted=True)
-        .values_list("id", "name", "created_by_id")
+        .values_list("id", "name", "team_id", "created_by_id")
     )
     denied = set(
         UserAccessControl(user=user, team=team, organization_id=str(team.organization_id)).denied_object_ids(
-            "experiment", ((str(id), team.id, created_by_id) for id, _name, created_by_id in rows), "viewer"
+            "experiment",
+            ((str(id), team_id, created_by_id) for id, _name, team_id, created_by_id in rows),
+            "viewer",
         )
     )
-    return {id: name for id, name, _created_by_id in rows if str(id) not in denied}
+    return {id: name for id, name, _team_id, _created_by_id in rows if str(id) not in denied}
 
 
 def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:

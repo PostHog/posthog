@@ -324,7 +324,8 @@ class TestHighlightFacts(BaseTest):
 
         assert [(e.name, e.flag_key) for e in found] == [(name, listed[name]) for name in expected]
 
-    def test_names_only_the_experiments_the_user_can_view(self) -> None:
+    @parameterized.expand([("the root team", False), ("a child environment", True)])
+    def test_names_only_the_experiments_the_user_can_view(self, _name: str, from_child: bool) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -343,8 +344,10 @@ class TestHighlightFacts(BaseTest):
             team_id=self.team.id, resource="experiment", resource_id=str(hidden_from_reader.id), access_level="none"
         )
 
+        child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
+
         names = api.viewable_experiment_names(
-            team=self.team,
+            team=child if from_child else self.team,
             user=self._create_user("reader@example.com"),
             experiment_ids=[shown.id, hidden_from_reader.id, deleted.id, elsewhere.id],
         )
