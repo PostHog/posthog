@@ -295,8 +295,15 @@ export function refreshRecentTasks(
 }
 
 export function appendRecentTasks(loaded: TaskListItemApi[], page: TaskListItemApi[]): TaskListItemApi[] {
-    const loadedIds = new Set(loaded.map((task) => task.id))
-    return [...loaded, ...page.filter((task) => !loadedIds.has(task.id))]
+    const seenIds = new Set(loaded.map((task) => task.id))
+    const added = page.filter((task) => {
+        if (seenIds.has(task.id)) {
+            return false
+        }
+        seenIds.add(task.id)
+        return true
+    })
+    return [...loaded, ...added]
 }
 
 export interface TodaySessionReadRequest {

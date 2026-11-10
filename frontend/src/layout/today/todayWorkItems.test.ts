@@ -119,9 +119,13 @@ describe('todayWorkItems', () => {
         }
     )
 
-    it('appends a page of older sessions without repeating a loaded one', () => {
+    it('appends a page of older sessions without repeating a row', () => {
         const loaded = [session('a', '2026-03-10T11:00:00'), session('b', '2026-03-10T10:00:00')]
-        const page = [session('b', '2026-03-10T10:00:00'), session('c', '2026-03-09T10:00:00')]
+        const page = [
+            session('b', '2026-03-10T10:00:00'),
+            session('c', '2026-03-09T10:00:00'),
+            session('c', '2026-03-09T10:00:00'),
+        ]
 
         expect(appendRecentTasks(loaded, page).map((task) => task.id)).toEqual(['a', 'b', 'c'])
     })
