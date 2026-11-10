@@ -5,6 +5,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AccountPropertiesWidget } from '../../scenes/CustomerAnalyticsAccountScene/AccountPropertiesWidget'
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
+import { AccountAutomationsExpansion } from './AccountAutomationsExpansion'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
@@ -42,6 +43,8 @@ export function AccountViewComponent({
     const tileProps = { instanceId, initialConfig, onConfigChange }
     const isUsersTableEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_ACCOUNT_USERS_TABLE')
     switch (kind) {
+        case 'automations':
+            return <AccountAutomationsExpansion accountId={accountId} instanceId={instanceId} embedded={embedded} />
         case 'properties':
             return <AccountPropertiesWidget accountId={accountId} projectId={projectId} {...tileProps} />
         case 'session_replays':
