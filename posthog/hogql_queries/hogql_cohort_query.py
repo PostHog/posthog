@@ -54,8 +54,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
 
 INTERVAL_TO_SECONDS = {
     "minute": 60,
@@ -812,8 +811,9 @@ class FlagCallReads:
 
 def batch_reads_flag_calls_from_events_only(team: Team) -> bool:
     """Whether the batch calculation reads every flag call from events for the team's organization, whatever the
-    cohort. It reads the same mode as the catalog build, so it answers without compiling a cohort."""
-    return get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.EVENTS
+    cohort. It reads the same mode, events table and table gate as the catalog build, so it answers without compiling
+    a cohort."""
+    return not reads_flag_calls_from_flag_evaluations(team)
 
 
 def batch_flag_call_reads(cohort: Cohort, team: Team) -> FlagCallReads:
@@ -827,6 +827,6 @@ def batch_flag_call_reads(cohort: Cohort, team: Team) -> FlagCallReads:
     _, context = executor.generate_clickhouse_sql()
     prepared = executor.clickhouse_prepared_ast
     return FlagCallReads(
-        only_in_flag_evaluations=context.database is not None and context.database.flag_calls_only_in_flag_evaluations,
+        only_in_flag_evaluations=context.flag_calls_only_in_flag_evaluations(),
         reads_from_events=count_flag_calls_read_from_events(prepared) if prepared is not None else 0,
     )

@@ -6,7 +6,11 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled
+from products.feature_flags.backend.facade.flags import (
+    flag_calls_only_in_flag_evaluations,
+    is_flag_evaluations_table_enabled,
+    reads_flag_calls_from_flag_evaluations,
+)
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 
@@ -79,3 +83,58 @@ class TestFlagEvaluationsTableGate(BaseTest):
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
             self.assertEqual(is_flag_evaluations_table_enabled(self.team), expected)
+
+
+class TestFlagCallReadersFollowTheEventsTable(BaseTest):
+    @parameterized.expand(
+        [
+            param("legacy_events", FlagEvaluationsMode.EVENTS, reads=False, only=False),
+            param("legacy_read", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, reads=True, only=False),
+            param(
+                "legacy_read_forced_to_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                reads=False,
+                only=False,
+                reads_forced_to_events=True,
+            ),
+            param("legacy_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, reads=True, only=True),
+            param("native_events", FlagEvaluationsMode.EVENTS, reads=True, only=True, native=True),
+            param("native_read", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, reads=True, only=True, native=True),
+            param(
+                "native_read_forced_to_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                reads=True,
+                only=True,
+                native=True,
+                reads_forced_to_events=True,
+            ),
+            param(
+                "native_events_without_the_table",
+                FlagEvaluationsMode.EVENTS,
+                reads=False,
+                only=False,
+                native=True,
+                cloud=False,
+            ),
+        ]
+    )
+    def test_flag_call_readers_pick_flag_evaluations_by_mode_and_events_table(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        *,
+        reads: bool,
+        only: bool,
+        native: bool = False,
+        cloud: bool = True,
+        reads_forced_to_events: bool = False,
+    ) -> None:
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
+
+        with (
+            self.settings(DEBUG=False, E2E_TESTING=False, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native),
+            self.is_cloud(cloud),
+            override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+        ):
+            self.assertEqual(reads_flag_calls_from_flag_evaluations(self.team), reads)
+            self.assertEqual(flag_calls_only_in_flag_evaluations(self.team), only)

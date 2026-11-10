@@ -211,6 +211,41 @@ class HogQLContext:
             self.use_new_events_schema = use_new_events_schema(self.team_id, self.modifiers)
         return self.use_new_events_schema
 
+    def reads_flag_calls_from_flag_evaluations(self) -> bool:
+        """Whether this query's flag-call reads may come from `posthog.flag_evaluations`.
+
+        The native JSON events table holds no `$feature_flag_called` events. A query that reads it therefore reads flag
+        calls from flag_evaluations whatever the organization's mode, and FLAG_EVALUATIONS_READS_FORCE_EVENTS does not
+        move it back to events. A catalog without the flag_evaluations table never reads it.
+        """
+        database = self.database
+        return database is not None and (
+            database.read_flag_calls_from_flag_evaluations or self._reads_native_events_with_flag_evaluations()
+        )
+
+    def flag_calls_only_in_flag_evaluations(self) -> bool:
+        """Whether this query reads flag calls only from `posthog.flag_evaluations`, as mode 2 does. The events table
+        that the query reads holds no new flag calls then, so a read that flag_evaluations cannot answer fails."""
+        database = self.database
+        return database is not None and (
+            database.flag_calls_only_in_flag_evaluations or self._reads_native_events_with_flag_evaluations()
+        )
+
+    def reads_flag_calls_with_union(self) -> bool:
+        """Whether flag calls that a mixed query reads come from events and flag_evaluations together."""
+        database = self.database
+        return (
+            database is not None and database.flag_calls_union_enabled and self.reads_flag_calls_from_flag_evaluations()
+        )
+
+    def _reads_native_events_with_flag_evaluations(self) -> bool:
+        database = self.database
+        return (
+            self.uses_new_events_schema()
+            and database is not None
+            and database.has_table(["posthog", "flag_evaluations"])
+        )
+
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"
         self.values[key] = value

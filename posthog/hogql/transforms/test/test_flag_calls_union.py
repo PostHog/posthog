@@ -62,11 +62,16 @@ MIXED = "event IN ('$pageview', '$feature_flag_called')"
 SESSION_ID = "0190a8d1-3f7a-7b00-8000-000000000001"
 E_MIXED = "e.event IN ('$pageview', '$feature_flag_called')"
 UNION = "posthog.events_with_flag_calls"
+EVENTS = FlagEvaluationsMode.EVENTS
 READ = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 ONLY = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
 UNION_EXPANSION = "FROM flag_evaluations"
+FLAG_CALLS_FROM = "FROM events WHERE event = '$feature_flag_called'"
+FLAG_CALLS = f"SELECT count() {FLAG_CALLS_FROM}"
+SAMPLED_FLAG_CALLS = "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'"
+KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND timestamp >= now() - INTERVAL 7 DAY"
 
 
 def _performed_flag_call_cohort(team, flag_key: str) -> Cohort:
@@ -228,6 +233,11 @@ def _enabled_flags(union: bool):
         "posthog.hogql.database.database.feature_enabled_or_false",
         side_effect=lambda key, *args, **kwargs: key in enabled,
     )
+
+
+def _flag_evaluations_table_in_catalog():
+    # Outside Cloud and DEBUG the catalog leaves the table out for an organization on mode 0.
+    return patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True)
 
 
 def _restrict(organization, team, name: str) -> None:
@@ -773,12 +783,14 @@ class TestReadFlagCallsWithUnion(BaseTest):
         modifiers: HogQLQueryModifiers | None = None,
         inline_cohorts: bool = False,
         in_cohort_via: InCohortVia | None = None,
+        rewrite_flag_calls: bool = True,
     ) -> str:
         _set_mode(self.organization, mode)
-        with _enabled_flags(union=union):
+        with _enabled_flags(union=union), _flag_evaluations_table_in_catalog():
             sql, context = HogQLQueryExecutor(
                 query=query,
                 team=self.team,
+                context=HogQLContext(team_id=self.team.pk, rewrite_flag_calls_to_flag_evaluations=rewrite_flag_calls),
                 modifiers=(modifiers or HogQLQueryModifiers()).model_copy(
                     update={
                         "personIdPushdown": person_id_pushdown,
@@ -1056,6 +1068,78 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert "UNION ALL" in sql
         assert "JOIN flag_evaluations AS b" in sql
 
+    @parameterized.expand(
+        [
+            ("mode_0_native", FLAG_CALLS, EVENTS, True, True),
+            ("mode_0_native_keyed_and_bounded", KEYED_BOUNDED_FLAG_CALLS, EVENTS, True, True),
+            ("mode_1_native", FLAG_CALLS, READ, True, True),
+            ("mode_1_native_keyed_and_bounded", KEYED_BOUNDED_FLAG_CALLS, READ, True, True),
+            ("mode_2_native", FLAG_CALLS, ONLY, True, True),
+            ("mode_0_legacy_keyed_and_bounded", KEYED_BOUNDED_FLAG_CALLS, EVENTS, False, False),
+            # Mode 1 on the legacy table still needs a flag key and a time bound to swap.
+            ("mode_1_legacy", FLAG_CALLS, READ, False, False),
+            ("mode_1_legacy_keyed_and_bounded", KEYED_BOUNDED_FLAG_CALLS, READ, False, True),
+            ("mode_2_legacy", FLAG_CALLS, ONLY, False, True),
+        ]
+    )
+    def test_flag_call_scan_reads_flag_evaluations_on_the_native_events_schema_whatever_the_mode(
+        self, _name: str, query: str, mode: FlagEvaluationsMode, new_events_schema: bool, reads_flag_evaluations: bool
+    ):
+        _set_mode(self.organization, mode)
+        with _flag_evaluations_table_in_catalog():
+            assert Database.create_for(team=self.team).has_table(["posthog", "flag_evaluations"])
+
+        sql = self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is reads_flag_evaluations
+
+    @parameterized.expand([("mode_0", EVENTS), ("mode_1", READ)])
+    def test_flag_call_scan_on_the_native_events_schema_prints_what_mode_2_prints(
+        self, _name: str, mode: FlagEvaluationsMode
+    ):
+        sql = self._sql(FLAG_CALLS, mode=mode, union=False, new_events_schema=True)
+
+        assert sql == self._sql(FLAG_CALLS, mode=ONLY, union=False, new_events_schema=True)
+
+    @parameterized.expand(
+        [
+            ("mode_0_native_select_star", f"SELECT * {FLAG_CALLS_FROM}", EVENTS, True, "it selects \\* or COLUMNS"),
+            ("mode_1_native_select_star", f"SELECT * {FLAG_CALLS_FROM}", READ, True, "it selects \\* or COLUMNS"),
+            ("mode_2_native_select_star", f"SELECT * {FLAG_CALLS_FROM}", ONLY, True, "it selects \\* or COLUMNS"),
+            ("mode_0_native_sample", SAMPLED_FLAG_CALLS, EVENTS, True, "it uses SAMPLE"),
+            ("mode_2_native_sample", SAMPLED_FLAG_CALLS, ONLY, True, "it uses SAMPLE"),
+            ("mode_0_legacy_select_star", f"SELECT * {FLAG_CALLS_FROM}", EVENTS, False, None),
+            ("mode_1_legacy_select_star", f"SELECT * {FLAG_CALLS_FROM}", READ, False, None),
+        ]
+    )
+    def test_flag_call_shape_flag_evaluations_cannot_answer_raises_on_the_native_events_schema(
+        self, _name: str, query: str, mode: FlagEvaluationsMode, new_events_schema: bool, reason: str | None
+    ):
+        if reason is None:
+            assert "flag_evaluations" not in self._sql(
+                query, mode=mode, union=False, new_events_schema=new_events_schema
+            )
+            return
+        with pytest.raises(QueryError, match=reason):
+            self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+    @parameterized.expand(
+        [
+            ("mode_0_native", EVENTS, True),
+            ("mode_1_native", READ, True),
+            ("mode_2_native", ONLY, True),
+            ("mode_2_legacy", ONLY, False),
+        ]
+    )
+    def test_context_without_the_flag_call_rewrite_reads_flag_calls_from_events(
+        self, _name: str, mode: FlagEvaluationsMode, new_events_schema: bool
+    ):
+        sql = self._sql(
+            FLAG_CALLS, mode=mode, union=False, new_events_schema=new_events_schema, rewrite_flag_calls=False
+        )
+
+        assert "flag_evaluations" not in sql
+
     @parameterized.expand([("dotted", UNION), ("quoted", f"`{UNION}`")])
     def test_query_cannot_name_the_union_table(self, _name: str, table: str):
         with pytest.raises(QueryError, match="Unknown table `posthog.events_with_flag_calls`"):
@@ -1073,8 +1157,8 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ("restricted_on_mode_1", READ, None, False, False),
             # Mode 2 reads every flag call from flag_evaluations, so it never asks events for the flag key.
             ("restricted_on_mode_2", ONLY, None, False, True),
-            ("boolean_on_native_json_on_mode_1", READ, "Boolean", True, False),
-            ("numeric_on_native_json_on_mode_1", READ, "Numeric", True, False),
+            ("boolean_on_native_json_on_mode_1", READ, "Boolean", True, True),
+            ("numeric_on_native_json_on_mode_1", READ, "Numeric", True, True),
             ("boolean_on_native_json_on_mode_2", ONLY, "Boolean", True, True),
         ]
     )
@@ -2114,7 +2198,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
     def test_every_events_field_reads_the_same_type_or_keeps_events(
         self, _name: str, poe: PersonsOnEventsMode, new_schema: bool
     ):
-        # Mode 1 keeps reading events on the native JSON table, so only mode 2 reads the union there.
+        # The native JSON table reads flag calls as mode 2 does on every mode.
         _set_mode(self.organization, ONLY if new_schema else READ)
         create_group_type_mapping(team=self.team, group_type="organization", group_type_index=0)
         # A typed property reads as a number, which the union keeps only when it converts the read above the branches.
@@ -2175,7 +2259,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
 
 
 def _events_schema_for(mode: FlagEvaluationsMode, new_events_schema: bool | None) -> bool | None:
-    # Mode 1 keeps reading events on the native JSON table, so a mode 1 case reads the legacy table unless it asks.
+    # The native JSON table reads flag calls as mode 2 does, so a mode 1 case reads the legacy table unless it asks.
     if new_events_schema is None and mode == READ:
         return False
     return new_events_schema
