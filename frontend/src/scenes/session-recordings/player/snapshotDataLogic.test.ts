@@ -272,7 +272,22 @@ describe('snapshotDataLogic', () => {
             }
         )
 
-        it('reports a pending rate limit when another block of the batch fails', async () => {
+        it.each([
+            [
+                'reports a pending rate limit when another block of the batch fails',
+                'fails',
+                [429],
+                'loadSnapshotsForSourceFailure',
+                false,
+            ],
+            [
+                'falls back on a deadline once the rate-limited block has recovered',
+                'stalls',
+                [429, 200],
+                'loadSnapshotsForSourceSuccess',
+                true,
+            ],
+        ] as const)('%s', async (_, secondBlock, firstBlockStatuses, expectedAction, expectsSnapshotsEndpoint) => {
             const SECOND_BLOCK_PATH = '/replay-blocks/1/2/u1/v1.ref1'
             const secondSource: SessionRecordingSnapshotSource = {
                 ...BLOB_SOURCE,
@@ -280,6 +295,7 @@ describe('snapshotDataLogic', () => {
                 url: `${window.location.origin}${SECOND_BLOCK_PATH}`,
             }
             let snapshotsEndpointBlockReads = 0
+            let firstBlockReads = 0
             overrideSessionRecordingMocks({
                 getMocks: {
                     '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
@@ -290,13 +306,17 @@ describe('snapshotDataLogic', () => {
                         return [200, { sources: [DIRECT_SOURCE, secondSource], block_token: 'block.token.sig' }]
                     },
                     [BLOCK_PATH]: () =>
-                        new HttpResponse(JSON.stringify({ error: 'rate_limited' }), {
-                            status: 429,
-                            headers: { 'Content-Type': 'application/json', 'Retry-After': '1' },
-                        }),
-                    // Answers after the first block's 429, while that block waits to retry.
+                        firstBlockStatuses[Math.min(firstBlockReads++, firstBlockStatuses.length - 1)] === 429
+                            ? new HttpResponse(JSON.stringify({ error: 'rate_limited' }), {
+                                  status: 429,
+                                  headers: { 'Content-Type': 'application/json', 'Retry-After': '1' },
+                              })
+                            : new HttpResponse(snapshotsAsJSONLines(), {
+                                  headers: { 'Content-Type': 'application/octet-stream' },
+                              }),
+                    // Fails while the first block waits to retry, or stalls past the 30 second batch deadline.
                     [SECOND_BLOCK_PATH]: async () => {
-                        await new Promise((resolve) => setTimeout(resolve, 500))
+                        await new Promise((resolve) => setTimeout(resolve, secondBlock === 'fails' ? 500 : 60_000))
                         return [500, { error: 'boom' }]
                     },
                 },
@@ -308,13 +328,13 @@ describe('snapshotDataLogic', () => {
             jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
             try {
                 logic.actions.loadSnapshotsForSource([DIRECT_SOURCE, secondSource])
-                await jest.advanceTimersByTimeAsync(4_000)
+                await jest.advanceTimersByTimeAsync(35_000)
             } finally {
                 jest.useRealTimers()
             }
-            await expectLogic(logic).toDispatchActions(['loadSnapshotsForSourceFailure'])
+            await expectLogic(logic).toDispatchActions([expectedAction])
 
-            expect(snapshotsEndpointBlockReads).toBe(0)
+            expect(snapshotsEndpointBlockReads > 0).toBe(expectsSnapshotsEndpoint)
         })
     })
 
