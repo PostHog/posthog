@@ -272,6 +272,39 @@ describe('SandboxEmailService', () => {
         await expect(diedWaitingForSes).resolves.toEqual({ status: 'retry', reason: 'ses_transient' })
     })
 
+    it('sends one email when two overlapping attempts of one step visit both hold its claim at caps of one', async () => {
+        let claims = 0
+        let bothClaimed: () => void = () => undefined
+        const otherClaimArrived = new Promise<void>((resolve) => (bothClaimed = resolve))
+        const claimsOverlap: RedisV2 = {
+            ...world.valkey,
+            useClient: async (options, callback) => {
+                const result = await world.valkey.useClient(options, callback)
+                if (claims < 2) {
+                    claims += 1
+                    if (claims === 2) {
+                        bothClaimed()
+                    }
+                    await otherClaimArrived
+                }
+                return result
+            },
+        }
+        const capsLimiter = new RateLimiterService(claimsOverlap, { name: 'claims-overlap' })
+        const service = world.service({ caps: { team: 1, recipient: 1 }, faults: { capsLimiter } })
+
+        const outcomes = await Promise.all([service.send(request()), service.send(request())])
+
+        expect(outcomes).toEqual(
+            expect.arrayContaining([
+                { status: 'accepted', messageId: 'ses-1' },
+                { status: 'retry', reason: 'cap_storage_unavailable' },
+            ])
+        )
+        expect(recipients()).toEqual([member()])
+        await expect(service.send(request())).resolves.toEqual({ status: 'skipped', reason: 'daily_cap_reached' })
+    })
+
     it('sends nothing and retries when the cap store stops answering before the claim is charged', async () => {
         const store = new StallingValkeyProxy({
             host: defaultConfig.CDP_REDIS_HOST,
