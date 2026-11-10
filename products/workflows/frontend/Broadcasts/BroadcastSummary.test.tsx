@@ -73,7 +73,11 @@ describe('BroadcastSummary', () => {
         const cancel = screen.queryByText('Cancel')
         if (cancel) {
             fireEvent.click(cancel)
-            await waitFor(() => expect(screen.queryByText('Cancel')).not.toBeInTheDocument())
+            await waitFor(() => {
+                if (screen.queryByText('Cancel')) {
+                    throw new Error('The dialog is still open')
+                }
+            })
         }
         cleanup()
         window.POSTHOG_APP_CONTEXT = priorAppContext
