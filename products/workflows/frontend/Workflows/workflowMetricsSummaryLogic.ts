@@ -1457,10 +1457,11 @@ export function buildEmailMetricRows(
 ): EmailMetricRow[] {
     return emailActions.map((action) => {
         const totals = emailTotalsByActionId[action.id] || {}
-        const sent = totals.email_sent ?? 0
-        const bounced = totals.email_bounced ?? 0
-        const markedAsSpam = totals.email_blocked ?? 0
-        const untracked = totals.email_untracked ?? 0
+        const count = (metric: EmailMetricName): number => totals[metric] ?? 0
+        const sent = count('email_sent')
+        const bounced = count('email_bounced')
+        const markedAsSpam = count('email_blocked')
+        const untracked = count('email_untracked')
         return {
             id: action.id,
             email: action.name,
@@ -1468,17 +1469,17 @@ export function buildEmailMetricRows(
             // feedback-loop reports recipients send after delivery, so they are not subtracted here.
             delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
             sent,
-            opened: totals.email_opened ?? 0,
-            linkClicked: totals.email_link_clicked ?? 0,
+            opened: count('email_opened'),
+            linkClicked: count('email_link_clicked'),
             bounced,
-            bouncedHard: totals.email_bounced_hard ?? 0,
-            bouncedSoft: totals.email_bounced_transient ?? 0,
-            bouncedUnknown: totals.email_bounced_undetermined ?? 0,
-            bouncePrevented: totals.email_bounce_prevented ?? 0,
-            missingRecipient: totals.email_missing_recipient ?? 0,
-            frequencyCapped: totals.message_frequency_capped ?? 0,
+            bouncedHard: count('email_bounced_hard'),
+            bouncedSoft: count('email_bounced_transient'),
+            bouncedUnknown: count('email_bounced_undetermined'),
+            bouncePrevented: count('email_bounce_prevented'),
+            missingRecipient: count('email_missing_recipient'),
+            frequencyCapped: count('message_frequency_capped'),
             markedAsSpam,
-            sandboxBlocked: totals.email_sandbox_blocked ?? 0,
+            sandboxBlocked: count('email_sandbox_blocked'),
             untracked,
             trackedSends: Math.max(0, sent - untracked),
         }
