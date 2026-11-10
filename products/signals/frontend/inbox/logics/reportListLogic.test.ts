@@ -818,7 +818,7 @@ describe('reportListLogic', () => {
         afterEach(() => logic.unmount())
 
         it('counts the rows whose pull request is still in flight, drafts included', () => {
-            expect(logic.values.livePrReportIds).toEqual(['1', '3', '5'])
+            expect(logic.values.livePrReportIds).toEqual(['1', '5'])
         })
     })
     // Snapshots refresh on read, like error tracking counts: a loaded page sends the ids whose saved

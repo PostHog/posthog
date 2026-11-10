@@ -3956,7 +3956,9 @@ class TestUnlockGroup:
         fresh_conn = _make_healthy_conn()
         batches = [_make_batch()]
 
-        retry_error = psycopg.OperationalError("connection refused")
+        # Not a self-healing shape like a dropped connection or a connection refusal, so
+        # the retry exhaustion below must still reach error tracking.
+        retry_error = psycopg.OperationalError("password authentication failed for user")
         mock_unlock = AsyncMock(
             side_effect=[psycopg.OperationalError("another command is already in progress"), retry_error]
         )
@@ -4185,7 +4187,8 @@ class TestHeartbeatLoop:
 
         task = asyncio.create_task(consumer._heartbeat_loop())
         await asyncio.sleep(0.03)
-        time.sleep(1.0)  # block the event loop so the heartbeat cannot run
+        # nosemgrep: no-fixed-sleeps-in-tests -- blocks the event loop past the stall-dump deadline
+        time.sleep(1.0)
         assert "most recent call first" in capfd.readouterr().err
 
         await asyncio.sleep(0.03)  # the heartbeat resumes and arms the timer again

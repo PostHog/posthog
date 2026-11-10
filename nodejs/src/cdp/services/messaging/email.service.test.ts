@@ -1,7 +1,9 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+import http from 'http'
 import { DateTime } from 'luxon'
+import { AddressInfo } from 'net'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -175,6 +177,64 @@ const createEmailParams = (
         },
     }
 }
+interface FakeSesDelivery {
+    to: string[]
+    html: string | undefined
+}
+
+interface FakeSes {
+    endpoint: string
+    inbox: FakeSesDelivery[]
+    close: () => Promise<void>
+}
+
+function applySesOpenAndClickTracking(html: string): string {
+    return html
+        .replace(
+            /href="([^"]+)"/g,
+            (_, url) => `href="https://fake-ses.example.com/click?u=${encodeURIComponent(url)}"`
+        )
+        .replace('</body>', '<img src="https://fake-ses.example.com/open" /></body>')
+}
+
+async function startFakeSes(configurationSets: Record<string, { tracking: boolean }>): Promise<FakeSes> {
+    const inbox: FakeSesDelivery[] = []
+    const server = http.createServer((req, res) => {
+        let body = ''
+        req.on('data', (chunk) => (body += chunk))
+        req.on('end', () => {
+            const message = parseJSON(body)
+            const configurationSet = configurationSets[message.ConfigurationSetName]
+            if (!configurationSet) {
+                res.writeHead(404, { 'content-type': 'application/json', 'x-amzn-errortype': 'NotFoundException' })
+                res.end(
+                    JSON.stringify({ message: `Configuration set <${message.ConfigurationSetName}> does not exist.` })
+                )
+                return
+            }
+            const html = message.Content.Simple.Body.Html?.Data
+            inbox.push({
+                to: message.Destination.ToAddresses,
+                html: html && configurationSet.tracking ? applySesOpenAndClickTracking(html) : html,
+            })
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ MessageId: `fake-ses-${inbox.length}` }))
+        })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    return {
+        endpoint: `http://127.0.0.1:${port}`,
+        inbox,
+        close: () => new Promise((resolve) => server.close(() => resolve())),
+    }
+}
+
+function useStaticSesCredentials(service: EmailService): EmailService {
+    service.sesV2Client!.config.credentials = () => Promise.resolve({ accessKeyId: 'test', secretAccessKey: 'test' })
+    return service
+}
+
 describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
@@ -2213,17 +2273,51 @@ describe('EmailService', () => {
                 invocation.hogFunction.metadata = { tracking_enabled: false }
             })
 
-            it('skips pixel and link rewriting and uses the untracked configuration set when tracking is off', async () => {
-                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging-untracked')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-                // Delivery/bounce attribution must survive tracking-off: the untracked configuration
-                // set still emits delivery events, and the webhook needs this header to attribute them.
-                const headerNames = sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)
-                expect(headerNames).toContain('X-PostHog-Tracking-Code')
+            it.each([
+                {
+                    case: 'delivers tracking-off mail without open or click tracking',
+                    trackingEnabled: false,
+                    untrackedSet: 'posthog-messaging-untracked',
+                    error: undefined,
+                    inbox: [{ to: ['"Test User" <test@example.com>'], html: trackableHtml }],
+                },
+                {
+                    case: 'fails tracking-off mail instead of sending it tracked when no untracked set is named',
+                    trackingEnabled: false,
+                    untrackedSet: '',
+                    error: expect.stringContaining('SES_UNTRACKED_CONFIGURATION_SET is empty'),
+                    inbox: [],
+                },
+                {
+                    case: 'delivers tracked mail when no untracked set is named',
+                    trackingEnabled: true,
+                    untrackedSet: '',
+                    error: undefined,
+                    inbox: [
+                        {
+                            to: ['"Test User" <test@example.com>'],
+                            html: expect.stringContaining('<img src="https://fake-ses.example.com/open" />'),
+                        },
+                    ],
+                },
+            ])('$case', async ({ trackingEnabled, untrackedSet, error, inbox }) => {
+                invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled }
+                const ses = await startFakeSes({
+                    'posthog-messaging': { tracking: true },
+                    'posthog-messaging-untracked': { tracking: false },
+                })
+                try {
+                    const sesService = useStaticSesCredentials(
+                        createService({ sesEndpoint: ses.endpoint, sesUntrackedConfigurationSet: untrackedSet })
+                    )
+
+                    const result = await sesService.executeSendEmail(invocation)
+
+                    expect(result.error).toEqual(error)
+                    expect(ses.inbox).toEqual(inbox)
+                } finally {
+                    await ses.close()
+                }
             })
 
             it.each([
@@ -2362,14 +2456,6 @@ describe('EmailService', () => {
                     )
                 }
             )
-
-            it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-            })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3

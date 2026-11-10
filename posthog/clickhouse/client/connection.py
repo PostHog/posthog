@@ -163,6 +163,8 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
     # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
     ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
+    ALERTS_PLATFORM_TRACES = "alerts_platform_traces"
     # Exists on the logs cluster only. Snuffle connects as it for the platform's PromQL queries.
     ALERTS_PLATFORM_METRICS = "alerts_platform_metrics"
     # The platform's own bookkeeping, shared by every source: its check history and the default
@@ -462,11 +464,15 @@ LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
         ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
         ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ClickHouseUser.ALERTS_PLATFORM_METRICS,
+        ClickHouseUser.ALERTS_PLATFORM_TRACES,
     }
 )
 # Named users that exist on the metrics cluster. Keep this a subset of LOGS_CLUSTER_USERS: the metrics
 # host falls back to the logs host, so a user listed here must also work there.
-METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset({ClickHouseUser.ALERTS_PLATFORM_METRICS})
+# ALERTS_PLATFORM_INSIGHT is here because an insight alert on metrics must keep its own concurrency budget.
+METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
+    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS}
+)
 
 _PINNED_CLUSTER_USERS: Mapping[Workload, frozenset[ClickHouseUser]] = {
     Workload.LOGS: LOGS_CLUSTER_USERS,
@@ -603,13 +609,19 @@ def get_pool(
     team_id=None,
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    send_receive_timeout: int | None = None,
 ):
     """
     Returns the right connection pool given a workload.
 
     Note that the same pool should be returned every call.
+
+    send_receive_timeout bounds each socket read and write, which the default pool leaves effectively
+    unbounded, so a stalled connection fails instead of holding its thread. It keys a pool of its own.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    if send_receive_timeout is not None:
+        kwargs["send_receive_timeout"] = send_receive_timeout
     creds = connection_creds(workload, ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
