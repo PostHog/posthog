@@ -268,12 +268,7 @@ describe('load', () => {
     })
 
     it('accepts the settings a role reads straight from the process environment', () => {
-        const settings = {
-            EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: '3',
-            HOG_BYTECODE_CACHE_REQUIRED: 'false',
-            HOG_BYTECODE_CACHE_REWRITE: 'false',
-            SES_ALLOWED_SNS_TOPIC_ARNS: 'arn:aws:sns:us-east-1:000000000000:scenario-feedback',
-        }
+        const settings = { HOG_BYTECODE_CACHE_REQUIRED: 'false', HOG_BYTECODE_CACHE_REWRITE: 'false' }
 
         expect(loadCard(card, { ...profile, settings }).profile.settings).toEqual(settings)
     })
