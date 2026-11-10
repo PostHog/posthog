@@ -12,6 +12,7 @@ from products.data_catalog.evals import scenario_synthesizer as pack
         ("wau_spike", pack.build_wau_spike),
         ("wau_bot_spike", pack.build_wau_bot_spike),
         ("share_drop_flag", pack.build_share_drop_flag),
+        ("share_dau", pack.build_share_dau),
         ("mcp_tool_shipped", pack.build_mcp_tool_shipped),
         ("revenue_rep_outlier", pack.build_revenue_rep_outlier),
         ("slack_export", pack.build_slack_export),
@@ -28,6 +29,7 @@ def test_planted_people_carry_the_pack_token_and_a_reserved_domain() -> None:
         + pack.build_wau_bot_spike().persons
         + pack.build_share_drop_flag().events.persons
         + pack.build_mcp_tool_shipped().persons
+        + pack.build_share_dau().persons
     )
     assert all(pack.PACK_TOKEN in person.distinct_id for person in persons)
     assert all(person.email.endswith(f"@{pack.PACK_EMAIL_DOMAIN}") for person in persons if person.email)
@@ -45,6 +47,11 @@ def test_wau_spikes_stay_inside_their_window() -> None:
     assert len({event.distinct_id for event in bots.events}) == pack.WAU_BOT_DISTINCT_ID_COUNT
     assert {event.event for event in bots.events} == {"$pageview"}
     assert {event.properties["$browser"] for event in bots.events} == {pack.WAU_BOT_BROWSER}
+
+
+def test_share_dau_has_the_same_sharers_every_day() -> None:
+    sharers_by_day = Counter(event.days_ago for event in pack.build_share_dau().events)
+    assert sharers_by_day == dict.fromkeys(range(1, pack.SHARE_DAU_WINDOW_DAYS + 1), pack.SHARE_DAU_DAILY_SHARERS)
 
 
 def test_share_drop_flag_stops_only_the_blocked_cohort() -> None:

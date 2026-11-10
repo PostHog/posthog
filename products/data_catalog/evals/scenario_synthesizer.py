@@ -59,6 +59,11 @@ SHARE_BLOCK_FROM_DAYS_AGO = 9
 SHARE_BLOCK_TO_DAYS_AGO = 4
 SHARE_BLOCKED_SHARES_PER_DAY = 2
 
+# SHARE_DAU: steady daily sharing with a known average, because the Hedgebox data has no share events.
+SHARE_DAU_PERSON_COUNT = 48
+SHARE_DAU_DAILY_SHARERS = 12
+SHARE_DAU_WINDOW_DAYS = 90
+
 # PREVIEW_ADOPTION: a new feature whose first event is recent.
 PREVIEW_EVENT = "previewed_file"
 PREVIEW_FIRST_SEEN_DAYS_AGO = 20
@@ -471,6 +476,25 @@ def build_share_drop_flag() -> FlagNeedle:
         variants=(SHARE_FLAG_CONTROL_VARIANT, SHARE_FLAG_BLOCKED_VARIANT),
         events=EventNeedle(name="share_drop_flag", persons=blocked + control, events=tuple(events)),
     )
+
+
+def build_share_dau() -> EventNeedle:
+    """Each person shares on every fourth day, offset by index, so the same number of people share each day."""
+    persons = tuple(_person("dailysharer", index) for index in range(SHARE_DAU_PERSON_COUNT))
+    cycle = SHARE_DAU_PERSON_COUNT // SHARE_DAU_DAILY_SHARERS
+    events = tuple(
+        PlantedEvent(
+            event=SHARE_EVENT,
+            distinct_id=person.distinct_id,
+            days_ago=day,
+            minute_of_day=60 + (index * 17) % 1200,
+            properties={"file_type": "application/pdf", "file_size_b": 524_288},
+        )
+        for day in range(SHARE_DAU_WINDOW_DAYS, 0, -1)
+        for index, person in enumerate(persons)
+        if (index + day) % cycle == 0
+    )
+    return EventNeedle(name="share_dau", persons=persons, events=events)
 
 
 def build_mcp_tool_shipped() -> EventNeedle:
