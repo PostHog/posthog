@@ -37,6 +37,8 @@ const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_
 
 const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
+export type BuildInputsOptions = { recipientIdentifier?: (email: string) => string }
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -48,7 +50,8 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        { recipientIdentifier = (email: string) => email }: BuildInputsOptions = {}
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -118,7 +121,7 @@ export class HogInputsService {
             // If we have an email value then we template it out to get the email address
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
-                const recipient = { team_id: hogFunction.team_id, identifier: emailValue.to.email }
+                const recipient = { team_id: hogFunction.team_id, identifier: recipientIdentifier(emailValue.to.email) }
                 newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl(
                     recipient,
                     preferencesTokenSource
@@ -158,11 +161,12 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        options?: BuildInputsOptions
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource),
+            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource, options),
         }
     }
 

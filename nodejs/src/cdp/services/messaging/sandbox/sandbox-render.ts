@@ -6,6 +6,7 @@ import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
 import { actionIdForLogging } from '../../hogflows/hogflow-utils'
 import { SandboxRenderedEmail, SandboxRenderedEmailSchema } from './sandbox-message'
+import { canonicalRecipient } from './sandbox-recipient-checks'
 
 export class SandboxRenderError extends Error {}
 
@@ -26,7 +27,8 @@ export async function renderSandboxEmail(
             workflowId: hogFlow.id,
             invocationId: invocation.id,
             workflowVersion: hogFlow.version,
-        }
+        },
+        { recipientIdentifier: canonicalRecipient }
     )
     const parsed = SandboxRenderedEmailSchema.safeParse(globals.inputs.email)
     if (!parsed.success) {

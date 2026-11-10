@@ -10,22 +10,26 @@ import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
-import { SandboxAuthorization } from './sandbox-authorization'
+import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
+import { useSandboxWorld } from './_tests/sandbox-world'
+import { claimSandboxCaps } from './sandbox-caps'
+import { SandboxEventProperties, SandboxTerminalOutcome } from './sandbox-email-events'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
-import { SandboxEmailService, SandboxEmailServiceDeps } from './sandbox-email.service'
+
+type RecordedEvent = { teamId: number; outcome: SandboxTerminalOutcome; properties: SandboxEventProperties }
 
 describe('SandboxEmailSendStep', () => {
-    const now = DateTime.fromISO('2026-01-01T00:00:00.000Z', { zone: 'UTC' })
+    const world = useSandboxWorld()
+    const tokens = new RecipientTokensService('00beef0000beef0000beef0000beef00', 'http://localhost:8000')
+    const caps = { team: 5, recipient: 1 }
     let hogFlow: HogFlow
-    let ses: jest.Mocked<SandboxEmailServiceDeps['ses']>
-    let capture: jest.Mock
-    let serviceOverrides: Partial<SandboxEmailServiceDeps>
+    let events: RecordedEvent[]
 
-    beforeEach(() => {
-        jest.spyOn(Date, 'now').mockReturnValue(now.toMillis())
-        ses = { send: jest.fn().mockResolvedValue({ status: 'accepted', messageId: 'ses-1' }) }
-        capture = jest.fn().mockResolvedValue(undefined)
-        serviceOverrides = {}
+    const member = () => `Member-${world.team.id}@Example.com`
+
+    beforeEach(async () => {
+        await world.addMember(member())
+        events = []
         hogFlow = new FixtureHogFlowBuilder()
             .withExitCondition('exit_only_at_end')
             .withWorkflow({
@@ -44,7 +48,7 @@ describe('SandboxEmailSendStep', () => {
                                     value: {
                                         to: { email: '{{ person.properties.email }}' },
                                         subject: 'Hi {{ person.properties.name }}',
-                                        text: 'Hello',
+                                        text: 'Hello. Unsubscribe: {{ unsubscribe_url_one_click }}',
                                     },
                                 },
                             },
@@ -60,40 +64,22 @@ describe('SandboxEmailSendStep', () => {
                 ],
             })
             .build()
+        hogFlow.team_id = world.team.id
         hogFlow.version = 3
     })
 
-    const member: SandboxAuthorization = {
-        ok: true,
-        organizationId: 'org-1',
-        organizationName: 'Acme',
-        storedAddress: 'member@example.com',
-        tenant: { sendingStatus: 'ENABLED', syncedAt: now.toJSDate() },
-    }
-
-    const buildExecutor = (): HogFlowExecutorService => {
-        const service = new SandboxEmailService({
-            enabled: true,
-            fromAddress: 'sandbox@send.example.com',
-            tenantName: 'sandbox-tenant',
-            isProvisioned: () => Promise.resolve(true),
-            checkRecipient: () => Promise.resolve({ ok: true }),
-            authorize: () => Promise.resolve(member),
-            claimCaps: () => Promise.resolve({ ok: true }),
-            ses,
-            now: () => now.toJSDate(),
-            ...serviceOverrides,
-        })
+    const buildExecutor = (dailyCaps = caps): HogFlowExecutorService => {
         const step = new SandboxEmailSendStep({
-            service,
-            hogInputsService: new HogInputsService(
-                {} as any,
-                new RecipientTokensService('00beef0000beef0000beef0000beef00', 'http://localhost:8000'),
-                {} as any
-            ),
+            service: world.service({ caps: dailyCaps }),
+            hogInputsService: new HogInputsService({} as any, tokens, {} as any),
             siteUrl: 'http://localhost:8000',
             recipientPreferences: { checkMarketingFrequencyCap: () => Promise.resolve({ capped: false }) },
-            events: { capture },
+            events: {
+                capture: (teamId, outcome, properties) => {
+                    events.push({ teamId, outcome, properties })
+                    return Promise.resolve()
+                },
+            },
         })
         return new HogFlowExecutorService(
             {} as any,
@@ -104,17 +90,15 @@ describe('SandboxEmailSendStep', () => {
             null,
             undefined,
             undefined,
-            {
-                sandboxEmail: { enabled: true, send: step },
-            }
+            { sandboxEmail: { enabled: true, send: step } }
         )
     }
 
-    const runOnHogflowQueue = (): CyclotronJobInvocationHogFlow => {
+    const runFor = (email: string): CyclotronJobInvocationHogFlow => {
         const invocation = createExampleHogFlowInvocation(
             hogFlow,
-            { currentAction: { id: 'email', startedAtTimestamp: now.toMillis() } },
-            { properties: { email: 'member@example.com', name: 'Mem' } }
+            { currentAction: { id: 'email', startedAtTimestamp: Date.now() } },
+            { properties: { email, name: 'Mem' } }
         )
         invocation.queue = 'hogflow'
         return invocation
@@ -128,163 +112,219 @@ describe('SandboxEmailSendStep', () => {
 
     const runSandboxQueue = async (
         executor: HogFlowExecutorService,
-        routed: CyclotronJobInvocationHogFlow
+        routed: CyclotronJobInvocationHogFlow,
+        beforeAttempt: (attempt: number) => Promise<void> = () => Promise.resolve()
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]> => {
-        const segments = [await executor.execute(nextDequeue(routed))]
-        while (segments.at(-1)!.invocation.queue === 'emailsandbox') {
-            segments.push(await executor.execute(nextDequeue(segments.at(-1)!.invocation)))
-        }
+        const segments: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[] = []
+        let next = routed
+        do {
+            await beforeAttempt(segments.length)
+            segments.push(await executor.execute(nextDequeue(next)))
+            next = segments.at(-1)!.invocation
+        } while (next.queue === 'emailsandbox')
         return segments
     }
 
-    it('renders and sends on the sandbox queue, then the hogflow queue runs the next action', async () => {
+    const runToNextAction = async (
+        email: string,
+        {
+            beforeAttempt,
+            dailyCaps,
+        }: { beforeAttempt?: (attempt: number) => Promise<void>; dailyCaps?: typeof caps } = {}
+    ): Promise<{
+        segments: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+        finished: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+    }> => {
+        const executor = buildExecutor(dailyCaps)
+        const routed = await executor.execute(runFor(email))
+        const segments = await runSandboxQueue(executor, routed.invocation, beforeAttempt)
+        const finished = await executor.execute(nextDequeue(segments.at(-1)!.invocation))
+        return { segments, finished }
+    }
+
+    const metricNames = (segments: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]) =>
+        segments.flatMap((segment) => segment.metrics.map((metric) => [metric.metric_name, metric.instance_id]))
+
+    it('sends nothing on the hogflow queue, sends on the sandbox queue, then runs the next action', async () => {
         const executor = buildExecutor()
-        const batchRun = runOnHogflowQueue()
+        const batchRun = runFor(member().toLowerCase())
         batchRun.parentRunId = 'batch-run-1'
 
         const routed = await executor.execute(batchRun)
-        expect(ses.send).not.toHaveBeenCalled()
         expect(routed.invocation.queue).toBe('emailsandbox')
+        expect(world.ses.delivered).toEqual([])
 
         const [sent] = await runSandboxQueue(executor, routed.invocation)
-        expect(ses.send).toHaveBeenCalledTimes(1)
-        const [message, tags] = ses.send.mock.calls[0]
-        expect(message).toMatchObject({ to: { address: 'member@example.com' }, subject: 'Hi Mem' })
-        expect(tags).toEqual({
-            teamId: hogFlow.team_id,
-            hogFlowId: hogFlow.id,
-            invocationId: routed.invocation.id,
-            actionId: 'email',
-            flowVersion: 3,
-            isTest: false,
-            parentRunId: 'batch-run-1',
-        })
-        expect(sent.invocation.queue).toBe('hogflow')
-        expect(sent.invocation.state.currentAction?.id).toBe('email')
-        expect(sent.metrics.map((metric) => [metric.metric_name, metric.instance_id])).toEqual([
-            ['email_sandbox_sent', 'email'],
+        expect(world.ses.delivered).toEqual([
+            expect.objectContaining({
+                to: [{ name: '', address: member() }],
+                subject: 'Hi Mem',
+                tags: {
+                    ph_sbx_team: String(world.team.id),
+                    ph_sbx_flow: hogFlow.id,
+                    ph_sbx_run: routed.invocation.id,
+                    ph_sbx_action: 'email',
+                    ph_sbx_version: '3',
+                    ph_sbx_test: 'false',
+                    ph_sbx_parent_run: 'batch-run-1',
+                },
+            }),
         ])
-        expect(capture).toHaveBeenCalledWith(hogFlow.team_id, 'accepted', {
-            workflow_id: hogFlow.id,
-            action_id: 'email',
-            is_test: false,
-        })
+        expect(sent.invocation.queue).toBe('hogflow')
+        expect(metricNames([sent])).toEqual([['email_sandbox_sent', 'email']])
+        expect(events).toEqual([
+            {
+                teamId: world.team.id,
+                outcome: 'accepted',
+                properties: { workflow_id: hogFlow.id, action_id: 'email', is_test: false },
+            },
+        ])
 
         const finished = await executor.execute(nextDequeue(sent.invocation))
-        expect(ses.send).toHaveBeenCalledTimes(1)
+        expect(world.ses.delivered).toHaveLength(1)
         expect(finished.invocation.state.currentAction?.id).toBe('wait')
         expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'accepted', message_id: 'ses-1' })
     })
 
-    it.each([
+    const spendTodaysAllowance = async (): Promise<void> => {
+        await claimSandboxCaps(world.limiter('sandbox-email-caps'), caps, {
+            organizationId: world.organizationId,
+            teamId: world.team.id,
+            storedAddress: member(),
+        })
+    }
+
+    const replies =
+        (...sesReplies: SesReply[]) =>
+        (): Promise<void> => {
+            world.ses.replyNext(...sesReplies)
+            return Promise.resolve()
+        }
+
+    it.each<[string, () => Promise<void>, object, string, number, number]>([
         [
             'SES rejects the message',
-            (): void => void ses.send.mockResolvedValue({ status: 'failed', reason: 'ses_rejected' }),
+            replies(SES_REJECTED),
             { status: 'failed', reason: 'ses_rejected' },
             'email_sandbox_failed',
             1,
+            0,
         ],
         [
             'SES throttles every attempt',
-            (): void => void ses.send.mockResolvedValue({ status: 'retry', reason: 'ses_throttled' }),
+            () => {
+                world.ses.replyAlways(SES_THROTTLE)
+                return Promise.resolve()
+            },
             { status: 'failed', reason: 'retries_exhausted' },
             'email_sandbox_failed',
             MAX_SANDBOX_RETRIES + 1,
+            0,
         ],
         [
             'the template renders no subject',
-            (): void => {
+            () => {
                 const action = hogFlow.actions.find((candidate) => candidate.id === 'email')!
                 ;(action.config as any).inputs.email.value.subject = '{{ person.properties.missing }}'
+                return Promise.resolve()
             },
             { status: 'failed', reason: 'render_failed' },
             'email_sandbox_failed',
             0,
-        ],
-        [
-            'a daily cap is reached',
-            (): void => {
-                serviceOverrides.claimCaps = () => Promise.resolve({ ok: false, reason: 'daily_cap_reached' })
-            },
-            { status: 'skipped', reason: 'daily_cap_reached' },
-            'email_sandbox_blocked',
             0,
         ],
         [
-            'SES throttles once while one daily cap token is left',
-            (): void => {
-                let tokens = 1
-                serviceOverrides.claimCaps = () =>
-                    Promise.resolve(tokens-- > 0 ? { ok: true } : { ok: false, reason: 'daily_cap_reached' })
-                ses.send.mockResolvedValueOnce({ status: 'retry', reason: 'ses_throttled' })
-            },
+            "the member's daily allowance is already spent",
+            spendTodaysAllowance,
+            { status: 'skipped', reason: 'daily_cap_reached' },
+            'email_sandbox_blocked',
+            0,
+            0,
+        ],
+        [
+            'SES throttles once while one daily allowance is left',
+            replies(SES_THROTTLE),
             { status: 'accepted', message_id: 'ses-1' },
             'email_sandbox_sent',
             2,
+            1,
         ],
         [
-            'SES throttles, then the membership read fails once, with one daily cap token left',
-            (): void => {
-                let tokens = 1
-                let reads = 0
-                serviceOverrides.claimCaps = () =>
-                    Promise.resolve(tokens-- > 0 ? { ok: true } : { ok: false, reason: 'daily_cap_reached' })
-                serviceOverrides.authorize = () =>
-                    Promise.resolve(reads++ === 1 ? { ok: false, reason: 'authorization_unavailable' } : member)
-                ses.send.mockResolvedValueOnce({ status: 'retry', reason: 'ses_throttled' })
-            },
-            { status: 'accepted', message_id: 'ses-1' },
-            'email_sandbox_sent',
-            2,
-        ],
-        [
-            'SES may have accepted a send before failing transiently, with one daily cap token left',
-            (): void => {
-                let tokens = 1
-                serviceOverrides.claimCaps = () =>
-                    Promise.resolve(tokens-- > 0 ? { ok: true } : { ok: false, reason: 'daily_cap_reached' })
-                ses.send.mockResolvedValueOnce({ status: 'retry', reason: 'ses_transient' })
-            },
+            'SES may have accepted a send before failing transiently, while one daily allowance is left',
+            replies({ kind: 'drop' }),
             { status: 'skipped', reason: 'daily_cap_reached' },
             'email_sandbox_blocked',
             1,
+            0,
         ],
-    ])('stores the outcome when %s and continues past it', async (_name, arrange, stepResult, metric, sesCalls) => {
-        arrange()
-        const executor = buildExecutor()
+    ])(
+        'stores the outcome when %s and continues past it',
+        async (_name, arrange, stepResult, metric, sesAttempts, delivered) => {
+            await arrange()
 
-        const routed = await executor.execute(runOnHogflowQueue())
-        const segments = await runSandboxQueue(executor, routed.invocation)
-        const handedBack = segments.at(-1)!
-        const finished = await executor.execute(nextDequeue(handedBack.invocation))
+            const { segments, finished } = await runToNextAction(member())
 
-        expect(ses.send).toHaveBeenCalledTimes(sesCalls)
-        expect(segments.flatMap((segment) => segment.metrics.map((m) => m.metric_name))).toEqual([metric])
-        expect(handedBack.invocation.queue).toBe('hogflow')
-        expect(finished.invocation.state.currentAction?.id).toBe('wait')
-        expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
+            expect(world.ses.attempts).toBe(sesAttempts)
+            expect(world.ses.delivered).toHaveLength(delivered)
+            expect(metricNames(segments)).toEqual([[metric, 'email']])
+            expect(finished.invocation.state.currentAction?.id).toBe('wait')
+            expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
+        }
+    )
+
+    it('keeps the daily allowance it spent before an SES throttle through a later pause-state outage', async () => {
+        world.ses.replyNext(SES_THROTTLE)
+
+        const { finished } = await runToNextAction(member(), {
+            beforeAttempt: async (attempt) => {
+                if (attempt === 1) {
+                    await world.setTenant('ENABLED', new Date(Date.now() - 600_000))
+                }
+                if (attempt === 2) {
+                    await world.setTenant('ENABLED', new Date())
+                }
+            },
+        })
+
+        expect(world.ses.delivered).toHaveLength(1)
+        expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'accepted', message_id: 'ses-1' })
+    })
+
+    it('honours an unsubscribe from a sandbox email when later emails spell the address differently', async () => {
+        const roomy = { dailyCaps: { team: 100, recipient: 100 } }
+        await runToNextAction(member().toUpperCase(), roomy)
+        const [first] = world.ses.delivered
+        const token = new URL(first.text!.match(/https?:\/\/\S+/)![0]).pathname.split('/').filter(Boolean).at(-1)!
+        const unsubscribed = tokens.validatePreferencesToken(token)
+        expect(unsubscribed.valid).toBe(true)
+        await world.recipients.optOut(world.team.id, [(unsubscribed as { identifier: string }).identifier])
+
+        const { finished } = await runToNextAction(member().toLowerCase(), roomy)
+
+        expect(world.ses.delivered).toHaveLength(1)
+        expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'skipped', reason: 'opted_out' })
     })
 
     it('logs why the template failed to render', async () => {
         const action = hogFlow.actions.find((candidate) => candidate.id === 'email')!
         ;(action.config as any).inputs.email.value.subject = '{{ person.properties.missing }}'
-        const executor = buildExecutor()
 
-        const routed = await executor.execute(runOnHogflowQueue())
-        const [rendered] = await runSandboxQueue(executor, routed.invocation)
+        const { segments } = await runToNextAction(member())
 
-        expect(rendered.logs.map(({ level, message }) => [level, message])).toContainEqual([
+        expect(segments[0].logs.map(({ level, message }) => [level, message])).toContainEqual([
             'error',
             expect.stringContaining('failed to render: The rendered sandbox email is missing a recipient, subject'),
         ])
     })
 
     it('backs off on the sandbox queue from 30 seconds up to 15 minutes between retries', async () => {
-        ses.send.mockResolvedValue({ status: 'retry', reason: 'ses_transient' })
-        const executor = buildExecutor()
+        const now = DateTime.utc()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(now.toMillis())
+        world.ses.replyAlways({ kind: 'drop' })
 
-        const routed = await executor.execute(runOnHogflowQueue())
-        const segments = await runSandboxQueue(executor, routed.invocation)
+        const { segments } = await runToNextAction(member(), { dailyCaps: { team: 100, recipient: 100 } }).finally(() =>
+            clock.mockRestore()
+        )
         const delaysMs = segments
             .slice(0, -1)
             .map((segment) => segment.invocation.queueScheduledAt!.toMillis() - now.toMillis())

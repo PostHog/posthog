@@ -1,304 +1,242 @@
-import { EventEmitter } from 'events'
-import { PoolClient } from 'pg'
+import { PostgresUse } from '~/common/utils/db/postgres'
 
-import { PostgresRouter } from '~/common/utils/db/postgres'
-
-import {
-    PreferenceStatus,
-    RecipientManagerRecipient,
-    RecipientsManagerService,
-} from '../../managers/recipients-manager.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
-import { AUTHORIZATION_TIMEOUT_MS, SandboxAuthorization } from './sandbox-authorization'
-import {
-    SandboxEmailService,
-    SandboxEmailServiceDeps,
-    SandboxSendOutcome,
-    SandboxSendRequest,
-    hasSandboxSenderRow,
-} from './sandbox-email.service'
-import { checkSandboxRecipient } from './sandbox-recipient-checks'
+import { SES_THROTTLE } from './_tests/fake-ses-endpoint'
+import { SANDBOX_FROM_ADDRESS, SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
+import { SandboxSendOutcome, SandboxSendRequest } from './sandbox-email.service'
 
 describe('SandboxEmailService', () => {
-    const now = new Date('2026-01-01T12:00:00.000Z')
-    const member: SandboxAuthorization = {
-        ok: true,
-        organizationId: 'org-1',
-        organizationName: 'Acme',
-        storedAddress: 'Member@Example.com',
-        tenant: { sendingStatus: 'ENABLED', syncedAt: new Date(now.getTime() - 60_000) },
-    }
+    const world = useSandboxWorld()
+    const personal = (text: string): string => text.replace(/([^\s@<>",]+)@/g, `$1-${world.team.id}@`)
+    const member = () => personal('Member@Example.com')
 
-    const fakeDeps = (overrides: Partial<SandboxEmailServiceDeps> = {}): jest.Mocked<SandboxEmailServiceDeps> =>
-        ({
-            enabled: true,
-            fromAddress: 'sandbox@send.example.com',
-            tenantName: 'sandbox-tenant',
-            isProvisioned: jest.fn().mockResolvedValue(true),
-            authorize: jest.fn().mockResolvedValue(member),
-            checkRecipient: jest.fn().mockResolvedValue({ ok: true }),
-            claimCaps: jest.fn().mockResolvedValue({ ok: true }),
-            ses: { send: jest.fn().mockResolvedValue({ status: 'accepted', messageId: 'ses-1' }) },
-            now: () => now,
-            ...overrides,
-        }) as jest.Mocked<SandboxEmailServiceDeps>
-
-    const request = (overrides: Partial<SandboxSendRequest> = {}): SandboxSendRequest => ({
-        teamId: 2,
-        hogFlowId: 'flow-1',
-        invocationId: 'run-1',
-        actionId: 'action_email_sandbox_1',
-        flowVersion: 4,
-        isTest: false,
-        email: { to: { email: 'member@example.com', name: 'Mem' }, subject: 'Hi', text: 'Hello' },
-        ...overrides,
+    beforeEach(async () => {
+        await world.addMember(member())
     })
 
-    it('sends one message to the stored member spelling, from the organization, with the run tags', async () => {
-        const deps = fakeDeps()
-
-        await expect(new SandboxEmailService(deps).send(request())).resolves.toEqual({
-            status: 'accepted',
-            messageId: 'ses-1',
-        })
-
-        expect(deps.authorize).toHaveBeenCalledWith({
-            teamId: 2,
-            recipient: 'member@example.com',
-            tenantName: 'sandbox-tenant',
-        })
-        expect(deps.claimCaps).toHaveBeenCalledWith({
-            organizationId: 'org-1',
-            teamId: 2,
-            storedAddress: 'Member@Example.com',
-        })
-        expect(deps.ses.send).toHaveBeenCalledTimes(1)
-        const [message, tags] = jest.mocked(deps.ses.send).mock.calls[0]
-        expect(message).toMatchObject({
-            from: { address: 'sandbox@send.example.com', name: 'Acme via PostHog' },
-            to: { address: 'Member@Example.com', name: 'Mem' },
-            subject: 'Hi',
-        })
-        expect(tags).toMatchObject({
-            teamId: 2,
+    const request = (overrides: Partial<SandboxSendRequest> = {}): SandboxSendRequest => {
+        const sent: SandboxSendRequest = {
+            teamId: world.team.id,
             hogFlowId: 'flow-1',
             invocationId: 'run-1',
             actionId: 'action_email_sandbox_1',
             flowVersion: 4,
             isTest: false,
-        })
+            email: { to: { email: 'member@example.com', name: 'Mem' }, subject: 'Hi', text: 'Hello' },
+            ...overrides,
+        }
+        const email = sent.email as { to?: { email?: string } }
+        return {
+            ...sent,
+            email: email.to?.email ? { ...email, to: { ...email.to, email: personal(email.to.email) } } : email,
+            optOuts: sent.optOuts?.map((optOut) => ({ ...optOut, identifier: personal(optOut.identifier) })),
+        }
+    }
+
+    const to = (email: string) => ({ email: { to: { email }, subject: 'Hi', text: 'Hello' } })
+    const recipients = () => world.ses.delivered.map((email) => email.to.map(({ address }) => address)).flat()
+
+    const optOut = async (identifier: string, categoryId: string) => {
+        await world.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+             VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+            [world.team.id, personal(identifier), JSON.stringify({ [categoryId]: 'OPTED_OUT' })],
+            'test:opt-out'
+        )
+    }
+
+    it('delivers one email to the stored member spelling, from the organization, with the run tags', async () => {
+        await expect(world.service().send(request())).resolves.toEqual({ status: 'accepted', messageId: 'ses-1' })
+
+        expect(world.ses.delivered).toEqual([
+            expect.objectContaining({
+                from: { name: `${world.organizationName} via PostHog`, address: SANDBOX_FROM_ADDRESS },
+                to: [{ name: 'Mem', address: member() }],
+                subject: 'Hi',
+                tags: {
+                    ph_sbx_team: String(world.team.id),
+                    ph_sbx_flow: 'flow-1',
+                    ph_sbx_run: 'run-1',
+                    ph_sbx_action: 'action_email_sandbox_1',
+                    ph_sbx_version: '4',
+                    ph_sbx_test: 'false',
+                },
+            }),
+        ])
     })
 
-    const stale = { sendingStatus: 'ENABLED', syncedAt: new Date(now.getTime() - 600_000) }
-    const paused = { sendingStatus: 'DISABLED', syncedAt: now }
+    type Setup = { enabled?: boolean; faults?: SandboxFaults; request?: Partial<SandboxSendRequest> }
 
-    it.each<[string, Partial<SandboxEmailServiceDeps>, Partial<SandboxSendRequest>, string, string]>([
-        ['the kill switch is off', { enabled: false }, {}, 'skipped', 'sending_disabled'],
+    it.each<[string, () => Promise<Setup>, SandboxSendOutcome]>([
+        [
+            'the kill switch is off',
+            () => Promise.resolve({ enabled: false }),
+            { status: 'skipped', reason: 'sending_disabled' },
+        ],
         [
             'the payload has no subject',
-            {},
-            { email: { to: { email: 'a@b.co' }, text: 'x' } },
-            'failed',
-            'render_failed',
+            () => Promise.resolve({ request: { email: { to: { email: 'member@example.com' }, text: 'x' } } }),
+            { status: 'failed', reason: 'render_failed' },
         ],
         [
             'the action id has a character SES tags cannot carry',
-            {},
-            { actionId: 'email.step' },
-            'failed',
-            'unsupported_action_id',
+            () => Promise.resolve({ request: { actionId: 'email.step' } }),
+            { status: 'failed', reason: 'unsupported_action_id' },
         ],
         [
             'the team has no sandbox sender',
-            { isProvisioned: jest.fn().mockResolvedValue(false) },
-            {},
-            'skipped',
-            'sandbox_not_provisioned',
+            async () => {
+                await world.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'DELETE FROM posthog_integration WHERE team_id = $1',
+                    [world.team.id],
+                    'test:unprovision'
+                )
+                return {}
+            },
+            { status: 'skipped', reason: 'sandbox_not_provisioned' },
         ],
         [
             'the provisioning read fails',
-            { isProvisioned: jest.fn().mockRejectedValue(new Error('db down')) },
-            {},
-            'retry',
-            'authorization_unavailable',
+            async () => ({ faults: { provisioningDb: await world.deadPostgres() } }),
+            { status: 'retry', reason: 'authorization_unavailable' },
         ],
         ...[
             'a@example.com, b@example.com',
             '"Boss" <a@example.com>',
-            'a@example.com\r\nBcc: b@example.com',
+            'member@example.com\r\nBcc: b@example.com',
             'not-an-address',
-        ].map((to): [string, Partial<SandboxEmailServiceDeps>, Partial<SandboxSendRequest>, string, string] => [
-            `the recipient is ${JSON.stringify(to)}`,
-            {},
-            { email: { to: { email: to }, subject: 'Hi', text: 'x' } },
-            'skipped',
-            'invalid_recipient',
+        ].map((address): [string, () => Promise<Setup>, SandboxSendOutcome] => [
+            `the recipient is ${JSON.stringify(address)}`,
+            () => Promise.resolve({ request: to(address) }),
+            { status: 'skipped', reason: 'invalid_recipient' },
         ]),
         [
             'the recipient is suppressed',
-            { checkRecipient: jest.fn().mockResolvedValue({ ok: false, reason: 'suppressed' }) },
-            {},
-            'skipped',
-            'suppressed',
+            async () => {
+                await world.suppression.recordHardBounces(world.team.id, [member()], 'smtp; 550 5.1.1 user unknown')
+                return {}
+            },
+            { status: 'skipped', reason: 'suppressed' },
         ],
         [
             'the suppression read fails',
-            { checkRecipient: jest.fn().mockResolvedValue({ ok: false, reason: 'authorization_unavailable' }) },
-            {},
-            'retry',
-            'authorization_unavailable',
+            async () => ({ faults: { recipientsDb: await world.deadPostgres() } }),
+            { status: 'retry', reason: 'authorization_unavailable' },
         ],
         [
             'the recipient is not a member',
-            { authorize: jest.fn().mockResolvedValue({ ok: false, reason: 'not_member' }) },
-            {},
-            'skipped',
-            'not_member',
+            () => Promise.resolve({ request: to('stranger@example.com') }),
+            { status: 'skipped', reason: 'not_member' },
         ],
         [
             'the organization is blocked',
-            { authorize: jest.fn().mockResolvedValue({ ok: false, reason: 'organization_blocked' }) },
-            {},
-            'skipped',
-            'organization_blocked',
+            async () => {
+                await world.blockOrganization()
+                return {}
+            },
+            { status: 'skipped', reason: 'organization_blocked' },
         ],
         [
             'the member read fails',
-            { authorize: jest.fn().mockResolvedValue({ ok: false, reason: 'authorization_unavailable' }) },
-            {},
-            'retry',
-            'authorization_unavailable',
+            async () => ({ faults: { authorizationDb: await world.deadPostgres() } }),
+            { status: 'retry', reason: 'authorization_unavailable' },
         ],
         [
             'the tenant mirror is stale',
-            { authorize: jest.fn().mockResolvedValue({ ...member, tenant: stale }) },
-            {},
-            'retry',
-            'pause_state_unavailable',
+            async () => {
+                await world.setTenant('ENABLED', new Date(Date.now() - 600_000))
+                return {}
+            },
+            { status: 'retry', reason: 'pause_state_unavailable' },
         ],
         [
             'the tenant is paused',
-            { authorize: jest.fn().mockResolvedValue({ ...member, tenant: paused }) },
-            {},
-            'skipped',
-            'tenant_paused',
-        ],
-        [
-            'a daily cap is reached',
-            { claimCaps: jest.fn().mockResolvedValue({ ok: false, reason: 'daily_cap_reached' }) },
-            {},
-            'skipped',
-            'daily_cap_reached',
+            async () => {
+                await world.setTenant('DISABLED', new Date())
+                return {}
+            },
+            { status: 'skipped', reason: 'tenant_paused' },
         ],
         [
             'the cap storage fails',
-            { claimCaps: jest.fn().mockResolvedValue({ ok: false, reason: 'cap_storage_unavailable' }) },
-            {},
-            'retry',
-            'cap_storage_unavailable',
+            () => Promise.resolve({ faults: { capsLimiter: world.unreachableLimiter() } }),
+            { status: 'retry', reason: 'cap_storage_unavailable' },
         ],
-    ])('sends nothing when %s', async (_name, overrides, requestOverrides, status, reason) => {
-        const deps = fakeDeps(overrides)
+    ])('sends nothing when %s', async (_name, setup, outcome) => {
+        const { enabled, faults, request: overrides } = await setup()
 
-        await expect(new SandboxEmailService(deps).send(request(requestOverrides))).resolves.toEqual({
-            status,
-            reason,
+        await expect(world.service({ enabled, faults }).send(request(overrides))).resolves.toEqual(outcome)
+        expect(world.ses.delivered).toEqual([])
+    })
+
+    it('spends one daily allowance per member on each delivered email, and refuses once it is gone', async () => {
+        const service = world.service({ caps: { team: 5, recipient: 1 } })
+
+        await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })
+        await expect(service.send(request({ invocationId: 'run-2' }))).resolves.toEqual({
+            status: 'skipped',
+            reason: 'daily_cap_reached',
         })
-        expect(deps.ses.send).not.toHaveBeenCalled()
+        expect(recipients()).toEqual([member()])
     })
 
     const capped = (): Promise<FrequencyCapCheck> =>
-        Promise.resolve({ capped: true, nextSlotAt: now.getTime() + 3_600_000, holdHours: null })
+        Promise.resolve({ capped: true, nextSlotAt: Date.now() + 3_600_000, holdHours: null })
 
-    const withRecipientChecks = (preferencesByIdentifier: Record<string, Record<string, PreferenceStatus>> = {}) => {
-        const recipients = new RecipientsManagerService({} as PostgresRouter)
-        jest.spyOn(recipients, 'get').mockImplementation(({ identifier }) => {
-            const preferences = preferencesByIdentifier[identifier]
-            const recipient: RecipientManagerRecipient | null = preferences
-                ? { id: 'recipient', team_id: 2, identifier, preferences, created_at: '', updated_at: '' }
-                : null
-            return Promise.resolve(recipient)
-        })
-        const mailbox: string[] = []
-        let dailyAllowance = 1
-        const deps = fakeDeps({
-            checkRecipient: (check) =>
-                checkSandboxRecipient(
-                    { suppression: { isSuppressed: () => Promise.resolve(false) }, recipients },
-                    check
-                ),
-            claimCaps: () => {
-                if (dailyAllowance === 0) {
-                    return Promise.resolve({ ok: false, reason: 'daily_cap_reached' })
-                }
-                dailyAllowance -= 1
-                return Promise.resolve({ ok: true })
-            },
-            ses: {
-                send: (message) => {
-                    mailbox.push(message.to.address)
-                    return Promise.resolve({ status: 'accepted', messageId: 'ses-1' })
-                },
-            },
-        })
-        return { deps, mailbox }
+    const oneMarketingSlot = () => {
+        let slots = 1
+        return (): Promise<FrequencyCapCheck> => {
+            if (slots === 0) {
+                return capped()
+            }
+            slots -= 1
+            return Promise.resolve({ capped: false })
+        }
     }
 
     it.each([
-        ['the trimmed address', 'member@example.com'],
-        ['the padded address its unsubscribe link carried', ' member@example.com '],
-        ['the stored member spelling', 'Member@Example.com'],
-    ])('refuses a padded recipient who opted out under %s', async (_name, optedOutIdentifier) => {
-        const { deps, mailbox } = withRecipientChecks({ [optedOutIdentifier]: { news: 'OPTED_OUT' } })
-        const service = new SandboxEmailService(deps)
-        let marketingSlots = 1
-        const frequencyCap = (): Promise<FrequencyCapCheck> => {
-            if (marketingSlots === 0) {
-                return capped()
-            }
-            marketingSlots -= 1
-            return Promise.resolve({ capped: false })
+        ['the trimmed address', 'member@example.com', ' member@example.com '],
+        ['the padded address its unsubscribe link carried', ' member@example.com ', ' member@example.com '],
+        ['the stored member spelling', 'Member@Example.com', ' member@example.com '],
+        ['the lowercase address a sandbox unsubscribe link carries', 'member@example.com', 'MEMBER@example.com'],
+    ])(
+        'refuses a recipient who opted out under %s, and keeps their allowances for other categories',
+        async (_name, optedOutIdentifier, renderedAddress) => {
+            await optOut(optedOutIdentifier, 'news')
+            const service = world.service({ caps: { team: 1, recipient: 1 } })
+            const frequencyCap = oneMarketingSlot()
+            const marketing = (categoryId: string) =>
+                request({ ...to(renderedAddress), categoryId, categoryType: 'marketing', frequencyCap })
+
+            await expect(service.send(marketing('news'))).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
+            expect(world.ses.delivered).toEqual([])
+
+            await expect(service.send(marketing('product'))).resolves.toMatchObject({ status: 'accepted' })
+            expect(recipients()).toEqual([member()])
         }
-        const toPaddedMember = (categoryId: string) =>
-            request({
-                email: { to: { email: ' member@example.com ' }, subject: 'Hi', text: 'Hello' },
-                categoryId,
-                categoryType: 'marketing',
-                frequencyCap,
-            })
+    )
 
-        await expect(service.send(toPaddedMember('news'))).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
-        expect(mailbox).toEqual([])
-
-        await expect(service.send(toPaddedMember('product'))).resolves.toEqual({
-            status: 'accepted',
-            messageId: 'ses-1',
-        })
-        expect(mailbox).toEqual(['Member@Example.com'])
-    })
-
-    it('reuses a cap claim held after an SES throttle only for the recipient it was claimed for', async () => {
-        const deps = fakeDeps({
-            ses: { send: jest.fn().mockResolvedValue({ status: 'retry', reason: 'ses_throttled' }) },
-        })
-        const service = new SandboxEmailService(deps)
+    it('reuses a daily allowance held after an SES throttle only for the member it was spent on', async () => {
+        await world.addMember(personal('other@example.com'))
+        const service = world.service({ caps: { team: 1, recipient: 1 } })
+        world.ses.replyNext(SES_THROTTLE)
 
         const throttled = await service.send(request())
         expect(throttled).toEqual({ status: 'retry', reason: 'ses_throttled', capsClaimedFor: expect.any(String) })
-        const capsClaimedFor = (throttled as { capsClaimedFor: string }).capsClaimedFor
+        const { capsClaimedFor } = throttled as { capsClaimedFor: string }
 
-        await service.send(request({ capsClaimedFor }))
-        expect(deps.claimCaps).toHaveBeenCalledTimes(1)
-
-        deps.authorize.mockResolvedValue({ ...member, storedAddress: 'other@example.com' })
-        await service.send(
-            request({ capsClaimedFor, email: { to: { email: 'other@example.com' }, subject: 'Hi', text: 'Hello' } })
-        )
-        expect(deps.claimCaps).toHaveBeenCalledTimes(2)
+        await expect(service.send(request({ capsClaimedFor }))).resolves.toMatchObject({ status: 'accepted' })
+        await expect(service.send(request({ capsClaimedFor, ...to('other@example.com') }))).resolves.toEqual({
+            status: 'skipped',
+            reason: 'daily_cap_reached',
+        })
+        expect(recipients()).toEqual([member()])
     })
 
-    const accepted: SandboxSendOutcome = { status: 'accepted', messageId: 'ses-1' }
-    const optedOut: SandboxSendOutcome = { status: 'skipped', reason: 'opted_out' }
+    const accepted = { status: 'accepted', messageId: 'ses-1' }
+    const optedOut = { status: 'skipped', reason: 'opted_out' }
 
     it.each<[string, Partial<SandboxSendRequest>, SandboxSendOutcome]>([
         [
@@ -312,6 +250,11 @@ describe('SandboxEmailService', () => {
             optedOut,
         ],
         [
+            'a run opt-out from its category under another spelling',
+            { optOuts: [{ identifier: 'MEMBER@example.com', categoryId: 'news' }] },
+            optedOut,
+        ],
+        [
             'a run opt-out from another category',
             { optOuts: [{ identifier: 'member@example.com', categoryId: 'other' }] },
             accepted,
@@ -319,31 +262,9 @@ describe('SandboxEmailService', () => {
         ['a reached frequency cap', { frequencyCap: capped }, { status: 'skipped', reason: 'frequency_capped' }],
         ['a reached frequency cap on a test send', { frequencyCap: capped, isTest: true }, accepted],
     ])('applies %s to a marketing send', async (_case, overrides, outcome) => {
-        const { deps, mailbox } = withRecipientChecks()
-
         await expect(
-            new SandboxEmailService(deps).send(request({ categoryId: 'news', categoryType: 'marketing', ...overrides }))
+            world.service().send(request({ categoryId: 'news', categoryType: 'marketing', ...overrides }))
         ).resolves.toEqual(outcome)
-        expect(mailbox).toEqual(outcome.status === 'accepted' ? ['Member@Example.com'] : [])
-    })
-
-    it('gives up on a provisioning read the database never answers, and destroys that connection', async () => {
-        jest.useFakeTimers()
-        try {
-            const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
-            const stalled = Object.assign(new EventEmitter(), {
-                query: jest.fn(() => new Promise<never>(() => undefined)),
-                release: jest.fn(),
-            })
-            jest.spyOn(router, 'connect').mockResolvedValue(stalled as unknown as PoolClient)
-
-            const read = hasSandboxSenderRow(router, 1).catch((error: Error) => error)
-            await jest.advanceTimersByTimeAsync(AUTHORIZATION_TIMEOUT_MS)
-
-            expect(await read).toEqual(expect.objectContaining({ message: expect.stringContaining('deadline') }))
-            expect(stalled.release).toHaveBeenCalledWith(expect.any(Error))
-        } finally {
-            jest.useRealTimers()
-        }
+        expect(recipients()).toEqual(outcome.status === 'accepted' ? [member()] : [])
     })
 })

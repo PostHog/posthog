@@ -18,6 +18,7 @@ import {
     SandboxRecipientCheck,
     SandboxRecipientCheckDependencies,
     SandboxRecipientCheckRequest,
+    canonicalRecipient,
     checkSandboxRecipient,
 } from './sandbox-recipient-checks'
 import { SES_TAG_ID, SandboxSesClient } from './sandbox-ses-client'
@@ -120,6 +121,7 @@ export class SandboxEmailService {
             email.data.to.email,
             address,
             authorization.storedAddress,
+            canonicalRecipient(address),
         ])
         if (!recipientCheck.ok) {
             return refusal(recipientCheck.reason, request.capsClaimedFor)
