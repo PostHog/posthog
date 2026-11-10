@@ -404,6 +404,7 @@ class TestSandboxWarmerAtCapacity(APIBaseTest):
         [
             ("modal_live", "modal", timedelta(hours=1), TaskRun.Status.IN_PROGRESS, False, False, True),
             ("modal_past_ttl", "modal", -timedelta(hours=1), TaskRun.Status.IN_PROGRESS, False, False, False),
+            ("modal_failed_run", "modal", timedelta(hours=1), TaskRun.Status.FAILED, False, False, False),
             (
                 "hogland_past_ttl_live_run",
                 "hogland",
