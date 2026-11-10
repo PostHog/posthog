@@ -967,8 +967,8 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
-        # A deny lift rests on a check run, and a newer run of the same check may have failed since
-        # the context fetch. The lift must hold at posting time, not at review start.
+        # A deny lift depends on a check run, and a newer run of the same check may have failed since
+        # the context fetch. The lift must hold at posting time.
         context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
@@ -1817,10 +1817,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     if parsed.verdict == ReviewVerdict.APPROVED and not parsed.gate_blocked and run.posted_review_id is None:
         stored = output.get("gate_attestation")
         if isinstance(stored, dict) and stored.get("attested") is not True:
-            # A retry reuses a first answer that did not attest. Another check could attest where the
-            # first did not, and post an approval over the escalation that the first attempt already
-            # delivered. A first answer that attested is checked again instead: a deny lift can stop
-            # holding between attempts, and a second check can only take the approval away.
+            # A retry reuses a first answer that did not attest, because a second check that attests
+            # would post an approval over the escalation the first attempt delivered. A retry checks
+            # an answer that attested again, because a deny lift can stop holding between attempts.
             attestation = GateAttestation(
                 attested=False,
                 reason=str(stored.get("reason") or ""),

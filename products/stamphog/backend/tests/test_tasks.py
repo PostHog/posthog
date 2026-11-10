@@ -1384,8 +1384,8 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(
     # Each case uses its own delivery id, because _mark_pr_event_processed writes to the
     # process-wide cache. A shared id would let the first case remove the second case's deliveries
     # as duplicates.
-    # An approval that a CI check lifted a deny for rests on that check's result for the approved head,
-    # which the new head does not have yet, so it is dismissed even over an identical diff.
+    # An approval that a CI check lifted a deny for depends on that check's result for the approved
+    # head. The new head has none yet, so stamphog dismisses the approval even over an identical diff.
     current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
     _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}-{clean_base_merge}-{lifted}", team.id)
     _approved_run(team.id, lifted=lifted)

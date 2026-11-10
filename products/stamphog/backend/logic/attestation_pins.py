@@ -2,9 +2,9 @@
 
 A publisher that proves a PR from default-branch files lists the blob sha of each one under `blobs`
 in its `<!-- stamphog:v1 {...} -->` marker. The proof is stale once the default branch holds another
-version of any of them: the rules it checked against changed, or an old run of the publisher was
-started again. The engine has no network, so the server compares the blobs and records the answer
-on the check run as `pinned_blobs_current`, and the engine refuses a lift without it.
+version of any of them, because the rules it checked have changed or someone re-ran an old publisher
+run. The engine has no network, so the server compares the blobs and records the answer on the check
+run as `pinned_blobs_current`, and the engine refuses a lift without it.
 """
 
 import re

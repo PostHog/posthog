@@ -190,8 +190,8 @@ class Attestation:
 
     `check` and `app_id` pin the check run to its publisher App, because any workflow can post a
     check run under any name as github-actions. `lifts` names the deny categories the check may
-    lift, `paths` the files it may lift them for, and `sibling_files` the companion filenames beside a
-    lifted file that ride along. `publisher_files` are the default-branch paths the publisher runs
+    lift, `paths` the files it may lift them for, and `sibling_files` the companion filenames that are
+    lifted with a file beside them. `publisher_files` are the default-branch paths the publisher runs
     from. When set, a result counts only when it pins each of them to a blob, and only while the
     default branch still holds every blob the result pins.
     """

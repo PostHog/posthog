@@ -466,8 +466,7 @@ def test_the_worker_attests_against_the_checks_at_posting_time(team, stamphog_ch
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_retry_checks_an_attested_approval_again_before_posting(team, stamphog_chain: StamphogChain) -> None:
     # The first attempt attested, then lost the approval post. A deny lift can stop holding between
-    # attempts, so the retry runs the gates again instead of trusting the stored answer; only a
-    # stored answer that did not attest is reused, so that a retry never posts over an escalation.
+    # attempts, so the retry runs the gates again.
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha105a"
@@ -498,7 +497,7 @@ def _big_api_file(filename: str, additions: int) -> dict:
 
 _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1500\n---\nTall PRs are normal here.\n"
 _MIGRATION_RISK_APP_ID = 2492437
-# The repository names the check that may lift `migrations`; the engine's shipped policy names none.
+# The repository names the check that may lift `migrations`. The engine's shipped policy names none.
 _MIGRATION_RISK_POLICY = (
     "version: 1\n"
     "attestations:\n"
