@@ -1,5 +1,6 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
@@ -314,7 +315,8 @@ export function QueryWindow({
                                 icon={<IconPlus />}
                                 type="secondary"
                                 size="small"
-                                to={urls.sqlEditor()}
+                                // An explicit empty query skips the recovery of this tab's unsaved working copy.
+                                to={combineUrl(urls.sqlEditor(), { open_query: '' }).url}
                                 targetBlank
                                 tooltip="Open a new SQL editor in a new browser tab"
                                 aria-label="Open a new SQL editor in a new browser tab"

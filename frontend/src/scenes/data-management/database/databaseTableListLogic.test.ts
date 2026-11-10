@@ -111,21 +111,6 @@ describe('databaseTableListLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(2)
     })
 
-    it.each([
-        { name: 'refreshes a loaded catalog', loadFirst: true, expectedCalls: 2 },
-        { name: 'does not load a catalog nobody asked for', loadFirst: false, expectedCalls: 0 },
-    ])('on window focus, $name', async ({ loadFirst, expectedCalls }) => {
-        logic = databaseTableListLogic()
-        logic.mount()
-        if (loadFirst) {
-            await logic.asyncActions.loadDatabase()
-        }
-
-        window.dispatchEvent(new Event('focus'))
-
-        expect(performQuery).toHaveBeenCalledTimes(expectedCalls)
-    })
-
     it('discards a superseded in-flight response so a refreshed post-deletion schema is not overwritten', async () => {
         let resolveStale: ((value: { tables: Record<string, unknown>; joins: never[] }) => void) | undefined
         let resolveFresh: ((value: { tables: Record<string, unknown>; joins: never[] }) => void) | undefined

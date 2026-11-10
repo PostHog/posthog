@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { objectsEqual } from 'lib/utils/objects'
@@ -638,25 +638,6 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         // consumers that only load when `database` is empty would otherwise never refetch it.
         resetConnectionScope: () => {
             actions.loadDatabase()
-        },
-    })),
-    events(({ actions, values, cache }) => ({
-        afterMount: () => {
-            // A view saved in another browser tab only reaches this tab's catalog on a reload. Refresh
-            // when the window regains focus, but only a catalog that a consumer already loaded.
-            cache.disposables.add(
-                () => {
-                    const onFocus = (): void => {
-                        if (values.database && !values.databaseLoading) {
-                            actions.refreshDatabaseSchema()
-                        }
-                    }
-                    window.addEventListener('focus', onFocus)
-                    return () => window.removeEventListener('focus', onFocus)
-                },
-                'focusRefetch',
-                { pauseOnPageHidden: false }
-            )
         },
     })),
 ])
