@@ -10,6 +10,7 @@ from django.db import close_old_connections, connection, transaction
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.api.file_system import deletion
 from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
@@ -180,16 +181,20 @@ class TestWorkflowFolders(APIBaseTest):
             ("workflow_name_past_the_length", "hog_flows", "a" * 4000),
             ("template_name_past_the_depth", "messaging_templates", "/".join(["Level"] * 50)),
             ("template_name_past_the_length", "messaging_templates", "a" * 4000),
+            ("unnamed_workflow_past_the_depth", "hog_flows", "/".join(["Level"] * 50), None),
+            ("unnamed_workflow_past_the_length", "hog_flows", "a" * 3999, ""),
         ]
     )
-    def test_create_in_folder_rejects_paths_past_the_tree_limits(self, _name: str, resource: str, folder: str) -> None:
+    def test_create_in_folder_rejects_paths_past_the_tree_limits(
+        self, _name: str, resource: str, folder: str, name: str | None = "Bounded"
+    ) -> None:
         payloads: dict[str, dict[str, Any]] = {
             "hog_flows": {
-                "name": "Bounded",
+                "name": name,
                 "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
                 "edges": [],
             },
-            "messaging_templates": {"name": "Bounded", "type": "email"},
+            "messaging_templates": {"name": name, "type": "email"},
         }
         payload = payloads[resource]
 
@@ -511,3 +516,42 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
         deleted = self.client.delete(f"{files_url}{file_id}/")
         self.assertEqual(deleted.status_code, 200, deleted.content)
         self.assertEqual(self.client.get(object_url).status_code, 404)
+
+    def test_template_tree_delete_keeps_a_save_that_commits_after_the_delete_read_the_template(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Welcome", "type": "email"},
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        template_id = created.json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file_id = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0][
+            "id"
+        ]
+
+        def rename_in_another_transaction() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE posthog_messagetemplate SET name = %s WHERE id = %s", ["Welcome v2", template_id]
+                    )
+            finally:
+                close_old_connections()
+
+        read_template = deletion._get_object
+
+        def read_then_let_a_save_commit(*args: Any, **kwargs: Any) -> Any:
+            template = read_template(*args, **kwargs)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(rename_in_another_transaction).result(timeout=10)
+            return template
+
+        with patch.object(deletion, "_get_object", side_effect=read_then_let_a_save_commit):
+            deleted = self.client.delete(f"{files_url}{file_id}/")
+
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT name, deleted FROM posthog_messagetemplate WHERE id = %s", [template_id])
+            self.assertEqual(cursor.fetchone(), ("Welcome v2", True))
