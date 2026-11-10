@@ -285,8 +285,7 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
 _OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions"}
-# Tolerated and unread. A deployed engine loads the default branch's policy, so it has to accept
-# this key before any policy declares it, or every review fails until the engine that reads it ships.
+# Unread. A deployed engine must accept this key before the default branch's policy declares it.
 _RESERVED_TOP_LEVEL_KEYS = {"attestations"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}

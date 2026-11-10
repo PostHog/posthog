@@ -108,8 +108,7 @@ def _latest_completed(check_runs: list[dict], name: str) -> dict | None:
     ]
     if not completed:
         return None
-    # GitHub assigns check run ids in creation order. `completed_at` is set by the publisher, so it
-    # cannot order runs.
+    # The publisher sets `completed_at`, so only the id, which GitHub assigns in creation order, orders runs.
     return max(completed, key=lambda cr: cr.get("id") or 0)
 
 

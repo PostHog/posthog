@@ -80,8 +80,7 @@ def test_bypass_scoped_to_intersection_of_marker_and_pr() -> None:
         "posthog/clickhouse/migrations/0099_unrelated.py",
         ".stamphog/policy.yml",
     ]
-    # Marker only lists the Django one — the analyzer doesn't touch ClickHouse. A listed path that
-    # is not a migration file lifts nothing.
+    # The marker lists the Django migration and a path that is no migration, which lifts nothing.
     check = _check(analyzed_paths=["posthog/migrations/1125_x.py", ".stamphog/policy.yml"])
 
     assert safe_migration_files([check], files) == {

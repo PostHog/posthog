@@ -547,7 +547,7 @@ def detect_deny_categories(
     """Categories hard-denied by the changed file paths. Titles never deny.
 
     `lifted_files` maps a deny category to files that do not count toward that category only. A lift
-    matches the exact path, because Git paths are case-sensitive: `SDK/x` is a different file from `sdk/x`.
+    matches the exact path, because Git paths are case-sensitive and `SDK/x` is not `sdk/x`.
     """
     hits: set[str] = set()
     lifted_by_category = lifted_files or {}

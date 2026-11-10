@@ -464,8 +464,8 @@ def test_load_effective_policy(
     [("digest", {"channel": "eng-merges"}), ("attestations", [])],
 )
 def test_a_section_the_engine_does_not_read_is_allowed_and_ignored(tmp_path: Path, key: str, value: object) -> None:
-    # The engine must tolerate a section it does not read, or a policy that declares one fails every
-    # review. The hosted server parses `digest:` itself.
+    # The hosted server declares a `digest:` top-level section it parses itself; the engine must
+    # tolerate (not require, not read) it, or any repo with a digest channel crashes every review.
     data = _valid_policy_dict()
     data[key] = value
     path = tmp_path / "policy.yml"
