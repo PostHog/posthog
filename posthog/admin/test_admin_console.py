@@ -32,6 +32,7 @@ from structlog.testing import capture_logs
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.admin import register_all_admin
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
@@ -71,6 +72,16 @@ _TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
 _PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
 _SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
 TOOLS_PREFIX = "/admin/console/tools/"
+# Old URLs that take over a Django admin view on purpose: the user and legal document deletes need the console's
+# cleanup, Django's set-password form is off in PostHog, and new deletion requests are created in the console.
+INTENTIONAL_ADMIN_OVERRIDES = frozenset(
+    {
+        "admin/posthog/user/<int:pk>/delete/",
+        "admin/posthog/user/<int:pk>/password/",
+        "admin/legal_documents/legaldocument/<path:object_id>/delete/",
+        "admin/posthog/datadeletionrequest/add/",
+    }
+)
 
 
 def _selector_present(css: str, class_name: str) -> bool:
@@ -422,6 +433,23 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
         # A resolver looks its record up in the database, so its product tests cover where the redirect lands.
         assert resolve(old_path).route == moved.old_path
         _assert_target_is_registered(moved)
+
+    @parameterized.expand([(moved.old_path, moved) for moved in console.moved()])
+    def test_an_old_url_replaces_no_live_django_admin_view(self, _name: str, moved: MovedAction | MovedPage) -> None:
+        register_all_admin()
+        django_admin = URLResolver(RegexPattern(r"^/admin/"), admin.site.get_urls())
+        old_path, _ = _sample_path(moved.old_path)
+
+        try:
+            route = django_admin.resolve(old_path).route
+        except Resolver404:
+            return
+        # Django admin answers every unknown path with a redirect to the change page or the catch-all 404 view.
+        catch_all = route.endswith("<path:object_id>/") or route == "(?P<url>.*)$"
+        assert catch_all or moved.old_path in INTENTIONAL_ADMIN_OVERRIDES, (
+            f"{moved.old_path} hides the live Django admin route {route!r}. Remove that view first, or add the "
+            "path to INTENTIONAL_ADMIN_OVERRIDES when the console replaces it on purpose."
+        )
 
     @parameterized.expand([(moved.old_path, moved) for moved in console.moved() if isinstance(moved, MovedPage)])
     def test_an_old_page_url_lands_on_its_registered_tool(self, _name: str, moved: MovedPage) -> None:
