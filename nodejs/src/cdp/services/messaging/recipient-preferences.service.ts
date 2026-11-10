@@ -233,7 +233,6 @@ export class RecipientPreferencesService {
         return this.isOptedOut(invocation.teamId, identifier, categoryId)
     }
 
-    /** Whether the recipient opted out of the category or of all marketing. A failed lookup lets the send through. */
     public async isOptedOut(teamId: number, identifier: string, categoryId: string): Promise<boolean> {
         try {
             const recipient = await this.recipientsManager.get({ teamId, identifier })

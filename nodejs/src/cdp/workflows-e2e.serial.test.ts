@@ -3398,6 +3398,28 @@ describe('Workflows E2E (email queue)', () => {
                 .send(payload)
         }
 
+        // Another API pod, whose caches load the workflow and the recipient afresh.
+        const withOtherPod = async (run: (pod: express.Application) => Promise<void>): Promise<void> => {
+            const otherPod = new CdpApi(
+                hub,
+                { ...createCdpConsumerDeps(hub, kafkaProducer), idempotencyValkey: createIdempotencyValkeyPool(hub) },
+                {
+                    hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                    hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                }
+            )
+            await otherPod.start()
+            const otherApp = setupExpressApp()
+            otherApp.use('/', otherPod.router())
+            const otherServer = otherApp.listen(0, () => {})
+            try {
+                await run(otherApp)
+            } finally {
+                otherServer.close()
+                await otherPod.stop()
+            }
+        }
+
         const optOut = async (to: string, categoryId: string): Promise<void> => {
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -3559,6 +3581,73 @@ describe('Workflows E2E (email queue)', () => {
             }
         }
 
+        // Django's preferences page: only a POST with one_click_unsubscribe=1 opts the token's recipient out of
+        // all marketing, and a mail client's List-Unsubscribe=One-Click POST gets an empty 200.
+        const startPreferencesPageFake = async () => {
+            const page = createServer((req, res) => {
+                let body = ''
+                req.on('data', (chunk) => (body += chunk))
+                req.on('end', () => {
+                    const respond = async (): Promise<void> => {
+                        const url = new URL(req.url ?? '/', 'http://preferences.test')
+                        const token = url.pathname.match(/^\/messaging-preferences\/([^/]+)\/$/)?.[1]
+                        if (!token) {
+                            res.writeHead(404).end()
+                            return
+                        }
+                        if (req.method !== 'GET' && req.method !== 'POST') {
+                            res.writeHead(405).end()
+                            return
+                        }
+                        const owner = (await supertest(app).get(`/api/messaging/validate_preferences_token/${token}`))
+                            .body
+                        if (!owner.valid || owner.team_id !== team.id) {
+                            res.writeHead(400).end()
+                            return
+                        }
+                        const form = new URLSearchParams(body)
+                        const oneClick =
+                            url.searchParams.get('one_click_unsubscribe') === '1' ||
+                            form.get('one_click_unsubscribe') === '1'
+                        if (oneClick && req.method === 'POST') {
+                            await optOut(owner.identifier, '$all')
+                            if (form.get('List-Unsubscribe') === 'One-Click') {
+                                res.writeHead(200).end()
+                                return
+                            }
+                        }
+                        res.writeHead(200, { 'content-type': 'text/html' }).end('<p>Preferences</p>')
+                    }
+                    respond().catch(() => res.writeHead(500).end())
+                })
+            })
+            await new Promise<void>((resolve) => page.listen(0, '127.0.0.1', resolve))
+            return {
+                url: `http://127.0.0.1:${(page.address() as AddressInfo).port}`,
+                close: () => new Promise<void>((resolve) => page.close(() => resolve())),
+            }
+        }
+
+        // A mail client's one-click unsubscribe (RFC 8058): offered only when both headers are present, it POSTs
+        // the List-Unsubscribe-Post value to the List-Unsubscribe link. The link's host is the preferences page.
+        const oneClickUnsubscribe = async (
+            headers: Record<string, string>,
+            preferencesPageUrl: string
+        ): Promise<boolean> => {
+            const link = headers['list-unsubscribe']?.match(/<(https:[^>]+)>/)?.[1]
+            const postBody = headers['list-unsubscribe-post']
+            if (!link || !postBody) {
+                return false
+            }
+            const { pathname, search } = new URL(link)
+            const res = await globalThis.fetch(`${preferencesPageUrl}${pathname}${search}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/x-www-form-urlencoded' },
+                body: postBody,
+            })
+            return res.ok
+        }
+
         beforeAll(async () => {
             clickhouse = Clickhouse.create()
             await waitForEmailStatusMvReady(clickhouse)
@@ -3628,16 +3717,29 @@ describe('Workflows E2E (email queue)', () => {
         })
 
         it.each([
-            { name: 'a marketing category has a one-click unsubscribe', category: newsletter, step: 'transactional' },
-            { name: 'a transactional category has none', category: receipts, step: 'marketing' },
-        ] as const)('a code send through SES in $name', async ({ category, step }) => {
+            {
+                name: 'a marketing category lets its recipient unsubscribe in one click',
+                category: newsletter,
+                step: 'transactional',
+                unsubscribes: true,
+            },
+            {
+                name: 'a transactional category offers no one-click unsubscribe',
+                category: receipts,
+                step: 'marketing',
+                unsubscribes: false,
+            },
+        ] as const)('a code send through SES in $name', async ({ category, step, unsubscribes }) => {
             const ses = await startSesFake()
+            const preferencesPage = await startPreferencesPageFake()
             const env = { ...process.env }
+            const siteUrl = hub.SITE_URL
             process.env.AWS_ACCESS_KEY_ID = 'test'
             process.env.AWS_SECRET_ACCESS_KEY = 'test'
             try {
                 hub.SES_ENDPOINT = ses.endpoint
                 hub.SES_UNTRACKED_CONFIGURATION_SET = 'untracked'
+                hub.SITE_URL = 'https://app.example.com'
                 await insertIntegration(hub.postgres, team.id, {
                     id: 2,
                     kind: 'email',
@@ -3661,16 +3763,22 @@ describe('Workflows E2E (email queue)', () => {
                 await deliver(createCdpConsumerDeps(hub, kafkaProducer))
 
                 expect(ses.received.map((email) => email.to)).toEqual([[to]])
-                const { headers } = ses.received[0]
-                if (category.type === 'transactional') {
-                    expect(headers['list-unsubscribe']).toBeUndefined()
-                    return
-                }
-                expect(await preferencesLinkOwners(headers['list-unsubscribe'])).toEqual([to])
-                expect(headers['list-unsubscribe-post']).toEqual('List-Unsubscribe=One-Click')
+                expect(await oneClickUnsubscribe(ses.received[0].headers, preferencesPage.url)).toEqual(unsubscribes)
+
+                await withOtherPod(async (otherApp) => {
+                    const next = await post(
+                        'code',
+                        flow,
+                        { to, distinct_id: 'reader', send: codeSend(newsletter) },
+                        otherApp
+                    )
+                    expect(next.status).toEqual(unsubscribes ? 422 : 202)
+                })
             } finally {
                 process.env = env
+                hub.SITE_URL = siteUrl
                 await ses.close()
+                await preferencesPage.close()
             }
         })
 
@@ -3987,20 +4095,7 @@ describe('Workflows E2E (email queue)', () => {
                 [JSON.stringify(sendFlow('template', 'transactional', { html: '', text: 'News' }).actions), flow.id],
                 'test-change-hog-flow'
             )
-            // Another API pod, whose workflow cache loads the changed workflow.
-            const otherPod = new CdpApi(
-                hub,
-                { ...createCdpConsumerDeps(hub, kafkaProducer), idempotencyValkey: createIdempotencyValkeyPool(hub) },
-                {
-                    hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
-                    hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
-                }
-            )
-            await otherPod.start()
-            const otherApp = setupExpressApp()
-            otherApp.use('/', otherPod.router())
-            const otherServer = otherApp.listen(0, () => {})
-            try {
+            await withOtherPod(async (otherApp) => {
                 const fresh = await post(
                     'template',
                     flow,
@@ -4012,10 +4107,7 @@ describe('Workflows E2E (email queue)', () => {
                 expect(fresh.body).toEqual({ error: 'unsubscribe_link_required' })
                 expect(retry.status).toEqual(202)
                 expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
-            } finally {
-                otherServer.close()
-                await otherPod.stop()
-            }
+            })
             expect(await queryCyclotronJobs()).toHaveLength(1)
         })
 
