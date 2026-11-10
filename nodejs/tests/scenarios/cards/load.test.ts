@@ -47,17 +47,20 @@ describe('load', () => {
 
     const write = (name: string, content: object | string): string => {
         const file = path.join(dir, name)
-        writeFileSync(file, typeof content === 'string' ? content : stringify(content))
+        writeFileSync(
+            file,
+            typeof content === 'string' ? content : stringify(content, { aliasDuplicateObjects: false })
+        )
         return file
     }
 
-    const loadCard = (content: object | string, profileContent?: object): LoadedCard =>
+    const loadCard = (content: object | string, profileContent?: object | string): LoadedCard =>
         load(write('card.yaml', content), {
             definitions,
             profilePath: profileContent ? write('profile.yaml', profileContent) : undefined,
         })
 
-    const problemsOf = (content: object | string, profileContent?: object): string[] => {
+    const problemsOf = (content: object | string, profileContent?: object | string): string[] => {
         try {
             loadCard(content, profileContent)
         } catch (error) {
@@ -69,7 +72,7 @@ describe('load', () => {
         throw new Error('the card loaded')
     }
 
-    it.each<[string, object | string, object | undefined, string]>([
+    it.each<[string, object | string, object | string | undefined, string]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
         [
@@ -139,6 +142,24 @@ describe('load', () => {
             'convergeWithin: 60s must exceed 77s',
         ],
         [
+            'a stall timeout the janitor would read as no number',
+            { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
+            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '' } },
+            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds',
+        ],
+        [
+            'a negative sweep interval',
+            { ...card, valves: [emailWorkerKill], convergeWithin: '48s' },
+            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '-30000' } },
+            'profile.settings.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: not a number of milliseconds',
+        ],
+        [
+            'a second stall whose backoff convergeWithin does not outlast',
+            { ...card, valves: [emailWorkerKill, emailWorkerKill], convergeWithin: '100s' },
+            undefined,
+            'convergeWithin: 100s must exceed 107s',
+        ],
+        [
             'pg.drop_connections scheduled by at',
             {
                 ...card,
@@ -175,6 +196,18 @@ describe('load', () => {
             { ...card, profile: 'prod-shape' },
             undefined,
             'profile: no shipped profile prod-shape; pass its file with --profile',
+        ],
+        [
+            'a profile that uses a YAML alias',
+            card,
+            'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',
+            'profile: Alias resolution is disabled',
+        ],
+        [
+            'a profile written for another card profile',
+            card,
+            { ...profile, name: 'prod-shape' },
+            'profile.name: prod-shape is not the card profile synthetic',
         ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])

@@ -41,7 +41,7 @@ function readYaml(file: string, label: string): { value: unknown } | { problem: 
         return { problem: `${label}: no file at ${file}` }
     }
     try {
-        return { value: parse(readFileSync(file, 'utf8')) }
+        return { value: parse(readFileSync(file, 'utf8'), { maxAliasCount: 0 }) }
     } catch (error) {
         return { problem: `${label}: ${(error as Error).message}` }
     }
@@ -118,20 +118,28 @@ function checkStallBound(card: Card, setting: (name: string) => string): string[
     if (!card.valves.some(({ valve }) => STALLING_VALVES.includes(valve))) {
         return []
     }
+    const milliseconds = (name: string): number => parseFloat(setting(name))
     const names = ['CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS', 'CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS']
-    const unreadable = names.filter((name) => !Number.isFinite(Number(setting(name))))
+    const unreadable = names.filter((name) => !(milliseconds(name) >= 0))
     if (unreadable.length > 0) {
         return unreadable.map((name) => `profile.settings.${name}: not a number of milliseconds`)
     }
+    const stalls = card.valves.filter(({ valve }) => STALLING_VALVES.includes(valve)).length
+    const baseMs = Math.max(milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS'), 0) || 0
+    const maxMs =
+        milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS') > 0
+            ? milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS')
+            : 600000
     const boundMs =
-        names.reduce((total, name) => total + Number(setting(name)), 0) +
+        names.reduce((total, name) => total + milliseconds(name), 0) +
         JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS +
+        Math.min(baseMs * (2 ** (stalls - 1) - 1), maxMs) +
         ROLE_RESTART_BACKOFF_MS
     if (durationMs(card.convergeWithin) > boundMs) {
         return []
     }
     return [
-        `convergeWithin: ${card.convergeWithin} must exceed ${boundMs / 1000}s, the janitor's stall timeout, sweep interval and first-retry spread plus the role restart backoff`,
+        `convergeWithin: ${card.convergeWithin} must exceed ${boundMs / 1000}s, the janitor's stall timeout, sweep interval, first-retry spread and repeated-stall backoff plus the role restart backoff`,
     ]
 }
 
@@ -147,6 +155,9 @@ function checkSuppression(card: Card): string[] {
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, setting: (name: string) => string) {
     const queue = 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     return [
+        ...(profile.name === card.profile
+            ? []
+            : [`profile.name: ${profile.name} is not the card profile ${card.profile}`]),
         ...(stringToBoolean(setting(queue))
             ? [`profile.settings.${queue}: the queued SES feedback branch is not built yet, so it stays false`]
             : []),
