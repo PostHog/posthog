@@ -16,7 +16,6 @@ import {
 export interface DraftCanvasProps extends CanvasHostCallbacks {
     /** The sandbox bootstrap document on the artifact origin. */
     documentUrl: string
-    /** The wrapper document on the artifact origin. When set, the sandbox document renders inside it. */
     frameDocumentUrl?: string | null
     capabilities: CanvasCapabilitiesApi | null | undefined
     files: Record<string, string>
@@ -30,7 +29,6 @@ export interface DraftCanvasProps extends CanvasHostCallbacks {
     clearTextSelectionKey: number
 }
 
-/** The variant of the sandbox document that the wrapper loads. Its policy omits frame-ancestors. */
 function framedSandboxUrl(documentUrl: string): string {
     const url = new URL(documentUrl)
     url.searchParams.set('framed', '1')
@@ -40,9 +38,7 @@ function framedSandboxUrl(documentUrl: string): string {
 
 /**
  * Renders unbuilt source in the sandbox document, which transpiles it in the browser.
- * The document loads by URL, directly or inside the wrapper document, not as srcdoc,
- * because a srcdoc frame inherits the web app's CSP. The source arrives over a
- * document-bound port after the first load.
+ * The document loads by URL, not as srcdoc, because a srcdoc frame inherits the web app's CSP.
  * Every data request must be declared by the source project.
  */
 export function DraftCanvas({

@@ -16,7 +16,6 @@ import {
 export interface BuiltCanvasProps extends CanvasHostCallbacks {
     /** The signed URL of the build's entry HTML, on the artifact origin. */
     artifactUrl: string
-    /** The wrapper document on the artifact origin. When set, the build renders inside it. */
     frameDocumentUrl?: string | null
     /** The capabilities frozen into the build. A missing manifest denies every data request. */
     capabilities: CanvasCapabilitiesApi | null | undefined
@@ -37,10 +36,8 @@ export function themedArtifactUrl(artifactUrl: string, theme: CanvasTheme): stri
 }
 
 /**
- * Renders a published build. The iframe loads the signed artifact URL directly, or the wrapper
- * document that frames it: a srcdoc host document would inherit the web app's CSP, which blocks
- * its inline script. On load the host hands the artifact a MessagePort, and every message after
- * that goes over the port.
+ * Renders a published build. The iframe loads the signed artifact URL, or the wrapper document that frames it,
+ * because a srcdoc document would inherit the web app's CSP. On load the host hands the artifact a MessagePort.
  */
 export function BuiltCanvas({
     artifactUrl,
@@ -90,8 +87,6 @@ export function BuiltCanvas({
             hasUserActivation: () => latest.current.hasUserActivation(),
             openExternal: (url) => latest.current.onOpenExternal(url),
         })
-        // The bridge connects only the first document that loads in the frame. A later document
-        // gets no bridge.
         const bridge = new CanvasDocumentBridge(
             iframe,
             (data) => {
