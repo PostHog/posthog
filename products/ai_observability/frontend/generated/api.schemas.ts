@@ -3891,7 +3891,7 @@ export interface EvaluationReportApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */
@@ -3967,7 +3967,7 @@ export interface EvaluationReportUpdateApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */
@@ -4034,7 +4034,7 @@ export interface PatchedEvaluationReportUpdateApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */

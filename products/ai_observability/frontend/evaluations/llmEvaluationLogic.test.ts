@@ -2687,21 +2687,25 @@ return result`,
 
     describe('report destinations', () => {
         it.each([
-            { name: 'a new evaluation reports daily', evaluationId: 'new', frequency: 'scheduled' },
-            {
-                name: 'a saved evaluation without a report keeps the older baseline, so it shows no unsaved change',
-                evaluationId: 'saved-eval',
-                frequency: 'every_n',
-            },
-        ])('$name', ({ evaluationId, frequency }) => {
-            const reportLogic = evaluationReportLogic({ evaluationId })
-            reportLogic.mount()
-            try {
-                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: 'daily' })
-            } finally {
-                reportLogic.unmount()
+            { name: 'a new evaluation', evaluationId: 'new' },
+            { name: 'a saved evaluation without a report', evaluationId: 'saved-eval' },
+        ])(
+            '$name starts every 100 results, at most once a day, like the report the backend creates',
+            ({ evaluationId }) => {
+                const reportLogic = evaluationReportLogic({ evaluationId })
+                reportLogic.mount()
+                try {
+                    expect(reportLogic.values.configDraft).toMatchObject({
+                        frequency: 'every_n',
+                        triggerThreshold: 100,
+                        cooldownHours: 24,
+                    })
+                    expect(reportLogic.values.isConfigDirty).toBe(false)
+                } finally {
+                    reportLogic.unmount()
+                }
             }
-        })
+        )
 
         it('keeps an emptied destination open until it is removed, then clears it', () => {
             const reportLogic = evaluationReportLogic({ evaluationId: 'new' })

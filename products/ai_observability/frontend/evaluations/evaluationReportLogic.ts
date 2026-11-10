@@ -63,7 +63,7 @@ export interface ReportConfigErrors {
 export const TRIGGER_THRESHOLD_MIN = 100
 export const TRIGGER_THRESHOLD_DEFAULT = 100
 export const TRIGGER_THRESHOLD_MAX = 10_000
-export const COOLDOWN_HOURS_DEFAULT = 1
+export const COOLDOWN_HOURS_DEFAULT = 24
 export const COOLDOWN_HOURS_MIN = 1
 export const COOLDOWN_HOURS_MAX = 24
 export const DEFAULT_RRULE = 'FREQ=DAILY'
@@ -93,10 +93,6 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     triggerThreshold: TRIGGER_THRESHOLD_DEFAULT,
     cooldownHours: COOLDOWN_HOURS_DEFAULT,
 }
-
-// A new evaluation reports daily. Saved evaluations without a report keep the older default as their baseline,
-// so opening one does not show a change nobody made.
-const NEW_EVALUATION_CONFIG_DRAFT: ReportConfigDraft = { ...DEFAULT_CONFIG_DRAFT, frequency: 'scheduled' }
 
 export function getReportConfigErrors(draft: ReportConfigDraft): ReportConfigErrors {
     if (draft.frequency !== 'every_n') {
@@ -212,7 +208,10 @@ function buildReportUpdatePayload(
         // Only write cooldown_minutes back when the user changed it — the draft rounds
         // minutes to hours for display, so unconditionally writing (hours * 60) would
         // silently clobber sub-hour values set via the API (e.g. 89 min → 60 min).
-        const seededCooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+        const seededCooldownHours = Math.max(
+            1,
+            Math.round((activeReport.cooldown_minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60)
+        )
         if (draft.cooldownHours !== seededCooldownHours) {
             data.cooldown_minutes = draft.cooldownHours * 60
         }
@@ -530,9 +529,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         selectReportRun: (reportRun: EvaluationReportRun | null) => ({ reportRun }),
     }),
 
-    reducers(({ props }) => ({
+    reducers(() => ({
         configDraft: [
-            (props.evaluationId === 'new' ? NEW_EVALUATION_CONFIG_DRAFT : DEFAULT_CONFIG_DRAFT) as ReportConfigDraft,
+            DEFAULT_CONFIG_DRAFT as ReportConfigDraft,
             {
                 setDraftEnabled: (state, { enabled }) => {
                     if (enabled) {
@@ -592,7 +591,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     cooldownHours,
                 }),
                 seedDraftFromReport: (_, { report }) => draftFromReport(report),
-                resetDraft: () => (props.evaluationId === 'new' ? NEW_EVALUATION_CONFIG_DRAFT : DEFAULT_CONFIG_DRAFT),
+                resetDraft: () => DEFAULT_CONFIG_DRAFT,
                 removeDraftDestination: (state, { destination }) =>
                     destination === 'email'
                         ? { ...state, emailValue: '' }

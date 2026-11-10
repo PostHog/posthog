@@ -759,8 +759,8 @@ tools:
 
             - 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have
             accumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per
-            UTC day. `trigger_threshold` is required in this mode (100–10000); `cooldown_minutes` (60–1440)
-            and `daily_run_cap` are optional.
+            UTC day. `trigger_threshold` is required in this mode (100–10000); `cooldown_minutes` (60–1440,
+            default 1440 for one report a day) and `daily_run_cap` are optional.
             - 'scheduled' (time-based): reports fire on the daily or weekly cadence defined by `rrule`. Use
             'FREQ=DAILY' for daily reports or 'FREQ=WEEKLY;BYDAY=MO,FR' for weekly reports on selected days.
             The server sets the schedule anchor and timezone automatically.
