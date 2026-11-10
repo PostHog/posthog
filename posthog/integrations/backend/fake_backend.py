@@ -20,6 +20,7 @@ from posthog.integrations.backend.protocol import NewIntegration, RowFilter, Row
 from posthog.integrations.contracts import (
     SOURCE_MARKER_CONFIG_KEY,
     ConfigValue,
+    CrossTeamFilter,
     FrozenIntegrationRecord,
     IntegrationConflict,
     IntegrationNotFound,
@@ -48,6 +49,46 @@ def _same_value(stored: object, value: ConfigValue) -> bool:
     if isinstance(stored, int | float) and isinstance(value, int | float):
         return stored == value
     return type(stored) is type(value) and stored == value
+
+
+_MISSING = object()
+
+
+def _config_value(config: Mapping[str, object], path: str) -> object:
+    value: object = config
+    for key in path.split("."):
+        if not isinstance(value, Mapping) or key not in value:
+            return _MISSING
+        value = value[key]
+    return value
+
+
+def _matches_cross_team(cross_team_filter: CrossTeamFilter, record: FrozenIntegrationRecord) -> bool:
+    f = cross_team_filter
+    if f.team_ids is not None and record.team_id not in f.team_ids:
+        return False
+    if record.team_id in f.exclude_team_ids:
+        return False
+    if f.created_by_ids is not None and record.created_by_id not in f.created_by_ids:
+        return False
+    if f.external_id is not None and record.integration_id != f.external_id:
+        return False
+    if f.after_id is not None and (record.id >= f.after_id if f.newest_first else record.id <= f.after_id):
+        return False
+    if f.has_config_key is not None and f.has_config_key not in record.config:
+        return False
+    config = record.config
+    if not all(key in config and _same_value(config[key], value) for key, value in f.where.items()):
+        return False
+    if not all(
+        key in config and any(_same_value(config[key], value) for value in values) for key, values in f.where_in.items()
+    ):
+        return False
+    # Postgres compares `UPPER(text)` for `iexact`.
+    return all(
+        isinstance(stored := _config_value(config, path), str) and stored.upper() == text.upper()
+        for path, text in f.where_iexact.items()
+    )
 
 
 def _lookup_id(value: object) -> int | None:
@@ -221,6 +262,16 @@ class FakeBackend:
             if record is None or record.integration_id != external_id or not self._in_scope(scope, record):
                 raise IntegrationNotFound(f"No integration {id!r} with external id {external_id!r} in {scope!r}")
             return self._copy(record)
+
+    def list_across_teams(
+        self, scope: RowScope, cross_team_filter: CrossTeamFilter
+    ) -> builtins.list[IntegrationRecord]:
+        with self._lock:
+            rows = [record for record in self._scoped(scope) if _matches_cross_team(cross_team_filter, record)]
+        rows.sort(key=lambda record: record.id, reverse=cross_team_filter.newest_first)
+        if cross_team_filter.limit is not None:
+            rows = rows[: cross_team_filter.limit]
+        return [self._copy(record) for record in rows]
 
     def _with_key(self, new: NewIntegration) -> FrozenIntegrationRecord | None:
         # Postgres treats NULLs as distinct in a unique key, so rows without an external id never clash.

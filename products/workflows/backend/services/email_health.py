@@ -12,7 +12,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
-from posthog.integrations import IntegrationManager
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 
 from products.workflows.backend.facade.contracts import (
     EMAIL_HEALTH_METRIC_NAMES,
@@ -226,7 +226,7 @@ def email_domain_sharers(*, team_id: int, domains: Collection[str]) -> dict[str,
     """For each domain, the other projects that also send from it."""
     sharers: dict[str, set[int]] = {domain: set() for domain in domains}
     rows = IntegrationManager.email.any.list_across_teams(
-        where={"verified": True}, config_in={"domain": list(domains)}, exclude_team_id=team_id
+        CrossTeamFilter(where={"verified": True}, where_in={"domain": tuple(domains)}, exclude_team_ids=(team_id,))
     )
     for row in rows:
         sharers[row.config["domain"]].add(row.team_id)

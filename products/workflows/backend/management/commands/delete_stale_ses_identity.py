@@ -2,7 +2,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.integrations import IntegrationManager
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 
 from products.workflows.backend.providers import SESProvider
 
@@ -20,7 +20,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         domain = options["domain"].lower()
-        in_use = IntegrationManager.email.any.list_across_teams(where={"domain": domain})
+        in_use = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}))
         if in_use:
             team_ids = sorted(row.team_id for row in in_use)
             raise CommandError(

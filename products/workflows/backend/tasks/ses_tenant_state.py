@@ -1,7 +1,7 @@
 from celery import shared_task
 from structlog import get_logger
 
-from posthog.integrations import IntegrationManager
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -35,7 +35,8 @@ def reconcile_ses_tenant_states() -> None:
     tenant (i.e. a verified email integration) and apply the authoritative state. The transition
     logic dedupes against stored state, so overlap with webhook-triggered syncs is harmless.
     """
-    team_ids = IntegrationManager.email.any.team_ids_across_teams(where={"provider": "ses"})
+    rows = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"provider": "ses"}))
+    team_ids = sorted({row.team_id for row in rows})
     # One provider for the whole sweep: a fresh SESProvider per team would rebuild its boto3
     # clients (and re-resolve credentials) thousands of times.
     provider = SESProvider()

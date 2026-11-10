@@ -25,7 +25,7 @@ from django.dispatch import receiver
 
 from posthog.dataclasses import frozen
 from posthog.ingress.dispatch.database import bounded_statement_timeout
-from posthog.integrations import IntegrationManager
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 from posthog.utils import safe_cache_delete
 
 from products.review_hog.backend.models import ReviewInstallationClaim, ReviewRepository
@@ -144,7 +144,9 @@ class RepositoryOwnership:
     @staticmethod
     def installation_ids_for_account(account_login: str) -> list[str]:
         """The installations of the PostHog GitHub App on one GitHub account, from any project."""
-        rows = IntegrationManager.github.any.list_by_account_name(account_login)
+        rows = IntegrationManager.github.any.list_across_teams(
+            CrossTeamFilter(where_iexact={"account.name": account_login})
+        )
         return sorted({row.integration_id for row in rows if row.integration_id})
 
     @classmethod
