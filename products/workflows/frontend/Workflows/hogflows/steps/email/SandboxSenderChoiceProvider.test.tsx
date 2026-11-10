@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Node } from '@xyflow/react'
 import { BindLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -227,7 +228,7 @@ describe('SandboxSenderChoiceProvider', () => {
         ['an own step to the sandbox sender', ownStep(), 'Sandbox sender', 'email_sandbox'],
         ['a sandbox step to an own sender', SANDBOX_STEP, 'hello@example.com', 'function_email'],
     ])(
-        'switches %s from the From picker, keeping a canvas edit not yet exported',
+        'switches %s from the open editor, which stays open and keeps a canvas edit not yet exported',
         async (_, step, sender, expected) => {
             await renderStep(step)
             await editCanvasInTheOpenEditor()
@@ -238,6 +239,8 @@ describe('SandboxSenderChoiceProvider', () => {
             expect(storedStep()?.config).toMatchObject({
                 inputs: { email: { value: { design: EDITED_DESIGN, html: '<p>edited</p>' } } },
             })
+            expect(router.values.searchParams.editor).toEqual('email')
+            expect(screen.getByText('Done')).toBeInTheDocument()
         }
     )
 
