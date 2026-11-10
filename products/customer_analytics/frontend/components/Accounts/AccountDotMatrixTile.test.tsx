@@ -146,8 +146,8 @@ describe('AccountDotMatrixTile', () => {
             'replay',
             'Select replay',
         ])
-        fireEvent.click(within(firstHeader).getByRole('button', { name: 'Options' }))
-        expect(within(secondHeader).getByRole('button', { name: 'Options' }).getAttribute('aria-expanded')).toBe(
+        fireEvent.click(within(firstHeader).getByTestId('account-dot-matrix-settings'))
+        expect(within(secondHeader).getByTestId('account-dot-matrix-settings').getAttribute('aria-expanded')).toBe(
             'false'
         )
         fireEvent.click(screen.getByLabelText('Dot matrix weeks'))
