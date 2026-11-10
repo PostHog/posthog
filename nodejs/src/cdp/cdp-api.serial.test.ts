@@ -45,7 +45,7 @@ import {
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
 import { S3AttachmentStore, buildAttachmentStore } from './services/messaging/attachment-store'
-import { ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX, AttachmentUploads } from './services/messaging/attachment-uploads'
+import { AttachmentUploads } from './services/messaging/attachment-uploads'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
@@ -3503,21 +3503,26 @@ describe('CDP API', () => {
         const LARGE_DAILY_CAP = 50_000_000_000
         let store: S3AttachmentStore
         let redis: RedisV2
+        let teamId: number
         let otherTeamId: number
 
         const mintUploadTokenAsTheDjangoRouteDoes = (
-            teamId: number,
+            forTeamId: number,
             claims: Record<string, string> = { kind: 'attachment_upload' },
             secret = 'local-dev-workflows-transactional-email-jwt'
         ) =>
-            jwt.sign({ team_id: teamId, ...claims }, secret, {
+            jwt.sign({ team_id: forTeamId, ...claims }, secret, {
                 audience: 'posthog:workflows:send_transactional_email',
                 expiresIn: '2m',
             })
 
-        const requestUploads = (teamId: number, body: object, token = mintUploadTokenAsTheDjangoRouteDoes(teamId)) =>
+        const requestUploads = (
+            forTeamId: number,
+            body: object,
+            token = mintUploadTokenAsTheDjangoRouteDoes(forTeamId)
+        ) =>
             supertest(app)
-                .post(`/api/projects/${teamId}/transactional_email/attachments/uploads`)
+                .post(`/api/projects/${forTeamId}/transactional_email/attachments/uploads`)
                 .set({ Authorization: `Bearer ${token}` })
                 .send(body)
 
@@ -3543,14 +3548,22 @@ describe('CDP API', () => {
             } = {}
         ): AttachmentUploads => new AttachmentUploads(attachmentStore, counter, { teams, maxBytesPerTeamDay })
 
-        const putBytes = async (slot: Record<string, any>, f: TestFile): Promise<number> =>
+        // fetch refuses a Content-Length that differs from the body, so the length goes out as HTTP frames the
+        // bytes actually sent, and the bucket judges it against the size the route signed.
+        const putBytes = async (slot: Record<string, any>, body: Buffer): Promise<number> =>
             (
                 await globalThis.fetch(slot.url, {
                     method: slot.method,
-                    headers: slot.headers,
-                    body: new Uint8Array(f.bytes),
+                    headers: Object.fromEntries(
+                        Object.entries(slot.headers as Record<string, string>).filter(
+                            ([name]) => name.toLowerCase() !== 'content-length'
+                        )
+                    ),
+                    body: new Uint8Array(body),
                 })
             ).status
+        const statusesOf = (res: supertest.Response): string[] =>
+            res.body.files.map((f: { status: string }) => f.status)
 
         beforeAll(() => {
             store = buildAttachmentStore({
@@ -3561,55 +3574,65 @@ describe('CDP API', () => {
         })
 
         beforeEach(async () => {
+            teamId = await createTeam(hub.postgres, team.organization_id)
             otherTeamId = await createTeam(hub.postgres, team.organization_id)
-            await deleteKeysWithPrefix(redis, ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX)
-            api['attachmentUploads'] = uploadsFor(`${team.id},${otherTeamId}`)
+            api['attachmentUploads'] = uploadsFor(`${teamId},${otherTeamId}`)
         })
 
         afterAll(() => {
             store.s3.destroy()
         })
 
-        it('signs a PUT for a new file, then answers present once its bytes are stored', async () => {
+        it.each([
+            ['stores a file sent as declared, then answers present for it', (f: TestFile) => asked(f), true],
+            [
+                'refuses a file sent under the hash of other bytes of its size, and keeps answering upload',
+                (f: TestFile) => asked(fileOf(Buffer.from(f.bytes).fill(0x41, f.bytes.length - 1))),
+                false,
+            ],
+            [
+                'refuses a file sent under a size it did not declare, and keeps answering upload',
+                (f: TestFile) => ({ files: [{ sha256: f.sha256, size: f.bytes.length + 1 }] }),
+                false,
+            ],
+        ])('%s', async (_name, declare, stored) => {
             const f = pdf()
+            const declared = declare(f)
 
-            const first = await requestUploads(team.id, asked(f))
-
+            const first = await requestUploads(teamId, declared)
             expect(first.status).toBe(200)
             expect(first.body.files).toEqual([
-                {
-                    sha256: f.sha256,
-                    status: 'upload',
-                    url: expect.stringContaining(`/team/${team.id}/${f.sha256}`),
-                    method: 'PUT',
-                    headers: { 'Content-Length': String(f.bytes.length), 'x-amz-checksum-sha256': expect.any(String) },
-                    url_expires_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-                },
+                expect.objectContaining({ sha256: declared.files[0].sha256, status: 'upload' }),
             ])
-            expect(await putBytes(first.body.files[0], f)).toBe(200)
+            expect(Date.parse(first.body.files[0].url_expires_at)).toBeGreaterThan(Date.now())
 
-            const second = await requestUploads(team.id, asked(f))
+            const putStatus = await putBytes(first.body.files[0], f.bytes)
+            const again = await requestUploads(teamId, declared)
 
-            expect(second.status).toBe(200)
-            expect(second.body.files).toEqual([
-                { sha256: f.sha256, status: 'present', expires_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) },
-            ])
+            expect(again.status).toBe(200)
+            if (stored) {
+                expect(putStatus).toBe(200)
+                expect(again.body.files).toEqual([
+                    { sha256: f.sha256, status: 'present', expires_at: expect.any(String) },
+                ])
+                expect(Date.parse(again.body.files[0].expires_at)).toBeGreaterThan(Date.now())
+            } else {
+                expect(putStatus).toBeGreaterThanOrEqual(400)
+                expect(statusesOf(again)).toEqual(['upload'])
+            }
         })
 
-        it('answers upload to another team for a file only this team stored', async () => {
+        it("answers upload to another team for a file only this team stored, and stores that team's own copy", async () => {
             const f = pdf()
-            const [slot] = (await requestUploads(team.id, asked(f))).body.files
-            expect(await putBytes(slot, f)).toBe(200)
+            const [slot] = (await requestUploads(teamId, asked(f))).body.files
+            expect(await putBytes(slot, f.bytes)).toBe(200)
 
-            const res = await requestUploads(otherTeamId, asked(f))
+            const other = await requestUploads(otherTeamId, asked(f))
 
-            expect(res.status).toBe(200)
-            expect(res.body.files).toEqual([
-                expect.objectContaining({
-                    status: 'upload',
-                    url: expect.stringContaining(`/team/${otherTeamId}/${f.sha256}`),
-                }),
-            ])
+            expect(other.status).toBe(200)
+            expect(statusesOf(other)).toEqual(['upload'])
+            expect(await putBytes(other.body.files[0], f.bytes)).toBe(200)
+            expect(statusesOf(await requestUploads(otherTeamId, asked(f)))).toEqual(['present'])
         })
 
         it('refuses a team that is not on the allowlist before reading its files', async () => {
@@ -3632,7 +3655,7 @@ describe('CDP API', () => {
                 { files: [1_000_000, 1].map((size) => ({ sha256: 'a'.repeat(64), size })) },
             ],
         ])('refuses a request with %s', async (_name, body) => {
-            const res = await requestUploads(team.id, body)
+            const res = await requestUploads(teamId, body)
 
             expect(res.status).toBe(400)
             expect(res.body.error).toBe('invalid_request')
@@ -3646,7 +3669,7 @@ describe('CDP API', () => {
         ])('answers %s', async (_name, sizes, largestIndex) => {
             const body = sized(...sizes)
 
-            const res = await requestUploads(team.id, body)
+            const res = await requestUploads(teamId, body)
 
             if (largestIndex === null) {
                 expect(res.status).toBe(200)
@@ -3664,12 +3687,12 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['a code send token', () => mintUploadTokenAsTheDjangoRouteDoes(team.id, { kind: 'code_send' })],
-            ['a template send token', () => mintUploadTokenAsTheDjangoRouteDoes(team.id, {})],
+            ['a code send token', () => mintUploadTokenAsTheDjangoRouteDoes(teamId, { kind: 'code_send' })],
+            ['a template send token', () => mintUploadTokenAsTheDjangoRouteDoes(teamId, {})],
             ["another team's token", () => mintUploadTokenAsTheDjangoRouteDoes(otherTeamId)],
             [
                 'a token signed with another key',
-                () => mintUploadTokenAsTheDjangoRouteDoes(team.id, undefined, 'wrong-key'),
+                () => mintUploadTokenAsTheDjangoRouteDoes(teamId, undefined, 'wrong-key'),
             ],
         ])('refuses %s, and counts it as unauthorized', async (_name, token) => {
             const unauthorizedCount = async (): Promise<number> =>
@@ -3678,7 +3701,7 @@ describe('CDP API', () => {
                 ).values.find((v) => v.labels.outcome === 'unauthorized')?.value ?? 0
             const before = await unauthorizedCount()
 
-            const res = await requestUploads(team.id, asked(pdf()), token())
+            const res = await requestUploads(teamId, asked(pdf()), token())
 
             expect(res.status).toBe(401)
             expect(await unauthorizedCount()).toBe(before + 1)
@@ -3689,7 +3712,7 @@ describe('CDP API', () => {
             ['answers delivery_unavailable without the idempotency Valkey', false, 503],
         ])('on a cdp-api built from its settings, %s', async (_name, withValkey, status) => {
             const builtApi = new CdpApi(
-                { ...hub, CDP_EMAIL_ATTACHMENTS_TEAMS: `${team.id}` },
+                { ...hub, CDP_EMAIL_ATTACHMENTS_TEAMS: `${teamId}` },
                 { ...cdpDeps, idempotencyValkey: withValkey ? createIdempotencyValkeyPool(hub) : null },
                 { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
             )
@@ -3699,8 +3722,8 @@ describe('CDP API', () => {
 
             try {
                 const res = await supertest(builtApp)
-                    .post(`/api/projects/${team.id}/transactional_email/attachments/uploads`)
-                    .set({ Authorization: `Bearer ${mintUploadTokenAsTheDjangoRouteDoes(team.id)}` })
+                    .post(`/api/projects/${teamId}/transactional_email/attachments/uploads`)
+                    .set({ Authorization: `Bearer ${mintUploadTokenAsTheDjangoRouteDoes(teamId)}` })
                     .send(asked(pdf()))
 
                 expect(res.status).toBe(status)
@@ -3710,24 +3733,8 @@ describe('CDP API', () => {
         })
 
         it('lets a request that fits through while larger requests at the same time are refused', async () => {
-            const signsEveryFileWithoutWaiting = {
-                prepareUploads: (_teamId: number, files: { sha256: string }[]) =>
-                    Promise.resolve(
-                        files.map(({ sha256 }) => ({
-                            sha256,
-                            status: 'upload' as const,
-                            url: 'https://uploads.example.com',
-                            method: 'PUT' as const,
-                            headers: {},
-                            urlExpiresAt: new Date(),
-                        }))
-                    ),
-            } as unknown as S3AttachmentStore
-            const uploads = uploadsFor(`${team.id}`, {
-                maxBytesPerTeamDay: 100,
-                attachmentStore: signsEveryFileWithoutWaiting,
-            })
-            const request = (size: number) => uploads.prepare(team.id, sized(size))
+            const uploads = uploadsFor(`${teamId}`, { maxBytesPerTeamDay: 100 })
+            const request = (size: number) => uploads.prepare(teamId, sized(size))
             expect((await request(90)).status).toBe(200)
 
             const answers = await Promise.all([
@@ -3744,14 +3751,14 @@ describe('CDP API', () => {
         })
 
         it('refuses a team past its daily upload bytes, not another team, and counts neither present files nor refused requests', async () => {
-            api['attachmentUploads'] = uploadsFor(`${team.id},${otherTeamId}`, { maxBytesPerTeamDay: 100 })
+            api['attachmentUploads'] = uploadsFor(`${teamId},${otherTeamId}`, { maxBytesPerTeamDay: 100 })
             const stored = pdf()
-            const [slot] = (await requestUploads(team.id, asked(stored))).body.files
-            expect(await putBytes(slot, stored)).toBe(200)
+            const [slot] = (await requestUploads(teamId, asked(stored))).body.files
+            expect(await putBytes(slot, stored.bytes)).toBe(200)
 
-            const presentAgain = await requestUploads(team.id, asked(stored, pdf()))
-            const overTheCap = await requestUploads(team.id, asked(pdf(), pdf()))
-            const smallAfterRefusal = await requestUploads(team.id, asked(fileOf(Buffer.from('ten bytes!'))))
+            const presentAgain = await requestUploads(teamId, asked(stored, pdf()))
+            const overTheCap = await requestUploads(teamId, asked(pdf(), pdf()))
+            const smallAfterRefusal = await requestUploads(teamId, asked(fileOf(Buffer.from('ten bytes!'))))
             const otherTeam = await requestUploads(otherTeamId, asked(pdf(), pdf()))
 
             expect(presentAgain.status).toBe(200)
@@ -3763,11 +3770,11 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['no attachment store is configured', () => uploadsFor(`${team.id}`, { attachmentStore: null })],
+            ['no attachment store is configured', () => uploadsFor(`${teamId}`, { attachmentStore: null })],
             [
                 'the attachment store does not answer',
                 () =>
-                    uploadsFor(`${team.id}`, {
+                    uploadsFor(`${teamId}`, {
                         attachmentStore: buildAttachmentStore({
                             ...getDefaultCdpConfig(),
                             CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://127.0.0.1:9',
@@ -3775,11 +3782,11 @@ describe('CDP API', () => {
                         }),
                     }),
             ],
-            ['no upload counter is configured', () => uploadsFor(`${team.id}`, { counter: null })],
+            ['no upload counter is configured', () => uploadsFor(`${teamId}`, { counter: null })],
             [
                 'the upload counter does not answer',
                 () =>
-                    uploadsFor(`${team.id}`, {
+                    uploadsFor(`${teamId}`, {
                         counter: createIdempotencyValkeyPool({
                             ...hub,
                             CDP_IDEMPOTENCY_VALKEY_HOST: '127.0.0.1',
@@ -3790,7 +3797,7 @@ describe('CDP API', () => {
         ])('answers 503 delivery_unavailable when %s', async (_name, uploads) => {
             api['attachmentUploads'] = uploads()
 
-            const res = await requestUploads(team.id, asked(pdf()))
+            const res = await requestUploads(teamId, asked(pdf()))
 
             expect(res.status).toBe(503)
             expect(res.body).toEqual({ error: 'delivery_unavailable' })
