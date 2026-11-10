@@ -132,19 +132,19 @@ due AS MATERIALIZED (
         SELECT j.id, j.priority, j.dequeue_seq FROM cyclotron_jobs j
         WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
         ORDER BY j.scheduled ASC
-        LIMIT $4::int + 1
+        LIMIT ${FAIR_DEQUEUE_CANDIDATE_CAP} + 1
     ) due
-    LIMIT $4::int + 1
+    LIMIT ${FAIR_DEQUEUE_CANDIDATE_CAP} + 1
 ),
 complete AS MATERIALIZED (
-    SELECT COUNT(*) <= $4::int AS all_due_rows FROM due
+    SELECT COUNT(*) <= ${FAIR_DEQUEUE_CANDIDATE_CAP} AS all_due_rows FROM due
 ),
 from_due AS (
     SELECT j.id
     FROM (SELECT id, priority, dequeue_seq FROM due ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST) d
     JOIN cyclotron_jobs j ON j.id = d.id
     WHERE (SELECT all_due_rows FROM complete)
-      AND j.status = 'available' AND j.queue_name = $1 AND j.scheduled <= NOW()
+      AND j.status = 'available' AND j.queue_name = $1
     ORDER BY d.priority ASC, d.dequeue_seq ASC NULLS FIRST
     LIMIT $2
     FOR UPDATE OF j SKIP LOCKED
@@ -159,6 +159,7 @@ from_index AS (
 )
 ${CLAIM_UPDATE}
 WHERE cyclotron_jobs.id = ANY(ARRAY(SELECT id FROM from_due UNION ALL SELECT id FROM from_index))
+  AND cyclotron_jobs.scheduled <= NOW()
 ${CLAIM_RETURNING}`
 
 export const LEGACY_FAIR_DEQUEUE_JOBS_SQL = `WITH available AS (

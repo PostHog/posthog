@@ -8,7 +8,6 @@ import { logger } from '~/common/utils/logger'
 import {
     COUNT_WORK_SQL,
     DEQUEUE_JOBS_SQL,
-    FAIR_DEQUEUE_CANDIDATE_CAP,
     FAIR_DEQUEUE_JOBS_SQL,
     LEGACY_COUNT_WORK_SQL,
     LEGACY_DEQUEUE_JOBS_SQL,
@@ -346,24 +345,13 @@ export class CyclotronV2Worker {
      *
      * NULLS FIRST drains any pre-migration legacy rows ahead of new
      * fair-ordered ones.
-     *
-     * The legacy query walks `idx_cyclotron_jobs_email_priority_fair_dequeue`
-     * in fair order and visits every future-scheduled row with a lower
-     * `dequeue_seq` before it finds a due one. The bounded query reads the due
-     * rows by scheduled time instead and sorts them in fair order, and falls
-     * back to the fair-order walk when more than `FAIR_DEQUEUE_CANDIDATE_CAP`
-     * rows are due, so both pick the same rows.
      */
     protected async fairDequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
-        const result = this.boundedFairDequeue
-            ? await this.pool.query<RawJobRow>(FAIR_DEQUEUE_JOBS_SQL, [
-                  this.config.queueName,
-                  limit,
-                  lockId,
-                  FAIR_DEQUEUE_CANDIDATE_CAP,
-              ])
-            : await this.pool.query<RawJobRow>(LEGACY_FAIR_DEQUEUE_JOBS_SQL, [this.config.queueName, limit, lockId])
+        const result = await this.pool.query<RawJobRow>(
+            this.boundedFairDequeue ? FAIR_DEQUEUE_JOBS_SQL : LEGACY_FAIR_DEQUEUE_JOBS_SQL,
+            [this.config.queueName, limit, lockId]
+        )
         // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
         // the CTE's ORDER BY), but the guarantee is *across* batches: the CTE
         // picks the rows with the lowest priority, then the lowest dequeue_seq,

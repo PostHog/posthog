@@ -1997,6 +1997,8 @@ describe('Cyclotron V2', () => {
         const BACKLOG_QUEUE = 'future-backlog'
         const BACKLOG_ROWS = 20_000
         const BACKLOG_BUFFER_BUDGET = 30
+        // A claim also writes index entries for the claimed row, and those cost a level more once the backlog deepens the trees.
+        const CLAIM_BUFFER_BUDGET = 80
 
         type PlanMode = 'custom' | 'generic'
 
@@ -2019,20 +2021,22 @@ describe('Cyclotron V2', () => {
             return rows[0].n
         }
 
-        async function seed(dueJobs: number, backlogJobs: number): Promise<void> {
+        async function seed(queue: string, dueJobs: number, backlogJobs: number): Promise<void> {
             const applicationName = 'polling-cost-seed'
             const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
             await client.connect()
             try {
                 await client.query('TRUNCATE cyclotron_jobs')
+                // The later-scheduled rows take the lowest dequeue_seq values, as long-delayed emails do.
                 await client.query(
-                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq)
                      SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
                             CASE WHEN g <= $3 THEN NOW() - interval '1 minute'
                                  ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
-                            NOW(), NOW()
+                            NOW(), NOW(),
+                            CASE WHEN g <= $3 THEN $2::int + g ELSE g - $3::int END
                      FROM generate_series(1, $2::int + $3::int) g`,
-                    [BACKLOG_QUEUE, backlogJobs, dueJobs]
+                    [queue, backlogJobs, dueJobs]
                 )
                 await client.query('VACUUM ANALYZE cyclotron_jobs')
             } finally {
@@ -2082,10 +2086,12 @@ describe('Cyclotron V2', () => {
 
         const PARAMETERIZED_SQL_PLANS: PlanMode[] = ['custom', 'generic']
         const PLAIN_SQL_PLANS: PlanMode[] = ['custom']
-        const operations: [string, number, PlanMode[], (dbUrl: string) => Promise<void>][] = [
+        const operations: [string, string, number, number, PlanMode[], (dbUrl: string) => Promise<void>][] = [
             [
                 'the worker dequeue',
+                BACKLOG_QUEUE,
                 0,
+                BACKLOG_BUFFER_BUDGET,
                 PARAMETERIZED_SQL_PLANS,
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
@@ -2095,8 +2101,23 @@ describe('Cyclotron V2', () => {
                 },
             ],
             [
-                'the rate-limited worker count',
+                'the email fair dequeue',
+                'email',
                 1,
+                CLAIM_BUFFER_BUDGET,
+                PARAMETERIZED_SQL_PLANS,
+                async (dbUrl) => {
+                    const { polled, markPolled } = pollSignal()
+                    await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () =>
+                        Promise.resolve(markPolled())
+                    )
+                },
+            ],
+            [
+                'the rate-limited worker count',
+                BACKLOG_QUEUE,
+                1,
+                BACKLOG_BUFFER_BUDGET,
                 PARAMETERIZED_SQL_PLANS,
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
@@ -2112,7 +2133,9 @@ describe('Cyclotron V2', () => {
             ],
             [
                 'the manager depth check',
+                BACKLOG_QUEUE,
                 0,
+                BACKLOG_BUFFER_BUDGET,
                 PLAIN_SQL_PLANS,
                 async (dbUrl) => {
                     const depthChecked = createManager({ pool: { dbUrl }, depthLimit: 0 })
@@ -2127,7 +2150,9 @@ describe('Cyclotron V2', () => {
             ],
             [
                 'the janitor depth gauges',
+                BACKLOG_QUEUE,
                 0,
+                BACKLOG_BUFFER_BUDGET,
                 PLAIN_SQL_PLANS,
                 async (dbUrl) => {
                     const janitor = createJanitor({ pool: { dbUrl } })
@@ -2139,8 +2164,8 @@ describe('Cyclotron V2', () => {
                 },
             ],
         ]
-        const cases = operations.flatMap(([label, dueJobs, modes, operation]) =>
-            modes.map((mode) => [label, mode, dueJobs, operation] as const)
+        const cases = operations.flatMap(([label, queue, dueJobs, budget, modes, operation]) =>
+            modes.map((mode) => [label, mode, queue, dueJobs, budget, operation] as const)
         )
 
         async function buffersReadBy(operation: (dbUrl: string) => Promise<void>, mode: PlanMode): Promise<number> {
@@ -2153,13 +2178,13 @@ describe('Cyclotron V2', () => {
 
         it.each(cases)(
             '%s does not read through a backlog scheduled for later under a %s plan',
-            async (_label, mode, dueJobs, operation) => {
-                await seed(dueJobs, 0)
+            async (_label, mode, queue, dueJobs, budget, operation) => {
+                await seed(queue, dueJobs, 0)
                 const withoutBacklog = await buffersReadBy(operation, mode)
-                await seed(dueJobs, BACKLOG_ROWS)
+                await seed(queue, dueJobs, BACKLOG_ROWS)
                 const withBacklog = await buffersReadBy(operation, mode)
 
-                expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_BUFFER_BUDGET)
+                expect(withBacklog - withoutBacklog).toBeLessThan(budget)
             }
         )
     })
