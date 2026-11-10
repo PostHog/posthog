@@ -84,21 +84,14 @@ class TestWorkflowViewAPI(APIBaseTest):
             [row["id"] for row in first_page["results"] + next_page["results"]], [first["id"], second["id"]]
         )
 
-    @parameterized.expand(
-        [
-            ("saved_views_off", "workflows-saved-views", False),
-            ("list_off", "workflows-list-v2", False),
-            ("unknown", "workflows-saved-views", None),
-            ("failure", "workflows-saved-views", "raises"),
-        ]
-    )
-    def test_all_endpoints_fail_closed_when_a_prerequisite_flag_is_unavailable(
-        self, _case: str, disabled_flag: str, result: bool | str | None
+    @parameterized.expand([("off", False), ("unknown", None), ("failure", "raises")])
+    def test_all_endpoints_fail_closed_when_the_list_flag_is_off_or_unavailable(
+        self, _case: str, result: bool | str | None
     ) -> None:
         view = self._create_view()
 
         def evaluate(flag: str, *args: object, **kwargs: object) -> bool | None:
-            if flag != disabled_flag:
+            if flag != "workflows-list-v2":
                 return True
             if result == "raises":
                 raise RuntimeError("Flag evaluation unavailable")
