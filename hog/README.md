@@ -25,6 +25,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog api search`, `info`, `schema`        | Find a tool, see what it does and the input it takes.                                                                   |
 | `hog api call <tool> [input]`             | Calls a tool with JSON input. `--dry-run` only checks the input, and destructive tools need `--confirm`.                |
 | `hog api access`                          | Shows the key's scopes and the missing scopes that block the most tools.                                                |
+| `hog learn [skill] [path...]`             | Reads the PostHog agent skills, with the grammar of the MCP server's `learn` command. Needs no login.                   |
 | `hog error-tracking inject [paths...]`    | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.               |
 | `hog error-tracking clone <from> <to>`    | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                      |
 | `hog error-tracking upload [paths...]`    | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.  |
@@ -49,7 +50,7 @@ hog replaces posthog-cli in three steps: settle the CLI, ship it, then move ever
 First, settle the CLI:
 
 - [ ] `hog upgrade`, which updates hog to the latest version. It downloads the release binaries, so it lands with distribution. Until then it points to `posthog-cli update`.
-- Agent skills and the AGENTS.md snippet come back as top-level commands, designed fresh rather than ported from `posthog-cli api skill` and `api agents-md`. Until then, hog points to those.
+- Installing agent skills and the AGENTS.md snippet come back as top-level commands, designed fresh rather than ported from `posthog-cli api skill` and `api agents-md`. Until then, hog points to those. `hog learn` already reads the skills.
 
 Then ship it:
 
@@ -80,6 +81,26 @@ Not planned:
 
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
 Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
+
+## Agent skills
+
+`hog learn` serves PostHog's agent skills, the step-by-step guides agents follow for PostHog tasks, with the grammar of the `learn` command in the PostHog MCP server's `exec` tool:
+
+```bash
+hog learn                                   # the commands below
+hog learn skills                            # every skill
+hog learn -s "session replay"               # find skills by keywords
+hog learn -d posthog:instrument-integration # what a skill is for
+hog learn posthog:instrument-integration    # read a skill and list its files
+hog learn posthog:instrument-integration references/COMMANDMENTS.md
+hog learn posthog:instrument-integration references/django.md -s middleware
+hog learn posthog:instrument-integration references/django.md --lines 1:40
+```
+
+Skills are public, so `hog learn` needs no login.
+It downloads the latest PostHog product skills and the latest context-mill release, the same assets the MCP server serves, every time it runs.
+It saves them in `~/.posthog/skills/` (`HOG_HOME` moves the folder), and serves that copy only when a download fails, saying when the copy was saved.
+Commands in the skill text read `hog learn ...`. Project skills are only available through the MCP server.
 
 ## Global options
 
@@ -117,6 +138,7 @@ hog looks them up once per key with `/api/users/@me/` and `/api/projects/<id>/`,
 A CI job that uses its OIDC token counts as its workload instead: events carry an ID hashed from the provider and the repository, the provider's name and your organization, and no person.
 Without a key, with a self-hosted PostHog, or with a key that can't read those, events belong to a random ID in `~/.posthog/hog-telemetry-id`.
 Usage events never carry argument or option values or API keys.
+`hog learn` adds the names of the PostHog skills it served, how it read them, and whether each release came from the network or the saved copy. A name counts only once it matched a published skill, so the event never carries what you typed, such as search keywords or a skill that doesn't exist.
 
 Telemetry is on by default and goes to the same PostHog project as posthog-cli's.
 Turn it off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"cli": { "telemetry": false }` in `posthog.json`.

@@ -107,16 +107,23 @@ function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefin
     return homeDir === undefined ? undefined : join(homeDir, '.posthog')
 }
 
-export function posthogFile(runtime: Runtime, name: string): string {
+export function posthogPath(runtime: Pick<Runtime, 'env' | 'homeDir'>, name: string): string | undefined {
     const home = posthogHomeDir(runtime.env, runtime.homeDir())
-    if (home === undefined) {
+    return home === undefined ? undefined : join(home, name)
+}
+
+export function posthogFile(runtime: Runtime, name: string): string {
+    const file = posthogPath(runtime, name)
+
+    if (file === undefined) {
         throw new HogError(
             'no_home_directory',
             "hog couldn't find your home folder to store credentials in.",
             NO_HOME_HINT
         )
     }
-    return join(home, name)
+
+    return file
 }
 
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
