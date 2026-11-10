@@ -1,5 +1,6 @@
 import type { Context } from '@/core/context'
-import { HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError } from '@/core/errors'
+import type { PostHogApi } from '@/posthog/api'
 import { cloudRegion, REGIONS, sameHost, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import { loginFor, readSettings, type LoginRecord } from '@/posthog/settings'
@@ -85,6 +86,25 @@ export class SetupRun {
         }
 
         return login
+    }
+
+    // Every API call of setup goes through this, so the token it reports, the events it checks and the
+    // posthog.json it writes are for one project. A key from HOG_PERSONAL_API_KEY or --dotenv-file
+    // wins over the stored login and can be for another project, so setup refuses it.
+    async api(): Promise<PostHogApi> {
+        const [login, credentials] = await Promise.all([this.requireLogin(), this.ctx.credentials()])
+        const { key } = credentials
+
+        if (key.projectId !== login.projectId || !sameHost(key.host, login.host)) {
+            throw new HogError(
+                'setup_project_mismatch',
+                `Your key is for project ${key.projectId} on ${key.host}, and this folder uses project ${login.projectId} on ${login.host}.`,
+                'Unset HOG_PERSONAL_API_KEY and drop --dotenv-file, so setup uses the login for this folder.',
+                EXIT_USAGE
+            )
+        }
+
+        return (await this.ctx.posthog()).withoutStepUp()
     }
 
     products(): Promise<Product[]> {

@@ -14,7 +14,7 @@ async function recordIntents(run: SetupRun): Promise<void> {
         return
     }
 
-    const api = (await run.ctx.posthog()).withoutStepUp()
+    const api = await run.api()
     const results = await Promise.allSettled(
         products.map((id) =>
             api.patch(
