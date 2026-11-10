@@ -724,7 +724,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "'ratio' (set numerator and denominator EventsNode entries), "
             "'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric "
             "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; "
-            "breakdowns and sequential testing are not supported), or "
+            "breakdowns are not supported), or "
             "'retention' (set start_event and completion_event; pass start_event "
             '{"kind": "ExperimentExposureNode"} to start retention from the experiment\'s exposure event). '
             "Use the read-data-schema tool with query kind 'events' to find available events in the project."

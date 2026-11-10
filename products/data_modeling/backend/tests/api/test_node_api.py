@@ -332,22 +332,16 @@ class TestNodeViewSet(APIBaseTest):
 
     @parameterized.expand(
         [
-            # node target wins even when the saved-query interval disagrees (tiered v2 teams
-            # carry NULL intervals, so a saved-query-only read shows a blank frequency)
-            ("target_first", timedelta(hours=6), timedelta(hours=12), "6hour"),
-            ("saved_query_fallback", None, timedelta(hours=12), "12hour"),
-            ("neither", None, None, None),
+            ("target", timedelta(hours=6), "6hour"),
+            ("no_target", None, None),
         ]
     )
-    def test_node_sync_interval_reads_target_first(
+    def test_node_sync_interval_reads_the_node_target(
         self,
         _name: str,
         target: timedelta | None,
-        saved_query_interval: timedelta | None,
         expected: str | None,
     ):
-        self.saved_query.sync_frequency_interval = saved_query_interval
-        self.saved_query.save(update_fields=["sync_frequency_interval"])
         if target is not None:
             set_declared_target(self.view_node, target)
 
@@ -526,9 +520,18 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
         self.assertEqual(call_args.kwargs["retry_policy"].maximum_attempts, 1)
 
-    @parameterized.expand([("materialize", {}), ("run", {"direction": "downstream"})])
+    @parameterized.expand(
+        [
+            ("materialize", {}, DataModelingJob.Status.COMPLETED, status.HTTP_200_OK),
+            ("run", {"direction": "downstream"}, DataModelingJob.Status.COMPLETED, status.HTTP_200_OK),
+            ("materialize", {}, DataModelingJob.Status.RUNNING, status.HTTP_409_CONFLICT),
+            ("run", {"direction": "downstream"}, DataModelingJob.Status.RUNNING, status.HTTP_409_CONFLICT),
+        ]
+    )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_a_manual_run_is_refused_soon_after_the_last_run(self, action, body, mock_sync_connect):
+    def test_a_manual_run_from_a_browser_session_is_refused_only_while_a_run_is_in_progress(
+        self, action, body, job_status, expected_status, mock_sync_connect
+    ):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         self.view_node.type = NodeType.MAT_VIEW
@@ -536,7 +539,7 @@ class TestNodeViewSet(APIBaseTest):
         job = DataModelingJob.objects.create(
             team=self.team,
             saved_query=self.view_node.saved_query,
-            status=DataModelingJob.Status.COMPLETED,
+            status=job_status,
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
         DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
@@ -546,8 +549,8 @@ class TestNodeViewSet(APIBaseTest):
             body,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
-        mock_client.start_workflow.assert_not_called()
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(mock_client.start_workflow.call_count, 1 if expected_status == status.HTTP_200_OK else 0)
 
     def test_lineage_returns_subgraph(self):
         response = self.client.get(

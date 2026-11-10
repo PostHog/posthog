@@ -3483,6 +3483,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert [call[0] for call in order.mock_calls[:2]] == ["cap", "lock"]
+        order.cap.assert_called_once_with(team_id=self.team.id, organization_id=self.organization.id)
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_per_team_cap_lowered_below_the_count_still_lets_you_edit_but_not_enable(self, _flag) -> None:

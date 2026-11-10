@@ -31,7 +31,11 @@ from products.wizard.backend.logic.workers.config import (
     local_wizard_source_root,
 )
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest
-from products.wizard.backend.logic.workers.errors import InvalidWizardProgramCommandError, InvalidWizardVersionError
+from products.wizard.backend.logic.workers.errors import (
+    InvalidContextMillVersionError,
+    InvalidWizardProgramCommandError,
+    InvalidWizardVersionError,
+)
 from products.wizard.backend.logic.workers.repository_publisher import RepositoryPublishingError
 from products.wizard.backend.logic.workers.service import (
     GitRepositoryCloneRequest,
@@ -406,17 +410,31 @@ def test_execute_wizard_rejects_program_options(get_sandbox_class: MagicMock) ->
     get_sandbox_class.return_value.get_by_id.return_value.execute.assert_not_called()
 
 
+@parameterized.expand(
+    [
+        ("wizard", "^2.60.0", None, InvalidWizardVersionError, "Invalid Wizard version"),
+        ("context_mill", "2.60.0", "latest", InvalidContextMillVersionError, "Invalid context-mill version"),
+    ]
+)
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
-def test_execute_wizard_rejects_mutable_version(get_sandbox_class: MagicMock) -> None:
+def test_execute_wizard_rejects_mutable_version(
+    _name: str,
+    wizard_version: str,
+    context_mill_version: str | None,
+    expected_error: type[ValueError],
+    expected_message: str,
+    get_sandbox_class: MagicMock,
+) -> None:
     request = WizardExecutionRequest(
         sandbox_id="worker-id",
         workspace_path="/tmp/workspace/repos/posthog/posthog",
         team_id=7,
-        wizard_version="^2.60.0",
+        wizard_version=wizard_version,
         program_command=(),
+        context_mill_version=context_mill_version,
     )
 
-    with pytest.raises(InvalidWizardVersionError, match="Invalid Wizard version"):
+    with pytest.raises(expected_error, match=expected_message):
         execute_wizard(request)
 
     get_sandbox_class.return_value.get_by_id.return_value.execute.assert_not_called()
