@@ -68,7 +68,7 @@ from products.tasks.backend.facade.contracts import (
     WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.enums import TaskChannelWriteType
-from products.tasks.backend.facade.model_catalogue import ModelChoice
+from products.tasks.backend.facade.model_catalogue import ModelChoice, desktop_legacy_runtime_adapter
 from products.tasks.backend.facade.profiles import (
     RunOptionsCaller,
     SourceKind,
@@ -3551,9 +3551,12 @@ class ModelChoiceSerializer(DataclassSerializer):
             "flatters either. Null for a model the catalogue quotes no rate for."
         ),
     )
-    context_window = serializers.IntegerField(help_text="Largest context window the model accepts, in tokens.")
+    context_window = serializers.IntegerField(
+        required=False, help_text="Largest context window the model accepts, in tokens."
+    )
     allowed = serializers.BooleanField(
-        help_text="Whether the project's plan may run this model. A free plan may run only the free-tier models."
+        required=False,
+        help_text="Whether the project's plan may run this model. A free plan may run only the free-tier models.",
     )
 
     class Meta:
@@ -4042,7 +4045,10 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"])
+            legacy_runtime_adapter = desktop_legacy_runtime_adapter(attrs["model"])
+            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or (
+                RuntimeAdapter(legacy_runtime_adapter) if legacy_runtime_adapter else None
+            )
             if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
             elif not is_pi_task:
