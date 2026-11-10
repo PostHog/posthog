@@ -37,7 +37,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     UnknownPlatformAlertGroup,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import (
     control_plane,
@@ -195,6 +195,7 @@ def update_configuration(
         if configuration is None:
             return None
         now = django_timezone.now()
+        current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as `update_owned_copy` does for a copy.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
         edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True)
@@ -203,6 +204,15 @@ def update_configuration(
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
+        _record_change(
+            configuration,
+            current,
+            edit,
+            previous_state=previous_state,
+            snooze_changed=snooze_changed,
+            snooze_until=snooze_until,
+            now=now,
+        )
 
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
@@ -358,6 +368,7 @@ def update_owned_copy(
     snooze_changed: bool,
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
+    at: datetime | None = None,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
     back, because the source already wrote its row. A snooze the edit set or cleared becomes the
@@ -367,14 +378,26 @@ def update_owned_copy(
         if configuration is None:
             return
         now = django_timezone.now()
+        current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
-        _, pending = _apply(configuration, change, now=now, snoozing=snoozing)
+        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing)
         if cadence is not None:
             platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         control_plane.announce_after_commit(pending)
+        _record_change(
+            configuration,
+            current,
+            edit,
+            previous_state=previous_state,
+            snooze_changed=snooze_changed,
+            snooze_until=snooze_until,
+            # Only the change's own row takes the source's time. A check can land between `at` and
+            # the lock, and the firings this edit ended must stay after it.
+            now=at or now,
+        )
 
 
 def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
@@ -568,6 +591,33 @@ def _locked_owned_copy(team_id: int, legacy_configuration_id: UUID) -> PlatformA
             {"team_id": team_id, "legacy_configuration_id": str(legacy_configuration_id)},
         )
     return configuration
+
+
+def _record_change(
+    configuration: PlatformAlertConfiguration,
+    current: PlatformAlertConfigurationEdit,
+    edit: PlatformAlertConfigurationEdit,
+    *,
+    previous_state: PlatformAlertState,
+    snooze_changed: bool,
+    snooze_until: datetime | None,
+    now: datetime,
+) -> None:
+    spec = source_configs.spec(SourceKind(configuration.source_kind))
+    kept = spec.kept_source_config_keys if spec is not None else frozenset()
+    # Compared as `_apply` compares them for `ending_reason`, so a row and an ended firing agree.
+    kind = control_plane.change_kind(
+        _with_kept_keys(current, edit, kept),
+        edit,
+        regrouped=not edit.grouping.splits_like(current.grouping),
+        snooze_changed=snooze_changed,
+        snooze_until=snooze_until,
+    )
+    if kind is not None:
+        platform_lifecycle.record_history_after_commit(
+            configuration.team_id,
+            [platform_lifecycle.control_change_row(configuration, kind, previous_state=previous_state, now=now)],
+        )
 
 
 def _with_kept_keys(
