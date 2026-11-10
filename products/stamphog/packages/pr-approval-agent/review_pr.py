@@ -455,7 +455,7 @@ class Pipeline:
         reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
         lifted = lifted_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
         pending = pending_attestations(POLICY.attestations, pr.check_runs, file_paths)
-        deny =detect_deny_categories(pr.deny_paths, lifted)
+        deny = detect_deny_categories(pr.deny_paths, lifted)
         exception_lifted = bool(POLICY.deny_exceptions) and (
             detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
         )
