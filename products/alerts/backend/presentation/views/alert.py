@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import models, transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.http import Http404
 from django.utils import timezone
 
 import pydantic
@@ -132,6 +133,7 @@ from products.alerts.backend.facade.platform import (
     moved_alert_check_page,
     moved_alert_fired_checks,
     moved_alert_statuses,
+    native_insight_alert,
     platform_takes_new_alert_with,
     write_moved_alert_edit,
 )
@@ -1607,7 +1609,11 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
     moved = {alert.id: alert for alert in alerts if alert.platform_owned}
     if not moved:
         return
-    statuses = moved_alert_statuses(team_id=next(iter(moved.values())).team_id, alert_ids=list(moved), now=now)
+    statuses = moved_alert_statuses(
+        team_id=next(iter(moved.values())).team_id,
+        snoozed_until={alert_id: alert.snoozed_until for alert_id, alert in moved.items()},
+        now=now,
+    )
     for alert_id, moved_status in statuses.items():
         alert = moved[alert_id]
         if moved_status.runtime is not None:
@@ -1829,7 +1835,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
+        instance = self._alert_or_native()
 
         checks_qs = instance.alertcheck_set.select_related("investigation_notebook").order_by("-created_at")
 
@@ -1885,6 +1891,35 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def _alert_or_native(self) -> AlertConfiguration:
+        """The alert under the URL's id: its insight row, or the platform's alert with no insight row."""
+        try:
+            return self.get_object()
+        except Http404:
+            alert = self._native_alert()
+            if alert is None:
+                raise
+            self.check_object_permissions(self.request, alert)
+            return alert
+
+    def _native_alert(self) -> AlertConfiguration | None:
+        try:
+            alert_id = uuid.UUID(str(self.kwargs[self.lookup_url_kwarg or self.lookup_field]))
+        except ValueError:
+            return None
+        alert = native_insight_alert(self.team_id, alert_id)
+        if alert is None:
+            return None
+        # The same read gates `safely_get_queryset` applies to a row.
+        viewable = self.user_access_control.filter_queryset_by_access_level(
+            Insight.objects.filter(team_id=self.team_id, id=alert.insight_id)
+        ).exists()
+        if not viewable:
+            return None
+        if _token_lacks_metrics_scope(self.request) and alert.insight.alertable_query_kind == NodeKind.METRICS_QUERY:
+            return None
+        return alert
 
     def perform_destroy(self, instance: AlertConfiguration) -> None:
         # Before the delete, while the destinations a firing's resolve goes to still exist.

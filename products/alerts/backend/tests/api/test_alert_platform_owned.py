@@ -286,6 +286,43 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         reasons = {"2026-10-18": "Before the move.", "2026-10-20": "After."}
         assert flags == tuple(EarlierFlag(date=date, rationale=reasons[date]) for date in dates)
 
+    def test_an_alert_insight_keeps_no_row_for_shows_from_the_platform(self) -> None:
+        threshold = self.alert.threshold
+        assert threshold is not None
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self._at(30))
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+        self._record(30, "firing", value=150.0)
+        self._record(20, "firing", value=160.0)
+        platform_testing.released_hold(
+            self.copy_id,
+            team_id=self.team.id,
+            at=self._at(30),
+            action=HoldRelease.SUPPRESS,
+            released_by=HoldReleasedBy.VERDICT,
+        )
+
+        response = self.client.get(f"{self.url}/{self.copy_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        row = response.json()
+        assert (row["id"], row["insight"]["id"], row["threshold"]["configuration"]) == (
+            str(self.copy_id),
+            self.alert.insight_id,
+            threshold.configuration,
+        )
+        assert (row["state"], row["last_value"], row["checks_total"]) == ("Firing", 160.0, 2)
+        assert [check["notification_suppressed_by_agent"] for check in row["checks"]] == [False, True]
+        assert not AlertConfiguration.objects.filter(team=self.team).exists()
+        # An alert with no insight row passes the same insight access gate as one with a row.
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: queryset.none(),
+        ):
+            hidden = self.client.get(f"{self.url}/{self.copy_id}/")
+        assert hidden.status_code == status.HTTP_404_NOT_FOUND
+
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)
 

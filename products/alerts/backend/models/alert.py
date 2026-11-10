@@ -248,6 +248,11 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return self.owner == PlatformAlertOwner.PLATFORM
 
     @property
+    def has_no_insight_row(self) -> bool:
+        """Whether `native_insight_alert` built this alert, because only the platform keeps it."""
+        return self._state.adding and self.platform_owned
+
+    @property
     def platform_owned_since(self) -> datetime | None:
         """When the platform took this alert over, or None while the insight stack owns it.
 
