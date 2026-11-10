@@ -14176,6 +14176,10 @@ snapshots:
         hash: v1.k794b7964.b1c1b75d027a0a926cdc0424a10a5f5d1bd96e48acbc20b11bce8049c4b65a58.IT2eJkyQ6aECvND9TpLScJ8akuX9aqYU0y5y32x2vOk
     scenes-app-marketing-analytics-source-onboarding--dashboard-checking-connections-with-search--light:
         hash: v1.k794b7964.39fd8f3e9f0039054ede371bfa46a0cc0b4a8fc6a5b509134152e4d2b02c85a1.tDz2Fjon1naN4s2xDQwLcH6SDQsqlrKx75tAwHqN2tc
+    scenes-app-marketing-analytics-source-onboarding--dashboard-cost-chart-by-campaign-on-live-data--dark:
+        hash: v1.k794b7964.9a296d167fdd0760df255cfe9dacb4708d665e247ee816def8ce6476d733c60b.CEkKK73llvscdJUMfjkGwPP9UulB75Mty4PJZBQ83OU
+    scenes-app-marketing-analytics-source-onboarding--dashboard-cost-chart-by-campaign-on-live-data--light:
+        hash: v1.k794b7964.93e3215e4347f89cc44ba918a65b251f3ca211d3f913364888cecf08d8773222.2JUPNZJAcWJfhh2aZhkh6uxtL-9ftwc0wQkny0qMEvY
     scenes-app-marketing-analytics-source-onboarding--dashboard-no-detections-with-search--dark:
         hash: v1.k794b7964.37897bbe50648d8322028d958957560e3d89300a31fef4911b0109f27440d126.CPqBzOsFmt59himG8Y_M3Vuikm9zgOO0Rce168V1clk
     scenes-app-marketing-analytics-source-onboarding--dashboard-no-detections-with-search--light:
