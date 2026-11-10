@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
     mat_metadata_backend Nullable(String),
     mat_metadata_loggedIn Nullable(Bool),
+    channel_type LowCardinality(String),
 
     -- Aggregate states: unique persons, unique sessions and total pageviews.
     persons_uniq_state AggregateFunction(uniq, UUID),
@@ -121,7 +122,8 @@ ORDER BY (
     has_gad_source_paid_search,
     has_fbclid,
     mat_metadata_backend,
-    mat_metadata_loggedIn
+    mat_metadata_loggedIn,
+    channel_type
 )
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
