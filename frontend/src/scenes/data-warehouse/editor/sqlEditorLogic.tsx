@@ -164,7 +164,6 @@ import {
     queryHistorySuggestionOnRejectText,
 } from './suggestions/queryHistorySuggestion'
 import { updateViewLabel } from './updateViewLabel'
-import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
     tabId: string
