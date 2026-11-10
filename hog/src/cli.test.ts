@@ -96,6 +96,7 @@ describe('hog', () => {
             scopes: ['query:read'],
         })
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
+            'setup',
             'auth login',
             'auth add',
             'auth logout',

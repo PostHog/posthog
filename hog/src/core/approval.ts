@@ -38,6 +38,8 @@ export type PollOutcome<Value> =
 export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     // The command that starts it, like `hog auth login`. `<command> --wait` resumes it.
     command: string
+    // The command that resumes it instead, for a command that starts and resumes with the same call.
+    resume?: string
     // What the person approves, in copy and in error codes, like `login`.
     noun: string
     // The command to start over after a rejection or expiry, when `command` alone can't ask for the
@@ -64,8 +66,12 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
 // What resuming a pending item needs. It can't start a new one.
 export type ApprovalWait<Pending extends PendingApproval, Value> = Pick<
     ApprovalFlow<Pending, Value>,
-    'command' | 'noun' | 'pending' | 'poll' | 'maxWaitMs' | 'checkResumable' | 'restart'
+    'command' | 'resume' | 'noun' | 'pending' | 'poll' | 'maxWaitMs' | 'checkResumable' | 'restart'
 >
+
+function resumeCommand(flow: Pick<ApprovalWait<PendingApproval, unknown>, 'command' | 'resume'>): string {
+    return flow.resume ?? `${flow.command} --wait`
+}
 
 export type ApprovalResult<Value> =
     | {
@@ -111,13 +117,23 @@ export async function clearPending(runtime: Runtime, command: string): Promise<v
     await runtime.removeFile(pendingPath(runtime, command))
 }
 
+export async function reusablePending<Pending extends PendingApproval, Value>(
+    runtime: Runtime,
+    flow: ApprovalFlow<Pending, Value>
+): Promise<Pending | undefined> {
+    const existing = await readPending(runtime, flow)
+    return existing && existing.expiresAt - runtime.now() > REUSE_MARGIN_MS && flow.reuse?.(existing)
+        ? existing
+        : undefined
+}
+
 // A new start replaces the command's pending item, unless the flow can reuse it.
 async function startPending<Pending extends PendingApproval, Value>(
     runtime: Runtime,
     flow: ApprovalFlow<Pending, Value>
 ): Promise<Pending> {
-    const existing = await readPending(runtime, flow)
-    if (existing && existing.expiresAt - runtime.now() > REUSE_MARGIN_MS && flow.reuse?.(existing)) {
+    const existing = await reusablePending(runtime, flow)
+    if (existing) {
         const current = flow.refresh ? await flow.refresh(existing) : existing
         if (current) {
             await runtime.writePrivateFile(pendingPath(runtime, flow.command), JSON.stringify(current))
@@ -141,7 +157,7 @@ async function waitFor<Pending extends PendingApproval, Value>(
         new HogError(
             `${errorCode(flow.noun)}_interrupted`,
             `hog lost contact with PostHog while waiting for the ${flow.noun}: ${reason}`,
-            `Run \`${flow.command} --wait\` to keep waiting. The link stays the same.`
+            `Run \`${resumeCommand(flow)}\` to keep waiting. The link stays the same.`
         )
     const fail = async (error: HogError): Promise<never> => {
         await clearPending(runtime, flow.command)
@@ -156,7 +172,7 @@ async function waitFor<Pending extends PendingApproval, Value>(
             throw new HogError(
                 `${errorCode(flow.noun)}_still_pending`,
                 `The ${flow.noun} is still waiting for approval.`,
-                `Run \`${flow.command} --wait\` again later. The link stays the same.`
+                `Run \`${resumeCommand(flow)}\` again later. The link stays the same.`
             )
         }
         await runtime.sleep(intervalSeconds * 1000)
@@ -249,7 +265,7 @@ function expired<Pending extends PendingApproval>(
 }
 
 function pendingResult<Pending extends PendingApproval>(
-    flow: Pick<ApprovalFlow<Pending, unknown>, 'command' | 'approver'>,
+    flow: Pick<ApprovalFlow<Pending, unknown>, 'command' | 'resume' | 'approver'>,
     pending: Pending
 ): Extract<ApprovalResult<never>, { status: 'pending' }> {
     const code = pending.userCode ?? null
@@ -264,8 +280,8 @@ function pendingResult<Pending extends PendingApproval>(
         url: pending.url,
         code,
         expiresAt: new Date(pending.expiresAt).toISOString(),
-        instructions: `Ask the user to ${approve}. Then run \`${flow.command} --wait\`, which returns once they approve. If it times out, run it again.`,
-        next: `${flow.command} --wait`,
+        instructions: `Ask the user to ${approve}. Then run \`${resumeCommand(flow)}\`, which returns once they approve. If it times out, run it again.`,
+        next: resumeCommand(flow),
         ...(approver ? { approver: approver.who, approverNames: approver.names } : {}),
     }
 }
@@ -316,6 +332,21 @@ export async function runApproval<Pending extends PendingApproval, Value>(
         opened ? 'Waiting for you to approve in the browser' : 'Open the link above to approve. Waiting'
     )
     return { status: 'approved', value: await withSpinner(spinner, flow.noun, waitFor(runtime, flow, pending)) }
+}
+
+// For a command that both starts and finishes an approval, like `hog setup next`: an agent's first
+// call gets the link, and its next call waits for the item the flow can reuse. A person at the
+// terminal waits in `runApproval` either way.
+export async function continueApproval<Pending extends PendingApproval, Value>(
+    ctx: Context,
+    flow: ApprovalFlow<Pending, Value>
+): Promise<ApprovalResult<Value>> {
+    const existing = ctx.prompts ? undefined : await reusablePending(ctx.runtime, flow)
+    if (!existing) {
+        return runApproval(ctx, flow)
+    }
+    flow.checkResumable?.(existing)
+    return { status: 'approved', value: await waitFor(ctx.runtime, flow, existing) }
 }
 
 // `<command> --wait`: resumes the command's pending item. It takes no ID, because the item is on disk.

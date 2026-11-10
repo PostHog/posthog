@@ -13,6 +13,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 
 | Command                                   | Status                                                                                                                   |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `hog setup`, `hog setup next`             | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).        |
 | `hog auth login`                          | Logs in through the browser to one project, and names it in `posthog.json`. Agents finish with `hog auth login --wait`.  |
 | `hog auth add <scope...>`                 | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                            |
 | `hog auth status`                         | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key. |
@@ -81,6 +82,29 @@ Not planned:
 
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
 Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
+
+## Setup
+
+`hog setup` shows where the setup of this folder is, and changes nothing.
+`hog setup next` does the current step, keeps going through every step hog can do alone, and stops at the first one that needs a person or the agent.
+Its output names what to do next: a command to run, questions to ask the user, skill files to read, or a login to approve.
+Agents get JSON: `{ step, status, code, done, next: { kind, command, ask, read, instructions }, context }`, where `next.kind` is `run`, `ask_user`, `read`, `wait` or `done`.
+
+| Step        | `hog setup next`                                                                                                                                   | Done when                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `purpose`   | Asks why you are adding PostHog, which products interest you, and the region. Agents pass `--reason`, `--products a,b` (or `none`) and `--region`. | The answers are stored                        |
+| `login`     | Starts a browser login to the region's host, where new users can sign up, and returns. The next `hog setup next` waits for the approval.           | A login for this folder's host and project    |
+| `project`   | Names the project in `posthog.json`.                                                                                                               | Always, once it ran                           |
+| `agents-md` | Adds a note to `AGENTS.md`, and to `CLAUDE.md` when it doesn't import `AGENTS.md`, so a later session continues the setup.                         | Always, once it ran                           |
+| `install`   | Returns the project token and host, and the two `hog learn` commands that read the install skill and its rules.                                    | Both files were read, and `next` ran after it |
+| `review`    | Asks the agent to check its changes against the rules.                                                                                             | `--reviewed`                                  |
+| `verify`    | Looks for events PostHog received since the setup started. Exits with code 1 while there are none.                                                 | An event arrived                              |
+| `connected` | Rewrites the note in `AGENTS.md` with the commands for later PostHog work. From then on `hog setup` shows a summary.                               | Always                                        |
+
+The setup belongs to the folder of the closest `posthog.json`, or to the working folder when there is none, so each app in a monorepo has its own.
+hog keeps the answers, the start time, the skill files `hog learn` served in that folder and the finished steps in `~/.posthog/setup/`, one file per folder. It checks everything else on each run.
+Without that file, as in a fresh clone, hog starts at the first step it can't prove done, and a clone whose `AGENTS.md` has the final note counts as set up.
+The note sits between `<!-- posthog:setup:start -->` and `<!-- posthog:setup:end -->`, and hog never changes anything outside the markers.
 
 ## Agent skills
 

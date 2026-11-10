@@ -71,6 +71,15 @@ export class Context {
         return run
     }
 
+    // Forgets posthog.json and the credentials, after the command wrote either one, so the next call
+    // reads them again. The telemetry for this run then belongs to the new login.
+    reload(): void {
+        this.loaded = undefined
+        this.credentialsRequest = undefined
+        this.keySession = undefined
+        this.api = undefined
+    }
+
     // The nearest posthog.json, or undefined when there is none. Throws `invalid_config` when it
     // doesn't match the schema.
     config(): Promise<LoadedConfig | undefined> {

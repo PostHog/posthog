@@ -8,14 +8,14 @@ import { chooseLogin, ProjectMismatch, type LoginChoice, type LoginQuery } from 
 import { loginStorage, readLogin } from '@/posthog/login/stored'
 
 import { MemoryKeyStorage, PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
-import { cloudRegion, hostKey, parseHost, REGIONS, type Host } from './host'
+import { cloudRegion, hostKey, INGESTION_HOSTS, parseHost, REGIONS, type Host } from './host'
 import { parseProjectId, type ProjectId } from './ids'
 import { loginsFor, readSettings } from './settings'
 import { parsePersonalApiKey } from './tokens'
 import { exchangeWorkloadToken } from './workload'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
-export const DEFAULT_HOST = parseHost('https://us.i.posthog.com')
+export const DEFAULT_HOST = INGESTION_HOSTS.us
 
 export type Credentials = { key: AccessKey } & (
     | { source: 'env'; storage: null }

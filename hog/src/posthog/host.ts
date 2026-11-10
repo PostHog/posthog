@@ -43,7 +43,24 @@ export function parseHost(raw: unknown, failure?: Partial<ParseFailure>): Host {
     return parseOrThrow(HostSchema, raw, { code: 'invalid_host', ...failure })
 }
 
-export const REGIONS = { us: parseHost('https://us.posthog.com'), eu: parseHost('https://eu.posthog.com') }
+export const REGION_IDS = ['us', 'eu'] as const
+
+export type RegionId = (typeof REGION_IDS)[number]
+
+export const REGIONS: Record<RegionId, Host> = {
+    us: parseHost('https://us.posthog.com'),
+    eu: parseHost('https://eu.posthog.com'),
+}
+
+// Where the SDKs send events for each PostHog Cloud region. It is not the app's host.
+export const INGESTION_HOSTS: Record<RegionId, Host> = {
+    us: parseHost('https://us.i.posthog.com'),
+    eu: parseHost('https://eu.i.posthog.com'),
+}
+
+export function regionOf(host: Host | undefined): RegionId | undefined {
+    return host === undefined ? undefined : REGION_IDS.find((id) => sameHost(REGIONS[id], host))
+}
 
 // A posthog.json comes with the repository, so it only picks between the PostHog Cloud regions. Any
 // other host needs --host or HOG_HOST, so a repository can't send a person's login or a CI job's

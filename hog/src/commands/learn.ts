@@ -136,6 +136,10 @@ export default defineCommand({
         if (!result.ok) {
             throw toHogError(result.error)
         }
+        if (result.value.reads.length > 0) {
+            const { recordSkillReads } = await import('@/setup/state')
+            await recordSkillReads(ctx, result.value.reads)
+        }
         return result.value
     },
 

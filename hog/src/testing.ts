@@ -60,6 +60,8 @@ function fakePrompts(answers: string[]): Prompts {
     }
     return {
         select: (message) => next(message) as never,
+        // The answer lists the values picked, separated by commas.
+        multiselect: async (message) => (await next(message)).split(',').filter(Boolean) as never,
         text: (message) => next(message),
         password: (message) => next(message),
         confirm: async (message) => (await next(message)) === 'yes',

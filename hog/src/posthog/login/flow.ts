@@ -17,7 +17,10 @@ import { readLogin, writeLogin } from './stored'
 
 export const LOGIN_COMMAND = 'hog auth login'
 export const ADD_COMMAND = 'hog auth add'
-const LOGIN_COMMANDS = [LOGIN_COMMAND, ADD_COMMAND]
+// `hog setup next` keeps its own pending login, so a link `hog auth login` left unapproved never
+// stands in for the one setup hands the agent, and its hints name setup.
+export const SETUP_COMMAND = 'hog setup next'
+const LOGIN_COMMANDS = [LOGIN_COMMAND, ADD_COMMAND, SETUP_COMMAND]
 
 // A login approved later must not replace a newer login, or one removed by logout, through `--wait`.
 export async function clearPendingLogins(runtime: Runtime): Promise<void> {
@@ -44,6 +47,7 @@ function sameScopes(a: readonly string[], b: readonly string[]): boolean {
 export function loginWait(runtime: Runtime, command = LOGIN_COMMAND): ApprovalWait<PendingLogin, OAuthLogin> {
     return {
         command,
+        resume: command === SETUP_COMMAND ? SETUP_COMMAND : undefined,
         noun: 'login',
         pending: PendingLoginSchema,
         // `hog auth add` with no scopes is a usage error, so starting over has to name them.

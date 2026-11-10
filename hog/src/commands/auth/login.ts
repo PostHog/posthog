@@ -1,89 +1,31 @@
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import { CONFIG_FILE, updateConfig } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
-import type { StoreChoice } from '@/posthog/credential-store/types'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
 import { cloudRegion, HostSchema, parseHost, REGIONS } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
-import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
+import { finishLogin, type FinishedLogin } from '@/posthog/login/finish'
+import { LOGIN_COMMAND, loginFlow, loginWait } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
-interface NamedIn {
-    path: string
-    status: 'created' | 'updated' | 'unchanged' | 'failed'
-    // Why hog couldn't write the file. Null unless `status` is failed.
-    error: string | null
-}
-
-type LoginResult =
-    | (PendingResult & { host: string })
-    | {
-          status: 'logged_in'
-          host: string
-          projectId: string
-          store: StoreChoice
-          credentialsPath: string | null
-          keychainError: string | null
-          // What the login may do, as PostHog reports it.
-          scopes: string[] | null
-          // ISO 8601, for an OAuth login. hog renews the token before then.
-          expiresAt: string | null
-          config: NamedIn
-          next: string
-      }
+type LoginResult = (PendingResult & { host: string }) | (FinishedLogin & { next: string })
 
 function nextCommand(scopes: readonly string[] | null): string {
     const canQuery = scopes?.some((scope) => scope === '*' || scope.startsWith('query:')) ?? false
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
-// Commands pick a login from the closest posthog.json, so the login names itself there. The file in
-// this folder or above it keeps its other settings, and a new one goes in this folder.
-// The login is already saved, so a file hog can't write only warns.
-async function nameInConfig(ctx: Context, { host, projectId }: LoggedIn): Promise<NamedIn> {
-    const loaded = await ctx.config()
-    const named = loaded?.config.projectId
-    if (loaded && loaded.config.host === host && named !== undefined && parseProjectId(named) === projectId) {
-        return { path: loaded.path, status: 'unchanged', error: null }
-    }
-    const path = loaded?.path ?? join(ctx.runtime.cwd(), CONFIG_FILE)
-    try {
-        await updateConfig(ctx.runtime, loaded, (raw) => {
-            raw.host = host
-            raw.projectId = Number(projectId)
-        })
-    } catch (error) {
-        return { path, status: 'failed', error: error instanceof Error ? error.message : String(error) }
-    }
-    return { path, status: loaded ? 'updated' : 'created', error: null }
-}
-
 async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
-    const loggedIn = await saveLogin(ctx.runtime, key)
-    const config = await nameInConfig(ctx, loggedIn)
-    const { host, projectId, store, credentialsPath, keychainError, status } = loggedIn
-    const { scopes, expiresAt } = status
-    return {
-        status: 'logged_in',
-        host,
-        projectId,
-        store,
-        credentialsPath,
-        keychainError,
-        scopes,
-        expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
-        config,
-        next: nextCommand(scopes),
-    }
+    const finished = await finishLogin(ctx, key)
+    return { ...finished, next: nextCommand(finished.scopes) }
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
