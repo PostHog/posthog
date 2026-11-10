@@ -135,6 +135,13 @@ class StorageBackend(Protocol):
 
     def delete(self, scope: RowScope, *, team_id: int, id: int) -> None: ...
 
+    def change_external_id(self, scope: RowScope, *, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        """Give the row another external id under a row lock.
+
+        Raises `IntegrationConflict` when the team has a row of the kind with that external id, in any scope.
+        """
+        ...
+
     def update_by_external_id(self, scope: RowScope, *, external_id: str, patch: IntegrationPatch) -> int:
         """Apply the patch to the rows of every team with this external id. Returns how many rows changed."""
         ...
