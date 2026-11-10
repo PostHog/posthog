@@ -6,7 +6,7 @@ warehouse source sync warnings, which every query surface (the UI, PostHog AI, M
 """
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db.models import OuterRef, Subquery
 
@@ -17,9 +17,10 @@ from posthog.schema import DataWarehouseSyncWarning
 from posthog.utils import ensure_utc
 
 from products.data_modeling.backend.logic.freshness import humanize_cadence
-from products.data_modeling.backend.logic.node_frequency import declared_targets_by_saved_query
+from products.data_modeling.backend.logic.node_frequency import scheduled_cadences_by_node
 from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import Node
 
 # Matches the warehouse source rule in products/data_warehouse/backend/sync_status.py, so a view
 # and a source table read as late at the same point relative to their cadence.
@@ -31,10 +32,10 @@ VIEW_STATUS_STALE = "Stale"
 def view_freshness_warnings(
     team_id: int, saved_query_ids: Iterable[str], *, now: datetime
 ) -> dict[str, DataWarehouseSyncWarning]:
-    """Warnings keyed by saved query id, for each materialized view older than twice its cadence.
+    """Warnings keyed by saved query id, for each materialized view that is late or failed its latest refresh.
 
-    A view with no cadence or no successful materialization gets no warning, because nothing
-    says when it should have refreshed.
+    Late means older than twice its cadence. A view with no successful materialization gets no
+    warning, because no stored result exists to describe.
     """
     ids = sorted(set(saved_query_ids))
     if not ids:
@@ -54,30 +55,34 @@ def view_freshness_warnings(
         )
         .only("id", "name", "last_run_at", "sync_frequency_interval")
     )
-    targets = declared_targets_by_saved_query(team_id, ids)
+    cadences = _scheduled_cadences(team_id, ids)
 
     warnings: dict[str, DataWarehouseSyncWarning] = {}
     for view in views:
         view_id = str(view.pk)
-        # v2 teams keep the cadence on the DAG node and leave the saved query's interval NULL.
-        interval = targets.get(view_id) or view.sync_frequency_interval
+        # v2 teams keep the cadence on the DAG and leave the saved query's interval NULL.
+        interval = cadences.get(view_id) or view.sync_frequency_interval
         # The v2 DAG records success on DataModelingJob and never writes saved_query.last_run_at.
         candidates = [ts for ts in (view.latest_success_at, view.last_run_at) if ts is not None]
-        if interval is None or not candidates:
+        if not candidates:
             continue
         materialized_at = ensure_utc(max(candidates))
-        if now - materialized_at <= interval * STALE_MULTIPLIER:
+        late = interval is not None and now - materialized_at > interval * STALE_MULTIPLIER
+        failed = view.latest_attempt_status == DataModelingJobStatus.FAILED
+        if not late and not failed:
             continue
 
         ago = humanize.naturaltime(now - materialized_at)
         status: str
-        if view.latest_attempt_status == DataModelingJobStatus.FAILED:
+        if failed:
             status, message = DataModelingJobStatus.FAILED.value, _failed_view_message(view.name, ago=ago)
-        else:
+        elif interval is not None:
             status, message = (
                 VIEW_STATUS_STALE,
                 _stale_view_message(view.name, ago=ago, cadence=humanize_cadence(interval)),
             )
+        else:
+            continue
         warnings[view_id] = DataWarehouseSyncWarning(
             table_name=view.name,
             schema_name=view.name,
@@ -85,9 +90,31 @@ def view_freshness_warnings(
             source_id=None,
             status=status,
             message=message,
-            data_is_current=False,
+            # A failed refresh inside the window still serves current data, so "out of date" surfaces skip it.
+            data_is_current=interval is not None and not late,
         )
     return warnings
+
+
+def _scheduled_cadences(team_id: int, saved_query_ids: list[str]) -> dict[str, timedelta]:
+    """The cadence the scheduler refreshes each view at, keyed by saved query id.
+
+    This includes a cadence a view inherits from the nodes that read it, which no declared target
+    shows. A view on several nodes takes the finest cadence, since that is how often it refreshes.
+    """
+    nodes = list(
+        Node.objects.filter(team_id=team_id, saved_query_id__in=saved_query_ids).only("id", "dag_id", "saved_query_id")
+    )
+    if not nodes:
+        return {}
+    by_node = scheduled_cadences_by_node(team_id, {node.dag_id for node in nodes})
+    finest: dict[str, timedelta] = {}
+    for node in nodes:
+        cadence = by_node.get(str(node.id))
+        query_id = str(node.saved_query_id)
+        if cadence is not None and (query_id not in finest or cadence < finest[query_id]):
+            finest[query_id] = cadence
+    return finest
 
 
 def _stale_view_message(view_name: str, *, ago: str, cadence: str) -> str:
