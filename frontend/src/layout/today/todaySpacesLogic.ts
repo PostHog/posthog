@@ -85,6 +85,10 @@ function recentTasksParams(userId: number): TasksListParams {
     }
 }
 
+function pageOffsets(total: number, pageSize: number): number[] {
+    return Array.from({ length: Math.ceil(total / pageSize) }, (_, index) => index * pageSize)
+}
+
 export type TodayWorkSectionId = 'pinned' | 'recent'
 
 export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter' | 'chat'
@@ -443,20 +447,25 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     if (!values.currentTeamId || !values.user) {
                         return []
                     }
+                    const teamId = String(values.currentTeamId)
+                    const params = recentTasksParams(values.user.id)
                     const requested = Math.max(RECENT_SESSION_LIMIT, values.recentTasks.length)
-                    const fetched: TaskListItemApi[] = []
-                    let fetchedHasMore = true
-                    while (fetchedHasMore && fetched.length < requested) {
-                        const response = await tasksList(String(values.currentTeamId), {
-                            ...recentTasksParams(values.user.id),
-                            limit: Math.min(TASKS_PAGE_LIMIT, requested - fetched.length),
-                            offset: fetched.length,
-                        })
-                        // A slower earlier reply must not overwrite what a newer refresh already returned.
-                        breakpoint()
-                        fetched.push(...response.results)
-                        fetchedHasMore = !!response.next && response.results.length > 0
-                    }
+                    const responses = await Promise.all(
+                        pageOffsets(requested, TASKS_PAGE_LIMIT).map((offset) =>
+                            tasksList(teamId, {
+                                ...params,
+                                limit: Math.min(TASKS_PAGE_LIMIT, requested - offset),
+                                offset,
+                            })
+                        )
+                    )
+                    // A slower earlier reply must not overwrite what a newer refresh already returned.
+                    breakpoint()
+                    const fetched = appendRecentTasks(
+                        [],
+                        responses.flatMap((response) => response.results)
+                    )
+                    const fetchedHasMore = !!responses[responses.length - 1].next
                     const refreshed = refreshRecentTasks(
                         fetched,
                         fetchedHasMore,
@@ -721,8 +730,17 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 return
             }
             try {
-                const response = await tasksSummariesCreate(String(values.currentTeamId), { ids: sessionIds })
-                actions.setPullRequestStates(pullRequestStates(response.results))
+                const teamId = String(values.currentTeamId)
+                const responses = await Promise.all(
+                    pageOffsets(sessionIds.length, TASKS_PAGE_LIMIT).map((offset) =>
+                        tasksSummariesCreate(
+                            teamId,
+                            { ids: sessionIds.slice(offset, offset + TASKS_PAGE_LIMIT) },
+                            { limit: TASKS_PAGE_LIMIT }
+                        )
+                    )
+                )
+                actions.setPullRequestStates(pullRequestStates(responses.flatMap((response) => response.results)))
             } catch {
                 // A failed lookup only leaves the chips neutral, so it stays quiet.
             }
@@ -745,7 +763,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadSpaces()
         actions.loadPinnedTasks()
         // A disposable rather than a plain afterMount load, so setup runs again on each return to the tab.
@@ -753,7 +771,11 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             if (recentRefreshIsDue(cache.recentTasksLoadedAt)) {
                 actions.loadRecentTasks()
             }
-            const pollTimer = window.setInterval(() => actions.loadRecentTasks(), RECENT_REFRESH_INTERVAL_MS)
+            const pollTimer = window.setInterval(() => {
+                if (!values.recentTasksLoading) {
+                    actions.loadRecentTasks()
+                }
+            }, RECENT_REFRESH_INTERVAL_MS)
             return () => clearInterval(pollTimer)
         }, 'recentTasksPoll')
     }),

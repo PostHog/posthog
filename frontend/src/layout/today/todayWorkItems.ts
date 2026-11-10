@@ -288,11 +288,10 @@ export function refreshRecentTasks(
     currentHasMore: boolean,
     requested: number
 ): TodayRecentTasksPage {
-    const loadedSince = current.slice(requested)
-    if (!fetchedHasMore || loadedSince.length === 0) {
+    if (!fetchedHasMore || current.length <= requested) {
         return { tasks: fetched, hasMore: fetchedHasMore }
     }
-    return { tasks: appendRecentTasks(fetched, loadedSince), hasMore: currentHasMore }
+    return { tasks: appendRecentTasks(fetched, current), hasMore: currentHasMore }
 }
 
 export function appendRecentTasks(loaded: TaskListItemApi[], page: TaskListItemApi[]): TaskListItemApi[] {

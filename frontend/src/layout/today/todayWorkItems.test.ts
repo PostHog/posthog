@@ -97,7 +97,15 @@ describe('todayWorkItems', () => {
 
     it.each<[string, string[], boolean, string[], number, string[], boolean]>([
         ['drops a session archived out of the loaded range', ['x', 'b'], true, ['a', 'b'], 2, ['x', 'b'], true],
-        ['keeps a page loaded while the refresh ran', ['x', 'a'], true, ['a', 'b', 'c'], 2, ['x', 'a', 'c'], false],
+        [
+            'keeps every row when a page loaded while the refresh ran',
+            ['x', 'a'],
+            true,
+            ['a', 'b', 'c'],
+            2,
+            ['x', 'a', 'b', 'c'],
+            false,
+        ],
         ['replaces the list once the fetch holds everything', ['x', 'a'], false, ['a', 'b', 'c'], 2, ['x', 'a'], false],
     ])(
         'a refresh of Recent %s',
