@@ -10,16 +10,15 @@ const Dose = z.union([
     z.object({ share: z.number().gt(0).max(1) }).strict(),
 ])
 
-const SesReject = z
+export const CardFault = z
     .object({
         name: z.literal('ses.reject'),
         params: z.object({ type: z.literal('rejected') }).strict(),
+        match: Match.optional(),
+        dose: Dose,
+        for: Duration.optional(),
     })
     .strict()
-
-const Dosing = { match: Match.optional(), dose: Dose, for: Duration.optional() }
-
-export const CardFault = z.discriminatedUnion('name', [SesReject.extend(Dosing)])
 export type CardFault = z.infer<typeof CardFault>
 
 export type SesStatusAnswer = { status: number; type: string; message: string }
