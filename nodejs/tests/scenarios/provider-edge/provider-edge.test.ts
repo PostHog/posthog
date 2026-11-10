@@ -1,5 +1,6 @@
 import { ProviderEdge, TruthPage, startProviderEdge } from '.'
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import http from 'http'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -96,14 +97,33 @@ describe('provider edge', () => {
         expect((await truth()).records[0].detail.message?.tracked).toBeUndefined()
     })
 
-    it('answers a send it cannot read with a 400 and keeps serving', async () => {
+    it('records a send whose address list is not a list as a 400', async () => {
         const { status } = await call('POST', '/v2/email/outbound-emails', {
             Destination: { ToAddresses: 'not-a-list' },
             Content: { Simple: { Subject: { Data: 'Hello' } } },
         })
 
         expect(status).toBe(400)
+        expect((await truth()).records).toEqual([
+            expect.objectContaining({ status: 400, detail: { error: 'Every address list needs to be a list.' } }),
+        ])
+    })
+
+    it('keeps serving after a client aborts its upload', async () => {
+        await new Promise<void>((resolve) => {
+            const upload = http.request(`${edge.url}/_faults`, {
+                method: 'POST',
+                headers: { 'content-length': '1000' },
+            })
+            upload.on('error', () => resolve())
+            upload.write('{"name"', () => upload.destroy())
+        })
+
         expect((await call('GET', '/_health')).json).toEqual({ ok: true })
+    })
+
+    it('rejects startup on a port another listener holds', async () => {
+        await expect(startProviderEdge({ port: Number(new URL(edge.url).port) })).rejects.toThrow('EADDRINUSE')
     })
 
     it('correlates and matches a recipient with a display name by its bare address', async () => {

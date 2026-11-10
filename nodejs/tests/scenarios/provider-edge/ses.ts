@@ -38,6 +38,10 @@ function isNameValueList(entries: unknown): entries is NameValueList | undefined
     )
 }
 
+function isAddressList(addresses: unknown): addresses is string[] | undefined {
+    return addresses === undefined || (Array.isArray(addresses) && addresses.every((a) => typeof a === 'string'))
+}
+
 function toRecord(entries: NameValueList | undefined): Record<string, string> {
     return Object.fromEntries((entries ?? []).map(({ Name, Value }) => [Name, Value]))
 }
@@ -84,6 +88,18 @@ export function readSendEmail(
                 type: 'BadRequestException',
                 message: 'Every tag and header needs a Name and a Value.',
             },
+        }
+    }
+    const destination = request.Destination
+    const addressLists = [
+        destination?.ToAddresses,
+        destination?.CcAddresses,
+        destination?.BccAddresses,
+        request.ReplyToAddresses,
+    ]
+    if (!addressLists.every(isAddressList)) {
+        return {
+            error: { status: 400, type: 'BadRequestException', message: 'Every address list needs to be a list.' },
         }
     }
     return {

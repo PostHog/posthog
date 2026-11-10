@@ -165,7 +165,13 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             )
         })
     })
-    await new Promise<void>((resolve) => server.listen(options.port, '127.0.0.1', resolve))
+    await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(options.port, '127.0.0.1', () => {
+            server.off('error', reject)
+            resolve()
+        })
+    })
     const { port } = server.address() as AddressInfo
 
     return {
