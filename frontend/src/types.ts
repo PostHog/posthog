@@ -2793,15 +2793,6 @@ export interface DashboardBasicType extends WithAccessControl {
     last_refresh?: string | null
 }
 
-export interface DashboardActivitySummary {
-    last_edited_at: string | null
-    last_edited_by: UserBasicType | null
-    last_edited_client: string | null
-    last_viewed_by_others_at: string | null
-    last_viewed_by_others_user: UserBasicType | null
-    recent_viewer_count: number
-}
-
 export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
     // matches on template name, description, and tags

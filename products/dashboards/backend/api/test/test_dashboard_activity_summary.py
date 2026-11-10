@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
-from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -14,7 +14,7 @@ from posthog.models.user import User
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
-@freeze_time("2026-11-09T12:00:00Z")
+@time_machine.travel("2026-11-09T12:00:00Z", tick=False)
 class TestDashboardActivitySummary(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

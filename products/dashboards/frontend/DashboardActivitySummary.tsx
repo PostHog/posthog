@@ -7,11 +7,12 @@ import { activityClientLabel } from 'lib/components/ActivityLog/activityClientLa
 import { dayjs } from 'lib/dayjs'
 import { fullNameOrEmail } from 'lib/utils/strings'
 
-import type { DashboardActivitySummary as DashboardActivitySummaryType, UserBasicType } from '~/types'
+import type { UserBasicType } from '~/types'
 
 import { dashboardActivitySummaryLogic } from './dashboardActivitySummaryLogic'
+import type { DashboardActivitySummaryApi, UserBasicApi } from './generated/api.schemas'
 
-function byUser(user: UserBasicType | null | undefined): string {
+function byUser(user: UserBasicType | UserBasicApi | null | undefined): string {
     return user ? ` by ${fullNameOrEmail(user)}` : ''
 }
 
@@ -22,7 +23,7 @@ function SummaryContent({
 }: {
     createdAt: string
     createdBy: UserBasicType | null
-    summary: DashboardActivitySummaryType
+    summary: DashboardActivitySummaryApi
 }): JSX.Element {
     return (
         <ul className="flex flex-col gap-1 py-1">

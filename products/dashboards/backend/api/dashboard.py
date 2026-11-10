@@ -4696,7 +4696,9 @@ class DashboardsViewSet(
         )
 
         views = FileSystemViewLog.objects.filter(team_id=self.team_id, type="dashboard", ref=str(dashboard.pk))
-        last_other_view = views.exclude(user_id=request.user.id).select_related("user").order_by("-viewed_at").first()
+        last_other_view = (
+            views.exclude(user_id=cast(User, request.user).id).select_related("user").order_by("-viewed_at").first()
+        )
         recent_viewer_count = views.filter(
             viewed_at__gte=now() - timedelta(days=ACTIVITY_SUMMARY_RECENT_VIEW_DAYS)
         ).count()
