@@ -19,13 +19,14 @@ import {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   type GatewayModel,
-  getCloudTaskGatewayUrl,
+  gatewayModelRowsFromTaskModels,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
   RESOLVE_REASON_OPTIONS,
   type ReportStateReason,
   type ResolveReasonOptionValue,
   resolveCloudInitialPermissionMode,
+  taskModelsUrl,
 } from "@posthog/shared";
 import type {
   ActionabilityJudgmentArtefact,
@@ -86,7 +87,6 @@ import type {
   WorkClaimArtefact,
   WorkReleaseArtefact,
 } from "@posthog/shared/domain-types";
-import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   spaceSetupInputSchema,
   spaceSetupStartedSchema,
@@ -2184,16 +2184,15 @@ export class PostHogAPIClient {
 
   async getCloudTaskGatewayModels(): Promise<GatewayModel[]> {
     const teamId = await this.getTeamId();
-    const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
+    const url = new URL(taskModelsUrl(this.apiHost, teamId));
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
       path: url.pathname,
-      parameters: {
-        header: buildPosthogProjectHeaderRecord(teamId),
-      },
     });
-    return normalizeGatewayModelsResponse(await response.json());
+    return normalizeGatewayModelsResponse(
+      gatewayModelRowsFromTaskModels(await response.json()),
+    );
   }
 
   async getCloudTaskConfigOptions(

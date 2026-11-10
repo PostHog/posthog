@@ -66,6 +66,8 @@ export {
   formatGatewayModelName,
   formatModelId,
   type GatewayModel,
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
@@ -85,6 +87,7 @@ export {
   normalizeGatewayModelsResponse,
   PAID_PLAN_REQUIRED_REASON,
   pickAllowedModel,
+  taskModelsUrl,
 } from "./cloud-task-models";
 export {
   type CustomCloud,

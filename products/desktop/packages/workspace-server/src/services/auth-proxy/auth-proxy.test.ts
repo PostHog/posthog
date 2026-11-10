@@ -189,7 +189,10 @@ describe("AuthProxyService legacy hardening", () => {
     };
     const logger = { ...scoped, scope: () => scoped } as unknown as RootLogger;
     service = new AuthProxyService(
-      { authenticatedFetch: authFetch } as AuthProxyAuth,
+      {
+        authenticatedFetch: authFetch,
+        apiHost: async () => "https://us.posthog.com",
+      } as AuthProxyAuth,
       logger,
     );
   });
@@ -498,7 +501,10 @@ describe("AuthProxyService gateway sessions", () => {
     };
     const logger = { ...scoped, scope: () => scoped } as unknown as RootLogger;
     service = new AuthProxyService(
-      { authenticatedFetch: authFetch } as AuthProxyAuth,
+      {
+        authenticatedFetch: authFetch,
+        apiHost: async () => "https://us.posthog.com",
+      } as AuthProxyAuth,
       logger,
       source as unknown as GatewayCredentialSource,
       goFetch,
@@ -1165,8 +1171,21 @@ describe("AuthProxyService gateway sessions", () => {
     );
   });
 
-  it("still lists models on the legacy gateway while blocked", async () => {
-    authFetch.mockResolvedValue(new Response('{"data":[]}'));
+  it("lists models from the Django catalog while blocked", async () => {
+    authFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          models: [
+            {
+              runtime_adapter: "claude",
+              model: "claude-opus-5-5",
+              context_window: 1000000,
+              allowed: true,
+            },
+          ],
+        }),
+      ),
+    );
     const proxyUrl = await session();
     source.getRoute.mockResolvedValue({
       mode: "blocked",
@@ -1177,10 +1196,12 @@ describe("AuthProxyService gateway sessions", () => {
 
     const res = await fetch(`${proxyUrl}/v1/models`);
 
-    expect(res.status).toBe(200);
     expect(authFetch.mock.calls[0][0]).toBe(
-      "https://gateway.us.posthog.com/posthog_code/v1/models",
+      "https://us.posthog.com/api/projects/42/tasks/models/",
     );
+    expect(await res.json()).toMatchObject({
+      data: [{ id: "claude-opus-5-5", owned_by: "anthropic" }],
+    });
   });
 
   const blocked = (reason: string, status: 401 | 402 | 403 | 429 | 503) => () =>
@@ -1295,28 +1316,7 @@ describe("AuthProxyService gateway sessions", () => {
     expect(res.headers["x-kept"]).toBe("1");
   });
 
-  it("strips Connection-named headers on the legacy models listing", async () => {
-    authFetch.mockResolvedValue(new Response("legacy"));
-    source.getRoute.mockResolvedValue({
-      mode: "blocked",
-      reason: "credit_bucket_exhausted",
-      detail: "limit",
-      status: 402,
-    });
-    const proxyUrl = await session();
-
-    await rawPost(`${proxyUrl}/v1/models`, {
-      connection: "close, x-hop",
-      "x-hop": "1",
-      "x-kept": "1",
-    });
-
-    const [, init] = authFetch.mock.calls[0];
-    expect(init.headers).not.toHaveProperty("x-hop");
-    expect(init.headers["x-kept"]).toBe("1");
-  });
-
-  it("refuses an upstream redirect on the legacy models listing", async () => {
+  it("refuses an upstream redirect on the Django models listing", async () => {
     authFetch.mockResolvedValue(
       new Response(null, {
         status: 302,

@@ -11,35 +11,52 @@ import {
   buildProviderModelGroups,
   DEFAULT_CODEX_MODEL,
   DEFAULT_GATEWAY_MODEL,
-  fetchGatewayModels,
   formatGatewayModelName,
-  type GatewayModel,
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
-  isAnthropicModel,
-  isCloudflareModel,
-  isOpenAIModel,
+  isClaudeAdapterModel,
+  isCodexAdapterModel,
+  normalizeGatewayModelsResponse,
+  taskModelsUrl,
 } from "@posthog/agent/gateway-models";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
+import type { AuthService } from "@posthog/core/auth/auth";
+import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
+import { resolveService } from "@posthog/di/container";
 import { type Adapter, customModelMeta } from "@posthog/shared";
+
+export async function fetchWebTaskModelRows(): Promise<GatewayModelRow[]> {
+  const auth = resolveService<AuthService>(AUTH_SERVICE);
+  const projectId = auth.getState().currentProjectId;
+  if (projectId === null) return [];
+  try {
+    const { apiHost } = await auth.getValidAccessToken();
+    const response = await auth.authenticatedFetch(
+      fetch,
+      taskModelsUrl(apiHost, projectId),
+    );
+    if (!response.ok) return [];
+    return gatewayModelRowsFromTaskModels(await response.json());
+  } catch {
+    return [];
+  }
+}
 
 // Web port of AgentService.getPreviewConfigOptions (workspace-server). The
 // desktop host runs this in the Node main process; the browser can run the exact
-// same logic because it's a plain fetch to the PostHog LLM gateway (CORS-open,
-// access-control-allow-origin: *) plus pure option-building. Kept here in the
+// same logic because it's an authenticated fetch of Django's tasks/models
+// catalog plus pure option-building. Kept here in the
 // host so the web router stays a thin forward and packages/* are untouched.
 export async function getWebPreviewConfigOptions(
-  apiHost: string,
   adapter: Adapter = "claude",
   allHarnessModels = false,
 ): Promise<SessionConfigOption[]> {
-  const gatewayUrl = getLlmGatewayUrl(apiHost);
-  const gatewayModels = await fetchGatewayModels({ gatewayUrl });
+  const gatewayModels = normalizeGatewayModelsResponse(
+    await fetchWebTaskModelRows(),
+  );
 
   const modelFilter =
-    adapter === "codex"
-      ? isOpenAIModel
-      : (model: GatewayModel) =>
-          isAnthropicModel(model) || isCloudflareModel(model);
+    adapter === "codex" ? isCodexAdapterModel : isClaudeAdapterModel;
 
   const modelOptions: SessionConfigSelectOption[] = gatewayModels
     .filter((model) => modelFilter(model))

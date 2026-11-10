@@ -858,10 +858,10 @@ container
   .toConstantValue(createWebSpeechUserName(queryClient));
 container.bind(SPEECH_NOTIFY_SETTINGS).toConstantValue(webSpeechNotifySettings);
 
-// ── Inbox: resolve the default cloud-run model from the LLM gateway ──
+// ── Inbox: resolve the default cloud-run model from the model catalog ──
 // Host capability consumed by UI hooks (canvas/home/inbox) that create cloud
 // runs. Same logic as desktop-services.ts, over the web host router's
-// getPreviewConfigOptions (backed by the CORS-open gateway, web-agent-config.ts).
+// getPreviewConfigOptions (backed by Django's tasks/models, web-agent-config.ts).
 const reportModelResolverLog = scoped("report-model-resolver");
 container.bind(REPORT_MODEL_RESOLVER).toConstantValue({
   async resolveDefaultModel(

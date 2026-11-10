@@ -1155,25 +1155,21 @@ describe("PostHogAPIClient", () => {
     expect(request.body).toBe(JSON.stringify({}));
   });
 
-  it("builds cloud task config from the authenticated gateway catalog", async () => {
+  it("builds cloud task config from the Django model catalog", async () => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: [
+          models: [
             {
-              id: "claude-opus-4-8",
-              owned_by: "anthropic",
-              context_window: 200000,
-              supports_streaming: true,
-              supports_vision: true,
+              runtime_adapter: "claude",
+              model: "claude-opus-4-8",
+              context_window: 1000000,
               allowed: true,
             },
             {
-              id: "claude-fable-5",
-              owned_by: "anthropic",
-              context_window: 200000,
-              supports_streaming: true,
-              supports_vision: true,
+              runtime_adapter: "claude",
+              model: "claude-fable-5",
+              context_window: 1000000,
               allowed: false,
             },
           ],
@@ -1192,14 +1188,9 @@ describe("PostHogAPIClient", () => {
     const options = await client.getCloudTaskConfigOptions("claude");
 
     expect(fetch).toHaveBeenCalledWith(
-      new URL("https://gateway.eu.posthog.com/posthog_code/v1/models"),
-      expect.objectContaining({
-        method: "GET",
-        headers: expect.any(Headers),
-      }),
+      new URL("https://eu.posthog.com/api/projects/123/tasks/models/"),
+      expect.objectContaining({ method: "GET" }),
     );
-    const requestHeaders = fetch.mock.calls[0]?.[1]?.headers as Headers;
-    expect(requestHeaders.get("X-PostHog-Project-Id")).toBe("123");
     expect(options.find((option) => option.category === "model")).toMatchObject(
       {
         currentValue: "claude-opus-4-8",

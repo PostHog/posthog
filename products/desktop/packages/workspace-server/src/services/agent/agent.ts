@@ -44,8 +44,13 @@ import {
   getAvailableCodexModes,
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
-import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
+import {
+  fetchGatewayModels,
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
+  normalizeGatewayModelsResponse,
+  taskModelsUrl,
+} from "@posthog/agent/gateway-models";
 import {
   findPrUrls,
   wasCreatedByLogin,
@@ -59,7 +64,10 @@ import type * as AgentTypes from "@posthog/agent/types";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch } from "@posthog/git/queries";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
-import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import {
+  fetchPosthogPiModelCatalog,
+  resolvePosthogPiModelCatalog,
+} from "@posthog/harness/extensions/posthog-provider/model-catalog";
 import { buildTaskSystemPrompt } from "@posthog/harness/extensions/task-system-prompt";
 import { APP_META_SERVICE, type IAppMeta } from "@posthog/platform/app-meta";
 import {
@@ -2687,12 +2695,18 @@ For git operations while detached:
   }
 
   async getPiModelCatalog(apiHost: string, region: CloudRegion) {
-    const models = await this.catalogueSource(apiHost);
+    const source = await this.catalogueSource(apiHost);
+    if (source === null) {
+      return resolvePosthogPiModelCatalog(
+        await this.taskModelRows(apiHost),
+        region,
+      );
+    }
     return fetchPosthogPiModelCatalog(
-      models.gatewayUrl,
+      source.gatewayUrl,
       region,
-      models.authToken,
-      models.projectId,
+      source.authToken,
+      source.projectId,
     );
   }
 
@@ -2703,31 +2717,43 @@ For git operations while detached:
   private async catalogueSource(apiHost: string): Promise<{
     gatewayUrl: string;
     authToken: string | undefined;
-    projectId: number | undefined;
-  }> {
+    projectId: number;
+  } | null> {
     const projectId = this.agentAuthAdapter.gatewayProjectId();
+    if (projectId === null) return null;
     const authToken =
       (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined;
-    if (projectId !== null) {
-      try {
-        // The pickers keep no mode, so a due re-check runs in the background.
-        const proxy = await this.agentAuthAdapter.ensureGatewayProxy(
-          apiHost,
-          projectId,
-          { awaitRecheck: false },
-        );
-        return { gatewayUrl: proxy.proxyUrl, authToken, projectId };
-      } catch (err) {
-        this.log.warn("Gateway proxy unavailable for the model catalogue", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+    try {
+      // The pickers keep no mode, so a due re-check runs in the background.
+      const proxy = await this.agentAuthAdapter.ensureGatewayProxy(
+        apiHost,
+        projectId,
+        { awaitRecheck: false },
+      );
+      return { gatewayUrl: proxy.proxyUrl, authToken, projectId };
+    } catch (err) {
+      this.log.warn("Gateway proxy unavailable for the model catalogue", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
     }
-    return {
-      gatewayUrl: getLlmGatewayUrl(apiHost),
-      authToken,
-      projectId: projectId ?? undefined,
-    };
+  }
+
+  private async taskModelRows(apiHost: string): Promise<GatewayModelRow[]> {
+    const projectId = this.agentAuthAdapter.gatewayProjectId();
+    if (projectId === null) return [];
+    try {
+      const response = await this.agentAuthAdapter.authenticatedFetch(
+        taskModelsUrl(apiHost, projectId),
+      );
+      if (!response.ok) return [];
+      return gatewayModelRowsFromTaskModels(await response.json());
+    } catch (err) {
+      this.log.warn("Model catalogue fetch failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
   }
 
   async getPreviewConfigOptions(
@@ -2735,9 +2761,11 @@ For git operations while detached:
     adapter: Adapter = "claude",
     allHarnessModels = false,
   ): Promise<SessionConfigOption[]> {
-    const gatewayModels = await fetchGatewayModels(
-      await this.catalogueSource(apiHost),
-    );
+    const source = await this.catalogueSource(apiHost);
+    const gatewayModels =
+      source === null
+        ? normalizeGatewayModelsResponse(await this.taskModelRows(apiHost))
+        : await fetchGatewayModels(source);
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,
       adapter,

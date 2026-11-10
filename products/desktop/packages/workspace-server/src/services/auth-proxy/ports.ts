@@ -2,6 +2,7 @@ import type { GatewayBlockedStatus } from "@posthog/shared";
 
 export interface AuthProxyAuth {
   authenticatedFetch(url: string, init?: RequestInit): Promise<Response>;
+  apiHost(): Promise<string>;
 }
 
 export const AUTH_PROXY_PLACEHOLDER_CREDENTIAL = "posthog-code-auth-proxy";

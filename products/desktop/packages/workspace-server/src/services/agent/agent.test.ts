@@ -142,6 +142,12 @@ vi.mock("@posthog/agent/gateway-models", () => ({
   DEFAULT_GATEWAY_MODEL: "claude-opus-4-8",
   DEFAULT_CODEX_MODEL: "gpt-5.5",
   fetchGatewayModels: vi.fn().mockResolvedValue([]),
+  gatewayModelRowsFromTaskModels: vi.fn(() => []),
+  normalizeGatewayModelsResponse: vi.fn((rows) => rows),
+  taskModelsUrl: vi.fn(
+    (apiHost: string, projectId: number) =>
+      `${apiHost}/api/projects/${projectId}/tasks/models/`,
+  ),
   formatGatewayModelName: vi.fn((model) => model.id),
   getClaudeModelRecency: vi.fn(() => 0),
   getProviderName: vi.fn(),
@@ -225,6 +231,9 @@ function createMockDependencies() {
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayPublishToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayProjectId: vi.fn().mockReturnValue(1),
+      authenticatedFetch: vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ models: [] }))),
       ensureGatewayProxy: vi.fn().mockResolvedValue({
         proxyUrl: "http://127.0.0.1:9999",
         mode: "legacy",
@@ -484,18 +493,17 @@ describe("AgentService", () => {
     });
   });
 
-  it("lists models from the legacy gateway when the proxy cannot start", async () => {
+  it("lists models from the Django catalog when the proxy cannot start", async () => {
     deps.agentAuthAdapter.ensureGatewayProxy.mockRejectedValueOnce(
       new Error("PostHog session ended"),
     );
 
     await service.getPreviewConfigOptions("https://us.posthog.com", "claude");
 
-    expect(fetchGatewayModels).toHaveBeenCalledWith({
-      gatewayUrl: "https://gateway.example.com",
-      authToken: "gateway-token",
-      projectId: 1,
-    });
+    expect(deps.agentAuthAdapter.authenticatedFetch).toHaveBeenCalledWith(
+      "https://us.posthog.com/api/projects/1/tasks/models/",
+    );
+    expect(fetchGatewayModels).not.toHaveBeenCalled();
   });
 
   it("includes Modal models in Claude preview options", async () => {
