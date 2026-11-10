@@ -224,6 +224,49 @@ class TestInsightLegacyEvents(APIBaseTest):
                 state=AlertState.NOT_FIRING.value, last_checked_at=CHECKED_AT
             )
 
+    @parameterized.expand(
+        [
+            ("a_firing", AlertEventKind.FIRING, True, IncidentAction.TRIGGER, False),
+            ("a_resolve_after_its_insight_is_deleted", AlertEventKind.CHECK, False, IncidentAction.RESOLVE, True),
+        ]
+    )
+    def test_an_alert_with_no_insight_row_reaches_its_hogfunctions(
+        self,
+        _name: str,
+        kind: AlertEventKind,
+        sends_message: bool,
+        action: IncidentAction,
+        insight_deleted: bool,
+    ) -> None:
+        upsert = platform_upsert_of(self.alert)
+        assert upsert is not None
+        with team_scope(self.team.id):
+            native_id = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="Native signups dropped",
+                source_kind=SourceKind.INSIGHT,
+                source_config=upsert.source_config,
+                check_interval_minutes=upsert.check_interval_minutes,
+                recurrence_unit=upsert.recurrence_unit,
+                owner="platform",
+                legacy_configuration_id=None,
+            ).id
+        if insight_deleted:
+            self.alert.insight.deleted = True
+            self.alert.insight.save(update_fields=["deleted"])
+
+        events = self._emit(
+            self._emission(
+                kind, sends_message=sends_message, detail={"breaches": ["above 100"]}, incident_action=action
+            ),
+            configuration_id=str(native_id),
+        )
+
+        assert events
+        assert {(event.properties["alert_id"], event.properties["alert_name"]) for event in events} == {
+            (str(native_id), "Native signups dropped")
+        }
+
 
 class TestInsightChartImage(SimpleTestCase):
     @parameterized.expand(
