@@ -1,97 +1,128 @@
 # `hog setup`
 
-`run.ts` runs the steps in order, and each step lives in its own file under `steps/`.
-A step is done, does its work, or stops with the next action: what the person or the agent does before the next `hog setup next`.
+`run.ts` runs the steps in order. Each step has its own file under `steps/`, numbered in that order.
+A step is either done, does its work, or stops with the next action: what you or the agent do before the next `hog setup next`.
 `hog setup` only describes the current step, and `hog setup next` keeps going until a step stops.
 
 The rule for every step: an option counts as an answer as soon as it is given, and a prompt at a terminal asks only for the answers the options left out.
 The install step has no option, so it ends only on a `hog setup next` that started on it, which means the agent always reads its instructions first.
 
-| File              | Holds                                                                     |
-| ----------------- | ------------------------------------------------------------------------- |
-| `run.ts`          | The step order, the loop, and the summary of a connected folder           |
-| `setup-run.ts`    | `SetupRun`, what one call knows: the folder, its login, the products      |
-| `result.ts`       | The result types, which the agent reads as JSON                           |
-| `state.ts`        | The state file each folder keeps in `~/.posthog/setup/`                   |
-| `products.ts`     | The product table that `--products` picks from                            |
-| `agents-md.ts`    | The note in `AGENTS.md` and `CLAUDE.md`                                   |
-| `steps/<step>.ts` | One step each: `purpose`, `login`, `project`, `agents-md`, `install`, ... |
+| File                  | Holds                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `run.ts`              | The step order, the loop, and the summary of a connected folder                             |
+| `setup-run.ts`        | `SetupRun`, what one call knows: the folder, its login, the products                        |
+| `result.ts`           | The result types, which the agent reads as JSON                                             |
+| `state.ts`            | The state file each folder keeps in `~/.posthog/setup/`                                     |
+| `products.ts`         | The product table that `--products` picks from                                              |
+| `agents-md.ts`        | The PostHog section in `AGENTS.md` and `CLAUDE.md`                                          |
+| `steps/<n>-<step>.ts` | One step each, in the order of `STEP_IDS` in `state.ts`: `1-purpose.ts` to `9-connected.ts` |
 
-In the diagrams, blue is the CLI doing a step on its own, red is the CLI stopping with the next action, yellow is the person, and gray is the agent.
+The diagrams show who talks to whom in each step. The numbers match the files in `steps/`.
 
-## A person at a terminal
+## You at a terminal
+
+You run every command, and `hog` asks its questions as prompts.
 
 ```mermaid
-flowchart TD
-    classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
-    classDef phRed fill:#f54e00,stroke:#f54e00,color:#fff;
-    classDef phYellow fill:#f9bd2b,stroke:#f9bd2b,color:#000;
-    classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
+sequenceDiagram
+    actor You
+    participant hog as hog CLI
+    participant PH as PostHog
 
-    start[Person runs hog setup next]:::phYellow --> purpose{{purpose}}:::phBlue
-    purpose -->|prompts| answers[Person answers: what PostHog is for, which products,<br/>and the region when nothing names a host]:::phYellow
-    answers --> login{{login}}:::phBlue
-    login -->|opens the browser and waits| approve[Person approves the login,<br/>and signs up when new]:::phYellow
-    approve --> project[project: writes posthog.json,<br/>records the product intents]:::phBlue
-    project --> agentsMd[agents-md: adds the in-progress note]:::phBlue
-    agentsMd --> install{{install}}:::phBlue
-    install -->|skill files not read| readSkill[Stops: run both hog learn commands]:::phRed
-    readSkill --> installs[Person reads the skill, installs PostHog,<br/>and runs hog setup next]:::phYellow
-    installs --> install
-    install -->|both read| review{{review}}:::phBlue
-    review -->|prompts| checked[Person says whether the changes<br/>follow every install rule]:::phYellow
-    checked -->|no| readRules[Stops: read the rules again]:::phRed
-    readRules --> fixes[Person fixes the changes,<br/>and runs hog setup next]:::phYellow
-    fixes --> review
-    checked -->|yes| verify{{verify}}:::phBlue
-    verify -->|no events, exit code 1| noEvents[Stops: use the app]:::phRed
-    noEvents --> uses[Person uses the app,<br/>and runs hog setup next]:::phYellow
-    uses --> verify
-    verify -->|events arrived| products[products: shows the other products<br/>and the skills to add later]:::phBlue
-    products --> connected([connected: final note in AGENTS.md]):::phBlue
+    Note over You,PH: 1. purpose
+    You->>hog: hog setup next
+    hog->>You: What do you want to use PostHog for? Which products? Which region?
+    You->>hog: Your answers
+
+    Note over You,PH: 2. login
+    hog->>PH: Start a device login
+    hog->>You: Open the browser with a code
+    You->>PH: Log in or sign up, then approve
+    PH-->>hog: Token for one project
+
+    Note over You,PH: 3. project, 4. agents-md
+    hog->>PH: Record the products you picked
+    hog->>hog: Write posthog.json and the PostHog section in AGENTS.md
+
+    Note over You,PH: 5. install
+    hog->>You: Read the install skill with two hog learn commands
+    You->>hog: hog learn posthog:instrument-integration (and its COMMANDMENTS.md)
+    You->>You: Install PostHog in the app
+    You->>hog: hog setup next
+
+    Note over You,PH: 6. review
+    hog->>You: Do your changes follow every install rule?
+    You->>hog: Yes
+
+    Note over You,PH: 7. verify
+    hog->>PH: Any events since setup started?
+    PH-->>hog: None yet
+    hog->>You: Use the app, then run hog setup next
+    You->>hog: hog setup next
+    hog->>PH: Any events since setup started?
+    PH-->>hog: Yes
+
+    Note over You,PH: 8. products, 9. connected
+    hog->>You: What else PostHog can do, and the skills you can add
+    hog->>hog: Write the final PostHog section in AGENTS.md
 ```
 
-## A person with an agent
+## You with a coding agent
 
-The agent runs every command. The person answers one question, approves the login, and hears what else PostHog can do.
+The agent runs every command. You answer one question, approve the login, and hear what else PostHog can do.
 
 ```mermaid
-flowchart TD
-    classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
-    classDef phRed fill:#f54e00,stroke:#f54e00,color:#fff;
-    classDef phYellow fill:#f9bd2b,stroke:#f9bd2b,color:#000;
-    classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
+sequenceDiagram
+    actor You
+    participant Agent
+    participant hog as hog CLI
+    participant PH as PostHog
 
-    start[Agent runs hog setup next]:::phGray --> purpose{{purpose}}:::phBlue
-    purpose -->|no answers| askUser[Stops: ask_user]:::phRed
-    askUser --> asks[Agent asks: What do you want to use PostHog for?]:::phGray
-    asks --> answers[Person answers]:::phYellow
-    answers --> passes[Agent picks the product ids, and runs hog setup next<br/>with the answer as reason and the ids as products.<br/>It adds region eu only for the EU or data residency]:::phGray
-    passes --> purpose
-    purpose -->|answers given| login{{login}}:::phBlue
-    login -->|no approval yet| wait[Stops: wait, with the link and the code]:::phRed
-    wait --> handsOver[Agent hands the link and the code to the person,<br/>then runs hog setup next, which waits]:::phGray
-    handsOver --> approve[Person approves the login,<br/>and signs up when new]:::phYellow
-    approve -->|the waiting hog setup next returns| login
-    login -->|approved| project[project: writes posthog.json,<br/>records the product intents]:::phBlue
-    project --> agentsMd[agents-md: adds the in-progress note]:::phBlue
-    agentsMd --> install{{install}}:::phBlue
-    install -->|skill files not read| readSkill[Stops: read, with both hog learn commands]:::phRed
-    readSkill --> installs[Agent reads the skill, installs PostHog,<br/>and runs hog setup next]:::phGray
-    installs --> install
-    install -->|both read, and this call started here| review{{review}}:::phBlue
-    review -->|no reviewed option| readRules[Stops: read, with the install rules]:::phRed
-    readRules --> checks[Agent checks its changes against each rule,<br/>and runs hog setup next with reviewed]:::phGray
-    checks --> review
-    review -->|reviewed| verify{{verify}}:::phBlue
-    verify -->|no events, exit code 1| noEvents[Stops: run]:::phRed
-    noEvents --> uses[Agent runs the app or asks the person to,<br/>then runs hog setup next]:::phGray
-    uses --> verify
-    verify -->|events arrived| products{{products}}:::phBlue
-    products -->|no products-ack option| tellUser[Stops: tell_user]:::phRed
-    tellUser --> tells[Agent tells the person what else PostHog can do<br/>and which skills could help later]:::phGray
-    tells --> hears[Person hears the options]:::phYellow
-    hears --> acks[Agent runs hog setup next with products-ack]:::phGray
-    acks --> products
-    products -->|products-ack| connected([connected: final note in AGENTS.md]):::phBlue
+    Note over You,PH: 1. purpose
+    Agent->>hog: hog setup next
+    hog-->>Agent: ask_user, with the question and the product list
+    Agent->>You: What do you want to use PostHog for? (and where the answer goes)
+    You->>Agent: Your answer
+    Agent->>hog: hog setup next --reason "..." --products a,b
+
+    Note over You,PH: 2. login
+    hog->>PH: Start a device login
+    hog-->>Agent: wait, with a link and a code
+    Agent->>You: Open the link, check the code, approve
+    Agent->>hog: hog setup next (waits for the approval)
+    You->>PH: Log in or sign up, then approve
+    PH-->>hog: Token for one project
+
+    Note over You,PH: 3. project, 4. agents-md
+    hog->>PH: Record the products you picked
+    hog->>hog: Write posthog.json and the PostHog section in AGENTS.md
+
+    Note over You,PH: 5. install
+    hog-->>Agent: read, with two hog learn commands
+    Agent->>hog: hog learn posthog:instrument-integration (and its COMMANDMENTS.md)
+    Agent->>Agent: Install PostHog in the app
+    Agent->>hog: hog setup next
+
+    Note over You,PH: 6. review
+    hog-->>Agent: read, to check the changes against the install rules
+    Agent->>Agent: Fix any change that breaks a rule
+    Agent->>hog: hog setup next --reviewed
+
+    Note over You,PH: 7. verify
+    hog->>PH: Any events since setup started?
+    PH-->>hog: None yet
+    hog-->>Agent: run, to trigger an event (exit code 1)
+    Agent->>Agent: Run the app, or ask you to use it
+    Agent->>hog: hog setup next
+    hog->>PH: Any events since setup started?
+    PH-->>hog: Yes
+
+    Note over You,PH: 8. products
+    hog-->>Agent: tell_user, with the other products and skills
+    Agent->>You: What else PostHog can do, and hog skills add
+    Agent->>hog: hog setup next --products-ack
+
+    Note over You,PH: 9. connected
+    hog->>hog: Write the final PostHog section in AGENTS.md
+    hog-->>Agent: done
 ```

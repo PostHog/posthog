@@ -20,7 +20,6 @@ const STEPPED_UP_ACCESS = `pha_${'b'.repeat(43)}`
 const STEPPED_UP_REFRESH = `phr_${'s'.repeat(43)}`
 const ROWS = { columns: ['total'], results: [[1]], hasMore: false }
 
-// settings.json with each login filed under its origin and project. `host` is the last login.
 interface TestRecord extends Record<string, unknown> {
     host: string
     projectId: string
@@ -39,7 +38,6 @@ function keyRecord(host: string, store = 'keychain', projectId = '42'): TestReco
     return { store, type: 'personal_api_key', projectId, host }
 }
 
-// settings.json that also names secrets no login uses, which hog still has to remove.
 function withPendingRemovals(
     settings: string,
     ...pendingRemovals: { store: string; host: string; projectId: string | null }[]
