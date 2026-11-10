@@ -52,6 +52,7 @@ from products.experiments.stats.shared.statistics import (
     choose_quantile_bounds,
     quantile_grid_levels,
 )
+from products.experiments.stats.shared.utils import validate_statistic_inputs
 
 if TYPE_CHECKING:
     from products.experiments.stats.shared.statistics import RelativeEffectBaseline
@@ -354,9 +355,8 @@ def validate_variant_result(
 
     if isinstance(metric, ExperimentQuantileMetric):
         quantile_stat = quantile_statistic(metric, variant_result)
-        # Zero variance means too few events or too many tied values for the outer interval, and no test can
-        # run on it. Flag it here, so the result shows why the variant has no inference.
-        if quantile_stat is None or quantile_stat.has_zero_variance:
+        # The statistical tests refuse these quantiles, so flag them here to show why the variant has no inference.
+        if quantile_stat is None or validate_statistic_inputs(quantile_stat):
             validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
         # sum holds the count of events at or below the quantile, so the baseline check reads the quantile instead.
         # Only a relative difference divides by the baseline, so an absolute difference accepts a zero quantile.
@@ -435,8 +435,9 @@ def metric_variant_to_statistic(
         quantile_stat = quantile_statistic(metric, variant)
         if quantile_stat is None:
             raise StatisticError("Quantile bounds are unavailable - no events or too many tied values")
-        if quantile_stat.has_zero_variance:
-            raise StatisticError("Quantile has zero variance - not enough events or too many tied values")
+        errors = validate_statistic_inputs(quantile_stat)
+        if errors:
+            raise StatisticError("; ".join(errors))
         return quantile_stat
     else:
         # ExperimentFunnelMetric case
@@ -695,21 +696,6 @@ def resolve_frequentist_settings(
     )
 
 
-SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE = "Sequential testing isn't supported for percentile metrics yet."
-
-
-def uses_sequential_testing(stats_config: dict | None, *, team_default_sequential_testing_enabled: bool) -> bool:
-    """Whether the results of an experiment with this stats config use sequential testing."""
-    if resolve_stats_method(stats_config) != "frequentist":
-        return False
-    enabled, _ = _resolve_sequential_settings(
-        _method_config(stats_config, "frequentist"),
-        team_default_enabled=team_default_sequential_testing_enabled,
-        team_default_tuning_parameter=None,
-    )
-    return enabled
-
-
 def get_frequentist_experiment_result(
     metric: AnyExperimentMetric,
     control_variant: ExperimentStatsBase,
@@ -725,10 +711,6 @@ def get_frequentist_experiment_result(
         team_default_sequential_testing_enabled=team_default_sequential_testing_enabled,
         team_default_sequential_tuning_parameter=team_default_sequential_tuning_parameter,
     )
-    # The sequential test scales the variance by n, and n is the event count for a quantile metric, not the
-    # user count. That combination is not validated, so the metric fails instead of showing a wrong interval.
-    if settings.sequential_testing_enabled and isinstance(metric, ExperimentQuantileMetric):
-        raise ValidationError(SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE, code="sequential_testing_unsupported")
 
     config = FrequentistConfig(
         alpha=settings.alpha,
