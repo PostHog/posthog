@@ -2333,14 +2333,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Holds a layout from the grid until the autosave after it persists it. */
         stageLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
         clearDraftLayouts: () => true,
-        /** Placements from before a saved layout change, so the change can be undone. */
         /** A new change clears the redo stack; putting back a step from undo or redo does not. */
         pushLayoutUndo: (placements: Record<number, TilePlacement>, clearsRedo: boolean = true) => ({
             placements,
             clearsRedo,
         }),
         popLayoutUndo: true,
-        /** Placements from before an undo, so the undo can be taken back. */
         pushLayoutRedo: (placements: Record<number, TilePlacement>) => ({ placements }),
         popLayoutRedo: true,
         setTileSavesPending: (pending: boolean) => ({ pending }),
@@ -4910,11 +4908,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         lemonToast.success(move.message)
                     } catch {
                         lemonToast.error('Could not move the tile, so it is back where it was. Try again.')
-                        // A move of this tile in edit mode is newer than this one, so it stays.
+                        // A move of this tile made after this one is newer, so it stays.
                         if (equal(currentPlacement(), placement)) {
                             const saved = savedTilePlacement(values.savedTilePlacements, tileId)
                             actions.setTileProperty(tileId, saved)
-                            // A layout staged in edit mode since the move holds the moved cell, so it goes back too.
+                            // A layout staged since the move holds the moved cell, so it goes back too.
                             const draft = values.draftLayouts
                             if (draft?.sm && sm) {
                                 const draftSm = withStagedCellReverted(draft.sm, tileId, sm, saved.layouts?.sm)
@@ -6322,10 +6320,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         undoLayoutChange: () => {
             const placements = values.layoutUndoStack[values.layoutUndoStack.length - 1]
-            // A save still out would answer with the layout from before this undo, so wait for it.
             if (!placements) {
                 return
             }
+            // A save still out would answer with the layout from before this undo, so wait for it.
             if (values.tileSavesPending) {
                 return
             }
@@ -6371,7 +6369,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.resolveEditSaveApplied?.()
             if (payload?.scope === 'layout' && !payload.recordUndo && cache.historyStepInFlight) {
                 const { kind, placements, inverse } = cache.historyStepInFlight
-                // A failed step goes back on its own stack to be tried again; a saved one can be taken back.
                 if (cache.layoutSaveFailed && kind === 'undo') {
                     actions.pushLayoutUndo(placements, false)
                 } else if (cache.layoutSaveFailed) {

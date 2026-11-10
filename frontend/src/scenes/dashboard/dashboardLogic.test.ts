@@ -2034,7 +2034,6 @@ describe('dashboardLogic', () => {
                 expect(logic.values.layouts.sm!.find((layout) => layout.i === String(firstTile!.id))!.x).toEqual(
                     originalX
                 )
-                // An undo is not itself undoable, so pressing Undo again walks further back.
                 expect(logic.values.canUndoLayoutChange).toBe(false)
             })
 
@@ -2066,7 +2065,6 @@ describe('dashboardLogic', () => {
                 expect(logic.values.canRedoLayoutChange).toBe(false)
                 expect(savedTiles().find((tile) => tile.id === firstTileId)?.layouts.sm?.x).toEqual(startX + 2)
 
-                // A redone change can be undone again, and a new change drops what is left to redo.
                 await expectLogic(logic, () => logic.actions.undoLayoutChange()).toFinishAllListeners()
                 expect(xOf()).toEqual(startX + 1)
                 expect(logic.values.canRedoLayoutChange).toBe(true)

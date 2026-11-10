@@ -16,7 +16,6 @@ import type { ResizeNeighbors } from 'products/dashboards/frontend/dashboardResi
 type InteractionKind = 'drag' | 'resize'
 
 interface UseDashboardLayoutInteractionProps {
-    /** Whether the viewer can move and resize tiles. */
     enabled: boolean
     layoutCompaction?: DashboardGridCompaction
     updateLayouts: (layouts: Partial<Record<DashboardLayoutSize, Layout>>) => void
