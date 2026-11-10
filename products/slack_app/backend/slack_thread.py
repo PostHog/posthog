@@ -11,9 +11,8 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationNotFound, IntegrationRecord
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import SlackIntegration
-from posthog.models.team import Team
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
@@ -44,7 +43,11 @@ from products.slack_app.backend.services.slack_messages import (
     turn_feedback_block,
 )
 from products.slack_app.backend.services.task_notifications import task_slack_notifications_muted
-from products.slack_app.backend.services.workspace_integrations import SLACK_ROW_READER
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    slack_row_reader,
+    with_teams,
+)
 from products.tasks.backend.facade.reply_suggestions import SuggestedReply, suggest_replies
 
 if TYPE_CHECKING:
@@ -267,7 +270,7 @@ class SlackThreadHandler:
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
-        self._integration: IntegrationRecord | None = None
+        self._integration: WorkspaceIntegration | None = None
         self._team_id_looked_up = False
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
@@ -351,13 +354,13 @@ class SlackThreadHandler:
             )
         return self.context.team_id
 
-    def _get_integration(self) -> IntegrationRecord:
+    def _get_integration(self) -> WorkspaceIntegration:
         if self._integration is None:
             team_id = self.team_id
             if team_id is None:
                 logger.warning("slack_thread_missing_team", integration_id=self.context.integration_id)
                 raise IntegrationNotFound(f"No project known for Slack integration {self.context.integration_id}")
-            self._integration = SLACK_ROW_READER.get(team_id, self.context.integration_id)
+            self._integration = with_teams([slack_row_reader().get(team_id, self.context.integration_id)])[0]
         return self._integration
 
     @property
@@ -1046,7 +1049,7 @@ class SlackThreadHandler:
         from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
         attribution = slack_reply_attribution(
-            privacy_mode=is_privacy_mode_enabled(Team.objects.get(id=integration.team_id)),
+            privacy_mode=is_privacy_mode_enabled(integration.team),
             trace_id=self.turn_trace_id,
             session_id=self._session_id(),
             distinct_id=posthog_user.distinct_id if posthog_user else None,
