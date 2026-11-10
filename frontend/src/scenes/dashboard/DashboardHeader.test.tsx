@@ -83,7 +83,7 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType | null
         dashboardMode?: DashboardMode | null
-        dashboardEditing?: { filters: boolean } | null
+        dashboardEditing?: boolean
         dashboardModeSource?: DashboardEventSource
         loading?: boolean
         spyOnLoadDashboard?: boolean
@@ -91,7 +91,7 @@ describe('DashboardHeader', () => {
         const {
             dashboard = MOCK_DASHBOARD,
             dashboardMode = null,
-            dashboardEditing = null,
+            dashboardEditing = false,
             dashboardModeSource = DashboardEventSource.Browser,
             loading = false,
         } = opts
@@ -134,9 +134,11 @@ describe('DashboardHeader', () => {
             tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
         })
         const { logic } = renderHeader({ dashboard })
+        // Undo shows only where the layout can change, which jsdom's default window is too narrow for.
+        act(() => logic.actions.updateContainerWidth(1200, 12))
         expect(document.querySelector('[data-attr="dashboard-layout-undo"]')).not.toBeInTheDocument()
 
-        act(() => logic.actions.pushLayoutUndo({ 1: { layouts: {}, group_key: null } }))
+        act(() => logic.actions.layoutChangeSaved({ 1: { layouts: {}, group_key: null } }))
         const undoButton = document.querySelector('[data-attr="dashboard-layout-undo"]') as HTMLElement
         expect(undoButton).toBeInTheDocument()
         await expectLogic(logic, () => {
@@ -158,7 +160,6 @@ describe('DashboardHeader', () => {
             })
             const { logic } = renderHeader({ dashboard })
 
-            expect(document.querySelector('[data-attr="dashboard-edit-mode-button"]')).not.toBeInTheDocument()
             expect(document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]')).toBeInTheDocument()
             fireEvent.click(
                 document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]') as HTMLElement
@@ -262,13 +263,7 @@ describe('DashboardHeader', () => {
             canEdit: true,
             hasTiles: false,
             visible: [],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-mode-button',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-            ],
+            notVisible: ['dashboard-add-tile', 'dashboard-share-button'],
         },
         {
             scenario: 'View mode, cannot edit',
@@ -276,25 +271,17 @@ describe('DashboardHeader', () => {
             canEdit: false,
             hasTiles: false,
             visible: [],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-                'dashboard-edit-mode-button',
-            ],
+            notVisible: ['dashboard-add-tile', 'dashboard-share-button'],
         },
         {
             scenario: 'Filter edit mode',
-            dashboardEditing: { filters: true },
+            dashboardEditing: true,
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
             hasTiles: false,
             visible: [],
             notVisible: [
                 'dashboard-add-tile',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
                 'dashboard-share-button',
                 'dashboard-edit-layout-customize-dropdown',
                 'add-text-tile-to-dashboard',
@@ -303,17 +290,12 @@ describe('DashboardHeader', () => {
         },
         {
             scenario: 'Filter edit mode, cannot edit',
-            dashboardEditing: { filters: true },
+            dashboardEditing: true,
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: false,
             hasTiles: true,
             visible: [],
-            notVisible: [
-                'dashboard-edit-mode-button',
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-                'dashboard-share-button',
-            ],
+            notVisible: ['dashboard-share-button'],
         },
         {
             scenario: 'Fullscreen mode',
@@ -321,7 +303,7 @@ describe('DashboardHeader', () => {
             canEdit: true,
             hasTiles: false,
             visible: ['dashboard-exit-presentation-mode'],
-            notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
+            notVisible: ['dashboard-share-button'],
         },
     ])(
         '$scenario shows correct action buttons',

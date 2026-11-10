@@ -87,9 +87,8 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         currentDashboardVariables,
         tiles,
         apiUrl,
-        canUndoLayoutChange,
-        canRedoLayoutChange,
-        tileSavesPending,
+        undoLayoutDisabledReason,
+        redoLayoutDisabledReason,
     } = useValues(dashboardLogic)
     const {
         setDashboardMode,
@@ -313,14 +312,8 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         <>
                             <SceneMenuBarItem
                                 onClick={() => undoLayoutChange()}
-                                disabled={!canUndoLayoutChange || tileSavesPending}
-                                tooltip={
-                                    tileSavesPending
-                                        ? 'Wait for the dashboard to finish saving'
-                                        : !canUndoLayoutChange
-                                          ? 'No layout change to undo'
-                                          : undefined
-                                }
+                                disabled={!!undoLayoutDisabledReason}
+                                tooltip={undoLayoutDisabledReason ?? undefined}
                                 data-attr={`${RESOURCE_TYPE}-menubar-undo-layout`}
                             >
                                 <IconUndo />
@@ -331,14 +324,8 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() => redoLayoutChange()}
-                                disabled={!canRedoLayoutChange || tileSavesPending}
-                                tooltip={
-                                    tileSavesPending
-                                        ? 'Wait for the dashboard to finish saving'
-                                        : !canRedoLayoutChange
-                                          ? 'No undone layout change to redo'
-                                          : undefined
-                                }
+                                disabled={!!redoLayoutDisabledReason}
+                                tooltip={redoLayoutDisabledReason ?? undefined}
                                 data-attr={`${RESOURCE_TYPE}-menubar-redo-layout`}
                             >
                                 <IconRedo />

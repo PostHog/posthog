@@ -113,9 +113,9 @@ export function useDashboardLayoutInteraction({
                 setTimeout(() => {
                     acceptingGestureLayout.current = false
                 }, 0)
-            }
-            if (pendingLayouts.current && !discardLayout) {
-                updateLayouts(pendingLayouts.current)
+                if (pendingLayouts.current) {
+                    updateLayouts(pendingLayouts.current)
+                }
             }
             pendingLayouts.current = null
             baselineLayout.current = null

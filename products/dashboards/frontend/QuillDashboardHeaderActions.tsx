@@ -26,18 +26,7 @@ export function QuillDashboardHeaderActions(): JSX.Element | null {
         return null
     }
 
-    if (dashboardEditing) {
-        return (
-            <>
-                <QuillDashboardSubscribeButton />
-                <DashboardLayoutUndoButton />
-                {canEditDashboard && tiles.length > 0 && <QuillDashboardCustomizeButton />}
-                <QuillDashboardAddTileButton />
-            </>
-        )
-    }
-
-    if (dashboardMode === DashboardMode.Fullscreen) {
+    if (dashboardMode === DashboardMode.Fullscreen && !dashboardEditing) {
         return (
             <Button
                 variant="outline"
@@ -59,7 +48,7 @@ export function QuillDashboardHeaderActions(): JSX.Element | null {
         <>
             <QuillDashboardSubscribeButton />
             <DashboardLayoutUndoButton />
-            {(tiles.length > 0 || dashboard.is_shared) && (
+            {!dashboardEditing && (tiles.length > 0 || dashboard.is_shared) && (
                 <Button
                     variant="outline"
                     data-attr="dashboard-share-button"

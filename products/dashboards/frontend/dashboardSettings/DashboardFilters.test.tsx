@@ -75,7 +75,7 @@ describe('DashboardFilterBar', () => {
     ): ReturnType<typeof dashboardLogic.build> {
         const logic = dashboardLogic({ id: dashboard.id, dashboard, placement })
         logic.mount()
-        logic.actions.setDashboardEditing({ filters: true }, dashboardModeSource)
+        logic.actions.setDashboardEditing(true, dashboardModeSource)
 
         render(
             <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard, placement }}>
@@ -275,7 +275,7 @@ describe('DashboardFilterBar', () => {
         })
         const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
         logic.mount()
-        logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
+        logic.actions.setDashboardEditing(false, DashboardEventSource.DashboardFilters)
 
         await expectLogic(logic).toFinishAllListeners()
 

@@ -1,6 +1,6 @@
 # Dashboard performance
 
-Use this guide for dashboard loading, edit mode, scrolling, tile movement, tile resize, and panel resize.
+Use this guide for dashboard loading, scrolling, tile movement, tile resize, layout autosave and undo, and panel resize.
 It applies to insight, text, image, button, and widget tiles.
 
 ## Understand the cost
@@ -15,7 +15,7 @@ Separate the phases before choosing an optimization:
 | Phase                     | Costs to inspect                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------- |
 | Initial load              | Requests, response processing, tile mounts, chart initialization, image decoding |
-| Enter or exit edit mode   | State propagation, React renders, DOM changes, style and layout                  |
+| Gesture start or end      | Grid class toggles, React renders, DOM changes, style and layout                 |
 | First movement            | Input handlers, grid activation, synchronous work before the first paint         |
 | Continuous move or resize | Grid calculations, affected tile renders, layout, chart drawing, paint           |
 | Release and save          | Final geometry, chart redraw, serialization, request time, response processing   |
@@ -50,13 +50,13 @@ React work grows with the number of components affected by a change.
 Dashboard-wide state can make every card render even when only one tile moves.
 
 - Keep transient geometry close to the grid or active tile.
-- Keep completed layout edits separate from dashboard tile data until Save. Replacing every tile on pointer release can invalidate dashboard-wide selectors and delay the next paint.
+- Keep a dropped layout in the draft layout state, separate from dashboard tile data, while it autosaves. Replacing every tile on pointer release can invalidate dashboard-wide selectors and delay the next paint.
 - Separate a light geometry wrapper from expensive card content.
 - Preserve references for unchanged data, configuration, layout items, and callbacks where render boundaries depend on them.
 - Check which props actually change before adding memoization.
 - Keep comparisons correct. Ignoring changed callbacks or content can preserve stale behavior.
 - Preserve tile keys and chart instances across geometry and mode changes.
-- Keep local edit-mode state changes out of dashboard data loaders when no dashboard data changed.
+- Keep local layout and gesture state changes out of dashboard data loaders when no dashboard data changed.
 - Do not dispatch a Kea action on the first movement of a gesture. Each dispatch reruns the selectors of every subscribed component on the dashboard, even when only a small overlay reads the new value.
 
 Memoization reduces repeated React work. It does not prevent browser layout or canvas drawing after dimensions change.
@@ -85,7 +85,7 @@ Check third-party drag and resize code for global style changes. Recheck upstrea
 
 - Inspect browser style and layout costs alongside React commits.
 - Avoid alternating geometry reads and DOM writes across tiles. Group required reads before writes.
-- Avoid mounting large control trees solely because edit mode changes.
+- Avoid mounting large control trees solely because a gesture starts or ends.
 - Defer hidden controls that perform measurements or other expensive initialization.
 - Use containment or content visibility where appropriate, and check overflow, overlays, focus, and active gestures.
 - Keep decorative DOM bounded. Repeated backgrounds need not create an element for every grid cell.
@@ -104,7 +104,7 @@ In a vertically compacted grid, shrinking a tile from its top edge opens space a
 
 A long dashboard should avoid mounting every expensive card at initial load.
 Track DOM nodes, chart instances, observers, timers, decoded images, and memory after a full scroll and return.
-Measure edit entry after a full scroll. Dense SQL tables can make this transition slow even when the tile count is unchanged.
+Measure the first gesture after a full scroll. Dense SQL tables can make it slow even when the tile count is unchanged.
 Count rendered cells and DOM nodes as well as tiles. A few dense tables can cost more than many simple charts.
 
 - Mount expensive content near the viewport when the surface permits it.
@@ -155,7 +155,7 @@ Mode changes and virtualization must not accidentally invalidate queries or star
 - Check whether visible tiles wait behind offscreen tiles in a bounded refresh queue.
 - Avoid unnecessary saves when no persisted state changed.
 - Preserve save errors, cancellation, and final layout correctness when moving work off the interaction path.
-- Check the local work done by an unchanged save. Zero network requests do not prove that exit is cheap.
+- Check the local work done by an unchanged save. Zero network requests do not prove that a drop is cheap.
 
 A fast network response can still cause a slow interface if parsing, state propagation, or rendering is expensive.
 A slow request does not explain a delayed local drag unless the interaction actually waits for it.
@@ -195,7 +195,7 @@ If a change improves only a helper benchmark while the browser frame intervals r
 
 Check the following boundaries for interaction changes:
 
-- Entry, first movement, continuous movement, release, exit, and saved-layout reload.
+- First movement, continuous movement, release, autosave, undo and redo, and saved-layout reload.
 - One movement followed by a pause, movement below the drag threshold, quick release, and cancellation.
 - Horizontal and vertical resize, affected neighbors, and supported compaction modes.
 - A narrow scene with an open side panel, plus a wide scene.

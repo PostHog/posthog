@@ -224,8 +224,8 @@ export function CrossProjectDashboardGrid({
                         className={
                             layoutEditMode
                                 ? // Dragging is bounded to the grid's height, so the padding leaves room to drop a tile in a new row.
-                                  'dashboard-edit-mode box-content pb-[40vh]'
-                                : 'dashboard-view-mode mb-8'
+                                  'dashboard-layout-editable box-content pb-[40vh]'
+                                : 'dashboard-layout-static mb-8'
                         }
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}

@@ -11,7 +11,6 @@ import {
     DashboardWidgetPlacementMenus,
     type DashboardWidgetPlacementMenusProps,
 } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
-import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -54,7 +53,6 @@ type DashboardWidgetItemProps = {
     placement: DashboardPlacement
     dashboardId?: number | null
     canEditDashboard?: boolean
-    isDashboardEditMode?: boolean
     result: unknown
     loading: boolean
     error?: string | null
@@ -74,9 +72,6 @@ type DashboardWidgetItemProps = {
     }) => void | Promise<void>
     toggleShowDescription?: () => void
     showResizeHandles?: boolean
-    canEnterEditModeFromEdge?: boolean
-    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     showEditingControls?: boolean
     onDuplicate?: () => void
     onRemove?: () => void
@@ -89,7 +84,7 @@ type DashboardWidgetItemProps = {
 
 type DashboardWidgetItemContentProps = Omit<
     DashboardWidgetItemProps,
-    'children' | 'className' | 'style' | 'showResizeHandles' | 'canEnterEditModeFromEdge' | 'onEnterEditModeFromEdge'
+    'children' | 'className' | 'style' | 'showResizeHandles'
 > & {
     widget: NonNullable<DashboardTile['widget']>
     definition: DashboardWidgetDefinition | undefined
@@ -155,9 +150,7 @@ function DashboardWidgetItemContent({
     onUpdateWidgetTile,
     onConfigPublished,
     toggleShowDescription,
-    onDragHandleMouseDown,
     showEditingControls,
-    isDashboardEditMode,
     canEditDashboard,
     onDuplicate,
     onRemove,
@@ -247,7 +240,6 @@ function DashboardWidgetItemContent({
                 loading={loading}
                 isLive={headerCatalogEntry.live}
                 showEditingControls={showEditingControls}
-                isDashboardEditMode={isDashboardEditMode}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}
                 refreshControl={refreshControl}
                 moreButtonOverlay={
@@ -320,7 +312,6 @@ function DashboardWidgetItemContent({
                         )}
                     </>
                 }
-                onDragHandleMouseDown={onDragHandleMouseDown}
             />
             {!showSharedPlaceholder && hasProductAccess && showTileFilters && TileFilters ? (
                 <Suspense fallback={null}>
@@ -397,7 +388,6 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             placement,
             dashboardId,
             canEditDashboard,
-            isDashboardEditMode,
             result,
             loading,
             error,
@@ -409,9 +399,6 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onConfigPublished,
             toggleShowDescription,
             showResizeHandles,
-            canEnterEditModeFromEdge,
-            onEnterEditModeFromEdge,
-            onDragHandleMouseDown,
             showEditingControls,
             onDuplicate,
             onRemove,
@@ -480,8 +467,6 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                 style={style}
                 {...divProps}
                 showResizeHandles={showResizeHandles}
-                canEnterEditModeFromEdge={canEnterEditModeFromEdge}
-                onEnterEditModeFromEdge={onEnterEditModeFromEdge}
                 gridChildren={children}
             >
                 <DashboardWidgetItemContent
@@ -503,8 +488,6 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onConfigPublished={onConfigPublished}
                     canEditDashboard={canEditDashboard}
                     toggleShowDescription={toggleShowDescription}
-                    isDashboardEditMode={isDashboardEditMode}
-                    onDragHandleMouseDown={onDragHandleMouseDown}
                     showEditingControls={showEditingControls}
                     onDuplicate={onDuplicate}
                     onRemove={onRemove}

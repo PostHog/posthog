@@ -110,7 +110,7 @@
     }
 
     /* Preserve the tile border transition while spacing changes animate. */
-    &.dashboard-view-mode .react-grid-item {
+    &.dashboard-layout-static .react-grid-item {
         transition: var(--dashboard-tile-transition);
     }
 
@@ -126,11 +126,11 @@
         transition: none;
     }
 
-    &.dashboard-edit-mode .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
+    &.dashboard-layout-editable .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
         visibility: hidden;
     }
 
-    &.dashboard-edit-mode [data-attr='dashboard-edit-mode-from-card-edge'] {
+    &.dashboard-layout-editable [data-attr='dashboard-edit-mode-from-card-edge'] {
         display: none;
     }
 
@@ -191,6 +191,12 @@
         // CardMeta: insight + widget (dashboard_tile layout). Bodies: text/button tiles. Header: widget (simple layout).
         cursor: grab;
         user-select: none; // Prevent accidental text selection while dragging
+    }
+
+    // The grid's drag `cancel` skips these, so they keep text selection instead of acting as a handle.
+    :is(p, h4, .LemonMarkdown) {
+        cursor: auto;
+        user-select: text;
     }
 }
 
@@ -403,7 +409,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .react-grid-layout.dashboard-view-mode .react-grid-item,
+    .react-grid-layout.dashboard-layout-static .react-grid-item,
     .react-grid-layout .react-grid-item {
         transition: none;
     }

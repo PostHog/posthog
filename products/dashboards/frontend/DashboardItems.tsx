@@ -55,8 +55,7 @@ import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { getDashboardWidgetFetchDisplayError } from './widgets/constants'
 
-const BASE_ROW_HEIGHT = 80
-const BASE_MARGIN: [number, number] = [16, 16]
+const ROW_HEIGHT = 80
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
 interface DashboardItemsProps {
@@ -104,7 +103,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tiles,
         layouts,
         placement,
-        readOnly,
         isRefreshingQueued,
         isRefreshing,
         highlightedInsightId,
@@ -129,6 +127,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tileGroupMoveOptions,
         activeTileGroupTab,
         queryLoadQueue,
+        isEditablePlacement,
+        canEditLayout,
+        carryingTile,
+        showTextTileModal,
+        showImageTileModal,
+        showButtonTileModal,
+        addWidgetModalOpen,
     } = useValues(dashboardLogic)
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView()
     useMountedLogic(
@@ -250,14 +255,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { width: gridWidth, containerRef } = useDashboardContainerWidth()
     const showBands = tileGroupSections.length > 0
     const activeTabIndex = tileGroupSections.findIndex((section) => getSectionGroupKey(section) === activeTileGroupTab)
-    const isMobileView = !!gridWidth && gridWidth <= BREAKPOINTS['sm']
-    const isEditablePlacement =
-        !readOnly &&
-        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(
-            placement
-        )
-    const canEditLayout = !!dashboard && canEditDashboard && isEditablePlacement && !isMobileView
-    // Inputs keep their own text undo, so the layout shortcuts stand down while one has focus.
+    // Inputs keep their own text undo, so the layout shortcuts stand down while one has focus. A modal or a
+    // carried tile sits over the grid, so an undo there would move tiles the viewer cannot see or is holding.
+    const layoutShortcutsEnabled =
+        canEditLayout &&
+        !carryingTile &&
+        !showTextTileModal &&
+        !showImageTileModal &&
+        !showButtonTileModal &&
+        !addWidgetModalOpen
     useShortcut({
         name: 'DashboardUndoLayoutChange',
         keybind: [keyBinds.undo],
@@ -265,7 +271,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         interaction: 'function',
         callback: undoLayoutChange,
         scope: Scene.Dashboard,
-        disabled: !canEditLayout,
+        disabled: !layoutShortcutsEnabled,
         ignoreInEditable: true,
     })
     useShortcut({
@@ -275,12 +281,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         interaction: 'function',
         callback: redoLayoutChange,
         scope: Scene.Dashboard,
-        disabled: !canEditLayout,
+        disabled: !layoutShortcutsEnabled,
         ignoreInEditable: true,
     })
     const className = clsx(
         'mb-8',
-        canEditLayout ? 'dashboard-edit-mode dashboard-drop-space-end' : 'dashboard-view-mode'
+        canEditLayout ? 'dashboard-layout-editable dashboard-drop-space-end' : 'dashboard-layout-static'
     )
 
     const { gridCompactor, handleLayoutChange, startInteraction, finishInteraction } = useDashboardLayoutInteraction({
@@ -316,9 +322,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             : undefined
     const onRemoveTileGroup = canEditDashboard && isEditablePlacement ? removeTileGroup : undefined
 
-    const rowHeight = BASE_ROW_HEIGHT
     const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
-    const margin = useMemo(() => BASE_MARGIN.map(() => gridGap) as [number, number], [gridGap])
+    const margin = useMemo<[number, number]>(() => [gridGap, gridGap], [gridGap])
 
     const widgetTilesShown = isWidgetTileVisibleOnPlacement(placement)
     const activeBreakpoint = sizeKey ?? 'sm'
@@ -384,7 +389,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         // A tab shows one group, so there is no other band to drop a tile into.
         enabled: dragConfig.enabled && showBands && activeTabIndex < 0,
         sections: tileGroupSections,
-        rowHeight,
+        rowHeight: ROW_HEIGHT,
         margin,
         layout: layouts.sm,
         moveTileToSection: (tileId, sectionKey, cell) => moveTileToSection(tileId, sectionKey, cell, 'drag'),
@@ -504,11 +509,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const bandGridConfig = useMemo(
         () => ({
             cols: BREAKPOINT_COLUMN_COUNTS[bandBreakpoint],
-            rowHeight,
+            rowHeight: ROW_HEIGHT,
             margin,
             containerPadding: CONTAINER_PADDING,
         }),
-        [bandBreakpoint, rowHeight, margin]
+        [bandBreakpoint, margin]
     )
     const handleBandLayoutChange = useCallback(
         (layout: Layout) => handleLayoutChange(layout, { [bandBreakpoint]: layout }),
@@ -881,7 +886,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     <DashboardGridBackground
                         width={gridWidth}
                         cols={BREAKPOINT_COLUMN_COUNTS.sm}
-                        rowHeight={rowHeight}
+                        rowHeight={ROW_HEIGHT}
                         margin={margin}
                     />
                 )}
@@ -895,7 +900,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     width={gridWidth}
                     positionStrategy={boundedStrategy}
                     className={clsx(
-                        canEditLayout ? 'dashboard-edit-mode' : 'dashboard-view-mode',
+                        canEditLayout ? 'dashboard-layout-editable' : 'dashboard-layout-static',
                         canEditLayout && (isLastSection ? 'dashboard-drop-space-end' : 'dashboard-drop-space-between'),
                         isDraggingOutOfSection && '[&_.react-grid-placeholder]:hidden'
                     )}
@@ -969,7 +974,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         <DashboardGridBackground
                             width={gridWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
-                            rowHeight={rowHeight}
+                            rowHeight={ROW_HEIGHT}
                             margin={margin}
                         />
                     )}
@@ -977,7 +982,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                     <ReactGridLayout
                         {...gridProps}
-                        rowHeight={rowHeight}
+                        rowHeight={ROW_HEIGHT}
                         margin={margin}
                         containerPadding={CONTAINER_PADDING}
                         breakpoints={BREAKPOINTS}

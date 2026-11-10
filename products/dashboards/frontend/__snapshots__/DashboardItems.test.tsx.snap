@@ -20,7 +20,7 @@ exports[`DashboardItems matches snapshot for an editor 1`] = `
     />
     <div
       data-attr="react-grid-layout"
-      data-class-name="mb-8 dashboard-edit-mode dashboard-drop-space-end"
+      data-class-name="mb-8 dashboard-layout-editable dashboard-drop-space-end"
       data-drag-enabled="true"
       data-margin="16,16"
       data-resize-enabled="true"

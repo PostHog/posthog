@@ -9,7 +9,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-const UNDO_DISABLED_REASON = 'Wait for the dashboard to finish saving'
 const UNDO_TOOLTIP = (
     <span className="inline-flex items-center gap-1">
         Undo the last layout change
@@ -18,15 +17,15 @@ const UNDO_TOOLTIP = (
 )
 
 export function DashboardLayoutUndoButton(): JSX.Element | null {
-    const { canUndoLayoutChange, tileSavesPending } = useValues(dashboardLogic)
+    const { canUndoLayoutChange, canEditLayout, undoLayoutDisabledReason } = useValues(dashboardLogic)
     const { undoLayoutChange } = useActions(dashboardLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    if (!canUndoLayoutChange) {
+    if (!canUndoLayoutChange || !canEditLayout) {
         return null
     }
 
-    const disabledReason = tileSavesPending ? UNDO_DISABLED_REASON : undefined
+    const disabledReason = undoLayoutDisabledReason ?? undefined
 
     return todayRailNav ? (
         <Button

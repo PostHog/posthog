@@ -123,19 +123,6 @@ export function DashboardAddTileButton(): JSX.Element | null {
     )
 }
 
-export function EditModeActions(): JSX.Element {
-    const { canEditDashboard, tiles } = useValues(dashboardLogic)
-
-    return (
-        <>
-            <DashboardSubscribeButton />
-            <DashboardLayoutUndoButton />
-            {canEditDashboard && tiles.length > 0 && <DashboardCustomizeButton />}
-            <DashboardAddTileButton />
-        </>
-    )
-}
-
 export function FullscreenModeActions(): JSX.Element {
     const { dashboardLoading } = useValues(dashboardLogic)
     const { setDashboardMode } = useActions(dashboardLogic)
@@ -196,8 +183,8 @@ export function DashboardEmbeddedShareButton({
     )
 }
 
-export function ViewModeActions(): JSX.Element {
-    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
+export function DashboardActions(): JSX.Element {
+    const { dashboard, dashboardEditing, canEditDashboard, tiles } = useValues(dashboardLogic)
     if (!dashboard) {
         return <></>
     }
@@ -206,7 +193,9 @@ export function ViewModeActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             <DashboardLayoutUndoButton />
-            {(tiles.length > 0 || dashboard.is_shared) && <DashboardShareButton dashboard={dashboard} />}
+            {!dashboardEditing && (tiles.length > 0 || dashboard.is_shared) && (
+                <DashboardShareButton dashboard={dashboard} />
+            )}
             {canEditDashboard && tiles.length > 0 && <DashboardCustomizeButton />}
             <DashboardAddTileButton />
         </>
