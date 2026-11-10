@@ -43,6 +43,7 @@ fn record(person_id: i64, version: i64, properties: &'static str) -> PropertyRec
         person_id,
         version,
         deleted: false,
+        created_at: 0,
         properties: Bytes::from_static(properties.as_bytes()),
     }
 }
@@ -87,6 +88,7 @@ async fn a_reader_sees_the_version_the_writer_made_durable() {
         StoredProperties {
             version: 3,
             deleted: false,
+            created_at: 0,
             properties: Bytes::from_static(br#"{"plan":"paid"}"#),
         }
     );

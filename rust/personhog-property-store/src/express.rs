@@ -13,6 +13,7 @@ use bytes::Bytes;
 use futures::future::join_all;
 use futures::stream::{self, BoxStream, StreamExt};
 use metrics::{counter, histogram};
+use slatedb::object_store_tag::ObjectStoreCallTag;
 
 use crate::object_store;
 use object_store::path::Path;
@@ -411,6 +412,14 @@ impl ObjectStore for ReadThroughStore {
             || options.if_modified_since.is_some()
             || options.if_unmodified_since.is_some()
             || options.version.is_some();
+        // SlateDB reissues a read once after a checksum or decode failure, and the copy that
+        // failed it must not answer the reissue.
+        let retry = ObjectStoreCallTag::from_extensions(&options.extensions)
+            .is_some_and(|tag| tag.retry.is_some());
+        if retry {
+            self.record_read("retry");
+            return self.primary.get_opts(location, options).await;
+        }
         if !is_replicated(location) || options.head || conditional {
             return self.primary.get_opts(location, options).await;
         }
@@ -804,6 +813,7 @@ mod tests {
                     person_id: 1,
                     version: 1,
                     deleted: false,
+                    created_at: 0,
                     properties: Bytes::from_static(br#"{"plan":"paid"}"#),
                 }],
             )
@@ -834,5 +844,74 @@ mod tests {
             "the record must live only in SSTs for this test to prove anything"
         );
         assert_eq!(&with_copy.unwrap().properties[..], br#"{"plan":"paid"}"#);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_corrupt_copy_is_read_again_from_standard() {
+        let standard: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let copy: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let writer = PropertyWriter::new(
+            &config(),
+            Arc::new(TeeStore::new(
+                Arc::clone(&standard),
+                vec![Bucket::new("express", Arc::clone(&copy))],
+                Duration::from_secs(5),
+            )),
+        );
+        let partition = PartitionKey {
+            topic: Arc::from("changelog"),
+            partition: 0,
+        };
+        writer.assign(&partition, 1, 1, || true).await.unwrap();
+        writer
+            .put(
+                &partition,
+                1,
+                &[PropertyRecord {
+                    team_id: 7,
+                    person_id: 1,
+                    version: 1,
+                    deleted: false,
+                    created_at: 0,
+                    properties: Bytes::from_static(br#"{"plan":"paid"}"#),
+                }],
+            )
+            .await
+            .unwrap();
+        writer.flush_memtables().await;
+        writer.close().await;
+        // Damages the first data block of every copied SST, which holds the record, and
+        // leaves the index and footer intact so the read reaches that block.
+        let mut copies = copy.list(None);
+        while let Some(meta) = copies.next().await.transpose().unwrap() {
+            let mut bytes = copy
+                .get(&meta.location)
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap()
+                .to_vec();
+            for byte in bytes.iter_mut().take(16) {
+                *byte = !*byte;
+            }
+            copy.put(&meta.location, PutPayload::from(bytes))
+                .await
+                .unwrap();
+        }
+
+        let read = PropertyReader::new(
+            &config(),
+            Arc::new(ReadThroughStore::new(
+                standard,
+                Bucket::new("express", copy),
+                Duration::from_secs(1),
+            )),
+        )
+        .get(7, 1)
+        .await
+        .unwrap();
+
+        assert_eq!(&read.unwrap().properties[..], br#"{"plan":"paid"}"#);
     }
 }

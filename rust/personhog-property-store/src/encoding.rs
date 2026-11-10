@@ -6,12 +6,15 @@ use crate::PropertyStoreError;
 
 const FORMAT_V1: u8 = 1;
 const FLAG_DELETED: u8 = 0b1;
-const HEADER_LEN: usize = 10;
+const HEADER_LEN: usize = 18;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredProperties {
     pub version: i64,
     pub deleted: bool,
+    /// The row's `created_at` in epoch milliseconds. A revival resets it, so a record carrying
+    /// an earlier value than the row belongs to a previous incarnation of the same id.
+    pub created_at: i64,
     pub properties: Bytes,
 }
 
@@ -27,6 +30,7 @@ pub fn encode_value(value: &StoredProperties) -> Bytes {
     buf.put_u8(FORMAT_V1);
     buf.put_u8(if value.deleted { FLAG_DELETED } else { 0 });
     buf.put_i64(value.version);
+    buf.put_i64(value.created_at);
     buf.put_slice(&value.properties);
     buf.freeze()
 }
@@ -35,7 +39,7 @@ pub fn version_of(raw: &[u8]) -> Option<i64> {
     if raw.len() < HEADER_LEN || raw[0] != FORMAT_V1 {
         return None;
     }
-    Some(i64::from_be_bytes(raw[2..HEADER_LEN].try_into().ok()?))
+    Some(i64::from_be_bytes(raw[2..10].try_into().ok()?))
 }
 
 pub fn decode_value(
@@ -57,10 +61,12 @@ pub fn decode_value(
     if raw[0] != FORMAT_V1 {
         return Err(malformed(format!("unknown format {}", raw[0])));
     }
-    let version = i64::from_be_bytes(raw[2..HEADER_LEN].try_into().expect("8-byte slice"));
+    let version = i64::from_be_bytes(raw[2..10].try_into().expect("8-byte slice"));
+    let created_at = i64::from_be_bytes(raw[10..HEADER_LEN].try_into().expect("8-byte slice"));
     Ok(StoredProperties {
         version,
         deleted: raw[1] & FLAG_DELETED != 0,
+        created_at,
         properties: raw.slice(HEADER_LEN..),
     })
 }
@@ -75,6 +81,7 @@ mod tests {
             let value = StoredProperties {
                 version: 42,
                 deleted,
+                created_at: 1_700_000_000_000,
                 properties: Bytes::from_static(br#"{"plan":"paid"}"#),
             };
             assert_eq!(decode_value(1, 2, encode_value(&value)).unwrap(), value);
@@ -92,6 +99,7 @@ mod tests {
         let mut unknown = encode_value(&StoredProperties {
             version: 1,
             deleted: false,
+            created_at: 0,
             properties: Bytes::new(),
         })
         .to_vec();

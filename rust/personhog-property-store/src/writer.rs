@@ -31,6 +31,8 @@ pub struct PropertyRecord {
     pub person_id: i64,
     pub version: i64,
     pub deleted: bool,
+    /// The row's `created_at` in epoch milliseconds, stored with the record.
+    pub created_at: i64,
     pub properties: Bytes,
 }
 
@@ -345,6 +347,7 @@ impl PropertyWriter {
                 encode_value(&StoredProperties {
                     version: record.version,
                     deleted: record.deleted,
+                    created_at: record.created_at,
                     properties: if record.deleted {
                         Bytes::new()
                     } else {
@@ -875,6 +878,7 @@ mod tests {
                 person_id: 1,
                 version: version + 10 * generation as i64,
                 deleted: false,
+                created_at: 0,
                 properties: Bytes::from_static(b"{}"),
             };
             writer.put(&key(), generation, &[record]).await.unwrap();

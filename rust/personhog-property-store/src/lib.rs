@@ -88,8 +88,14 @@ pub fn object_store(
             })?;
         return Ok(Arc::new(local));
     }
-    if !url.starts_with("s3://") {
+    let Some(bucket_and_path) = url.strip_prefix("s3://") else {
         return Ok(slatedb::Db::resolve_object_store(url)?);
+    };
+    // The S3 builder keeps only the bucket, so a path in the URL would vanish without notice.
+    if bucket_and_path.trim_end_matches('/').contains('/') {
+        return Err(PropertyStoreError::Config(format!(
+            "PROPERTY_STORE_URL {url} has a path; S3 ignores it, use PROPERTY_STORE_PREFIX"
+        )));
     }
     build_s3(s3_builder(config).with_url(url))
 }
@@ -202,5 +208,16 @@ mod tests {
             .unwrap();
 
         assert!(dir.path().join("store/marker").exists());
+    }
+
+    #[test]
+    fn an_s3_url_with_a_path_is_refused() {
+        let mut config = PropertyStoreConfig::local("props", 1);
+        config.url = Some("s3://bucket/path".to_string());
+
+        assert!(matches!(
+            object_store(&config),
+            Err(PropertyStoreError::Config(_))
+        ));
     }
 }

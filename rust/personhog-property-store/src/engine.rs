@@ -330,6 +330,7 @@ mod tests {
         encode_value(&StoredProperties {
             version,
             deleted: false,
+            created_at: 0,
             properties: Bytes::from(version.to_string()),
         })
     }

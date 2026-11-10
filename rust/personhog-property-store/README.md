@@ -1,6 +1,6 @@
 # personhog-property-store
 
-Person properties in SlateDB on object storage, one SlateDB database per shard. A person's shard is `person_hash(team_id, person_id) % PROPERTY_STORE_SHARDS`, and shard `s` belongs to changelog partition `s % partitions`, so the writer that owns a partition owns its shards. Values carry the person version; a merge keeps the higher one, so writes converge in any order and a delete is a versioned marker.
+Person properties in SlateDB on object storage, one SlateDB database per shard. A person's shard is `person_hash(team_id, person_id) % PROPERTY_STORE_SHARDS`, and shard `s` belongs to changelog partition `s % partitions`, so the writer that owns a partition owns its shards. Values carry the person version and the row's `created_at`; a merge keeps the higher version, so writes converge in any order and a delete is a versioned marker.
 
 The writer (`PropertyWriter`) opens a partition's shards when it is assigned the partition and fences any earlier opener. Readers (`PropertyReader`) open shards read-only and follow the writer's manifest. Express directory buckets hold copies of every SST for low-latency reads; the writer copies as it uploads, and the writer's `express-repair` command fills gaps.
 
@@ -10,7 +10,7 @@ Every service that uses the store reads these. The leader refuses `PROPERTY_STOR
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROPERTY_STORE_URL` | (required) | Object store URL, such as `s3://bucket` or `file:///path` |
+| `PROPERTY_STORE_URL` | (required) | Object store URL, such as `s3://bucket` or `file:///path`. An S3 URL takes no path; `PROPERTY_STORE_PREFIX` separates stores in one bucket |
 | `PROPERTY_STORE_PREFIX` | `tmp/personhog-properties` | Key prefix under the URL; shards live at `<prefix>/shard-NNNNN` |
 | `PROPERTY_STORE_SHARDS` | `64` | Shard count. Must be a multiple of every changelog partition count; The writer registers it in etcd; a leader or replica refuses to start when nothing is registered or its own count or location differs |
 | `PROPERTY_STORE_S3_ENDPOINT` | (unset) | S3 endpoint override, for a local S3 |
@@ -69,7 +69,7 @@ Reader side:
 | `personhog_property_store_read_timeouts_total` | counter | Reads that hit `PROPERTY_STORE_READ_TIMEOUT_MS` |
 | `personhog_property_store_fresh_reads_total{outcome}` | counter | One-off reads of the latest state: `found`, `missing`, `error`, or `refused` above `PROPERTY_STORE_MAX_FRESH_READS` |
 | `personhog_property_store_fresh_read_ms` | histogram | One-off read latency, including its open |
-| `personhog_property_store_express_reads_total{outcome}` | counter | SST reads from the Express bucket: `hit`, or fell back because `missing`, `error` or `timeout` |
+| `personhog_property_store_express_reads_total{outcome}` | counter | SST reads from the Express bucket: `hit`, or fell back because `missing`, `error` or `timeout`; `retry` is a read SlateDB reissued after a validation failure, sent straight to Standard |
 | `personhog_property_store_express_read_ms` | histogram | Express read latency on hits |
 
 SlateDB's own metrics are published as `slatedb_*` without a shard label; gauges are summed across a process's open shards, except epochs, timestamps, heartbeats and `slatedb_db_l0_sst_count`, which take the maximum. `slatedb_db_l0_sst_count` rising is compaction falling behind. `slatedb_object_store_request_duration_seconds` is object store request latency.
