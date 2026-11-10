@@ -22,7 +22,9 @@ export async function execHog(
     return await semaphore.run(async () => {
         signal?.throwIfAborted()
         return await instrumentFn(`hog-exec`, async () => {
-            return await yieldEventLoopIfNeeded('hog-exec', () => execHogImmediate(bytecode, options))
+            return await yieldEventLoopIfNeeded('hog-exec', () =>
+                signal?.aborted ? { error: signal.reason, durationMs: 0 } : execHogImmediate(bytecode, options)
+            )
         })
     })
 }

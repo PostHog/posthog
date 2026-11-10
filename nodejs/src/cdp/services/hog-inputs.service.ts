@@ -79,6 +79,7 @@ export class HogInputsService {
         }
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
+            signal?.throwIfAborted()
             const templating = input.templating ?? 'hog'
 
             if (templating === 'liquid') {

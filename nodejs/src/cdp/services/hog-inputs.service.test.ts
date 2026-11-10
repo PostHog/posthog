@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { inspect } from 'util'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -252,13 +253,69 @@ describe('Hog Inputs', () => {
             expect(inputs.hog_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
-        it('runs no hog input once the deadline it was given has passed', async () => {
+        const passedDeadline = (): AbortController => {
             const deadline = new AbortController()
             deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+            return deadline
+        }
+
+        it.each([
+            ['hog', { value: 'x', templating: 'hog' as const, bytecode: ['_H', 1, 32, 'x'] }],
+            ['liquid', { value: '{{ event.event }}', templating: 'liquid' as const }],
+        ])('renders no %s input once the deadline it was given has passed', async (_templating, input) => {
+            const onlyThatInput = createHogFunction({ ...hogFunction, inputs: { only: input }, inputs_schema: [] })
 
             await expect(
-                hogInputsService.buildInputs(hogFunction, globals, undefined, undefined, deadline.signal)
+                hogInputsService.buildInputs(onlyThatInput, globals, undefined, undefined, passedDeadline().signal)
             ).rejects.toThrow('The verification deadline passed')
+        })
+
+        it('runs no hog input whose deadline passes while it waits for its turn on the event loop', async () => {
+            const onlyHog = createHogFunction({
+                ...hogFunction,
+                inputs: { only: { value: 'x', templating: 'hog', bytecode: ['_H', 1, 32, 'x'] } },
+                inputs_schema: [],
+            })
+            const threshold = getEventLoopYieldThresholdMs()
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            configureEventLoopYield(0)
+            jest.useFakeTimers({
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'performance',
+                    'queueMicrotask',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'Date',
+                ],
+            })
+            const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+            try {
+                const deadline = new AbortController()
+                let outcome: string | undefined
+                void hogInputsService.buildInputs(onlyHog, globals, undefined, undefined, deadline.signal).then(
+                    () => (outcome = 'rendered'),
+                    (error: Error) => (outcome = error.message)
+                )
+                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+                expect(outcome).toBeUndefined()
+
+                deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+                for (let turn = 0; outcome === undefined && turn < 1000; turn++) {
+                    jest.runOnlyPendingTimers()
+                    await nextTurn()
+                }
+
+                expect(outcome).toBe('The verification deadline passed')
+            } finally {
+                jest.useRealTimers()
+                configureEventLoopYield(threshold)
+            }
         })
 
         it('should template out liquid inputs', async () => {
