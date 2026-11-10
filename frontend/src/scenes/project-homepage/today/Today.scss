@@ -338,6 +338,12 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
+.TodayEmpty {
+    padding: 20px 16px;
+    border: 1px dashed var(--today-line);
+    border-radius: 8px;
+}
+
 .TodayHome__noteLink {
     color: var(--today-ink);
     text-decoration: underline;

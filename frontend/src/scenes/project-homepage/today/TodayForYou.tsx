@@ -6,6 +6,7 @@ import { Button, Skeleton } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { TodayForYouEmpty } from './TodayForYouEmpty'
 import { type TodayForYouRow } from './todayForYouRows'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
@@ -61,13 +62,7 @@ export function TodayForYou(): JSX.Element {
             {!forYouReady ? (
                 <TodayRowsSkeleton />
             ) : forYouRows.rows.length === 0 ? (
-                !forYouFailedNote && (
-                    <p className="TodayHome__note">
-                        {isNewProject
-                            ? 'Once your project sends events, changes that need you show up here.'
-                            : 'Nothing needs you today. Changes in your data that need you show up here.'}
-                    </p>
-                )
+                !forYouFailedNote && <TodayForYouEmpty isNewProject={isNewProject} />
             ) : (
                 <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
             )}

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useId } from 'react'
 
-import { Skeleton, Text } from '@posthog/quill'
+import { Skeleton } from '@posthog/quill'
 
 import type { HighlightsApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
@@ -9,6 +9,7 @@ import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { TodayPulse } from './TodayPulse'
 import { TodayPulseEditor } from './TodayPulseEditor'
+import { TodayPulseEmpty } from './TodayPulseEmpty'
 
 function TodayPulseSkeleton(): JSX.Element {
     return (
@@ -64,11 +65,7 @@ export function TodayPulseSection(): JSX.Element | null {
             </div>
             {view === 'loading' ? <TodayPulseSkeleton /> : null}
             {view === 'numbers' ? <TodayPulse metrics={pulseTiles} slots={pulseSlots} /> : null}
-            {view === 'empty' ? (
-                <Text size="sm" variant="muted" render={<p />} className="m-0">
-                    Key numbers show here when you or your team open a few trend insights.
-                </Text>
-            ) : null}
+            {view === 'empty' ? <TodayPulseEmpty /> : null}
         </section>
     )
 }
