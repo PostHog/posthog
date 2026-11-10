@@ -592,8 +592,6 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
 
 def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
-    
-
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
         "range": TableNode(name="range", table=RangeTable()),
