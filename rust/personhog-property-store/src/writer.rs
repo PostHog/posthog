@@ -31,7 +31,6 @@ pub struct PropertyRecord {
     pub person_id: i64,
     pub version: i64,
     pub deleted: bool,
-    /// The row's `created_at` in epoch milliseconds, stored with the record.
     pub created_at: i64,
     pub properties: Bytes,
 }

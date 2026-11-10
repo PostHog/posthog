@@ -880,8 +880,7 @@ mod tests {
             .unwrap();
         writer.flush_memtables().await;
         writer.close().await;
-        // Damages the first data block of every copied SST, which holds the record, and
-        // leaves the index and footer intact so the read reaches that block.
+        // Only the first data block is damaged, so the index and footer still lead the read to it.
         let mut copies = copy.list(None);
         while let Some(meta) = copies.next().await.transpose().unwrap() {
             let mut bytes = copy

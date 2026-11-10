@@ -12,8 +12,7 @@ const HEADER_LEN: usize = 18;
 pub struct StoredProperties {
     pub version: i64,
     pub deleted: bool,
-    /// The row's `created_at` in epoch milliseconds. A revival resets it, so a record carrying
-    /// an earlier value than the row belongs to a previous incarnation of the same id.
+    /// Epoch milliseconds; a revival resets it, so an earlier value than the row's marks a previous incarnation.
     pub created_at: i64,
     pub properties: Bytes,
 }
