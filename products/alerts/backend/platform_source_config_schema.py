@@ -15,6 +15,7 @@ from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDE
 from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS
 from products.alerts.backend.platform_ownership import (
     admit_platform_write,
+    guard_native_insight_edit,
     mirror_platform_edit,
     remove_native_destinations,
 )
@@ -111,6 +112,7 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
         check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations, creates=False
     ),
     native_create=creates_native_alert,
+    native_edit_guard=guard_native_insight_edit,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
     kept_source_config_keys=INSIGHT_ROW_SETTINGS,
 )

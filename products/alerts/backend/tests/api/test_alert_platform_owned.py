@@ -556,18 +556,25 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}, {}),
-            # The insight API checks a detector against its insight and its access rules, so only it may set one.
-            ("detector", {"detector": {"type": "zscore"}}, {}),
-            ("series", {}, {"config": {"type": "TrendsAlertConfig", "series_index": 1}}),
-            ("skip_weekend", {}, {"skip_weekend": True}),
-            ("evaluation_delay", {}, {"evaluation_delay_intervals": 3}),
-            ("investigation_agent", {}, {"investigation_agent_enabled": True}),
+            (f"{name}_{kind}", condition_change, settings_change, kind == "native")
+            for name, condition_change, settings_change in [
+                ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}, {}),
+                # The insight API checks a detector against its insight and its access rules, so only it may set one.
+                ("detector", {"detector": {"type": "zscore"}}, {}),
+                ("series", {}, {"config": {"type": "TrendsAlertConfig", "series_index": 1}}),
+                ("skip_weekend", {}, {"skip_weekend": True}),
+                ("evaluation_delay", {}, {"evaluation_delay_intervals": 3}),
+                ("investigation_agent", {}, {"investigation_agent_enabled": True}),
+            ]
+            # An alert with no insight row has no row to mirror onto, so the same refusals come from its guard.
+            for kind in ("row", "native")
         ]
     )
     def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(
-        self, _name: str, condition_change: dict[str, Any], settings_change: dict[str, Any]
+        self, _name: str, condition_change: dict[str, Any], settings_change: dict[str, Any], native: bool
     ) -> None:
+        if native:
+            self._forget_the_insight_row()
         stored_config = self._copy().source_config
 
         def edit(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
@@ -577,10 +584,93 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         with pytest.raises(InvalidPlatformAlertEdit):
             self._edit_on_the_platform(edit)
 
-        self.alert.refresh_from_db()
-        assert self.alert.threshold is not None
-        assert (self.alert.threshold.configuration["type"], self.alert.detector_config) == ("absolute", None)
+        if not native:
+            self.alert.refresh_from_db()
+            assert self.alert.threshold is not None
+            assert (self.alert.threshold.configuration["type"], self.alert.detector_config) == ("absolute", None)
         assert self._copy().source_config == stored_config
+
+    @parameterized.expand(
+        [
+            ("rename", {"name": "Renamed"}, status.HTTP_200_OK, lambda copy: copy.name, "Renamed"),
+            (
+                "threshold",
+                {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
+                status.HTTP_200_OK,
+                lambda copy: copy.source_config["condition"]["threshold"]["bounds"],
+                {"upper": 200},
+            ),
+            (
+                "cadence",
+                {"calculation_interval": AlertCalculationInterval.HOURLY.value},
+                status.HTTP_200_OK,
+                lambda copy: copy.check_interval_minutes,
+                60,
+            ),
+            ("snooze", {"snoozed_until": "1d"}, status.HTTP_200_OK, lambda copy: copy.snooze_until is not None, True),
+            (
+                "investigation_without_a_detector",
+                {"investigation_agent_enabled": True},
+                status.HTTP_400_BAD_REQUEST,
+                lambda copy: copy.source_config["investigation_agent_enabled"],
+                False,
+            ),
+            (
+                "gating_without_the_agent",
+                {"investigation_gates_notifications": True},
+                status.HTTP_400_BAD_REQUEST,
+                lambda copy: copy.source_config["investigation_gates_notifications"],
+                False,
+            ),
+            # Its subscribers become destinations later; until then a subscriber would never hear from it.
+            (
+                "subscriber",
+                {"subscribed_users": ["{user}"]},
+                status.HTTP_400_BAD_REQUEST,
+                lambda copy: copy.name,
+                "native",
+            ),
+        ]
+    )
+    def test_the_insight_api_edits_an_alert_insight_keeps_no_row_for_with_its_checks(
+        self,
+        _name: str,
+        payload: dict[str, Any],
+        expected_status: int,
+        read: Callable[[PlatformAlertConfigurationView], Any],
+        expected: Any,
+    ) -> None:
+        self._forget_the_insight_row()
+        self._edit_on_the_platform(lambda stored: replace(stored, name="native"))
+        if payload.get("subscribed_users"):
+            payload = {"subscribed_users": [self.user.id]}
+
+        response = self.client.patch(f"{self.url}/{self.copy_id}/", payload, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert read(self._copy()) == expected
+        assert not AlertConfiguration.objects.filter(team=self.team).exists()
+
+    def test_turning_on_a_real_time_alert_insight_keeps_no_row_for_does_not_count_it_against_itself(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": 1}
+        ]
+        self.organization.save()
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
+            platform_testing.set_enabled(self.copy_id, False)
+            assign_native_creator(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=self.copy_id,
+                created_by_id=self.user.id,
+            )
+
+        response = self.client.patch(f"{self.url}/{self.copy_id}/", {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._copy().enabled is True
 
     @parameterized.expand(
         [
@@ -612,13 +702,19 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.alert.refresh_from_db()
         assert (self.alert.enabled, self._copy().enabled) == (False, False)
 
-    def test_a_snooze_from_slack_mutes_the_platform_copy(self) -> None:
-        outcome = snooze_alert_from_slack(self.alert.id, user=self.user, duration="1d")
+    @parameterized.expand([("row", False), ("native", True)])
+    def test_a_snooze_from_slack_mutes_the_platform_copy(self, _name: str, native: bool) -> None:
+        if native:
+            self._forget_the_insight_row()
+
+        # The snooze menu of an alert with no insight row carries its platform alert's id.
+        outcome = snooze_alert_from_slack(self.copy_id if native else self.alert.id, user=self.user, duration="1d")
 
         assert outcome == "snoozed"
-        self.alert.refresh_from_db()
-        assert self.alert.snoozed_until is not None
-        assert self._copy().snooze_until == self.alert.snoozed_until
+        assert self._copy().snooze_until is not None
+        if not native:
+            self.alert.refresh_from_db()
+            assert self._copy().snooze_until == self.alert.snoozed_until
 
     def test_a_snooze_the_platform_refuses_leaves_both_rows_unsnoozed(self) -> None:
         with patch(

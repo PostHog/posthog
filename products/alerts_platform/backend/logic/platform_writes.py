@@ -27,6 +27,7 @@ from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     InvalidPlatformAlertEdit,
     NativeAlertLifecycle,
+    NativeEditGuard,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
     PlatformAlertCreateRefused,
@@ -165,9 +166,16 @@ def update_configuration(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None = None,
     snooze_changed: bool = False,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
+    source_checked: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies `change` to the configuration's current settings under its row lock, and mirrors the
     result onto the source's own row. With `snooze_changed`, `snooze_until` becomes the whole alert's mute.
+
+    For an alert with no source row, `cadence` writes its schedule as `update_owned_copy` writes a
+    copy's, and its kind's `native_edit_guard` refuses what the source's API alone may change. A
+    source whose own API checked the edit sets `source_checked` to skip the guard.
 
     None when the configuration does not exist or its kind is not among `source_kinds`. Taking a
     function rather than the new settings lets a partial update merge with what is stored inside
@@ -184,6 +192,11 @@ def update_configuration(
         if snooze_changed and legacy_configuration_id is not None:
             # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
             raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
+        if cadence is not None and legacy_configuration_id is not None:
+            # The source row keeps the schedule, and `update_owned_copy` writes it onto the copy.
+            raise InvalidPlatformAlertEdit(
+                "check_interval_minutes", f"Schedule this alert in the {source_kind} product."
+            )
         spec = source_configs.spec(SourceKind(source_kind))
         mirror = spec.mirror if spec is not None else None
         write_source = (
@@ -198,9 +211,19 @@ def update_configuration(
         current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as `update_owned_copy` does for a copy.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
-        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True)
+        guard = (
+            spec.native_edit_guard
+            if spec is not None and legacy_configuration_id is None and not source_checked
+            else None
+        )
+        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True, guard=guard)
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
+        if cadence is not None:
+            try:
+                platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
+            except ValueError as error:
+                raise InvalidPlatformAlertEdit("check_interval_minutes", str(error)) from error
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
@@ -654,6 +677,7 @@ def _apply(
     now: datetime,
     snoozing: bool = False,
     admit: bool = False,
+    guard: NativeEditGuard | None = None,
 ) -> tuple[PlatformAlertConfigurationEdit, control_plane.PendingClose | None]:
     """Validates and writes an edit onto a configuration locked by the caller, and ends the firings it
     makes meaningless. With `admit`, the source's admission decides first on an edit that turns the
@@ -669,6 +693,13 @@ def _apply(
     edit = _validated(
         source_kind, current, _with_kept_keys(change(current), current, kept), team_id=configuration.team_id
     )
+    if guard is not None:
+        guard(
+            team_id=configuration.team_id,
+            current=current,
+            edit=edit,
+            check_interval_minutes=configuration.check_interval_minutes,
+        )
     if admit and edit.enabled and not current.enabled:
         _admit(
             team_id=configuration.team_id,

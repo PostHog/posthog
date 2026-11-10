@@ -140,6 +140,7 @@ from products.alerts.backend.facade.platform import (
     native_insight_alert_views,
     platform_takes_new_alert_with,
     write_moved_alert_edit,
+    write_native_alert_edit,
 )
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
@@ -986,6 +987,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        if instance.has_no_insight_row:
+            return self._update_native(instance, validated_data)
         current_insight_id = AlertConfiguration.objects.get(pk=instance.pk).insight_id
         target_insight = validated_data.get("insight")
         insight_ids = {current_insight_id, target_insight.id if target_insight else current_insight_id}
@@ -1140,6 +1143,122 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
         return instance
+
+    def _update_native(self, instance: AlertConfiguration, validated_data: dict) -> AlertConfiguration:
+        """`update` for an alert with no insight row. It runs the same checks, then writes the edit to
+        the platform, which keeps the alert. The alert has no subscriptions, so it takes none."""
+        target_insight = validated_data.get("insight")
+        insight_ids = {instance.insight_id, target_insight.id if target_insight else instance.insight_id}
+        # The lock order of `update`: insights, then the alert, which the platform locks as its copy.
+        for insight_id in sorted(insight_ids):
+            if not lock_insight_for_evaluation(team_id=instance.team_id, insight_id=insight_id):
+                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+        view = native_insight_alert_view(instance.team_id, instance.id, lock=True)
+        locked = AlertConfiguration.from_platform_view(view, team_id=instance.team_id) if view is not None else None
+        if locked is None:
+            raise Http404
+        if locked.insight_id != instance.insight_id:
+            raise ValidationError({"insight": ["The alert's insight changed. Retry the update."]})
+        instance = locked
+        if target_insight:
+            target_insight.refresh_from_db()
+            _reject_deleted_insight(target_insight)
+        if validated_data.get("subscribed_users"):
+            raise ValidationError(
+                {"subscribed_users": ["This alert can't email subscribers yet. Add a destination instead."]}
+            )
+        validated_data.pop("subscribed_users", None)
+        self.instance = instance
+        validated_data = self.validate(validated_data)
+        resulting_enabled = validated_data.get("enabled", instance.enabled) is True
+        _admit_llm_alert_write(
+            self.context,
+            detector_config=validated_data.get("detector_config", instance.detector_config),
+            enabled=resulting_enabled,
+            calculation_interval=validated_data.get("calculation_interval", instance.calculation_interval),
+            instance=instance,
+        )
+        previous = AlertConfiguration(
+            id=instance.id, calculation_interval=instance.calculation_interval, enabled=instance.enabled
+        )
+        enable_now = resulting_enabled and not instance.enabled
+
+        snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
+        snooze_changed = snoozed_until_param is not serializers.empty
+        if snooze_changed:
+            instance.snoozed_until = (
+                relative_date_parse(snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True)
+                if snoozed_until_param is not None
+                else None
+            )
+
+        threshold_data = validated_data.pop("threshold", None)
+        threshold_before = instance.threshold.configuration if instance.threshold else None
+        if threshold_data == {}:
+            instance.threshold = None
+        elif threshold_data is not None:
+            instance.threshold = Threshold(
+                team_id=instance.team_id, insight=instance.insight, configuration=threshold_data.get("configuration")
+            )
+        evaluation_changed = (
+            instance.threshold.configuration if instance.threshold else None
+        ) != threshold_before or any(
+            field in validated_data and validated_data[field] != getattr(instance, field)
+            for field in ("condition", "config", "skip_weekend", "detector_config", "evaluation_delay_intervals")
+        )
+        schedule_changed = any(
+            field in validated_data and validated_data[field] != getattr(instance, field)
+            for field in ("schedule_restriction", "schedule_start_time")
+        )
+        interval_changed = (
+            "calculation_interval" in validated_data
+            and validated_data["calculation_interval"] != instance.calculation_interval
+        )
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        rescheduled = enable_now or evaluation_changed or interval_changed or schedule_changed
+        if rescheduled:
+            instance.next_check_at = (
+                next_check_at_after_schedule_restriction_change(instance) if schedule_changed else timezone.now()
+            )
+        changes: dict[str, Any] = {
+            **{field: value for field, value in validated_data.items() if field != "insight"},
+            "snoozed_until": instance.snoozed_until,
+            "next_check_at": instance.next_check_at,
+            "threshold": instance.threshold.configuration if instance.threshold else None,
+        }
+        if target_insight:
+            changes["insight_id"] = target_insight.id
+
+        try:
+            view = write_native_alert_edit(
+                team_id=instance.team_id,
+                alert_id=instance.id,
+                changes=changes,
+                snooze_changed=snooze_changed,
+                rescheduled=rescheduled,
+            )
+        except PlatformCannotOwn as error:
+            raise ValidationError(str(error)) from error
+        except InvalidPlatformAlertEdit as error:
+            raise ValidationError({error.field_name: str(error)}) from error
+        # After the platform locked its copy, as in `update`.
+        if msg := AlertConfiguration.update_limit_error(
+            team_id=instance.team_id,
+            organization=self.context["get_organization"](),
+            calculation_interval=instance.calculation_interval,
+            enabled=instance.enabled,
+            existing=previous,
+        ):
+            raise ValidationError({"calculation_interval": [msg]})
+        updated = AlertConfiguration.from_platform_view(view, team_id=instance.team_id) if view is not None else None
+        if updated is None:
+            raise Http404
+        updated.report_updated(
+            self.context["request"].user,
+            analytics_props=get_request_analytics_properties(self.context["request"]),
+        )
+        return updated
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
         try:
@@ -1906,6 +2025,19 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def update(self, request, *args, **kwargs):
+        try:
+            return super().update(request, *args, **kwargs)
+        except Http404:
+            alert = self._native_alert()
+            if alert is None:
+                raise
+        self.check_object_permissions(request, alert)
+        serializer = self.get_serializer(alert, data=request.data, partial=kwargs.get("partial", False))
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(self.get_serializer(serializer.instance).data)
 
     def _alert_or_native(self) -> AlertConfiguration:
         """The alert under the URL's id: its insight row, or the platform's alert with no insight row."""

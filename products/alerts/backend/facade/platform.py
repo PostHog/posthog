@@ -25,6 +25,7 @@ from products.alerts.backend.platform_ownership import (
     hand_over_new_alert,
     platform_takes_new_alert_with,
     write_moved_alert_edit,
+    write_native_alert_edit,
 )
 
 
@@ -50,4 +51,5 @@ __all__ = [
     "native_insight_alert_views",
     "platform_takes_new_alert_with",
     "write_moved_alert_edit",
+    "write_native_alert_edit",
 ]

@@ -108,16 +108,20 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
 
-def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
-    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None."""
+def native_insight_alert_view(
+    team_id: int, alert_id: UUID, *, lock: bool = False
+) -> PlatformAlertConfigurationView | None:
+    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or
+    None. With `lock`, call it inside a transaction."""
     configuration = get_configuration(
-        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id, lock=lock
     )
     return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
 
 
 def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
-    """Turns on an insight alert with no insight row, through the platform's admission. None when it is gone.
+    """Turns on an insight alert with no insight row, through the platform's admission, once the
+    insight API has run its own checks. None when it is gone.
 
     Raises `InvalidPlatformAlertEdit` when the admission refuses it.
     """
@@ -126,6 +130,7 @@ def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAler
         source_kinds=[SourceKind.INSIGHT.value],
         configuration_id=alert_id,
         change=lambda stored: replace(stored, enabled=True),
+        source_checked=True,
     )
 
 
