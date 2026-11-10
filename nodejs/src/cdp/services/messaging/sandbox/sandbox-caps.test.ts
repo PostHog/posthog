@@ -5,7 +5,7 @@ import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import {
-    MAX_WAITING_ACQUIRES_WITH_DEADLINE,
+    MAX_PENDING_ACQUIRES_WITH_DEADLINE,
     RedisClient,
     RedisClientPipeline,
     RedisV2,
@@ -260,6 +260,7 @@ describe('claimSandboxCaps', () => {
     describe('on a Valkey pool with no deadlines of its own', () => {
         let store: StallingValkeyProxy
         let stalling: RateLimiterService
+        let storePort: number
         const caps = { team: 5, recipient: 5 }
         const unavailable = { ok: false, reason: 'cap_storage_unavailable' }
 
@@ -273,23 +274,25 @@ describe('claimSandboxCaps', () => {
             ]).finally(() => clearTimeout(gaveUp))
         }
 
+        const limiterThrough = (port: number, poolMaxSize: number): RateLimiterService =>
+            new RateLimiterService(
+                createRedisV2PoolFromConfig({
+                    connection: {
+                        url: '127.0.0.1',
+                        options: { port, password: defaultConfig.CDP_REDIS_PASSWORD, retryStrategy: () => null },
+                        name: 'sandbox-caps-stalling',
+                        exitOnRepeatedErrors: false,
+                    },
+                    poolMinSize: 0,
+                    poolMaxSize,
+                }),
+                { name: 'stalling' }
+            )
+
         beforeEach(async () => {
             store = new StallingValkeyProxy({ host: defaultConfig.CDP_REDIS_HOST, port: defaultConfig.CDP_REDIS_PORT })
-            const noDeadlinesPool = createRedisV2PoolFromConfig({
-                connection: {
-                    url: '127.0.0.1',
-                    options: {
-                        port: await store.start(),
-                        password: defaultConfig.CDP_REDIS_PASSWORD,
-                        retryStrategy: () => null,
-                    },
-                    name: 'sandbox-caps-stalling',
-                    exitOnRepeatedErrors: false,
-                },
-                poolMinSize: 0,
-                poolMaxSize: 1,
-            })
-            stalling = new RateLimiterService(noDeadlinesPool, { name: 'stalling' })
+            storePort = await store.start()
+            stalling = limiterThrough(storePort, 1)
         })
 
         afterEach(() => {
@@ -319,7 +322,7 @@ describe('claimSandboxCaps', () => {
         it('refuses at once while abandoned claims still wait for a connection, and claims again once storage answers', async () => {
             store.stopAnswering()
             const abandoned = await Promise.all(
-                Array.from({ length: MAX_WAITING_ACQUIRES_WITH_DEADLINE }, () =>
+                Array.from({ length: MAX_PENDING_ACQUIRES_WITH_DEADLINE }, () =>
                     claimSandboxCaps(stalling, caps, sameSend())
                 )
             )
@@ -334,6 +337,38 @@ describe('claimSandboxCaps', () => {
                 async () => expect(await claimSandboxCaps(stalling, caps, sameSend())).toMatchObject({ ok: true }),
                 30_000
             )
+        })
+
+        it('opens at most that many connections to storage that stops answering a burst of claims', async () => {
+            const wide = limiterThrough(storePort, 3 * MAX_PENDING_ACQUIRES_WITH_DEADLINE)
+            store.stopAnswering()
+
+            const burst = await Promise.all(
+                Array.from({ length: 3 * MAX_PENDING_ACQUIRES_WITH_DEADLINE }, () =>
+                    claimSandboxCaps(wide, caps, sameSend())
+                )
+            )
+
+            expect(burst).toEqual(burst.map(() => unavailable))
+            expect(store.openConnections).toBeLessThanOrEqual(MAX_PENDING_ACQUIRES_WITH_DEADLINE)
+
+            store.answerNewConnections()
+            await waitForExpect(
+                async () => expect(await claimSandboxCaps(wide, caps, sameSend())).toMatchObject({ ok: true }),
+                30_000
+            )
+        })
+
+        it('claims a burst of more sends than that limit on one connection while storage answers', async () => {
+            const roomy = { team: 100, recipient: 100 }
+
+            const burst = await Promise.all(
+                Array.from({ length: 3 * MAX_PENDING_ACQUIRES_WITH_DEADLINE }, () =>
+                    claimSandboxCaps(stalling, roomy, sameSend())
+                )
+            )
+
+            expect(burst).toEqual(burst.map(() => expect.objectContaining({ ok: true })))
         })
     })
 

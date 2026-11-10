@@ -34,6 +34,10 @@ export class StallingValkeyProxy {
         return (this.server!.address() as AddressInfo).port
     }
 
+    get openConnections(): number {
+        return this.connections.size
+    }
+
     stopAnsweringOpenConnections(): void {
         this.connections.forEach((connection) => {
             connection.answering = false
