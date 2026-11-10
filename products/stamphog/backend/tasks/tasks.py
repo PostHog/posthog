@@ -1853,8 +1853,8 @@ def _rereview_waiting_run(
 ) -> None:
     """Queue a new review when this PR's latest run is a WAIT at ``head_sha`` that is still the PR head.
 
-    ``waiting`` says which WAIT the caller's event can change, and ``wake`` is the output key the new
-    run carries, which names what woke it.
+    ``waiting`` says which WAIT the caller's event can change. ``wake`` is the output key that records
+    on the new run which event queued it.
     """
     team_id = repo_config.team_id
     latest = _latest_run(repo_config, pr_number)
@@ -1940,7 +1940,7 @@ def request_rereview_after_external_review(*, repository: str, pr_number: int, h
 
 
 _ATTESTATION_WAKE = "attestation_check_wake"
-# A check that reports again and again on one head starts at most this many reviews there.
+# A check that keeps reporting on one head starts at most this many reviews there.
 _ATTESTATION_WAKES_PER_HEAD = 3
 
 
@@ -1953,7 +1953,7 @@ class PendingCheck:
 
 
 def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
-    """The checks ``run`` recorded as pending, when waiting for them is the whole of its verdict.
+    """The checks ``run`` recorded as pending, when they are the only reason for its WAIT.
 
     A gate denial is saved as a GATED WAIT too, so the engine's own verdict decides. A PR that another
     gate also refused stays refused when the check reports.

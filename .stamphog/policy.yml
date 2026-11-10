@@ -31,7 +31,7 @@ deny:
     stamphog_policy:
         match:
             extend_paths:
-                # The dependency proof publisher. A PR that edits it must not be approved on its word.
+                # The dependency proof publisher. A PR that edits it changes what the proof checks.
                 - '^\.github/workflows/dependency-proof'
                 - '^\.github/scripts/dependency_proof/'
                 - 'packages/owners-yaml/'
