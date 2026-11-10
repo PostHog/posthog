@@ -24,7 +24,7 @@ import { runMigrations } from '@/db/migrate'
 import type { Config, DatabaseConfig, KmsConfig } from '@/lib/config'
 import { CredentialsServer } from '@/server'
 
-const MIGRATIONS = ['1794323815130_initial-schema']
+const MIGRATIONS = ['1794323815130_initial-schema', '1794323815131_audit-exported-at']
 const TABLES = ['audit_log', 'audit_log_default', 'idempotency_keys', 'integration_secrets', 'integrations']
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }
 const OTHER_TEAM: IntegrationOwner = { type: 'team', id: 2 }
