@@ -118,7 +118,9 @@ export const aiObservabilityMetricChartLogic = kea<aiObservabilityMetricChartLog
     selectors({
         activeMetric: [
             (s) => [s.metric, (_, props) => props.metric],
-            (metric: MetricChartKey, pinned: MetricChartKey | undefined): MetricChartKey => pinned ?? metric,
+            // A metric saved in the browser can outlive its option.
+            (metric: MetricChartKey, pinned: MetricChartKey | undefined): MetricChartKey =>
+                pinned ?? (metric in METRIC_CHART_DEFINITIONS ? metric : 'traces'),
         ],
         interval: [(s) => [s.dateFilter], ({ dateFrom, dateTo }) => metricChartInterval(dateFrom, dateTo)],
         canZoom: [(s) => [s.interval], (interval: IntervalType) => interval !== 'minute'],

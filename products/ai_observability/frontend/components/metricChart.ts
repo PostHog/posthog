@@ -9,7 +9,7 @@ import { formatLLMCost, formatLLMLatency } from '../utils'
 
 const count = (value: number): string => humanFriendlyNumber(value)
 
-export type MetricChartKey = 'traces' | 'users' | 'cost' | 'latency' | 'errors' | 'tokens'
+export type MetricChartKey = 'traces' | 'users' | 'cost' | 'latency' | 'errors'
 
 export interface MetricChartDefinition {
     label: string
@@ -43,14 +43,6 @@ export const METRIC_CHART_DEFINITIONS: Record<MetricChartKey, MetricChartDefinit
         series: {
             math: HogQLMathType.HogQL,
             math_hogql: "countIf(notEmpty(toString(properties.$ai_error)) OR properties.$ai_is_error = 'true')",
-        },
-        format: count,
-    },
-    tokens: {
-        label: 'Tokens',
-        series: {
-            math: HogQLMathType.HogQL,
-            math_hogql: 'sum(toFloat(properties.$ai_input_tokens)) + sum(toFloat(properties.$ai_output_tokens))',
         },
         format: count,
     },
