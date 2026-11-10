@@ -408,7 +408,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
         return list(
             SessionRecordingExternalReferenceSerializer(
-                external_references_manager.select_related("integration").all(),
+                external_references_manager.all(),
                 many=True,
                 context=self.context,
             ).data
@@ -1407,6 +1407,16 @@ class SessionRecordingViewSet(
             properties={"recording_id": recording.session_id},
             team=self.team,
             request=request,
+        )
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            item_id=recording.session_id,
+            scope="Replay",
+            activity="deleted",
+            detail=Detail(name=recording.session_id),
         )
         return Response(status=204)
 

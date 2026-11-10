@@ -170,12 +170,9 @@ class PostgreSQLServerIntegration:
                     "password": password,
                 },
                 "created_by": created_by,
+                "errors": "",
             },
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 

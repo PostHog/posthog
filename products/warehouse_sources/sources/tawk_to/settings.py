@@ -61,6 +61,15 @@ TAWK_TO_ENDPOINTS: dict[str, TawkToEndpointConfig] = {
         primary_keys=["propertyId", "id"],
         paginated=False,
     ),
+    "knowledge_base_articles": TawkToEndpointConfig(
+        name="knowledge_base_articles",
+        method="knowledge-base.article.list",
+        scoped_to_property=True,
+        primary_keys=["propertyId", "id"],
+        # Community reports only show this method called with `{propertyId}`; no paging
+        # params are documented publicly, so it is one call per property like `members.list`.
+        paginated=False,
+    ),
 }
 
 ENDPOINTS = tuple(TAWK_TO_ENDPOINTS.keys())

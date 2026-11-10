@@ -611,13 +611,15 @@ const ExplainChartChapterSchema = z.object({
         .string()
         .min(1)
         .describe(
-            "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+            "The first point the chapter covers. On a trends chart, copy it from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart). On a funnel, give the step number, where `1` is the first step."
         ),
     end: z
         .string()
         .min(1)
         .optional()
-        .describe('The last point the chapter covers, inclusive. Omit it when the chapter is about one point.'),
+        .describe(
+            'The last point the chapter covers, inclusive. Omit it when the chapter is about one point. A funnel chapter about the drop between two steps starts at the earlier step and ends at the later one.'
+        ),
     summary: z
         .string()
         .max(400)
@@ -650,14 +652,18 @@ const explainChartFields = {
     query: z
         .record(z.string(), z.unknown())
         .optional()
-        .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
+        .describe(
+            'A TrendsQuery, or a FunnelsQuery that shows steps, to explain when the chart is not a saved insight. Pass this or `insightId`.'
+        ),
     series: z
         .number()
         .int()
         .min(0)
         .optional()
         .default(0)
-        .describe("Index of the series in the chart's results that the story follows. Defaults to the first one."),
+        .describe(
+            "Index of the series in the chart's results that the story follows, or of the breakdown value on a funnel with a breakdown. Defaults to the first one."
+        ),
     headline: z
         .string()
         .min(1)

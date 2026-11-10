@@ -86,6 +86,7 @@ def _modules_that_may_define_authentication_classes() -> set[str]:
 
 def _subclasses(cls: type) -> set[type]:
     found: set[type] = set()
+    subclass: type
     for subclass in cls.__subclasses__():
         found |= {subclass, *_subclasses(subclass)}
     return found

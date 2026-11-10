@@ -18,6 +18,7 @@ from products.tasks.backend.logic.repo_selection.agent import (
     RepoSelectionRejectedError,
     RepoSelectionUsageLimitError,
     _build_repo_selection_prompt,
+    _resolve_repo_selection_runtime,
     _routing_rules_block,
     _salvage_repo_selection,
     filter_repository_candidates_for_sources,
@@ -129,13 +130,35 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             candidate_repos=["acme/a", "acme/b"],
         )
 
-    assert start.call_args.kwargs["context"].disable_skills is True
+    context = start.call_args.kwargs["context"]
+    assert context.disable_skills is True
+    assert (context.model, context.runtime_adapter, context.reasoning_effort, context.service_tier) == (
+        "gpt-6-luna",
+        "codex",
+        "medium",
+        None,
+    )
     assert selected.repository == "acme/b"
     prompt = start.call_args.kwargs["prompt"]
     assert "Team routing rules" in prompt
     assert "1. Support app asks → `acme/b`" in prompt
     assert "1. `acme/a` (private)" in prompt
     assert "2. `acme/b` (visibility unknown)" in prompt
+
+
+@parameterized.expand(
+    [
+        ("caller_model_wins", ("claude-haiku-4-5", None, None), ("claude-haiku-4-5", None, None)),
+        ("caller_runtime_wins", ("gpt-6-sol", "codex", "high"), ("gpt-6-sol", "codex", "high")),
+        ("caller_effort_kept_on_default_model", (None, None, "high"), ("gpt-6-luna", "codex", "high")),
+    ]
+)
+def test_caller_runtime_overrides_the_selector_default(_name, requested, expected) -> None:
+    model, runtime_adapter, reasoning_effort = requested
+    runtime = _resolve_repo_selection_runtime(
+        model=model, runtime_adapter=runtime_adapter, reasoning_effort=reasoning_effort
+    )
+    assert (runtime.model, runtime.runtime_adapter, runtime.reasoning_effort) == expected
 
 
 @parameterized.expand(
