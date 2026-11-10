@@ -153,12 +153,17 @@ LIMIT ${PROMPT_REPORT_TOP_CITATIONS}`,
         PROMPT_CITATION_COLUMNS
     )
 
-/** The searches the engines ran, with how often. Only engines that report their searches contribute. */
+/** The searches the engines ran, with how many answers ran each. Only engines that report their searches
+ * contribute. Searches are lowercased with whitespace collapsed and counted once per answer, like the overview. */
 export const promptSearchesQuery = (window: PromptReportWindow): DataTableNode =>
     table(
         hogql(
-            `SELECT query, count() AS searches, uniq(engine) AS engines
-FROM (SELECT engine, arrayJoin(JSONExtract(search_queries, 'Array(String)')) AS query
+            `SELECT query, uniq(id) AS searches, uniq(engine) AS engines
+FROM (SELECT id, engine,
+        arrayJoin(arrayDistinct(arrayMap(
+            q -> lower(trim(replaceRegexpAll(q, '[[:space:]]+', ' '))),
+            JSONExtract(search_queries, 'Array(String)')
+        ))) AS query
     FROM system.aeo_citation_checks
     WHERE ${WHERE})
 WHERE query != ''

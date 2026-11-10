@@ -1,7 +1,7 @@
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import unquote_plus
+from urllib.parse import unquote, unquote_plus
 
 # Vendors mask secrets on read, but we do not rely on it: a field that is not masked
 # (a vendor bug or a new field) must still never reach storage.
@@ -33,11 +33,11 @@ _KEY_SUFFIX = re.compile(r"keys?\d*$")
 # Client certificates authenticate the caller. CA certificates (`ca_cert`, `ssl_root_cert`) are public.
 _CA_TOKENS = frozenset({"ca", "root"})
 _KEY_TOKEN_SPLIT = re.compile(r"[_\-]|(?<=[a-z])(?=[A-Z])")
-# A URL with a password in it (`scheme://user:password@host`, also with an empty user).
-_URL_WITH_PASSWORD = re.compile(r"://[^/@\s]*:[^/@\s]+@")
-_URL_QUERY_PARAM = re.compile(r"[?&]([^=&#\s]+)=")
 # Signed-URL parameters: Azure SAS `sig`, AWS `X-Amz-Signature`, `SharedAccessSignature`.
 _SIGNATURE_PARAM = re.compile(r"(^|[_\-])sig$|signature", re.IGNORECASE)
+_URL_AUTHORITY = re.compile(r"[^/\s]*")
+_QUERY_SEPARATOR = re.compile(r"[?&]")
+_NOT_IN_PARAM_NAME = re.compile(r"[#\s]")
 
 
 def is_secret_key(key: str) -> bool:
@@ -59,10 +59,33 @@ def _is_secret_value(value: Any) -> bool:
     if "://" not in value:
         return False
     # Names are decoded first, so `%73ig` is checked as `sig`.
-    names = [unquote_plus(name) for name in _URL_QUERY_PARAM.findall(value)]
-    return bool(_URL_WITH_PASSWORD.search(value)) or any(
-        is_secret_key(name) or _SIGNATURE_PARAM.search(name) for name in names
-    )
+    names = [unquote_plus(name) for name in _query_param_names(value)]
+    return _has_url_password(value) or any(is_secret_key(name) or _SIGNATURE_PARAM.search(name) for name in names)
+
+
+# These scans are linear in the value's length, because an agent upload can carry any string, and a backtracking
+# pattern stalls on one like `https://::::…`.
+def _has_url_password(value: str) -> bool:
+    """`scheme://user:password@host`, also with an empty user."""
+    start = value.find("://")
+    while start >= 0:
+        authority = _URL_AUTHORITY.match(value, start + 3)
+        # The host follows the last `@`, as `urllib` reads it, so a user such as `reader@corp` keeps its password.
+        userinfo, at, _host = (authority.group() if authority else "").rpartition("@")
+        # A colon with a non-empty password after it, also percent-encoded as `%3A`.
+        if at and (":" in userinfo[:-1] or ":" in unquote(userinfo)[:-1]):
+            return True
+        start = value.find("://", start + 3)
+    return False
+
+
+def _query_param_names(value: str) -> list[str]:
+    names = []
+    for piece in _QUERY_SEPARATOR.split(value)[1:]:
+        name, equals, _value = piece.partition("=")
+        if equals and name and not _NOT_IN_PARAM_NAME.search(name):
+            names.append(name)
+    return names
 
 
 def strip_secrets(config: Mapping[str, Any]) -> dict[str, Any]:

@@ -344,8 +344,18 @@ class SandboxWarmer:
         churned = self._warm_churn_exceeded()
         pool_full = self.at_capacity(origin_product, team, self.user, profile=profile)
 
+        from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals imports Tasks
+
+        trial_admission = prepare_task_trial(
+            team=team,
+            origin=origin_product,
+            report_id=self.task.signal_report_source_id,
+            mode=mode if self.task.uses_self_driving_billing(mode) else "interactive",
+        )
         new_run: TaskRun
         with transaction.atomic():
+            if trial_admission is not None:
+                trial_admission.lock_report(self.task.signal_report_source_id)
             locked = Task.objects.select_for_update().get(id=self.task.id)
             existing = locked.latest_run
             if existing is not None and not existing.is_terminal:
@@ -403,7 +413,9 @@ class SandboxWarmer:
                 run_state["resume_from_run_id"] = str(resume_source.id)
                 run_state.update(parse_run_state(resume_source.state).resume_snapshot_carry_state())
 
-            new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
+            new_run = locked.create_run(
+                mode=mode, extra_state=run_state, branch=run_state.get("branch"), _trial_admission=trial_admission
+            )
 
             # Dispatch only after the row commits, so a rollback can't leave an orphaned sandbox.
             enqueue_or_start_workflow(

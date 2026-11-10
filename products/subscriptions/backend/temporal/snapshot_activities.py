@@ -16,7 +16,7 @@ from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
+from products.annotations.backend.facade.api import build_snapshot_annotations_block
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
@@ -106,11 +106,8 @@ def _load_annotations_section(
 
     Returns an empty string if there is no usable date window or no annotations match.
     """
-    return build_annotations_block(
-        subscription.team,
-        resolve_snapshot_date_range(content_snapshots),
-        dashboard_id=subscription.dashboard_id,
-        insight_ids=insight_ids,
+    return build_snapshot_annotations_block(
+        subscription.team, content_snapshots, dashboard_id=subscription.dashboard_id, insight_ids=insight_ids
     )
 
 
