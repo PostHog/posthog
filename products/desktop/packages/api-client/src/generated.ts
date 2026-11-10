@@ -12046,7 +12046,7 @@ export namespace Schemas {
     };
     export type GitLabProjectsResponse = {
         /**
-         * Projects where the token has the Developer role or higher, most recently active first, up to 1,000.
+         * The connected project, when the token has the Developer role or higher on it. Empty when it does not, or when it does not match the search.
          */
         projects: Array<GitLabProject>;
         /**
