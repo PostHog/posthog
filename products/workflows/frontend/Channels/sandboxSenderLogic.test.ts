@@ -77,6 +77,12 @@ describe('sandboxSenderLogic', () => {
             { problem: 'Sandbox email is turned off for your organization. Choose your own sender.', canSetUp: false },
         ],
         [
+            'the organization is blocked after the sender was set up',
+            { integration_id: 11, organization_blocked: true },
+            'not attempted',
+            { problem: 'Sandbox email is turned off for your organization. Choose your own sender.', canSetUp: false },
+        ],
+        [
             'the project cannot adopt the sender',
             { adoption_enabled: false },
             'not attempted',

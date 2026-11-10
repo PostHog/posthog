@@ -125,11 +125,11 @@ export const sandboxSenderLogic = kea<sandboxSenderLogicType>([
                 if (provisionError) {
                     return { problem: provisionError, canSetUp: true }
                 }
+                if (status?.organization_blocked) {
+                    return { problem: ORGANIZATION_BLOCKED, canSetUp: false }
+                }
                 if (status?.integration_id !== null || !status) {
                     return null
-                }
-                if (status.organization_blocked) {
-                    return { problem: ORGANIZATION_BLOCKED, canSetUp: false }
                 }
                 return canAdoptSandboxSender(status)
                     ? { problem: NOT_SET_UP, canSetUp: true }
