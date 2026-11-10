@@ -97,7 +97,7 @@ def file_system_resource(file_system_type: str) -> APIScopeObject:
     return "hog_flow" if file_system_type == "message_template" else cast(APIScopeObject, file_system_type)
 
 
-_RESOURCE_LEVEL_ONLY_TYPES = frozenset({"message_template"})
+RESOURCE_LEVEL_ONLY_TYPES = frozenset({"message_template"})
 
 
 def _is_access_controlled_type(file_system_type: str) -> bool:
@@ -341,7 +341,7 @@ def bulk_file_system_access_levels(
             # rows, making guessed refs indistinguishable from real-but-ungranted ones
             pk = row[0] if row else lookup_ref
             creator = provided_creator if provided_creator is not None else (row[1] if row else None)
-            if entry_type in _RESOURCE_LEVEL_ONLY_TYPES:
+            if entry_type in RESOURCE_LEVEL_ONLY_TYPES:
                 creator = None
             if creator_by_pk.get(pk) is None or creator == user_id:
                 creator_by_pk[pk] = creator

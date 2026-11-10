@@ -75,7 +75,7 @@ class TestWorkflowFolders(APIBaseTest):
             )
             self.assertEqual(restored.status_code, 200 if level == "editor" else 400, restored.content)
 
-    def test_a_template_creator_downgraded_to_viewer_cannot_delete_it_from_the_tree(self) -> None:
+    def test_a_template_creator_downgraded_to_viewer_cannot_delete_or_restore_it_from_the_tree(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -99,11 +99,26 @@ class TestWorkflowFolders(APIBaseTest):
         )
 
         deleted = self.client.delete(f"{files_url}{entry['id']}/")
-
-        self.assertEqual(deleted.status_code, 403, deleted.content)
         self.client.force_login(self.user)
-        template_status = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
-        self.assertEqual(template_status.status_code, 200, template_status.content)
+        template_after_delete = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
+        self.client.delete(f"{files_url}{entry['id']}/")
+        self.client.force_login(creator)
+        restored = self.client.post(
+            f"{files_url}undo_delete/", {"items": [{"type": "message_template", "ref": template["id"]}]}, format="json"
+        )
+        self.client.force_login(self.user)
+        template_after_restore = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
+
+        self.assertEqual(
+            [
+                deleted.status_code,
+                template_after_delete.status_code,
+                restored.status_code,
+                template_after_restore.status_code,
+            ],
+            [403, 200, 400, 404],
+            [deleted.content, restored.content],
+        )
 
     def test_workflow_viewers_cannot_place_or_unlink_a_workflow_file(self) -> None:
         self.organization.available_product_features = [
