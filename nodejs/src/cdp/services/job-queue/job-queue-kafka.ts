@@ -6,7 +6,7 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -288,14 +288,18 @@ function summarizeKafkaBatch(messages: Message[]): KafkaBatchSummary {
             })
         }
 
-        const headers = parseKafkaHeaders(message.headers)
-        functions.add(`${headers.teamId ?? 'unknown'}:${headers.functionId ?? 'unknown'}`)
+        functions.add(`${readHeader(message, 'teamId')}:${readHeader(message, 'functionId')}`)
     }
 
     return {
         partitions: [...partitions.values()].sort((a, b) => a.partition - b.partition),
         functions: [...functions].sort(),
     }
+}
+
+function readHeader(message: Message, key: string): string {
+    const value: string | Buffer | null | undefined = message.headers?.find((header) => key in header)?.[key]
+    return value?.toString() ?? 'unknown'
 }
 
 function describeKafkaBatch(messages: Message[]): KafkaBatchDescription {

@@ -78,6 +78,10 @@ describe('CyclotronJobQueueKafka', () => {
                 message(c.value, 3, 41, '1', 'fn-a'),
                 message(c.value, 7, 118, '2', 'fn-b'),
                 message(c.value, 7, 119, '1', 'fn-a'),
+                {
+                    ...message(c.value, 3, 42, '1', 'fn-a'),
+                    headers: [{ teamId: Buffer.from('1') }, { functionId: null }] as any,
+                },
             ]
 
             await expect(runBatch(eachBatch, messages, settle)).rejects.toThrow(c.error)
@@ -87,10 +91,10 @@ describe('CyclotronJobQueueKafka', () => {
                 error: expect.stringContaining(c.error),
                 topic: 'cdp_cyclotron_hog',
                 partitions: [
-                    { partition: 3, firstOffset: 41, lastOffset: 41, messages: 1 },
+                    { partition: 3, firstOffset: 41, lastOffset: 42, messages: 2 },
                     { partition: 7, firstOffset: 118, lastOffset: 120, messages: 3 },
                 ],
-                functions: ['1:fn-a', '2:fn-b'],
+                functions: ['1:fn-a', '1:unknown', '2:fn-b'],
             })
         })
     })
