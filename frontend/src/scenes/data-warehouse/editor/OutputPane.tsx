@@ -653,7 +653,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         visualizationProps: visualizationLogic.props,
         tabId: tabId || '',
     })
-    const { choosingChart, statusMessage } = useValues(chartRecommendationLogic)
+    const { choosingChart } = useValues(chartRecommendationLogic)
     const { skipRecommendation } = useActions(chartRecommendationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
@@ -997,13 +997,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 outputContent
             )}
             <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
-                <div className="flex flex-wrap items-center gap-x-4">
+                <div className="flex min-h-4 flex-wrap items-center gap-x-4">
                     {response && !responseError ? <LoadPreviewText localResponse={response} /> : null}
-                    {statusMessage ? (
-                        <span className="text-xs text-muted" role="status" data-attr="sql-editor-chart-status">
-                            {statusMessage}
-                        </span>
-                    ) : null}
                 </div>
                 <div className="flex items-center gap-4">
                     <ElapsedTime />
