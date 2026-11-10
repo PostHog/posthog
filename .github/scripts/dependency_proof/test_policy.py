@@ -58,7 +58,7 @@ def test_check_bump(old: str, new: str, reason: str | None) -> None:
         ({"dependencies": {"left-pad": "npm:left-pad@^1.3.1"}}, "not a plain registry"),
     ],
 )
-def test_manifest_changes(head: dict, reason: str | None) -> None:
+def test_check_manifest(head: dict, reason: str | None) -> None:
     base = {
         "private": True,
         "exports": {"import": "./a.mjs", "require": "./a.cjs"},
@@ -66,10 +66,10 @@ def test_manifest_changes(head: dict, reason: str | None) -> None:
     }
     head = {**base, **head}
     if reason is None:
-        assert policy.manifest_changes("package.json", base, head) == [("left-pad", "^1.3.0", "^1.3.1")]
+        policy.check_manifest("package.json", base, head)
     else:
         with pytest.raises(Refused, match=reason):
-            policy.manifest_changes("package.json", base, head)
+            policy.check_manifest("package.json", base, head)
 
 
 @pytest.mark.parametrize(
@@ -189,14 +189,14 @@ def importers(specifier: str, version: str, peer: str = "18.3.1", extra: dict | 
 
 
 BASE_LOCK = importers("^1.3.0", "1.3.0", peer="18.3.0")
-PEER_ONLY_CHANGE = ("react-dom", "18.3.0", "18.3.0", False)
+PEER_ONLY_CHANGE = ("react-dom", "18.3.0", "18.3.0")
 
 
 @pytest.mark.parametrize(
     ("head_lock", "expected", "reason"),
     [
-        (importers("^1.3.0", "1.3.1"), [("left-pad", "1.3.0", "1.3.1", False), PEER_ONLY_CHANGE], None),
-        (importers("^1.3.1", "1.3.1"), [("left-pad", "1.3.0", "1.3.1", True), PEER_ONLY_CHANGE], None),
+        (importers("^1.3.0", "1.3.1"), [("left-pad", "1.3.0", "1.3.1"), PEER_ONLY_CHANGE], None),
+        (importers("^1.3.1", "1.3.0", peer="18.3.0"), [("left-pad", "1.3.0", "1.3.0")], None),
         (importers("^1.3.0", "left-pad@1.3.1"), None, "not a plain registry"),
         (importers("^1.3.0", "2.0.0"), None, "major change"),
         ({"importers": {".": {}, "frontend": {}}}, None, "adds or removes a workspace project"),

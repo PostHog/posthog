@@ -172,8 +172,8 @@ def check_bump(label: str, old: str, new: str) -> None:
         raise Refused(f"{label} changes from {old} to {new}, which is a 0.0.x change")
 
 
-def manifest_changes(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) -> list[tuple[str, str, str]]:
-    """The (name, old range, new range) bumps in a manifest, refusing any other difference."""
+def check_manifest(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) -> None:
+    """Refuse a manifest that differs from its base by more than dependency range bumps."""
 
     def rest(manifest: Mapping[str, Any]) -> str:
         # Compared as text, because dict equality ignores key order, which `exports` conditions depend on,
@@ -182,7 +182,6 @@ def manifest_changes(path: str, base: Mapping[str, Any], head: Mapping[str, Any]
 
     if rest(base) != rest(head):
         raise Refused(f"{path} changes more than dependency versions")
-    changes = []
     for field in DEPENDENCY_FIELDS:
         before, after = base.get(field) or {}, head.get(field) or {}
         if not isinstance(before, dict) or not isinstance(after, dict) or before.keys() != after.keys():
@@ -190,12 +189,13 @@ def manifest_changes(path: str, base: Mapping[str, Any], head: Mapping[str, Any]
         for name, new in after.items():
             if before[name] != new:
                 check_bump(f"{path} {name}", str(before[name]), str(new))
-                changes.append((name, str(before[name]), str(new)))
-    return changes
 
 
-def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[tuple[str, str, str, bool]]:
-    """Per workspace project dependency: (name, old version, new version, specifier changed)."""
+def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[tuple[str, str, str]]:
+    """Each workspace project dependency whose lockfile entry changes: (name, old version, new version).
+
+    The versions are equal when only the specifier or a peer suffix changes.
+    """
     before_importers, after_importers = base_lock.get("importers") or {}, head_lock.get("importers") or {}
     if before_importers.keys() != after_importers.keys():
         raise Refused("the lockfile adds or removes a workspace project")
@@ -213,16 +213,12 @@ def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -
                 old_version, new_version = _resolved(old), _resolved(entry)
                 if old_version != new_version:
                     check_bump(f"{importer} {name}", old_version, new_version)
-                changes.append((name, old_version, new_version, _specifier(old) != _specifier(entry)))
+                changes.append((name, old_version, new_version))
     return changes
 
 
 def _resolved(entry: Any) -> str:
     return str(entry.get("version", "") if isinstance(entry, dict) else "").partition("(")[0]
-
-
-def _specifier(entry: Any) -> str:
-    return str(entry.get("specifier", "") if isinstance(entry, dict) else "")
 
 
 def new_packages(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[str]:
