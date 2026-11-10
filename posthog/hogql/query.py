@@ -1063,6 +1063,10 @@ class HogQLQueryExecutor:
             table_workload = clickhouse_context.workload
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
+            elif workload == Workload.METRICS and table_workload == Workload.LOGS:
+                # A metrics query that also reads logs or spans tables resolves to LOGS, and only the logs
+                # cluster holds both.
+                workload = Workload.LOGS
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(
