@@ -6,8 +6,9 @@ from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -560,17 +561,21 @@ class TestGitHubPRWebhook(TestCase):
 
     @parameterized.expand(
         [
-            ("announced_pr_closed", "https://github.com/posthog/posthog/pull/790", False, 1),
-            ("announced_pr_merged", "https://github.com/posthog/posthog/pull/790", True, 1),
-            ("unannounced_pr_closed", "https://github.com/posthog/posthog/pull/791", False, 0),
+            ("announced_pr_closed", "https://github.com/posthog/posthog/pull/790", False, 1, False),
+            ("announced_pr_merged", "https://github.com/posthog/posthog/pull/790", True, 1, False),
+            ("unannounced_pr_closed", "https://github.com/posthog/posthog/pull/791", False, 0, False),
+            ("picked_before_pr_open_closed", "https://github.com/posthog/posthog/pull/791", False, 0, True),
+            ("picked_before_pr_open_merged", "https://github.com/posthog/posthog/pull/791", True, 0, True),
         ]
     )
     @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_closed_queues_slack_thread_notice(
-        self, _name, pr_url, merged, expected_enqueues, _mock_capture, mock_get_secret
+        self, _name, pr_url, merged, expected_enqueues, picked_up, _mock_capture, mock_get_secret
     ):
         mock_get_secret.return_value = self.webhook_secret
+        if picked_up:
+            self.organization.members.add(self.user)
         task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -578,7 +583,9 @@ class TestGitHubPRWebhook(TestCase):
             description="",
             origin_product=Task.OriginProduct.SLACK,
             repository="posthog/posthog",
-            state={"slack_notified_pr_url": "https://github.com/posthog/posthog/pull/790"},
+            state={"mobile_push_user_ids": [self.user.id]}
+            if picked_up
+            else {"slack_notified_pr_url": "https://github.com/posthog/posthog/pull/790"},
         )
         run = TaskRun.objects.create(
             task=task,
@@ -589,9 +596,18 @@ class TestGitHubPRWebhook(TestCase):
         )
         payload = self._merged_pr_payload(pr_url) if merged else self._closed_pr_payload(pr_url)
 
-        with patch("products.tasks.backend.tasks.tasks.notify_slack_thread_pr_closed.delay") as mock_delay:
+        with (
+            patch("products.tasks.backend.tasks.tasks.notify_slack_thread_pr_closed.delay") as mock_delay,
+            patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as mock_push,
+            patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=True),
+        ):
             with self.captureOnCommitCallbacks(execute=True):
                 response = self._make_webhook_request(payload)
+            if picked_up:
+                cache.clear()
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._make_webhook_request(payload)
+            self.assertEqual(mock_push.call_count, int(picked_up))
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(mock_delay.call_count, expected_enqueues)
@@ -1943,8 +1959,16 @@ class TestFindTaskRun(TestCase):
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
             state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
         )
-        result = find_task_run(team_ids=[self.team.id], pr_url="https://github.com/posthog/posthog/pull/123")
+        with CaptureQueriesContext(connection) as queries:
+            result = find_task_run(team_ids=[self.team.id], pr_url="https://github.com/posthog/posthog/pull/123")
+
         self.assertEqual(result, task_run)
+        self.assertEqual(len(queries), 2)
+        self.assertNotIn("JOIN", queries[0]["sql"])
+        self.assertIn("verified_pr_urls", queries[0]["sql"])
+        self.assertIn('INNER JOIN "posthog_task"', queries[1]["sql"])
+        self.assertIn('"posthog_task_run"."id" IN', queries[1]["sql"])
+        self.assertNotIn("verified_pr_urls", queries[1]["sql"])
 
     def test_pr_url_prefers_active_run_over_terminal(self):
         # A resumed wizard run inherits its predecessor's head branch, so two runs can

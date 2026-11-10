@@ -13,9 +13,11 @@ import {
     canvasesRequestAgentCreate,
     canvasesStateRetrieve,
     canvasesStateSet,
+    canvasesToolsInvoke,
 } from '../generated/api'
 import type {
     CanvasActionDefinitionApi,
+    CanvasToolDefinitionApi,
     CanvasConnectorCallResultApi,
     CanvasStateEntryApi,
 } from '../generated/api.schemas'
@@ -163,6 +165,8 @@ function assertVariablesApplied(
 export class CanvasDataBridge {
     private readonly cache = new CanvasReadCache()
     private readonly connectorConsent = new Map<string, boolean>()
+    private readonly pendingConnectorConsent = new Map<string, Promise<boolean>>()
+    private toolRegistry: Promise<CanvasToolDefinitionApi[]> | null = null
 
     constructor(
         private readonly context: () => CanvasDataBridgeContext,
@@ -186,6 +190,10 @@ export class CanvasDataBridge {
                 return this.stateList(input)
             case 'actionInvoke':
                 return this.actionInvoke(input)
+            case 'toolRead':
+                return this.toolInvoke(input, false)
+            case 'toolCall':
+                return this.toolInvoke(input, true)
             case 'agentRequest':
                 return this.agentRequest(payload)
             case 'connectorCall':
@@ -371,6 +379,49 @@ export class CanvasDataBridge {
         })
     }
 
+    // ph.tools.read runs without a click, so it takes read-only tools only. ph.tools.call
+    // comes from a click, and the viewer confirms every tool that is not read-only.
+    private async toolInvoke(input: Record<string, unknown>, fromGesture: boolean): Promise<unknown> {
+        const name = input.tool
+        if (typeof name !== 'string' || !name) {
+            throw new Error('ph.tools requires a tool name')
+        }
+        const { projectId, canvasId } = this.context()
+        const tool = (await this.tools(projectId)).find((entry) => entry.name === name)
+        if (!tool) {
+            throw new Error(`Canvases cannot run the tool "${name}"`)
+        }
+        if (!fromGesture && !tool.read_only) {
+            throw new Error(`"${name}" changes data. Run it with ph.tools.call from a click.`)
+        }
+        const args = (input.arguments as Record<string, unknown> | undefined) ?? {}
+        if (
+            !tool.read_only &&
+            !(await this.prompts.confirmAction({
+                action: { verb: tool.name, summary: tool.summary, destructive: tool.destructive, usage: '' },
+                payload: args,
+            }))
+        ) {
+            throw new Error('Canvas tool call canceled')
+        }
+        const { result } = await canvasesToolsInvoke(projectId, canvasId, { tool: name, arguments: args })
+        return result
+    }
+
+    // The allowlist changes only with a deploy, so a board that reads many flags on load fetches it once.
+    private tools(projectId: string): Promise<CanvasToolDefinitionApi[]> {
+        if (!this.toolRegistry) {
+            this.toolRegistry = canvasesActionsRetrieve(projectId).then(
+                ({ tools }) => tools,
+                (error) => {
+                    this.toolRegistry = null
+                    throw error
+                }
+            )
+        }
+        return this.toolRegistry
+    }
+
     private async agentRequest(payload: unknown): Promise<{ requestOutcome: string; taskId: string }> {
         const { prompt } = canvasAgentRequestInputSchema.parse(payload)
         if (!(await this.prompts.confirmAgentRequest(prompt))) {
@@ -424,7 +475,7 @@ export class CanvasDataBridge {
 
     private async requireConnectorConsent(sourceVersionId: string, input: CanvasConnectorCallInput): Promise<void> {
         const key = `${sourceVersionId}:${input.provider}:${input.tool}`
-        const known = this.connectorConsent.get(key)
+        const known = this.pendingConnectorConsent.has(key) ? undefined : this.connectorConsent.get(key)
         // A denial sticks until the viewer interacts with the canvas again, so a render
         // loop cannot reopen the dialog.
         if (known === true || (known === false && !this.prompts.hasUserActivation())) {
@@ -433,14 +484,25 @@ export class CanvasDataBridge {
             }
             throw new Error('Connector access was not granted. Click in the canvas to try again.')
         }
-        const allowed = await this.prompts.requestConnectorPermission({
-            provider: input.provider,
-            tool: input.tool,
-            reason: 'canvas',
-        })
-        this.connectorConsent.set(key, allowed)
-        if (!allowed) {
+        if (!(await this.connectorConsentPrompt(key, input))) {
             throw new Error('Connector access was not granted. Click in the canvas to try again.')
         }
+    }
+
+    // A canvas often starts several connector reads at once. Each call for the same key
+    // awaits the one open prompt, so the viewer answers once instead of once per call.
+    private connectorConsentPrompt(key: string, input: CanvasConnectorCallInput): Promise<boolean> {
+        let pending = this.pendingConnectorConsent.get(key)
+        if (!pending) {
+            pending = this.prompts
+                .requestConnectorPermission({ provider: input.provider, tool: input.tool, reason: 'canvas' })
+                .then((allowed) => {
+                    this.connectorConsent.set(key, allowed)
+                    return allowed
+                })
+                .finally(() => this.pendingConnectorConsent.delete(key))
+            this.pendingConnectorConsent.set(key, pending)
+        }
+        return pending
     }
 }

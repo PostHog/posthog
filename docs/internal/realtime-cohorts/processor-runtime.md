@@ -115,19 +115,29 @@ The sweep alternates with live batches, so a large wave of expirations at midnig
 [Time and eviction](time-and-eviction.md) explains the sweep.
 
 Each live sub-batch holds one topic's messages, or one timer tick, in offset order.
-As a guard, before any merge, transfer, cascade, sweep or reconcile message, the worker first produces the membership changes it has buffered, so the order of output matches the order of state changes.
+As a guard, before any merge, transfer, cascade, sweep or reconcile message, the worker first hands the membership changes it has buffered to the producer, so output is submitted in the order of state changes.
 It yields to the async runtime every few milliseconds, so a CPU-heavy backlog cannot starve other tasks.
 
 At the end of an events sub-batch the worker:
 
-1. produces its membership changes and waits for every acknowledgment,
-2. produces first-hop cascade messages, when cascades are enabled,
-3. re-keys events for merged persons to their survivor's partition,
-4. marks the events tracker at the highest event offset of the sub-batch,
-5. advances the partition's live watermark to the newest broker timestamp it folded.
+1. hands its membership changes, and their first-hop cascade messages when cascades are enabled, to the partition's produce window,
+2. re-keys events for merged persons to their survivor's partition and waits for those acknowledgments,
+3. marks the events tracker at the highest event offset of the sub-batch,
+4. advances the partition's live watermark to the newest broker timestamp it folded.
 
-If any produce fails, the worker skips the mark.
-Merge, transfer and cascade messages settle their own trackers as each one is handled.
+The mark does not wait for the membership and cascade acknowledgments.
+Live output is at most once and its state is already committed, so waiting would only hold the partition's live lane for a broker round trip.
+The window holds at most four unacknowledged batches per partition.
+When it is full, the worker waits for the oldest one, so a slow broker shows as lag on that partition, and `output_window_waits_total` counts each wait.
+The worker enqueues each batch's records before it moves on and collects only the acknowledgments later, so records are enqueued in the order of state changes.
+A producer retry can still reorder batches that are in flight together.
+With version writes on, the membership consumer's version check puts them back in order ([invariant 28](invariants.md#membership-output)).
+With them off, an older change can win until the next change for that cohort and person.
+Before a worker stops, it waits for every batch in its window.
+
+If the re-key produce fails, the worker skips the mark.
+Merge and transfer messages settle their own trackers as each one is handled.
+The cascade messages of a sub-batch settle in groups, as [merges and cascades](merges-and-cascades.md#how-a-cascade-flows) describes.
 
 ## Offset tracking
 
@@ -157,7 +167,7 @@ This table is worth knowing before you debug a missing or duplicated membership 
 | Path                                  | Guarantee                                                                                                                                                                                      | Why                                                                                                                                                                                |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Events into Stage 1 state             | At least once across restarts, applied once. Within a tenure, an event whose fold fails on a store error, or whose re-key to a survivor's partition fails, is skipped and later committed past | Offsets commit after the work. A redelivered event is recognized by its replay marks. Only the merge, cascade and seed paths hold a failed offset                                  |
-| Event to membership change            | At most once                                                                                                                                                                                   | State commits inside the fold, before the produce. If the produce fails, the next clean sub-batch marks past it, and a replay finds no transition to emit                          |
+| Event to membership change            | At most once                                                                                                                                                                                   | State commits inside the fold, before the produce. The mark does not wait for the produce, and a replay finds no transition to emit                                                |
 | First-hop cascade messages            | At most once from the live, merge and sweep paths. At least once from seed apply and reconcile                                                                                                 | The live, merge and sweep paths produce them after the flip is committed. Seed apply and reconcile produce them before writing the flip, and retry on failure                      |
 | Sweep expiry of a single-leaf cohort  | At least once while the worker runs                                                                                                                                                            | The sweep produces before it writes, and reschedules the keys on failure. The retry lives in the in-memory queue, so a restart keeps it only with durable restore on               |
 | Sweep expiry that recomposes a cohort | At most once                                                                                                                                                                                   | The composed result is written before it is produced                                                                                                                               |
@@ -218,7 +228,7 @@ Change `COHORT_POD_COUNT` only after every pod runs a build with stamps.
 With durable restore enabled, the pod also refuses to start without checkpoints, because each parent deletes the slices it gives away and its child would start without them.
 
 - A pod whose ordinal is below the old count is a parent.
-  It reopens its store, and boot deletes the slices it gave away.
+  It reopens its store, and boot deletes the slices it gave away and drops their files.
 - Every other pod is a child, and takes its partitions over from the parent at its ordinal modulo the old count.
   It waits, with the `parent_running` reason, until the parent has stamped a partition under the new split.
   It then deletes a live store that holds no pending restore, and restores the newest checkpoint in the parent's S3 lineage that covers it, counted in `checkpoint_restore_total{source="parent_s3"}`.
@@ -227,16 +237,20 @@ With durable restore enabled, the pod also refuses to start without checkpoints,
 
 To reshard:
 
-1. Scale the processor to 0, and wait until every pod has stopped after its final checkpoint.
+1. On each parent, run `kill -USR1 1` from a shell in the pod, and wait for `checkpoint uploaded to S3` with `trigger` `requested`.
+   If a warning with that `trigger` comes instead, the upload failed, so send the signal again.
+   Within a minute or two, scale the processor to 0, and wait until every pod has stopped.
+   A stop's final checkpoint stays local, so each child replays only what its parent processed after that upload.
 2. Set `COHORT_POD_COUNT` to the new count, `COHORT_RESHARD_FROM_POD_COUNT` to the old count, and the replicas to the new count.
 3. Check `owned_partitions` on each pod, `ownership_fence_blocked` at 0, and one `parent_s3` restore for each child.
 4. Remove `COHORT_RESHARD_FROM_POD_COUNT` in a later change, and before any offset reset of the events group.
    While it is set, a reset that clears the stamp from every events partition of a child makes the child take its partitions over again and delete its store.
 
-If step 1 is skipped, each child waits until its parent restarts, and the old split keeps every partition until then.
-Deleting the parent pods moves the reshard on.
+Scaling to 0 is required.
+The StatefulSet updates from the highest ordinal and waits for each pod to turn ready, and a child is not ready while it waits for its parent, so a reshard applied in one edit deadlocks.
 After its takeover, a child searches only its own lineage.
 So a child that loses its volume before its first upload finishes creates its store behind the coverage fence, even though its parent's checkpoint still covers it.
+That upload waits until the child is ready and has compacted the partitions it does not own.
 
 ### Lowering the pod count
 
@@ -254,14 +268,14 @@ At boot the processor:
 
 1. validates its configuration, refuses unsafe combinations, and works out the partitions it owns,
 2. binds the health server, so `/_health` answers from here on and `/_ready` reads not ready,
-3. loads the catalog once,
+3. reads team access and loads the catalog once,
 4. checks the partition counts of the co-partitioned topics against broker metadata,
 5. waits until the [ownership fence](#ownership-and-the-single-pod-deployment) admits its split,
 6. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
    A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes.
    A store written under a split that does not cover the pod's refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
 7. stamps every owned partition on every input group, and reads the stamps back,
-8. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
+8. starts the timer loops and the events consumer, starts the followers once the catalog has loaded and boot recovery has ended, and takes the first checkpoint once the pod is ready.
 
 By default the store is wiped at boot, so there is nothing to recover, and the events consumer dispatches from its first poll.
 
@@ -298,9 +312,10 @@ They commit only for the partitions recorded at the drain.
 A follower that waits longer than 35 seconds commits for the partitions it owned when shutdown began.
 
 With checkpoints enabled, a final checkpoint follows once every consumer and follower has finished.
-It captures positions for the partitions recorded at the drain and uploads within `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS` of the drain, after shutdown cancels any periodic upload in flight.
-A plan that would upload in full stays local, because it cannot finish in that budget, and the next start uploads in full anyway.
+It captures positions for the partitions recorded at the drain, after shutdown cancels any upload in flight.
+It stays local, and the next start's first upload covers what changed since the last upload.
 It is skipped when boot never ended or the drain never finished, because positions are not settled then.
+The binary must run as PID 1, from an exec-form command, so that SIGTERM and SIGUSR1 reach it.
 
 The events consumer gets 30 seconds to drain, each follower 45 seconds, and the final checkpoint 60 seconds after them, inside the process's 110-second ceiling.
 Kubernetes kills the pod when its termination grace period ends, and that period also covers the chart's 5-second preStop sleep before the shutdown starts.
@@ -330,7 +345,7 @@ Durable restore is enabled.
    The last one, 1204567, is a `$pageview` from p-1.
    Its fold commits the new leaf state to RocksDB without waiting for the disk.
    The leaf flips, so cohort 42 gets an `entered` change for p-1.
-4. At the end of the sub-batch, the worker produces the change and waits for the acknowledgment.
+4. At the end of the sub-batch, the worker hands the change to the producer and marks the offset without waiting for the acknowledgment.
    Processed becomes 1204568.
 5. On the next commit tick, the task flushes the write-ahead log and commits 1204568.
 
@@ -339,10 +354,9 @@ Two variations show the edges.
 - **Backpressure.** If partition 26 already held more than 1,016 events, the default budget of 1,024 would refuse these 8.
   The sub-batch would go to the holdover and fetching for the partition would pause.
   Dispatched would stay at 1204560 until the worker caught up.
-- **Produce failure.** If the produce in step 4 failed, processed would not move.
-  But the leaf state is already committed.
-  When the next sub-batch succeeds, processed jumps past 1204567, and the `entered` is never emitted on the live path.
-  A restart before that would replay 1204567 against the reopened store, see it as a duplicate, and still emit nothing.
+- **Produce failure.** If the produce in step 4 failed, processed would still become 1204568, because the mark does not wait for it.
+  The leaf state is already committed, so the `entered` is never emitted on the live path.
+  A restart that replays 1204567 against the reopened store sees it as a duplicate and still emits nothing.
   Only reconcile repairs it.
 
 ## Optimizations
@@ -367,8 +381,11 @@ Two variations show the edges.
   On the event path it is not.
   Only the merge, cascade and seed paths hold.
 - The events consumer does not wait for the catalog.
-  If the first catalog load fails, events are consumed, skipped for lack of definitions, and committed.
+  If the first catalog load fails, which includes a failed read of team access, events are consumed, skipped for lack of definitions, and committed.
   The pod reads not ready meanwhile.
+- A processor image that does not read team access builds its catalog from its env list alone.
+  A rollback to such an image drops every team that only a team access row grants, and stage 2 GC then deletes the state of those teams without emitting `left`.
+  Before such a rollback, add those teams to the processor's `REALTIME_COHORT_TEAM_ALLOWLIST`.
 - A held offset stays held for the rest of the partition's tenure, which means until the next restart.
   The symptom is growing lag on that topic and partition.
 - A created store withholds every reconcile whose run boundary predates its slices, because each slice begins when its partition is assigned.

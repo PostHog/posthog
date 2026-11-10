@@ -38,6 +38,7 @@ describe('InstructionsFormatter', () => {
         it('resolves every placeholder when fully populated', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildToolsInstructions(fullCtx)
+            expect(result.indexOf('If the target project is ambiguous')).toBe(0)
             expect(result).toContain(ENV_POINTER)
             expect(result).toContain('- dashboard')
             expect(result).toContain('- feature-flag')
@@ -91,7 +92,7 @@ describe('InstructionsFormatter', () => {
 
             expect(result).toContain('### PostHog knowledge sources')
             expect(result).not.toContain('`business-knowledge-documents-search`')
-            expect(result).toContain('check current PostHog documentation through Inkeep')
+            expect(result).toContain('- PostHog features, SDKs, setup, or pricing: call the `docs-search` tool.')
         })
 
         it('omits knowledge guidance when only business knowledge search is available', () => {
@@ -177,10 +178,12 @@ describe('InstructionsFormatter', () => {
     })
 
     describe('buildExecToolDescription', () => {
-        it('renders just the exec tool blurb, no other sections', () => {
+        it('renders project scope before the exec tool blurb', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription()
             expect(result).toContain('Using the `posthog` tool')
+            expect(result).toContain('use the explicit target or active project without reconfirming it')
+            expect(result.indexOf('If the target project is ambiguous')).toBe(0)
             expect(result).toContain('Run `info <tool_name>` once if its schema is not in context.')
             expect(result).not.toContain('### Basic functionality')
             expect(result).not.toContain('### Examples')
@@ -207,7 +210,7 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### PostHog knowledge sources')
         })
 
-        it('loads skills before checking business knowledge, repositories, and docs', () => {
+        it('clarifies project scope before skills, business knowledge, repositories, and docs', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription({
                 skillsEnabled: true,
@@ -216,31 +219,138 @@ describe('InstructionsFormatter', () => {
                 businessKnowledgeRepoSearchEnabled: true,
             })
 
-            expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
+            expect(result.indexOf('If the target project is ambiguous')).toBe(0)
+            expect(result).toContain('After any needed project clarification')
+            expect(result).toContain('SKILLS FIRST')
+            expect(result.indexOf('SKILLS FIRST')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
             expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(
                 result.indexOf('`call business-knowledge-repositories-search <json_input>`')
             )
             expect(result.indexOf('business-knowledge-repositories-search')).toBeLessThan(
                 result.indexOf('`call docs-search')
             )
-            expect(result).toContain('Code or doc misses')
+            expect(result).toContain("The user's own code, or doc misses")
             expect(result.length).toBeLessThanOrEqual(2048)
         })
     })
 
-    describe('repository search guidance', () => {
+    describe('business knowledge content gating', () => {
+        const bothTools = [
+            { name: 'docs-search', category: 'Docs' },
+            { name: 'business-knowledge-documents-search', category: 'Business knowledge' },
+            { name: 'business-knowledge-repositories-search', category: 'Business knowledge' },
+        ]
         it.each([
-            { name: 'repo search without knowledge search', bk: false, repo: true, expected: false },
-            { name: 'knowledge search without repo search', bk: true, repo: false, expected: false },
-            { name: 'both', bk: true, repo: true, expected: true },
-        ])('names repository search only when both tools are advertised: $name', ({ bk, repo, expected }) => {
-            const tools = [
-                { name: 'docs-search', category: 'Docs' },
-                ...(bk ? [{ name: 'business-knowledge-documents-search', category: 'Business knowledge' }] : []),
-                ...(repo ? [{ name: 'business-knowledge-repositories-search', category: 'Business knowledge' }] : []),
-            ]
-            const result = new InstructionsFormatter().buildToolsInstructions({ ...fullCtx, tools })
-            expect(result.includes('`business-knowledge-repositories-search`')).toBe(expected)
+            { name: 'unread content', content: undefined, documents: true, repos: 'fallback' },
+            {
+                name: 'sources and repositories',
+                content: { hasSources: true, hasRepositories: true },
+                documents: true,
+                repos: 'fallback',
+            },
+            {
+                name: 'sources only',
+                content: { hasSources: true, hasRepositories: false },
+                documents: true,
+                repos: 'none',
+            },
+            {
+                name: 'repositories only',
+                content: { hasSources: false, hasRepositories: true },
+                documents: false,
+                repos: 'primary',
+            },
+            {
+                name: 'no content',
+                content: { hasSources: false, hasRepositories: false },
+                documents: false,
+                repos: 'none',
+            },
+            { name: 'only a failed source read', content: { hasRepositories: false }, documents: true, repos: 'none' },
+        ])('$name', ({ content, documents, repos }) => {
+            const result = new InstructionsFormatter().buildToolsInstructions({
+                ...fullCtx,
+                tools: bothTools,
+                businessKnowledgeContent: content,
+            })
+
+            expect(result).toContain('- PostHog features, SDKs, setup, or pricing: call the `docs-search` tool.')
+            expect(result.includes('call `business-knowledge-documents-search`')).toBe(documents)
+            expect(result.includes('call `business-knowledge-repositories-search`')).toBe(repos !== 'none')
+            expect(result.includes("- The user's own code, or a company question that document search")).toBe(
+                repos === 'fallback'
+            )
+            expect(result.includes("- The user's own company, product, code, or docs:")).toBe(repos === 'primary')
+            expect(result.includes('a company term that you cannot map to an event or property')).toBe(
+                documents || repos !== 'none'
+            )
+        })
+
+        it('gates the exec tool description the same way', () => {
+            const result = new InstructionsFormatter().buildExecToolDescription({
+                docsSearchEnabled: true,
+                businessKnowledgeSearchEnabled: true,
+                businessKnowledgeRepoSearchEnabled: true,
+                businessKnowledgeContent: { hasSources: false, hasRepositories: true },
+            })
+
+            expect(result).not.toContain('business-knowledge-documents-search')
+            expect(result).toContain(
+                "- The user's own company, code, or docs: `call business-knowledge-repositories-search <json_input>`."
+            )
+        })
+    })
+
+    describe('replay vision guidance', () => {
+        const visionTools = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
+        it.each([
+            { name: 'all three scan tools', extra: visionTools, expected: true },
+            { name: 'inline scan only', extra: ['vision-scanners-inline-scan'], expected: false },
+            { name: 'no vision tools', extra: [], expected: false },
+        ])('names Replay Vision only when the roster carries $name', ({ extra, expected }) => {
+            const tools = [...realisticTools, ...extra.map((name) => ({ name, category: 'Replay vision' }))]
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions({ ...fullCtx, tools }),
+                formatter.buildExecCommandReference({ ...fullCtx, tools }),
+            ]) {
+                expect(rendered.includes('use Replay Vision instead of SQL over the replay tables')).toBe(expected)
+                expect(rendered.includes('{replay_vision}')).toBe(false)
+            }
+        })
+    })
+
+    describe('inbox-first guidance', () => {
+        it.each([
+            { name: 'tools mode', exec: false, claim: true, list: 'the `inbox-reports-list` tool' },
+            { name: 'exec mode', exec: true, claim: true, list: '`call inbox-reports-list <json_input>`' },
+            {
+                name: 'exec mode without claim',
+                exec: true,
+                claim: false,
+                list: '`call inbox-reports-list <json_input>`',
+            },
+        ])('renders the section in $name', ({ exec, claim, list }) => {
+            const ctx = { ...fullCtx, inboxFirstEnabled: true, inboxClaimEnabled: claim }
+            const formatter = new InstructionsFormatter()
+            const rendered = exec ? formatter.buildExecCommandReference(ctx) : formatter.buildToolsInstructions(ctx)
+
+            expect(rendered).toContain('### Existing Inbox reports')
+            expect(rendered).toContain(`Look for a report with ${list}`)
+            expect(rendered).toContain('`suppression_source` is `safety_judge`')
+            expect(rendered.includes('inbox-reports-claim')).toBe(claim)
+            expect(rendered).not.toMatch(/\{inbox_/)
+        })
+
+        it('omits the section when it is not enabled', () => {
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions(fullCtx),
+                formatter.buildExecCommandReference(fullCtx),
+                formatter.buildExecToolDescription({ skillsEnabled: true, docsSearchEnabled: true }),
+            ]) {
+                expect(rendered).not.toContain('Existing Inbox reports')
+            }
         })
     })
 
@@ -250,11 +360,26 @@ describe('InstructionsFormatter', () => {
             { name: 'only project-get', tools: ['project-get'], project: true, groups: false },
             { name: 'only execute-sql', tools: ['execute-sql'], project: false, groups: true },
             { name: 'neither lookup tool', tools: [], project: false, groups: false },
+            {
+                name: 'the switch tools too',
+                tools: ['project-get', 'switch-project', 'switch-organization', 'projects-get', 'organizations-get'],
+                project: true,
+                groups: false,
+            },
+            {
+                name: 'switch-project without its lookups',
+                tools: ['project-get', 'switch-project'],
+                project: true,
+                groups: false,
+            },
         ])('names only the env lookup tools the roster has: $name', ({ tools, project, groups }) => {
             const ctx = { ...fullCtx, tools: tools.map((name) => ({ name, category: 'Core' })) }
             const result = new InstructionsFormatter().buildExecCommandReference(ctx)
             expect(result.includes(ENV_POINTER)).toBe(project)
             expect(result.includes(GROUP_TYPES_POINTER)).toBe(groups)
+            expect(result.includes('call `switch-project` or `switch-organization`')).toBe(
+                tools.includes('organizations-get')
+            )
             expect(result.includes('### Active environment')).toBe(project || groups)
         })
 
@@ -441,6 +566,11 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('### PostHog knowledge sources')
             expect(result).not.toMatch(/every user request|even when the request looks simple/)
             expect(result).toContain('call neither search')
+            // Nearly every request to this server is about project data, so that topic must not trigger a search.
+            expect(result).not.toContain("the user's PostHog project and its data")
+            expect(result).toContain(
+                'A request to query, compute, or build something from project data: call neither search'
+            )
             // The gate is the topic, never the location: a PostHog SDK question that names a
             // file in the user's repository still has to reach docs-search.
             expect(result).toContain('The topic decides, not the location')
@@ -520,6 +650,25 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('**Notebook**')
             expect(result).toContain('**Dashboard**')
         })
+
+        it.each(surfaces)(
+            '$name sends chart explanations to explain-chart only when explain-chart exists',
+            ({ render }) => {
+                const formatter = new InstructionsFormatter()
+                const withTool = render(formatter, {
+                    ...fullCtx,
+                    tools: [...(fullCtx.tools ?? []), { name: 'explain-chart', category: 'Insights' }],
+                })
+                const withoutTool = render(formatter, {
+                    ...fullCtx,
+                    tools: fullCtx.tools?.filter(({ name }) => name !== 'explain-chart'),
+                })
+
+                expect(withTool).toContain('### Explaining a chart')
+                expect(withTool.indexOf('### Explaining a chart')).toBeGreaterThan(withTool.indexOf('**Notebook**'))
+                expect(withoutTool).not.toContain('explain-chart')
+            }
+        )
 
         // The SQL and Python guidance names `notebooks-add-cell`, so it must stay out of prompts
         // for clients that aren't advertised the cell tools.

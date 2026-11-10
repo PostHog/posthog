@@ -22,6 +22,7 @@ __all__ = [
     "ExternalDataSchemaStatus",
     "ExternalDataSchemaSyncFrequency",
     "ExternalDataSchemaSyncType",
+    "SettableSyncFrequency",
     "ExternalDataSourceAccessMethod",
     "ExternalDataSourceCreatedVia",
     "ExternalDataSourceStatus",
@@ -30,7 +31,9 @@ __all__ = [
     "IncrementalFieldType",
     "ManagedWarehouseSQLMode",
     "PartitionSettings",
+    "SourceKey",
     "WarehouseColumnAnnotationDescriptionSource",
+    "source_key",
 ]
 
 
@@ -1479,11 +1482,40 @@ class ExternalDataSourceType(LabeledStrEnum):
     CLOUDFLARER2 = "CloudflareR2", "CloudflareR2"
     PARTICLE = "Particle", "Particle"
     FILEUPLOAD = "FileUpload", "FileUpload"
+    DRIPIFY = "Dripify", "Dripify"
+    AWSS3TABLES = "AwsS3Tables", "AwsS3Tables"
+    BEACONS = "Beacons", "Beacons"
+    WOOPAYMENTS = "WooPayments", "WooPayments"
+    SONIOX = "Soniox", "Soniox"
+    NANGO = "Nango", "Nango"
+    FATHOM = "Fathom", "Fathom"
+    STAMPED = "Stamped", "Stamped"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
     # Callable so growing the enum doesn't generate a no-op migration.
+    # A plugin source key has no member here. The model does not validate choices on save, and the
+    # API serializers validate the key against the source registry, so the list stays enum-only and
+    # evaluating it never imports the vendor catalog.
     return list(ExternalDataSourceType.choices)
+
+
+# The key that names a warehouse source: what `ExternalDataSource.source_type` stores and what the
+# source registry is keyed on. A core source uses its `ExternalDataSourceType` member. A plugin source
+# names itself with a plain string that has no member, so the type is `str`.
+SourceKey = str
+
+
+def source_key(key: str) -> SourceKey:
+    """The `ExternalDataSourceType` member for `key` when one exists, else `key` unchanged.
+
+    Code that compares against or reads attributes of a member keeps working for core keys, and a
+    plugin key passes through as the string it is.
+    """
+    try:
+        return ExternalDataSourceType(key)
+    except ValueError:
+        return key
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -1500,6 +1532,12 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.TRINO: "trino",
     ExternalDataSourceType.BIGQUERY: "bigquery",
 }
+
+
+class CDCEngine(StrEnum):
+    """Change data capture engine of a source type, which picks its CDC setup form and status panel."""
+
+    POSTGRES = "postgres"
 
 
 class ManagedWarehouseSQLMode(StrEnum):
@@ -1609,10 +1647,39 @@ class ExternalDataSchemaSyncFrequency(LabeledStrEnum):
     # TODO provide flexible schedule definition
 
 
+class SettableSyncFrequency(LabeledStrEnum):
+    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor."""
+
+    NEVER = "never", "never"
+    FIVE_MINUTES = "5min", "5min"
+    FIFTEEN_MINUTES = "15min", "15min"
+    THIRTY_MINUTES = "30min", "30min"
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    ONE_DAY = "24hour", "24hour"
+    SEVEN_DAYS = "7day", "7day"
+    THIRTY_DAYS = "30day", "30day"
+
+
 class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):
     CANONICAL = "canonical", "Canonical"
     AI_GENERATED = "ai_generated", "AI generated"
     USER_EDITED = "user_edited", "User edited"
+
+
+class WarehouseColumnSensitivity(LabeledStrEnum):
+    """The kind of personal or secret data a column's name and type suggest it holds."""
+
+    EMAIL = "email", "Email"
+    PHONE = "phone", "Phone"
+    NAME = "name", "Name"
+    ADDRESS = "address", "Address"
+    DATE_OF_BIRTH = "date_of_birth", "Date of birth"
+    IP_ADDRESS = "ip_address", "IP address"
+    TOKEN = "token", "Token"
+    SECRET = "secret", "Secret"
+    CARD_NUMBER = "card_number", "Card number"
 
 
 class UploadedFileFormat(LabeledStrEnum):

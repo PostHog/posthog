@@ -7,6 +7,7 @@ import enum
 from collections.abc import Mapping
 from typing import Annotated, Literal, get_args
 
+import re2
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 
@@ -47,6 +48,52 @@ def scope_ids_problem(value: object) -> str | None:
     return None
 
 
+# ── Alert scope ─────────────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key that selects which firing insight alerts become signals. Only the
+# analytics source row accepts it, and a missing key means `investigated_only`.
+ALERT_SCOPE_KEY = "alert_scope"
+ALERT_SCOPE_SOURCE: tuple[str, str] = (SignalSourceProduct.ANALYTICS, SignalSourceType.ANOMALY_INVESTIGATION)
+
+
+class AlertScope(enum.StrEnum):
+    # Only alerts that the investigation agent confirmed.
+    INVESTIGATED_ONLY = "investigated_only"
+    # Every insight alert that starts to fire, also alerts without the investigation agent.
+    ALL_FIRING_ALERTS = "all_firing_alerts"
+    # No alert becomes a signal. Alert checks, notifications, and investigations still run.
+    OFF = "off"
+
+
+# ── Alert name patterns ─────────────────────────────────────────────────────────
+# Patterns matched against a firing alert's name and its insight's name. Only `ALERT_SCOPE_SOURCE` accepts them.
+# They compile with RE2, which runs in linear time, so a user pattern cannot stall a worker as `re` can.
+ALERT_ALLOW_PATTERNS_KEY = "alert_allow_patterns"
+ALERT_BLOCK_PATTERNS_KEY = "alert_block_patterns"
+ALERT_PATTERNS_MAX_COUNT = 20
+ALERT_PATTERN_MAX_LENGTH = 200
+
+
+def alert_patterns_problem(value: object) -> str | None:
+    """Why `value` is not a valid pattern list, or None when it is. The API rejects the value with
+    this message, and the signal paths drop every alert when a stored list fails it."""
+    if not isinstance(value, list) or not all(isinstance(pattern, str) and pattern for pattern in value):
+        return "must be a list of non-empty strings"
+    if len(value) > ALERT_PATTERNS_MAX_COUNT:
+        return f"must have at most {ALERT_PATTERNS_MAX_COUNT} patterns"
+    for pattern in value:
+        if len(pattern) > ALERT_PATTERN_MAX_LENGTH:
+            return f"patterns must be at most {ALERT_PATTERN_MAX_LENGTH} characters"
+        try:
+            re2.compile(pattern)
+        except re2.error as error:
+            # RE2 raises with the parser message as bytes, which would print as a `b'...'` literal.
+            detail = error.args[0] if error.args else ""
+            if isinstance(detail, bytes):
+                detail = detail.decode(errors="replace")
+            return f"pattern {pattern!r} is not a valid RE2 regex: {detail}"
+    return None
+
+
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
 # `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its
 # row would store text nothing reads. The roster's `steerable` flags in `agentRosterMeta.ts` mirror
@@ -57,6 +104,22 @@ DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
         (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
         (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
         (SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+        (SignalSourceProduct.ANALYTICS, SignalSourceType.ANOMALY_INVESTIGATION),
+        (SignalSourceProduct.ANALYTICS, SignalSourceType.ALERT_FIRING),
+    }
+)
+
+
+# ── Issue filters ───────────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key holding a compiled error tracking filter. The same filter is saved
+# on every error tracking row, and emission drops a signal it excludes before the steering gate.
+# The error tracking facade compiles the bytecode on the server, so a client cannot store its own.
+ISSUE_FILTERS_KEY = "issue_filters"
+ISSUE_FILTER_SOURCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_CREATED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
     }
 )
 
@@ -169,6 +232,12 @@ class ZendeskTicketSignalInput(SignalInputBase):
 # ── GitHub ──────────────────────────────────────────────────────────────────────
 
 
+class GithubIssueDependencyRef(ContractModel):
+    # Lowercase `owner/repo`, so two spellings of one repository name one issue.
+    repository: str
+    number: int
+
+
 class GithubIssueSignalExtra(SignalExtraBase):
     html_url: str
     number: int
@@ -184,6 +253,9 @@ class GithubIssueSignalExtra(SignalExtraBase):
     # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
     # taxonomy instead of failing validation and dropping the signal.
     author_association: str | None = None
+    # The issues this one names on a "Depends on" or "Blocked by" line. Research turns them into
+    # `depends_on` report links before auto-start decides.
+    depends_on_issues: list[GithubIssueDependencyRef] = []
 
 
 class GithubIssueSignalInput(SignalInputBase):
@@ -395,6 +467,17 @@ class CheckFailedSignalInput(SignalInputBase):
     extra: CheckFailedSignalExtra
 
 
+class MonitoringUnresolvedSignalExtra(SignalExtraBase):
+    report_id: str = Field(description="Original Closed report whose implementation remains unverified.")
+    attempt_id: str = Field(description="Monitoring attempt that durably requested this investigation.")
+
+
+class MonitoringUnresolvedSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.MONITORING_UNRESOLVED]
+    source_product: Literal[SignalSourceProduct.SIGNALS_CHECK]
+    extra: MonitoringUnresolvedSignalExtra
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────────
 
 
@@ -453,7 +536,6 @@ class ReplayVisionScannerFindingSignalInput(SignalInputBase):
 class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
     alert_id: str
     alert_name: str
-    alert_check_id: str
     insight_id: str
     detector_type: str
     verdict: Literal["true_positive", "false_positive", "inconclusive"]
@@ -462,12 +544,39 @@ class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
     insight_short_id: str | None = None
     triggered_dates: list[str] | None = None
     notebook_short_id: str | None = None
+    alert_check_id: str | None = None
+    investigation_id: str | None = None
+    evaluation_key: str | None = None
 
 
 class AnalyticsAnomalyInvestigationSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.ANOMALY_INVESTIGATION]
     source_product: Literal[SignalSourceProduct.ANALYTICS]
     extra: AnalyticsAnomalyInvestigationSignalExtra
+
+
+# An insight alert that started to fire and that the investigation agent does not investigate. Kept
+# apart from the investigation payload, which requires a verdict this path never has.
+class AnalyticsAlertFiringSignalExtra(SignalExtraBase):
+    alert_id: str
+    alert_name: str
+    insight_id: str
+    # The check that started the firing episode. It is also the signal's source id.
+    alert_check_id: str
+    # `threshold`, or the anomaly detector type.
+    detector_type: str
+    breaches: list[str]
+    episode_started_at: str
+    url: str
+    insight_name: str | None = None
+    insight_short_id: str | None = None
+    triggered_dates: list[str] | None = None
+
+
+class AnalyticsAlertFiringSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ALERT_FIRING]
+    source_product: Literal[SignalSourceProduct.ANALYTICS]
+    extra: AnalyticsAlertFiringSignalExtra
 
 
 # ── Health checks ───────────────────────────────────────────────────────────────
@@ -726,6 +835,60 @@ class ShortcutStorySignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.ISSUE]
     source_product: Literal[SignalSourceProduct.SHORTCUT]
     extra: ShortcutStorySignalExtra
+
+
+class ClickupTaskSignalExtra(SignalExtraBase):
+    status_name: str | None
+    status_type: str | None
+    url: str | None
+    date_created: str | None
+
+
+class ClickupTaskSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.CLICKUP]
+    extra: ClickupTaskSignalExtra
+
+
+class WrikeTaskSignalExtra(SignalExtraBase):
+    status: str | None
+    importance: str | None
+    permalink: str | None
+    created_date: str | None
+
+
+class WrikeTaskSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.WRIKE]
+    extra: WrikeTaskSignalExtra
+
+
+class TrelloCardSignalExtra(SignalExtraBase):
+    url: str | None
+    id_board: str | None
+    id_list: str | None
+    created_at: str | None
+
+
+class TrelloCardSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.TRELLO]
+    extra: TrelloCardSignalExtra
+
+
+class BugherdTaskSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    site: str | None
+    url: str | None
+    tag_names: list
+    created_at: str | None
+
+
+class BugherdTaskSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.BUGHERD]
+    extra: BugherdTaskSignalExtra
 
 
 class SentryIssueSignalExtra(SignalExtraBase):
@@ -1201,6 +1364,43 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
     extra: GoogleSearchConsoleSearchOpportunitySignalExtra
 
 
+class HelpscoutConversationSignalExtra(SignalExtraBase):
+    number: str | None
+    status: str | None
+    state: str | None
+    type: str | None
+    created_at: str | None
+
+
+class HelpscoutConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.HELPSCOUT]
+    extra: HelpscoutConversationSignalExtra
+
+
+class DecagonConversationSignalExtra(SignalExtraBase):
+    csat_rating: str | None
+    tags: list
+    created_at: str | None
+
+
+class DecagonConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.DECAGON]
+    extra: DecagonConversationSignalExtra
+
+
+class VitallyConversationSignalExtra(SignalExtraBase):
+    external_url: str | None
+    created_at: str | None
+
+
+class VitallyConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.VITALLY]
+    extra: VitallyConversationSignalExtra
+
+
 # ── Incident management / on-call ─────────────────────────────────────────────────
 
 
@@ -1467,6 +1667,125 @@ class BigeyeIssueSignalInput(SignalInputBase):
     extra: BigeyeIssueSignalExtra
 
 
+# ── Incident monitoring ────────────────────────────────────────────────────────
+
+
+class DynatraceIncidentSignalExtra(SignalExtraBase):
+    display_id: str | None
+    status: str | None
+    severity_level: str | None
+    impact_level: str | None
+    start_time: str | None
+    root_cause_entity: str | None
+    affected_entities: list[str]
+
+
+class DynatraceIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.DYNATRACE]
+    extra: DynatraceIncidentSignalExtra
+
+
+class StatuspageIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    impact: str | None
+    shortlink: str | None
+    created_at: str | None
+
+
+class StatuspageIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.STATUSPAGE]
+    extra: StatuspageIncidentSignalExtra
+
+
+class CronitorIncidentSignalExtra(SignalExtraBase):
+    severity: str | None
+    state: str | None
+    created: str | None
+    started: str | None
+
+
+class CronitorIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.CRONITOR]
+    extra: CronitorIncidentSignalExtra
+
+
+class InstatusIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    started: str | None
+    components: list[str]
+
+
+class InstatusIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.INSTATUS]
+    extra: InstatusIncidentSignalExtra
+
+
+class GooglePlayConsoleIssueSignalExtra(SignalExtraBase):
+    issue_type: str | None
+    code_location: str | None
+    report_count: str | None
+    affected_users: str | None
+    first_version: str | None
+    last_version: str | None
+    last_report_time: str | None
+    issue_url: str | None
+
+
+class GooglePlayConsoleIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.GOOGLE_PLAY_CONSOLE]
+    extra: GooglePlayConsoleIssueSignalExtra
+
+
+class AzureApplicationInsightsIssueSignalExtra(SignalExtraBase):
+    problem_id: str | None
+    exception_type: str | None
+    role_name: str | None
+    occurrences: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class AzureApplicationInsightsIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.AZURE_APPLICATION_INSIGHTS]
+    extra: AzureApplicationInsightsIssueSignalExtra
+
+
+class AppsignalIssueSignalExtra(SignalExtraBase):
+    state: str | None
+    severity: str | None
+    namespace: str | None
+    occurrence_count: str | None
+    created_at: str | None
+    last_occurred_at: str | None
+
+
+class AppsignalIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.APPSIGNAL]
+    extra: AppsignalIssueSignalExtra
+
+
+class CursorIssueSignalExtra(SignalExtraBase):
+    repo: str | None
+    pr_number: str | None
+    commit_sha: str | None
+    bugs_found: str | None
+    publication_status: str | None
+    timestamp: str | None
+
+
+class CursorIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.CURSOR]
+    extra: CursorIssueSignalExtra
+
+
 # ── Error monitors ─────────────────────────────────────────────────────────────
 
 
@@ -1633,6 +1952,65 @@ class OkendoReviewSignalInput(SignalInputBase):
     extra: OkendoReviewSignalExtra
 
 
+# ── Cloud security ────────────────────────────────────────────────────────────────
+
+
+class AwsSecurityHubScannerFindingSignalExtra(SignalExtraBase):
+    severity_label: str | None
+    compliance_status: str | None
+    workflow_status: str | None
+    record_state: str | None
+    region: str | None
+    created_at: str | None
+
+
+class AwsSecurityHubScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.AWS_SECURITY_HUB]
+    extra: AwsSecurityHubScannerFindingSignalExtra
+
+
+class AwsGuarddutyScannerFindingSignalExtra(SignalExtraBase):
+    type: str | None
+    severity: str | None
+    region: str | None
+    created_at: str | None
+
+
+class AwsGuarddutyScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.AWS_GUARDDUTY]
+    extra: AwsGuarddutyScannerFindingSignalExtra
+
+
+class AwsInspectorScannerFindingSignalExtra(SignalExtraBase):
+    type: str | None
+    severity: str | None
+    status: str | None
+    fix_available: str | None
+    exploit_available: str | None
+    region: str | None
+    first_observed_at: str | None
+
+
+class AwsInspectorScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.AWS_INSPECTOR]
+    extra: AwsInspectorScannerFindingSignalExtra
+
+
+class MicrosoftDefenderCloudAppsScannerFindingSignalExtra(SignalExtraBase):
+    severity_value: str | None
+    resolution_status_value: str | None
+    timestamp: str | None
+
+
+class MicrosoftDefenderCloudAppsScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.MICROSOFT_DEFENDER_CLOUD_APPS]
+    extra: MicrosoftDefenderCloudAppsScannerFindingSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -1653,8 +2031,10 @@ SignalInput = Annotated[
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | CheckFailedSignalInput
+    | MonitoringUnresolvedSignalInput
     | LogsAlertStateChangeSignalInput
     | AnalyticsAnomalyInvestigationSignalInput
+    | AnalyticsAlertFiringSignalInput
     | HealthCheckSignalInput
     | ReplayVisionScannerFindingSignalInput
     | FreshdeskTicketSignalInput
@@ -1667,6 +2047,10 @@ SignalInput = Annotated[
     | GitlabIssueSignalInput
     | GiteaIssueSignalInput
     | ShortcutStorySignalInput
+    | ClickupTaskSignalInput
+    | WrikeTaskSignalInput
+    | TrelloCardSignalInput
+    | BugherdTaskSignalInput
     | SentryIssueSignalInput
     | RollbarItemSignalInput
     | BugsnagErrorSignalInput
@@ -1703,6 +2087,9 @@ SignalInput = Annotated[
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
     | EngineeringAnalyticsCIDurationRegressionSignalInput
     | GoogleSearchConsoleSearchOpportunitySignalInput
+    | HelpscoutConversationSignalInput
+    | DecagonConversationSignalInput
+    | VitallyConversationSignalInput
     | PagerdutyIncidentSignalInput
     | OpsgenieAlertSignalInput
     | IncidentIoIncidentSignalInput
@@ -1719,9 +2106,17 @@ SignalInput = Annotated[
     | AzureDevopsIssueSignalInput
     | MonteCarloAlertSignalInput
     | BigeyeIssueSignalInput
+    | DynatraceIncidentSignalInput
+    | StatuspageIncidentSignalInput
+    | CronitorIncidentSignalInput
+    | InstatusIncidentSignalInput
     | LaceworkScannerFindingSignalInput
     | OrcaSecurityScannerFindingSignalInput
     | TenableVulnerabilityManagementScannerFindingSignalInput
+    | GooglePlayConsoleIssueSignalInput
+    | AzureApplicationInsightsIssueSignalInput
+    | AppsignalIssueSignalInput
+    | CursorIssueSignalInput
     | TriggerDevErrorSignalInput
     | ChecklyErrorGroupSignalInput
     | RoarkIssueSignalInput
@@ -1733,7 +2128,11 @@ SignalInput = Annotated[
     | SprigFeedbackSignalInput
     | GainsightPxFeedbackSignalInput
     | TrustpilotReviewSignalInput
-    | OkendoReviewSignalInput,
+    | OkendoReviewSignalInput
+    | AwsSecurityHubScannerFindingSignalInput
+    | AwsGuarddutyScannerFindingSignalInput
+    | AwsInspectorScannerFindingSignalInput
+    | MicrosoftDefenderCloudAppsScannerFindingSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1752,6 +2151,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     SignalsScoutSignalInput,
     LogsAlertStateChangeSignalInput,
     AnalyticsAnomalyInvestigationSignalInput,
+    AnalyticsAlertFiringSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
     FreshdeskTicketSignalInput,
@@ -1764,6 +2164,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GitlabIssueSignalInput,
     GiteaIssueSignalInput,
     ShortcutStorySignalInput,
+    ClickupTaskSignalInput,
+    WrikeTaskSignalInput,
+    TrelloCardSignalInput,
+    BugherdTaskSignalInput,
     SentryIssueSignalInput,
     RollbarItemSignalInput,
     BugsnagErrorSignalInput,
@@ -1800,6 +2204,9 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
     GoogleSearchConsoleSearchOpportunitySignalInput,
+    HelpscoutConversationSignalInput,
+    DecagonConversationSignalInput,
+    VitallyConversationSignalInput,
     PagerdutyIncidentSignalInput,
     OpsgenieAlertSignalInput,
     IncidentIoIncidentSignalInput,
@@ -1816,9 +2223,17 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AzureDevopsIssueSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    DynatraceIncidentSignalInput,
+    StatuspageIncidentSignalInput,
+    CronitorIncidentSignalInput,
+    InstatusIncidentSignalInput,
     LaceworkScannerFindingSignalInput,
     OrcaSecurityScannerFindingSignalInput,
     TenableVulnerabilityManagementScannerFindingSignalInput,
+    GooglePlayConsoleIssueSignalInput,
+    AzureApplicationInsightsIssueSignalInput,
+    AppsignalIssueSignalInput,
+    CursorIssueSignalInput,
     TriggerDevErrorSignalInput,
     ChecklyErrorGroupSignalInput,
     RoarkIssueSignalInput,
@@ -1831,7 +2246,12 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GainsightPxFeedbackSignalInput,
     TrustpilotReviewSignalInput,
     OkendoReviewSignalInput,
+    AwsSecurityHubScannerFindingSignalInput,
+    AwsGuarddutyScannerFindingSignalInput,
+    AwsInspectorScannerFindingSignalInput,
+    MicrosoftDefenderCloudAppsScannerFindingSignalInput,
     CheckFailedSignalInput,
+    MonitoringUnresolvedSignalInput,
 )
 
 

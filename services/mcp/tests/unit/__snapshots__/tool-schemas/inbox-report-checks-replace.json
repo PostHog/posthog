@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "config": {
-            "description": "Metric threshold configuration, including a bounded query and comparison.",
+            "description": "Metric threshold configuration, including a bounded query, comparison, and required Monitoring definition.",
             "properties": {
                 "baseline_value": {
                     "anyOf": [
@@ -91,42 +91,41 @@
                     "description": "How to draw this measurement; copied from a referenced metric."
                 },
                 "monitoring": {
-                    "anyOf": [
-                        {
-                            "properties": {
-                                "baseline_period_minutes": {
-                                    "anyOf": [
-                                        {
-                                            "exclusiveMinimum": 0,
-                                            "maximum": 527040,
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "The actual period measured by baseline_value, in minutes. Required when a baseline is supplied."
-                                },
-                                "reference_period_minutes": {
-                                    "description": "The period the comparison target describes, in minutes. Independent of the soak and run schedule.",
+                    "description": "Monitoring definition for the replacement, including the target reference period and scaling policy.",
+                    "properties": {
+                        "baseline_period_minutes": {
+                            "anyOf": [
+                                {
                                     "exclusiveMinimum": 0,
                                     "maximum": 527040,
                                     "type": "number"
                                 },
-                                "threshold_scaling": {
-                                    "description": "How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.",
-                                    "enum": ["linear", "fixed"],
-                                    "type": "string"
+                                {
+                                    "type": "null"
                                 }
-                            },
-                            "required": ["reference_period_minutes", "threshold_scaling"],
-                            "type": "object"
+                            ],
+                            "description": "The actual period measured by baseline_value, in minutes. Required when a baseline is supplied."
                         },
-                        {
-                            "type": "null"
+                        "purpose": {
+                            "default": "expectation",
+                            "description": "`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.",
+                            "enum": ["expectation", "minimum_evidence"],
+                            "type": "string"
+                        },
+                        "reference_period_minutes": {
+                            "description": "The period the comparison target describes, in minutes. Independent of the soak and run schedule.",
+                            "exclusiveMinimum": 0,
+                            "maximum": 527040,
+                            "type": "number"
+                        },
+                        "threshold_scaling": {
+                            "description": "How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.",
+                            "enum": ["linear", "fixed"],
+                            "type": "string"
                         }
-                    ],
-                    "description": "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
+                    },
+                    "required": ["reference_period_minutes", "threshold_scaling"],
+                    "type": "object"
                 },
                 "query": {
                     "anyOf": [
@@ -168,7 +167,7 @@
                     "description": "How to format measured values; copied from a referenced metric."
                 }
             },
-            "required": ["comparison"],
+            "required": ["monitoring", "comparison"],
             "type": "object"
         },
         "id": {
@@ -182,6 +181,24 @@
         },
         "report_id": {
             "type": "string"
+        },
+        "run_interval_minutes": {
+            "description": "Minutes between interim Monitoring measurements. Must be at least six hours and shorter than the observation window. Omit to use a quarter of the window, bounded to six hours through one day. Windows of six hours or less have no interim samples.",
+            "maximum": 129600,
+            "minimum": 360,
+            "type": "number"
+        },
+        "runs_remaining": {
+            "description": "Monitoring performs one terminal evaluation. Omit or set to 1; higher counts are not supported. Interim measurements do not consume this count.",
+            "maximum": 1,
+            "minimum": 1,
+            "type": "number"
+        },
+        "soak_minutes": {
+            "description": "Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero. Replacing a check during Monitoring restarts the period for all open checks.",
+            "maximum": 43200,
+            "minimum": 0,
+            "type": "number"
         },
         "title": {
             "description": "Label for the new metric check.",

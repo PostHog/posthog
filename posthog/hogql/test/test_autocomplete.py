@@ -281,6 +281,10 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_event_value"
 
+        query = "select properties.SOME_ from events"
+        results = self._select(query=query, start=18, end=23)
+        assert [s.label for s in results.suggestions] == ["some_event_value"]
+
     def test_autocomplete_nested_tables(self):
         # Inner table
         query = "select event, (select  from persons) as blah from events"
@@ -721,13 +725,18 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "variables.variable_1"
 
-    def test_autocomplete_variables_prefix(self):
+    @parameterized.expand(
+        [
+            ("select", "select {variables.}", 8, 18, ["variable_1"]),
+            ("expr", "{variables.}", 1, 11, []),
+        ]
+    )
+    def test_autocomplete_variables_prefix(self, language, query, start, end, expected_labels):
         InsightVariable.objects.create(team=self.team, name="Variable 1", code_name="variable_1")
-        query = "select {variables.}"
-        results = self._select(query=query, start=8, end=18)
+        autocomplete = self._select if language == "select" else self._expr
+        results = autocomplete(query=query, start=start, end=end)
 
-        assert len(results.suggestions) == 1
-        assert results.suggestions[0].label == "variable_1"
+        assert [suggestion.label for suggestion in results.suggestions] == expected_labels
 
     def test_autocomplete_warehouse_table(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
@@ -758,6 +767,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=14, end=14)
 
         assert "stripe.some_table" in [x.label for x in results.suggestions]
+
+        query = "select * from STRIPE."
+        results = self._select(query=query, start=21, end=21)
+
+        assert "some_table" in [x.label for x in results.suggestions]
 
     def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")

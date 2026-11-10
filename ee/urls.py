@@ -4,13 +4,16 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.exceptions import NotRegistered
 from django.urls import include, path, re_path
-from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import RedirectView
 
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin import register_all_admin
+from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.oauth2 import admin_oauth2_callback
+from posthog.admin.oauth_views import admin_auth_check, admin_oauth_success
+from posthog.api.sso import saml_metadata_view
 from posthog.ingress.vercel.provider import build_vercel_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.middleware import impersonated_session_logout
@@ -19,13 +22,10 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 from products.cdp.backend.api import hooks
 
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
-from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.vercel import vercel_connect, vercel_sso
-from ee.middleware import admin_oauth2_callback
-from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, organization_billing, project_billing
+from .api import billing, conversation, core_memory, organization_billing, project_billing
 
 
 def extend_api_router() -> None:
@@ -66,20 +66,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.events_retention_admin import events_retention_view
-    from posthog.admin.admins.health_check_admin import (
-        health_check_list_view,
-        health_check_runs_fragment_view,
-        health_check_trigger_view,
-    )
-    from posthog.admin.admins.notebook_markdown_migration_admin import (
-        notebook_markdown_migration_run_view,
-        notebook_markdown_migration_stats_view,
-        notebook_markdown_migration_view,
-    )
-    from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
+    from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
     admin_urlpatterns = [
         # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
@@ -92,58 +79,63 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
         path(
             "admin/resave-cohorts/",
-            admin.site.admin_view(resave_cohorts_view),
+            MovedToConsole.page_redirect("Re-save cohorts", "/admin/console/tools/resave-cohorts/"),
             name="resave-cohorts",
         ),
         path(
             "admin/distinct-id-usage/",
-            admin.site.admin_view(distinct_id_usage_view),
+            MovedToConsole.page_redirect("Distinct ID usage", "/admin/console/tools/distinct-id-usage/"),
             name="distinct-id-usage",
         ),
         path(
             "admin/events-retention/",
-            admin.site.admin_view(events_retention_view),
+            MovedToConsole.page_redirect("Events retention", "/admin/console/tools/events-retention/"),
             name="events-retention",
         ),
         path(
             "admin/tophog/",
-            admin.site.admin_view(tophog_dashboard_view),
+            MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"),
             name="tophog-dashboard",
         ),
         path(
             "admin/tophog/restrictions/",
-            admin.site.admin_view(tophog_restrictions_view),
+            MovedToConsole.page_redirect("TopHog restrictions", "/admin/console/tools/tophog/"),
             name="tophog-restrictions",
         ),
         path(
             "admin/health-checks/",
-            admin.site.admin_view(health_check_list_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/"),
             name="health-checks",
         ),
         path(
             "admin/health-checks/<str:kind>/",
-            admin.site.admin_view(health_check_trigger_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
             name="health-check-trigger",
         ),
         path(
             "admin/health-checks/<str:kind>/runs/",
-            admin.site.admin_view(health_check_runs_fragment_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
             name="health-check-runs",
         ),
         path(
             "admin/notebook-markdown-migration/",
-            admin.site.admin_view(notebook_markdown_migration_view),
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
             name="notebook-markdown-migration",
         ),
+        # The old page fetched these JSON endpoints itself, so a bookmark of one lands on the tool page.
         path(
             "admin/notebook-markdown-migration/stats/",
-            admin.site.admin_view(notebook_markdown_migration_stats_view),
-            name="notebook-markdown-migration-stats",
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
         ),
         path(
             "admin/notebook-markdown-migration/run/",
-            admin.site.admin_view(notebook_markdown_migration_run_view),
-            name="notebook-markdown-migration-run",
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
         ),
         path(
             "admin/logout/",
@@ -165,6 +157,8 @@ if settings.ADMIN_PORTAL_ENABLED:
                 query_string=True,
             ),
         ),
+        # Before admin.site.urls, whose `<app_label>/` pattern would claim /admin/console/.
+        *console_urlpatterns,
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
@@ -173,8 +167,7 @@ else:
 
 
 urlpatterns: list[Any] = [
-    path("api/saml/metadata/", authentication.saml_metadata_view),
-    path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
+    path("api/saml/metadata/", saml_metadata_view),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     re_path(

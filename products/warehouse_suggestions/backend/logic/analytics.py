@@ -33,6 +33,7 @@ class SuggestionOutcome(StrEnum):
     CREATED = "created"
     SURFACED = "surfaced"
     ACCEPTED = "accepted"
+    ASSIGNED = "assigned"
     DISMISSED = "dismissed"
     RESUMED = "resumed"
     REPROPOSED = "reproposed"
@@ -77,4 +78,5 @@ def _properties(suggestion: WarehouseSuggestion, now: datetime, *, is_system: bo
         if suggestion.surfaced_at
         else None,
         "is_system": is_system,
+        "has_assignee": suggestion.assignee_id is not None,
     }

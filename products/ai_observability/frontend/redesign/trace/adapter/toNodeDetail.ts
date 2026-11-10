@@ -7,7 +7,16 @@ import { toEvalResults } from './toEvalResults'
 import { toMessageIO } from './toThread'
 import { isMessageIO } from './toThreadMessages'
 
-export type NodeDetailData = Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'onViewInThread' | 'onSelectNode'>
+export type NodeDetailData = Omit<
+    NodeDetailProps,
+    | 'tab'
+    | 'onTabChange'
+    | 'onViewInThread'
+    | 'messagesOpening'
+    | 'onMessagesOpeningChange'
+    | 'onSelectNode'
+    | 'actions'
+>
 
 const NODE_LOAD_ERRORS: Record<LoadFailure, string> = {
     not_found: 'This step could not be found. It may have been deleted, or it is outside the retention period.',

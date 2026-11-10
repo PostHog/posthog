@@ -74,6 +74,10 @@ class TestDataWarehouseManagedViewSetAccessControl(WarehouseAccessControlTestMix
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+_MW = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+_HLC = "hlc_0123456789abcdef01234567"
+
+
 @pytest.mark.ee
 class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
     """Hole 2: data_warehouse/* had a mix of reads + writes all ungated."""
@@ -413,6 +417,165 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             self.team.organization_id, triggered_by=f"api:{self.editor_user.email}"
         )
 
+    def _make_org_admin(self, user) -> None:
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+    @parameterized.expand(
+        [
+            ("list", "get", "hoglake_credentials/", "list_hoglake_credentials"),
+            ("create", "post", "hoglake_credentials/", "create_hoglake_credential"),
+            ("rotate", "post", f"hoglake_credentials/{_HLC}/rotate/", "rotate_hoglake_credential"),
+            ("revoke", "delete", f"hoglake_credentials/{_HLC}/", "revoke_hoglake_credential"),
+        ]
+    )
+    def test_hoglake_credentials_blocked_for_project_editor_who_is_not_org_admin(self, _name, method, path, helper):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        with patch(f"{_MW}.{helper}") as mock_helper:
+            response = getattr(self.client, method)(
+                self._path(path), {"name": "laptop", "scope": "read"}, content_type="application/json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_helper.assert_not_called()
+
+    def test_hoglake_credential_create_for_org_admin(self):
+        self._make_org_admin(self.editor_user)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        with patch(f"{_MW}.create_hoglake_credential") as create:
+            create.return_value = Response({"client_id": _HLC, "client_secret": "s"}, status=201)
+            response = self.client.post(
+                self._path("hoglake_credentials/"),
+                {"name": "laptop", "scope": "write", "ttl_seconds": 7200},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        create.assert_called_once_with(
+            self.team.organization_id,
+            name="laptop",
+            scope="write",
+            ttl_seconds=7200,
+            triggered_by=f"api:{self.editor_user.email}",
+        )
+
+    @parameterized.expand(
+        [
+            ("bad scope", {"name": "laptop", "scope": "admin"}),
+            ("bad name", {"name": "-starts-with-dash", "scope": "read"}),
+            ("ttl too short", {"name": "laptop", "scope": "read", "ttl_seconds": 60}),
+        ]
+    )
+    def test_hoglake_credential_create_validates_the_body(self, _name, body):
+        self._make_org_admin(self.editor_user)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        with patch(f"{_MW}.create_hoglake_credential") as create:
+            response = self.client.post(self._path("hoglake_credentials/"), body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        create.assert_not_called()
+
+    def test_hoglake_credential_rotate_and_revoke_for_org_admin(self):
+        self._make_org_admin(self.editor_user)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        with (
+            patch(f"{_MW}.rotate_hoglake_credential", return_value=Response({"client_id": _HLC})) as rotate,
+            patch(f"{_MW}.revoke_hoglake_credential", return_value=Response({"revoked": _HLC})) as revoke,
+        ):
+            rotated = self.client.post(self._path(f"hoglake_credentials/{_HLC}/rotate/"))
+            revoked = self.client.delete(self._path(f"hoglake_credentials/{_HLC}/"))
+
+        self.assertEqual((rotated.status_code, revoked.status_code), (200, 200))
+        principal = f"api:{self.editor_user.email}"
+        rotate.assert_called_once_with(self.team.organization_id, _HLC, triggered_by=principal)
+        revoke.assert_called_once_with(self.team.organization_id, _HLC, triggered_by=principal)
+
+    def test_my_hoglake_credential_create_needs_no_org_admin(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        with patch(f"{_MW}.create_my_hoglake_credential") as create:
+            create.return_value = Response({"client_id": _HLC, "client_secret": "s"}, status=201)
+            response = self.client.post(
+                self._path("my_hoglake_credentials/"),
+                {"name": "laptop", "scope": "read", "team_ids": [self.team.id]},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        create.assert_called_once_with(
+            self.team.organization,
+            self.editor_user,
+            name="laptop",
+            scope="read",
+            team_ids=[self.team.id],
+            ttl_seconds=None,
+            triggered_by=f"api:{self.editor_user.email}",
+        )
+
+    def test_my_hoglake_credentials_list_for_a_viewer_but_no_create(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        with (
+            patch(f"{_MW}.list_my_hoglake_credentials", return_value=Response({"hoglake_credentials": []})) as list_,
+            patch(f"{_MW}.create_my_hoglake_credential") as create,
+        ):
+            listed = self.client.get(self._path("my_hoglake_credentials/"))
+            created = self.client.post(
+                self._path("my_hoglake_credentials/"),
+                {"name": "laptop", "scope": "read", "team_ids": [self.team.id]},
+                content_type="application/json",
+            )
+
+        self.assertEqual((listed.status_code, created.status_code), (200, 403))
+        list_.assert_called_once_with(self.team.organization, self.viewer_user)
+        create.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no projects", {"name": "laptop", "scope": "read", "team_ids": []}),
+            ("projects missing", {"name": "laptop", "scope": "read"}),
+            ("bad project id", {"name": "laptop", "scope": "read", "team_ids": [0]}),
+        ]
+    )
+    def test_my_hoglake_credential_create_validates_the_body(self, _name, body):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        with patch(f"{_MW}.create_my_hoglake_credential") as create:
+            response = self.client.post(self._path("my_hoglake_credentials/"), body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        create.assert_not_called()
+
+    def test_my_hoglake_credential_rotate_and_revoke(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        with (
+            patch(f"{_MW}.rotate_my_hoglake_credential", return_value=Response({"client_id": _HLC})) as rotate,
+            patch(f"{_MW}.revoke_my_hoglake_credential", return_value=Response({"revoked": _HLC})) as revoke,
+        ):
+            rotated = self.client.post(self._path(f"my_hoglake_credentials/{_HLC}/rotate/"))
+            revoked = self.client.delete(self._path(f"my_hoglake_credentials/{_HLC}/"))
+
+        self.assertEqual((rotated.status_code, revoked.status_code), (200, 200))
+        principal = f"api:{self.editor_user.email}"
+        rotate.assert_called_once_with(self.team.organization, self.editor_user, _HLC, triggered_by=principal)
+        revoke.assert_called_once_with(self.team.organization, self.editor_user, _HLC, triggered_by=principal)
+
+    def test_hoglake_credential_id_must_look_like_one(self):
+        self._make_org_admin(self.editor_user)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        with patch(f"{_MW}.revoke_hoglake_credential") as revoke:
+            response = self.client.delete(self._path("hoglake_credentials/svc_0123456789abcdef/"))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        revoke.assert_not_called()
+
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.delete_org")
     def test_delete_org_blocked_for_project_editor_who_is_not_org_admin(self, mock_delete_org):
         mock_delete_org.return_value = Response({"status": "deleted"})
@@ -445,8 +608,48 @@ class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
 
     resource = "warehouse_objects"
 
+    def setUp(self):
+        super().setUp()
+        self.saved_queries = {
+            label: DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"{label}_view",
+                query={"kind": "HogQLQuery", "query": "select 1"},
+                created_by=self.user,
+            )
+            for label in ("allowed", "blocked")
+        }
+        self.jobs = {
+            label: DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status="Running",
+                engine="managed_warehouse",
+                workflow_id=f"materialize-{label}",
+                error=f"{label}_error",
+            )
+            for label, saved_query in self.saved_queries.items()
+        }
+        for label, saved_query in self.saved_queries.items():
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status="Completed",
+                engine="managed_warehouse",
+                workflow_id=f"materialize-{label}-completed",
+                error=f"{label}_completed_error",
+            )
+
     def _list_url(self) -> str:
         return f"/api/environments/{self.team.pk}/data_modeling_jobs/"
+
+    def _deny_blocked_query(self) -> None:
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.saved_queries["blocked"].id),
+            access_level="none",
+        )
 
     def test_viewer_can_list(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
@@ -461,6 +664,53 @@ class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
 
         response = self.client.get(self._list_url())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("list", ""),
+            ("running", "running/"),
+            ("recent", "recent/"),
+        ]
+    )
+    def test_collections_exclude_jobs_for_denied_saved_queries(self, _name: str, action_path: str):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._deny_blocked_query()
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self._list_url()}{action_path}?all_engines=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = response.json()["results"] if action_path == "" else response.json()
+        self.assertGreater(len(rows), 0)
+        self.assertEqual({row["saved_query_id"] for row in rows}, {str(self.saved_queries["allowed"].id)})
+        self.assertNotIn("blocked_error", response.content.decode())
+
+    def test_detail_excludes_a_job_for_a_denied_saved_query(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._deny_blocked_query()
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self._list_url()}{self.jobs['blocked'].id}/?all_engines=true")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_specific_saved_query_grant_filters_jobs_when_project_default_is_none(self):
+        self._create_project_default(access_level="none")
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.saved_queries["allowed"].id),
+            access_level="viewer",
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self._list_url()}?all_engines=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["saved_query_id"] for row in response.json()["results"]},
+            {str(self.saved_queries["allowed"].id)},
+        )
 
 
 @pytest.mark.ee

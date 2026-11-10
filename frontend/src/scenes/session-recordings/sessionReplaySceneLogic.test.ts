@@ -3,9 +3,9 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingsPlaylistLogic } from './playlist/sessionRecordingsPlaylistLogic'
@@ -31,43 +31,33 @@ describe('sessionReplaySceneLogic', () => {
     })
 
     describe('picks in the recordings list', () => {
-        const land = (variant: string, path: string, otherFlags: Record<string, string> = {}): void => {
+        const land = (path: string): void => {
             logic.unmount()
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT]: variant,
-                ...otherFlags,
-            })
             router.actions.push(path)
             logic = sessionReplaySceneLogic()
             logic.mount()
         }
 
         it.each([
-            ['the in-list arm', 'in-list', true],
-            ['control', 'control', false],
-            ['the watch-tab arm', 'watch-tab', false],
-            ['the both arm', 'both', false],
-        ])('shows picks for %s: %p', (_, variant, expected) => {
-            land(variant, '/replay/home')
-            expect(logic.values.picksInList).toBe(expected)
-        })
-
-        it('leaves users on the replay redesign out of the experiment', () => {
-            land('in-list', '/replay/home', { [FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026]: 'test' })
-            expect(logic.values.picksInList).toBe(false)
-        })
-
-        it('hides the picks when the organization has not approved AI data processing', () => {
+            ['shows picks when the organization approved AI data processing', true, false, true],
+            ['hides picks when the organization has not approved AI data processing', false, false, false],
+            ['hides picks on a self-hosted install', true, true, false],
+        ])('%s', async (_, approved, selfHosted, expected) => {
             logic.unmount()
             playlistLogic.unmount()
             initKeaTests(true, undefined, undefined, {
                 ...MOCK_DEFAULT_ORGANIZATION,
-                is_ai_data_processing_approved: false,
+                is_ai_data_processing_approved: approved,
             })
+            // The mount-time preflight load must land first, or it overwrites the self-hosted preflight.
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            if (selfHosted) {
+                preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, is_debug: false } as any)
+            }
             playlistLogic = sessionRecordingsPlaylistLogic(SCENE_PLAYLIST_LOGIC_PROPS)
             playlistLogic.mount()
-            land('in-list', '/replay/home')
-            expect(logic.values.picksInList).toBe(false)
+            land('/replay/home')
+            expect(logic.values.picksInList).toBe(expected)
         })
 
         it.each([
@@ -75,7 +65,7 @@ describe('sessionReplaySceneLogic', () => {
             ['Recordings', '/replay/home', 'home'],
             ['an unknown route', '/replay/what-to-watch', 'home'],
         ])('switches to %s', (_, path, tab) => {
-            land('in-list', '/replay/home')
+            land('/replay/home')
             router.actions.push(path)
             expect(logic.values.tab).toBe(tab)
         })

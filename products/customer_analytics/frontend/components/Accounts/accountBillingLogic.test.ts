@@ -2,12 +2,13 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, type InsightModel } from '~/types'
+import { ChartDisplayType, type InsightModel, type InsightShortId } from '~/types'
 
 import {
     AccountBillingKind,
@@ -175,6 +176,24 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).not.toEqual(initialQueryKey)
             expect(nextQueryKey).toContain('2024-01-01')
             expect(nextQueryKey).toContain('2024-01-31')
+        })
+
+        it('gives the fallback chart an insight key that does not fetch a saved insight', async () => {
+            mountForKind()
+            await expectLogic(logic).toFinishAllListeners()
+
+            for (const shortId of BILLING_INSIGHT_SHORT_IDS[kind]) {
+                const queryKey = logic.values.queryKeyFor(shortId)
+                const fallbackInsightLogic = insightLogic({
+                    dashboardItemId: queryKey as InsightShortId,
+                    dataNodeCollectionId: queryKey,
+                })
+                fallbackInsightLogic.mount()
+                await expectLogic(fallbackInsightLogic).toFinishAllListeners()
+                fallbackInsightLogic.unmount()
+            }
+
+            expect(insightsApi.getByShortId).toHaveBeenCalledTimes(BILLING_INSIGHT_SHORT_IDS[kind].length)
         })
 
         it('replaces stale preloads when the date range changes', async () => {

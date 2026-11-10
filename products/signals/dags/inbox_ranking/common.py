@@ -45,6 +45,7 @@ NOT_FIXED_RESOLUTION_REASONS = (
     "wontfix_intentional",
     "wontfix_irrelevant",
     "report_unclear",
+    "wrong_assignee",
     "wrong_repo",
 )
 # A dismissal that says the problem was real and is fixed somewhere.
@@ -71,6 +72,11 @@ def is_inbox_ranking_registered() -> bool:
     """EU report rows and embeddings are unreachable from a US dag, and labels from every region
     already land in the US dogfood project, so the whole location registers on US only."""
     return settings.CLOUD_DEPLOYMENT != "EU"
+
+
+def is_inbox_ranking_mirror_registered() -> bool:
+    """EU trains nothing, but it builds its own project vectors from its own report embeddings."""
+    return settings.CLOUD_DEPLOYMENT == "EU"
 
 
 def dataset_unconfigured() -> bool:

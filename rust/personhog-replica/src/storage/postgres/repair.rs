@@ -405,6 +405,7 @@ struct LockedRow {
 
 /// Decide one mapping write from the locked person and mapping rows. Raise acts only on a live row
 /// of the named live person (holding `expected_version` when given); insert only where no row exists.
+/// Tombstone acts only on a stray: a live row of the named person while that person is tombstoned.
 fn plan_write(
     write: &DistinctIdWrite,
     person: Option<&LockedPerson>,
@@ -413,10 +414,9 @@ fn plan_write(
     let Some(person) = person else {
         return Planned::Done(DistinctIdWriteOutcome::PersonNotLive);
     };
-    if person.is_deleted {
-        return Planned::Done(DistinctIdWriteOutcome::PersonNotLive);
-    }
     match (write.action, row) {
+        (DistinctIdWriteAction::Tombstone, row) => plan_tombstone(write, person, row),
+        _ if person.is_deleted => Planned::Done(DistinctIdWriteOutcome::PersonNotLive),
         (DistinctIdWriteAction::Insert, None) => Planned::Insert(person.id),
         (DistinctIdWriteAction::Insert, Some(_)) => {
             Planned::Done(DistinctIdWriteOutcome::PreconditionFailed)
@@ -436,6 +436,36 @@ fn plan_write(
                 }
             }
         }
+    }
+}
+
+/// A live person's row is refused, because tombstoning it would leave the person without that
+/// distinct id; moving an id off a live person is a split. A row already tombstoned on the person at
+/// or above `min_version` is `Unchanged`, so a retry after a lost reply converges.
+fn plan_tombstone(
+    write: &DistinctIdWrite,
+    person: &LockedPerson,
+    row: Option<&LockedRow>,
+) -> Planned {
+    let Some(row) = row else {
+        return Planned::Done(DistinctIdWriteOutcome::PreconditionFailed);
+    };
+    if !person.is_deleted || row.person_id != person.id {
+        return Planned::Done(DistinctIdWriteOutcome::PreconditionFailed);
+    }
+    if row.is_deleted {
+        return Planned::Done(if row.version >= write.min_version {
+            DistinctIdWriteOutcome::Unchanged
+        } else {
+            DistinctIdWriteOutcome::PreconditionFailed
+        });
+    }
+    if write.expected_version.is_some_and(|v| v != row.version) {
+        return Planned::Done(DistinctIdWriteOutcome::PreconditionFailed);
+    }
+    Planned::Update {
+        version: (row.version + 1).max(write.min_version),
+        is_deleted: true,
     }
 }
 

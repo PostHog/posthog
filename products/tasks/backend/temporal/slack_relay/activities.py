@@ -55,6 +55,9 @@ def _append_unconfirmed_attachment_notice(
 
 
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
+# Each chunk of a split code block repeats the label, so one too long to be a language hint would
+# leave almost no room for code, and a message per few characters.
+_MAX_FENCE_LABEL_LEN = 32
 
 
 class _SlackChunkPacker:
@@ -134,6 +137,8 @@ class _SlackChunkPacker:
             cursor = end + 1 if end < len(body) and body[end] == "\n" else end
 
     def _add_code_block(self, language: str, body: str) -> None:
+        if len(language) > _MAX_FENCE_LABEL_LEN:
+            language = ""
         fence_open = f"```{language}\n" if language else "```\n"
         fence_close = "\n```"
         if len(fence_open) + len(body) + len(fence_close) <= self._limit:
@@ -191,11 +196,15 @@ class RelaySlackMessageInput:
     trace_id: str | None = None
     # Set only for the agent's own answer, so a notice or a placeholder never gets reply buttons.
     offer_reply_suggestions: bool = False
+    # Set only for the agent's own answer, so a notice or a placeholder never gets a feature tip.
+    # Separate from the reply buttons, so turning those off for a surface leaves tips alone.
+    offer_feature_tip: bool = False
 
 
 @activity.defn
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
+    from products.slack_app.backend.facade.api import SlackFeature, record_slack_feature_used
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_messages import (
         leading_mention_prefix,
@@ -204,7 +213,11 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     from products.slack_app.backend.slack_thread import ReplyKind, SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import slack_reply_target, turn_person_message
+    from products.tasks.backend.temporal.process_task.utils import (
+        is_explicit_slack_reply,
+        slack_reply_target,
+        turn_person_message,
+    )
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -258,10 +271,16 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         actor_slack_user_id=target,
         turn_trace_id=input.trace_id,
         turn_person_message=person_message,
+        include_thread_cost=True,
     )
 
+    if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):
+        handler.delete_progress()
+        return
+    text = handler.notification_text(text, target)
+
     # The mention opens the answer, in the same line, so the reply reads as one message.
-    mention_prefix = leading_mention_prefix(text, target)
+    mention_prefix = leading_mention_prefix(text, handler.notification_target(target))
 
     compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
 
@@ -316,6 +335,8 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)
     handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+    if answer_delivered and has_pending_slack_files:
+        record_slack_feature_used(mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
@@ -323,3 +344,5 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # Last, because the model call behind it is the slowest step and the answer must not wait for it.
     if answer_delivered and input.offer_reply_suggestions:
         handler.offer_reply_suggestions(text)
+    if answer_delivered and input.offer_feature_tip:
+        handler.offer_feature_tip()

@@ -10,10 +10,16 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models import User
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
-from ..facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
+from ..facade.api import (
+    DESCRIPTION_TOO_LONG_MESSAGE,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_METRIC_RUN_PAGES,
+    METRIC_NAME_MAX_LENGTH,
+)
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
@@ -26,6 +32,23 @@ class MetricDefinitionField(serializers.JSONField):
 @extend_schema_field(OpenApiTypes.ANY)
 class _FreeJSONField(serializers.JSONField):
     """A free-form JSON value (query results / query status shapes)."""
+
+
+class MetricOwnerField(serializers.EmailField):
+    def get_attribute(self, instance: Metric) -> str | None:
+        return instance.owner.email if instance.owner else None
+
+    def run_validation(self, data: object = serializers.empty) -> User | None:
+        email = super().run_validation(data)
+        if email is None:
+            return None
+        team = self.context["view"].team
+        owner = User.objects.filter(
+            email__iexact=email, organization_membership__organization_id=team.organization_id
+        ).first()
+        if owner is None:
+            raise serializers.ValidationError("No member of this organization has this email.")
+        return owner
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricRun")
@@ -51,17 +74,27 @@ class MetricRunResponseSerializer(serializers.Serializer):
     compiled_query = serializers.CharField(allow_null=True, help_text="The compiled HogQL, when available.")
     query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
     has_more = serializers.BooleanField(
-        help_text="True when the query hit its row limit and more rows exist. Narrow the window or the "
-        "interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those "
-        "overrides, so report the window the definition itself covers, or ask for a parameterized metric. "
-        "Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row "
-        "cap was reported for that run."
+        help_text="True when the query hit its row limit and more rows exist. Run the metric again with "
+        "offset set to next_offset, and repeat until has_more is false. Do not re-derive the rows by hand. "
+        "False whenever row_limit is null, because no row cap was reported for that run."
     )
     row_limit = serializers.IntegerField(
         allow_null=True,
         help_text="Row limit applied to this run. Null when no row cap was reported: a markdown metric, an "
         "insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field "
         "cannot verify the completeness of those runs.",
+    )
+    next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Offset that returns the next page of rows. Null when has_more is false, or when the run "
+        "reached the page limit (see paging_stopped_reason). Pages follow the definition's ORDER BY, so rows that "
+        "tie on every ORDER BY column can move between pages.",
+    )
+    paging_stopped_reason = serializers.CharField(
+        allow_null=True,
+        help_text=f"Why paging stopped while has_more is still true: a metric run returns at most "
+        f"{MAX_METRIC_RUN_PAGES} pages. Report the result as partial. Null when paging can continue or the rows "
+        "are complete.",
     )
     posthog_url = serializers.CharField(
         allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."
@@ -85,6 +118,12 @@ class MetricRunRequestSerializer(serializers.Serializer):
         choices=[t.value for t in IntervalType],
         required=False,
         help_text="Override the bucket interval. Rejected for HogQLQuery metrics.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Rows to skip, to read the page after a run that returned has_more. Pass next_offset from "
+        "that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.",
     )
     query_id = serializers.CharField(required=False, help_text="Client-supplied id to correlate or cancel the run.")
 
@@ -125,8 +164,12 @@ class MetricSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Whether a human ('user') or an agent ('ai_generated') authored this metric.",
     )
-    owner = serializers.SerializerMethodField(
-        help_text="Email of the human accountable for this metric, or null.",
+    owner = MetricOwnerField(
+        required=False,
+        allow_null=True,
+        help_text="Email of the human accountable for this metric, or null. Set it to the email of a member of "
+        "this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's "
+        "approval.",
     )
     created_by = UserBasicSerializer(read_only=True, help_text="User who first created this metric.")
     approved_by = UserBasicSerializer(
@@ -205,10 +248,6 @@ class MetricSerializer(serializers.ModelSerializer):
             },
         }
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_owner(self, obj: Metric) -> str | None:
-        return obj.owner.email if obj.owner else None
-
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_drifted(self, obj: Metric) -> bool:
         # The list view precomputes drift for the whole page into ``drift_map`` (one bulk query);
@@ -265,6 +304,16 @@ class MetricNameConflictSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(component_name="DataCatalogMetricApproveRequest")
+class MetricApproveRequestSerializer(serializers.Serializer):
+    """Input for approving one metric."""
+
+    expected_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text="The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version.",
+    )
+
+
 @extend_schema_serializer(component_name="DataCatalogMetricBulkNamesRequest")
 class MetricBulkNamesRequestSerializer(serializers.Serializer):
     """Input for the bulk metric actions: the metric names to act on."""
@@ -277,6 +326,17 @@ class MetricBulkNamesRequestSerializer(serializers.Serializer):
         min_length=1,
         max_length=api.METRIC_BULK_MAX,
         help_text=f"Names of the metrics to act on, at most {api.METRIC_BULK_MAX}. Duplicates are collapsed.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkChangeOwnerRequest")
+class MetricBulkChangeOwnerRequestSerializer(MetricBulkNamesRequestSerializer):
+    """Input for giving many metrics one owner."""
+
+    owner = MetricOwnerField(
+        allow_null=True,
+        help_text="Email of the member of this organization who becomes the owner of every named metric, or null "
+        "to clear the owner. Changing the owner keeps each metric's approval.",
     )
 
 
@@ -296,6 +356,16 @@ class MetricBulkApproveResponseSerializer(serializers.Serializer):
 
     approved = MetricSerializer(many=True, help_text="The metrics that are now approved, freshly serialized.")
     skipped = MetricBulkSkipSerializer(many=True, help_text="Requested metrics that were not approved, with reasons.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkChangeOwner")
+class MetricBulkChangeOwnerResponseSerializer(serializers.Serializer):
+    """Outcome of a bulk owner change: what changed, and what was left alone."""
+
+    updated = MetricSerializer(many=True, help_text="The metrics that now have the new owner, freshly serialized.")
+    skipped = MetricBulkSkipSerializer(
+        many=True, help_text="Requested metrics whose owner did not change, with reasons."
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricBulkDelete")

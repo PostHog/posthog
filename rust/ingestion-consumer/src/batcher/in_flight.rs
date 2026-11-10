@@ -22,6 +22,7 @@ impl RequestId {
 #[derive(Debug)]
 pub struct SentMessage {
     pub partition: i32,
+    pub generation: u64,
     pub offset: i64,
     pub keyed: bool,
 }
@@ -30,6 +31,7 @@ impl SentMessage {
     fn of(message: &SerializedKafkaMessage) -> Self {
         Self {
             partition: message.partition,
+            generation: message.generation,
             offset: message.offset,
             keyed: message.key.is_some(),
         }
@@ -124,6 +126,25 @@ impl InFlightRequests {
 
     pub fn take(&mut self, id: RequestId) -> Option<InFlightRequest> {
         self.requests.remove(&id)
+    }
+
+    /// Matches partition numbers only, because a sent message carries no topic.
+    pub fn carrying<'a>(
+        &'a self,
+        partitions: &'a [(String, i32)],
+    ) -> impl Iterator<Item = RequestId> + 'a {
+        self.requests
+            .iter()
+            .filter(|(_, request)| {
+                request.runs.iter().any(|run| {
+                    run.messages.iter().any(|message| {
+                        partitions
+                            .iter()
+                            .any(|(_, partition)| *partition == message.partition)
+                    })
+                })
+            })
+            .map(|(id, _)| *id)
     }
 }
 

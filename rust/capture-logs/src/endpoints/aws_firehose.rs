@@ -512,6 +512,7 @@ fn spawn_write(
             batch.bytes,
             batch.timestamps_overridden,
             None,
+            None,
         )
         .await
     });
@@ -767,6 +768,12 @@ mod tests {
             ("{\"level\":\"warn\",\"msg\":\"x\"}", "warn", 13),
             ("{\"level\":\"warning\",\"msg\":\"x\"}", "warn", 13),
             ("{\"severity\":\"CRITICAL\"}", "fatal", 21),
+            ("{\"levelname\":\"WARNING\",\"msg\":\"x\"}", "warn", 13),
+            (
+                "{\"levelname\":\"WARNING\",\"level\":\"error\"}",
+                "error",
+                17,
+            ),
             ("plain line with error later in it", "info", 9),
             ("Errors: 0", "info", 9),
             ("", "info", 9),
@@ -864,7 +871,7 @@ mod tests {
         assert!(row.bytes_uncompressed.is_some());
         assert_eq!(decoded[1].0.severity_text, "warn");
         let old = &decoded[2].0;
-        assert!(old.attributes.contains_key("$originalTimestamp"));
+        assert!(old.attributes.contains_key("posthog.original_timestamp"));
         assert!(!old.attributes.contains_key("aws.log.event.id"));
     }
 

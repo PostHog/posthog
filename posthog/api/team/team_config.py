@@ -5,9 +5,9 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
-from posthog.models.filters.utils import validate_group_type_index
-from posthog.models.integration.model import Integration
+from posthog.models.property import validate_group_type_index
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
@@ -17,6 +17,16 @@ from products.customer_analytics.backend.facade.account_property_pins import (
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.facade.request_blocklist import (
+    MAX_BLOCKED_HOSTS,
+    MAX_BLOCKED_IPS,
+    MAX_BLOCKLIST_INPUT_ENTRIES,
+    MIN_BLOCKED_IPV4_PREFIX,
+    MIN_BLOCKED_IPV6_PREFIX,
+    BlocklistEntryError,
+    normalize_blocked_hosts,
+    normalize_blocked_ips,
+)
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.replay_vision.backend.facade.workflow_scan_limits import (
     MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY,
@@ -310,6 +320,16 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off."
         ),
     )
+    marketing_frequency_cap_hold_hours = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=168,
+        help_text=(
+            "How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. "
+            "Null skips it right away."
+        ),
+    )
 
     replay_vision_scan_rate_limit_per_day = serializers.IntegerField(
         required=False,
@@ -347,7 +367,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         required=False,
         help_text=(
             "Whether new email steps and broadcasts start with UTM tags on their links. "
-            "Each email can still change it. Existing emails keep their current values."
+            "Each email can still change it. Existing emails change only through apply_utm_defaults."
         ),
     )
     email_utm_params = EmailUtmParamsField(
@@ -372,6 +392,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "default_email_integration_id",
             "marketing_frequency_cap_max_messages",
             "marketing_frequency_cap_window_days",
+            "marketing_frequency_cap_hold_hours",
         ]
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
@@ -410,11 +431,12 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
     def validate_default_email_integration_id(self, value: int | None) -> int | None:
         if self.parent or value is None:
             return value
-        sender = (
-            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
-            if self.instance is not None
-            else None
-        )
+        sender = None
+        if self.instance is not None:
+            try:
+                sender = IntegrationManager.email.credentials.get(self.instance.team_id, value)
+            except IntegrationNotFound:
+                pass
         if sender is None:
             raise serializers.ValidationError("Choose an email sender from this project.")
         if not sender.config.get("verified"):
@@ -452,9 +474,46 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         ),
     )
 
+    # allow_blank lets a client send a list split from pasted lines, because the normalizers drop blank entries.
+    # The normalizers own the MAX_BLOCKED_* caps, because they count entries after dropping blanks and duplicates.
+    blocked_hosts = serializers.ListField(
+        child=serializers.CharField(max_length=2000, allow_blank=True),
+        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        required=False,
+        help_text=(
+            f"Domains to block from feature flag requests (/flags and /decide), up to {MAX_BLOCKED_HOSTS}. "
+            "A domain also covers its subdomains. It is compared with the Origin header, or with the Referer "
+            "header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is "
+            "reduced to its domain, and an internationalized domain is stored as punycode."
+        ),
+    )
+    blocked_ips = serializers.ListField(
+        child=serializers.CharField(max_length=2000, allow_blank=True),
+        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        required=False,
+        help_text=(
+            f"IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), "
+            f"up to {MAX_BLOCKED_IPS}. Ranges can be /{MIN_BLOCKED_IPV4_PREFIX} or narrower for IPv4 and "
+            f"/{MIN_BLOCKED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form without "
+            "duplicates, and an IPv4-mapped IPv6 address is stored as IPv4."
+        ),
+    )
+
     class Meta:
         model = TeamFeatureFlagPolicyConfig
-        fields = ["require_tags"]
+        fields = ["require_tags", "blocked_hosts", "blocked_ips"]
+
+    def validate_blocked_hosts(self, value: list[str]) -> list[str]:
+        try:
+            return normalize_blocked_hosts(value)
+        except BlocklistEntryError as error:
+            raise serializers.ValidationError(str(error))
+
+    def validate_blocked_ips(self, value: list[str]) -> list[str]:
+        try:
+            return normalize_blocked_ips(value)
+        except BlocklistEntryError as error:
+            raise serializers.ValidationError(str(error))
 
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):

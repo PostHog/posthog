@@ -4,13 +4,14 @@ A configuration its source owns is a copy of the source's own row, which the sou
 and the next check reads back. Writing the copy here would fork it, so those are refused.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models import Case, QuerySet, Value, When
 from django.utils import timezone as django_timezone
 
 from pydantic import ValidationError as PydanticValidationError
@@ -25,16 +26,26 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     InvalidPlatformAlertEdit,
+    NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
+    PlatformAlertCreateRefused,
     PlatformAlertNotEditable,
     PlatformAlertSnapshot,
+    PlatformAlertUpsert,
+    SourceCreate,
     SourceKind,
     UnknownPlatformAlertGroup,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
-from products.alerts_platform.backend.logic import control_plane, platform_lifecycle, platform_reads, source_configs
+from products.alerts_platform.backend.logic import (
+    control_plane,
+    platform_lifecycle,
+    platform_reads,
+    rule_metadata,
+    source_configs,
+)
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -52,11 +63,17 @@ def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigura
         evaluation_periods=configuration.evaluation_periods,
         datapoints_to_alarm=configuration.datapoints_to_alarm,
         cooldown_minutes=configuration.cooldown_minutes,
+        labels=configuration.labels,
+        annotations=configuration.annotations,
     )
 
 
 def _validated(
-    source_kind: SourceKind, current: PlatformAlertConfigurationEdit | None, edit: PlatformAlertConfigurationEdit
+    source_kind: SourceKind,
+    current: PlatformAlertConfigurationEdit | None,
+    edit: PlatformAlertConfigurationEdit,
+    *,
+    team_id: int,
 ) -> PlatformAlertConfigurationEdit:
     spec = source_configs.spec(source_kind)
     if spec is None:
@@ -75,9 +92,19 @@ def _validated(
         schedule_restriction = validate_and_normalize_schedule_restriction(edit.schedule_restriction)
     except ValueError as error:
         raise InvalidPlatformAlertEdit("schedule_restriction", str(error)) from error
+    try:
+        rule_metadata.validate_labels(edit.labels)
+    except rule_metadata.InvalidRuleMetadata as error:
+        raise InvalidPlatformAlertEdit("labels", str(error)) from error
+    try:
+        rule_metadata.validate_annotations(edit.annotations, {*edit.grouping.keys, *edit.labels})
+    except rule_metadata.InvalidRuleMetadata as error:
+        raise InvalidPlatformAlertEdit("annotations", str(error)) from error
     source_config = edit.source_config
-    # Settings the edit leaves alone may predate the schema, and must not block an unrelated change.
-    if current is None or source_config != current.source_config:
+    # Settings the edit leaves alone may predate the schema, or name rows deleted since, and must not
+    # block an unrelated change.
+    sets_source_config = current is None or source_config != current.source_config
+    if sets_source_config:
         try:
             parsed = spec.model.model_validate(source_config)
         except PydanticValidationError as error:
@@ -87,7 +114,47 @@ def _validated(
         source_config = parsed.model_dump(mode="json", exclude_unset=True)
     validated = replace(edit, source_config=source_config, schedule_restriction=schedule_restriction)
     spec.validate(validated)
+    if sets_source_config and spec.check_in_team is not None:
+        spec.check_in_team(team_id=team_id, edit=validated)
     return validated
+
+
+def hold_cap_lock(team_id: int, source_kind: SourceKind) -> None:
+    """Serializes a team's cap checks for a kind until the caller's transaction ends. A source that
+    also creates alerts outside the platform takes it too, so two creates cannot both pass a count."""
+    # In autocommit the lock ends with its own statement, so it would serialize nothing.
+    if not connection.in_atomic_block:
+        raise RuntimeError("The cap lock must be taken inside a transaction.")
+    # A transaction-scoped advisory lock per team and kind, rather than a lock on the Team row, which
+    # foreign-key checks from every child write also take.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"alerts_platform:{team_id}:{source_kind.value}"]
+        )
+
+
+def _admit(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    current: PlatformAlertConfigurationEdit | None,
+    edit: PlatformAlertConfigurationEdit,
+    check_interval_minutes: int | None,
+) -> None:
+    """Runs the source's admission for a write, in the caller's transaction."""
+    spec = source_configs.spec(source_kind)
+    if spec is None:
+        return
+    cap = spec.native.max_per_team if spec.native is not None and current is None else None
+    if spec.admit is None and cap is None:
+        return
+    hold_cap_lock(team_id, source_kind)
+    if cap is not None and platform_reads.count_configurations(team_id=team_id, source_kind=source_kind.value) >= cap:
+        raise PlatformAlertCreateRefused(
+            f"This project has reached the limit of {cap} alerts of this type. Delete one to add another."
+        )
+    if spec.admit is not None:
+        spec.admit(team_id=team_id, current=current, edit=edit, check_interval_minutes=check_interval_minutes)
 
 
 def update_configuration(
@@ -96,9 +163,11 @@ def update_configuration(
     source_kinds: Sequence[str],
     configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies `change` to the configuration's current settings under its row lock, and mirrors the
-    result onto the source's own row.
+    result onto the source's own row. With `snooze_changed`, `snooze_until` becomes the whole alert's mute.
 
     None when the configuration does not exist or its kind is not among `source_kinds`. Taking a
     function rather than the new settings lets a partial update merge with what is stored inside
@@ -112,6 +181,9 @@ def update_configuration(
         if found is None:
             return None
         source_kind, legacy_configuration_id = found
+        if snooze_changed and legacy_configuration_id is not None:
+            # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
+            raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
         spec = source_configs.spec(SourceKind(source_kind))
         mirror = spec.mirror if spec is not None else None
         write_source = (
@@ -122,7 +194,12 @@ def update_configuration(
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
-        edit, pending = _apply(configuration, change, now=django_timezone.now())
+        now = django_timezone.now()
+        # A snooze ends the firing, as `update_owned_copy` does for a copy.
+        snoozing = snooze_changed and snooze_until is not None and snooze_until > now
+        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True)
+        if snooze_changed:
+            platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
@@ -133,19 +210,66 @@ def update_configuration(
 
 
 def create_configuration(
-    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    edit: PlatformAlertConfigurationEdit,
+    created_by_id: int | None,
+    natively: bool | None = None,
 ) -> PlatformAlertConfigurationView:
-    """Creates an alert the platform owns, through the hook its source registered.
+    """Creates an alert the platform owns: itself for a native kind, and otherwise through the hook
+    its source registered. A source that already decided sets `natively`, so the spec does not decide again.
 
     Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
     settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
     """
     spec = source_configs.spec(source_kind)
-    if spec is None or spec.create is None:
+    if spec is None or not spec.creatable:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
-    validated = _validated(source_kind, None, edit)
+    validated = _validated(source_kind, None, edit, team_id=team_id)
+    if spec.native is not None and (spec.creates_natively(team_id) if natively is None else natively):
+        with transaction.atomic():
+            _admit(
+                team_id=team_id,
+                source_kind=source_kind,
+                current=None,
+                edit=validated,
+                check_interval_minutes=spec.native.check_interval_minutes,
+            )
+            configuration = platform_lifecycle.create_native_configuration(
+                team_id=team_id,
+                source_kind=source_kind,
+                edit=validated,
+                check_interval_minutes=spec.native.check_interval_minutes,
+                destinations_owner=PlatformAlertOwner.PLATFORM
+                if spec.native.platform_destinations
+                else PlatformAlertOwner.SOURCE,
+                created_by_id=created_by_id,
+                now=django_timezone.now(),
+            )
+    else:
+        if spec.create is None:
+            # A native kind whose creates are switched off.
+            raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
+        configuration = _create_through_source(team_id, source_kind, spec.create, validated, created_by_id)
+
+    view = platform_reads.get_configuration(
+        team_id=team_id, source_kinds=[source_kind.value], configuration_id=configuration.id
+    )
+    assert view is not None
+    return view
+
+
+def _create_through_source(
+    team_id: int,
+    source_kind: SourceKind,
+    create: SourceCreate,
+    validated: PlatformAlertConfigurationEdit,
+    created_by_id: int | None,
+) -> PlatformAlertConfiguration:
     with transaction.atomic():
-        legacy_configuration_id = spec.create(team_id=team_id, edit=validated, created_by_id=created_by_id)
+        _admit(team_id=team_id, source_kind=source_kind, current=None, edit=validated, check_interval_minutes=None)
+        legacy_configuration_id = create(team_id=team_id, edit=validated, created_by_id=created_by_id)
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
             raise MissingPlatformCopy(f"The {source_kind} source created no platform copy of {legacy_configuration_id}")
@@ -162,12 +286,7 @@ def create_configuration(
         # The source wrote the settings it shares with the copy. This writes the rest, such as grouping.
         _, pending = _apply(configuration, lambda _: validated, now=django_timezone.now())
         control_plane.announce_after_commit(pending)
-
-    view = platform_reads.get_configuration(
-        team_id=team_id, source_kinds=[source_kind.value], configuration_id=configuration.id
-    )
-    assert view is not None
-    return view
+    return configuration
 
 
 # A snoozed group keeps its slot under `max_instances`, so a forgotten long snooze would hold it.
@@ -237,10 +356,12 @@ def update_owned_copy(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None,
     snooze_changed: bool,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
     back, because the source already wrote its row. A snooze the edit set or cleared becomes the
-    copy's mute."""
+    copy's mute. A changed `cadence`, or `rescheduled`, makes the copy due when the source is."""
     with transaction.atomic():
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -249,6 +370,8 @@ def update_owned_copy(
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
         _, pending = _apply(configuration, change, now=now, snoozing=snoozing)
+        if cadence is not None:
+            platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         control_plane.announce_after_commit(pending)
@@ -260,8 +383,12 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     For a delete, which removes the destinations a delivery after commit would look up. Call it
     outside the delete's transaction, so the history it reads and the state it moved have committed.
     """
+    _close_firings_now(lambda: _locked_owned_copy(team_id, legacy_configuration_id))
+
+
+def _close_firings_now(locked: Callable[[], PlatformAlertConfiguration | None]) -> None:
     with transaction.atomic():
-        configuration = _locked_owned_copy(team_id, legacy_configuration_id)
+        configuration = locked()
         pending = (
             None
             if configuration is None
@@ -271,11 +398,12 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
 
 
 def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configuration_id: UUID) -> bool:
-    """Deletes a configuration the platform owns through the hook its source registered. False when
-    the configuration does not exist or its kind is not among `source_kinds`.
+    """Deletes a configuration the platform owns, itself for a native kind and otherwise through the
+    hook its source registered. False when the configuration does not exist or its kind is not among
+    `source_kinds`.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, or of a kind the API
-    cannot delete. Runs outside any transaction, because the source sends its resolves first.
+    cannot delete. Runs outside any transaction, because the resolves go out first.
     """
     found = (
         PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
@@ -289,22 +417,139 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     if owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(f"This alert is managed by the {source_kind} product. Delete it there.")
     spec = source_configs.spec(SourceKind(source_kind))
-    if spec is None or spec.delete is None or legacy_configuration_id is None:
+    if spec is not None and spec.native is not None and legacy_configuration_id is None:
+        _delete_native(team_id, configuration_id, spec.native)
+    elif spec is not None and spec.delete is not None and legacy_configuration_id is not None:
+        spec.delete(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+    else:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be deleted through this API.")
-    spec.delete(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
     return True
 
 
-def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
-    """Deletes the copy of a source alert the platform owns, with its instances and threads."""
-    copies = PlatformAlertConfiguration.objects.for_team(team_id).filter(
-        legacy_configuration_id=legacy_configuration_id, owner=PlatformAlertOwner.PLATFORM
+def _delete_native(team_id: int, configuration_id: UUID, native: NativeAlertLifecycle) -> None:
+    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration_id)
+    # Before the destinations go, so an incident manager still gets the resolve for an open firing.
+    _close_firings_now(lambda: configurations.select_for_update().first())
+    # In the delete's transaction, so a delete that fails keeps the alert's destinations. An
+    # `AlertDestination` row goes with its configuration, so there is nothing to remove first.
+    remove = native.remove_destinations
+    _delete_each(
+        configurations,
+        before_delete=None if remove is None else lambda: remove(team_id=team_id, configuration_id=configuration_id),
     )
+
+
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+    """Deletes the copy of a source alert, with its instances and threads. With `owner`, only a copy
+    that stack owns.
+
+    Call it with the source row's delete, in its transaction or after it commits. The copy has no
+    foreign key to that row, so nothing else removes it.
+    """
+    copies = PlatformAlertConfiguration.objects.for_team(team_id).filter(
+        legacy_configuration_id=legacy_configuration_id
+    )
+    _delete_each(copies if owner is None else copies.filter(owner=owner))
+
+
+def delete_orphaned_shadow_copies(
+    *,
+    source_kind: SourceKind,
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
+    dry_run: bool,
+    batch_size: int = 500,
+) -> int:
+    """Deletes every shadow copy of `source_kind` whose source row no longer exists, and returns
+    how many it deleted, or would delete with `dry_run`.
+
+    `existing_source_ids` returns which of the given source row ids still exist. A copy is created
+    only from a source row that exists, and a deleted source row cannot come back with the same id,
+    so a copy found without its row stays an orphan.
+    """
+    # Cross-team on purpose: a one-off sweep over every copy of the kind. Each delete is scoped to
+    # the copy's own team.
+    copies = PlatformAlertConfiguration.objects.unscoped().filter(
+        source_kind=source_kind.value, owner=PlatformAlertOwner.SOURCE, legacy_configuration_id__isnull=False
+    )
+    found = 0
+    for batch in _pages_by_id(copies, "team_id", "legacy_configuration_id", batch_size=batch_size):
+        existing = set(existing_source_ids([legacy_id for _, _, legacy_id in batch if legacy_id is not None]))
+        orphans = [
+            (configuration_id, team_id) for configuration_id, team_id, legacy_id in batch if legacy_id not in existing
+        ]
+        found += len(orphans)
+        if dry_run:
+            continue
+        for configuration_id, team_id in orphans:
+            _delete_each(
+                PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+                    id=configuration_id, owner=PlatformAlertOwner.SOURCE
+                )
+            )
+    return found
+
+
+def fill_missing_creators(
+    *,
+    source_kind: SourceKind,
+    creators_of: Callable[[Collection[UUID]], Mapping[UUID, int]],
+    dry_run: bool,
+    batch_size: int = 500,
+) -> int:
+    """Copies `created_by` from the source rows onto every copy of `source_kind` that has none, and
+    returns how many it filled, or would fill with `dry_run`.
+
+    `creators_of` maps the given source row ids to the id of the user who created each. A row with no
+    creator, or one that is gone, is left out, and its copy stays without one.
+    """
+    copies = PlatformAlertConfiguration.objects.unscoped().filter(
+        source_kind=source_kind.value, legacy_configuration_id__isnull=False, created_by__isnull=True
+    )
+    filled = 0
+    for batch in _pages_by_id(copies, "legacy_configuration_id", batch_size=batch_size):
+        creators = creators_of([legacy_id for _, legacy_id in batch if legacy_id is not None])
+        found = {
+            configuration_id: creators[legacy_id] for configuration_id, legacy_id in batch if legacy_id in creators
+        }
+        filled += len(found)
+        if found and not dry_run:
+            # `copies` still requires an unset creator, so an upsert since this page was read wins.
+            copies.filter(id__in=list(found)).update(
+                created_by_id=Case(*(When(id=key, then=Value(user_id)) for key, user_id in found.items()))
+            )
+    return filled
+
+
+def _pages_by_id(
+    configurations: QuerySet[PlatformAlertConfiguration], *fields: str, batch_size: int
+) -> Iterator[list[tuple[Any, ...]]]:
+    """`(id, *fields)` of every configuration, a page at a time in id order.
+
+    Paged by id rather than with `iterator()`, because PgBouncer disables server-side cursors and
+    `iterator()` would then load every row at once. A row the caller changes so it stops matching
+    leaves the later pages as they were.
+    """
+    after: UUID | None = None
+    while batch := list(
+        (configurations if after is None else configurations.filter(id__gt=after))
+        .order_by("id")
+        .values_list("id", *fields)[:batch_size]
+    ):
+        after = batch[-1][0]
+        yield batch
+
+
+def _delete_each(
+    configurations: QuerySet[PlatformAlertConfiguration], *, before_delete: Callable[[], None] | None = None
+) -> None:
     with transaction.atomic():
         # The configuration before its children, the order `record_outcomes` locks them in. The
         # cascade deletes the children first, so without this the two can deadlock. Each row goes
         # through the model's own delete, because a queryset delete skips the activity log.
-        for configuration in copies.select_for_update():
+        locked = list(configurations.select_for_update())
+        if before_delete is not None:
+            before_delete()
+        for configuration in locked:
             configuration.delete()
 
 
@@ -325,24 +570,49 @@ def _locked_owned_copy(team_id: int, legacy_configuration_id: UUID) -> PlatformA
     return configuration
 
 
+def _with_kept_keys(
+    edit: PlatformAlertConfigurationEdit, other: PlatformAlertConfigurationEdit, keys: frozenset[str]
+) -> PlatformAlertConfigurationEdit:
+    """`edit` with each of `keys` its `source_config` leaves out taken from `other`'s."""
+    missing = {key: other.source_config[key] for key in keys - edit.source_config.keys() if key in other.source_config}
+    return replace(edit, source_config={**edit.source_config, **missing}) if missing else edit
+
+
 def _apply(
     configuration: PlatformAlertConfiguration,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     *,
     now: datetime,
     snoozing: bool = False,
+    admit: bool = False,
 ) -> tuple[PlatformAlertConfigurationEdit, control_plane.PendingClose | None]:
     """Validates and writes an edit onto a configuration locked by the caller, and ends the firings it
-    makes meaningless."""
+    makes meaningless. With `admit`, the source's admission decides first on an edit that turns the
+    alert on: an edit the source made on its own row has already passed its own checks."""
     if configuration.owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(
             f"This alert is managed by the {configuration.source_kind} product. Edit it there."
         )
+    source_kind = SourceKind(configuration.source_kind)
+    spec = source_configs.spec(source_kind)
+    kept = spec.kept_source_config_keys if spec is not None else frozenset()
     current = edit_of(configuration)
-    edit = _validated(SourceKind(configuration.source_kind), current, change(current))
+    edit = _validated(
+        source_kind, current, _with_kept_keys(change(current), current, kept), team_id=configuration.team_id
+    )
+    if admit and edit.enabled and not current.enabled:
+        _admit(
+            team_id=configuration.team_id,
+            source_kind=source_kind,
+            current=current,
+            edit=edit,
+            check_interval_minutes=configuration.check_interval_minutes,
+        )
 
     regrouped = not edit.grouping.splits_like(current.grouping)
-    ending = control_plane.ending_reason(current, edit, regrouped=regrouped, snoozing=snoozing)
+    ending = control_plane.ending_reason(
+        _with_kept_keys(current, edit, kept), edit, regrouped=regrouped, snoozing=snoozing
+    )
     # Before the instances change, so the history rows name the firings as they ran.
     pending = control_plane.end_firings(configuration, reason=ending, now=now) if ending else None
 

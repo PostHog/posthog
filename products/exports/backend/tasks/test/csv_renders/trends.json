@@ -41,29 +41,16 @@
         ""
     ],
     "response": {
+        "query": {
+            "kind": "TrendsQuery",
+            "series": [
+                { "kind": "EventsNode", "event": "pineapple_on_pizza_survey", "math": "dau", "custom_name": "Yes" },
+                { "kind": "EventsNode", "event": "pineapple_on_pizza_survey", "math": "dau", "custom_name": "No" }
+            ]
+        },
         "result": [
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Belarus",
                 "count": 1,
                 "data": [0, 0, 0, 1],
@@ -72,27 +59,7 @@
                 "breakdown_value": "Belarus"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Canada",
                 "count": 2,
                 "data": [1, 1, 0, 0],
@@ -101,27 +68,7 @@
                 "breakdown_value": "Canada"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Denmark",
                 "count": 2,
                 "data": [0, 2, 0, 0],
@@ -130,27 +77,7 @@
                 "breakdown_value": "Denmark"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Georgia",
                 "count": 1,
                 "data": [0, 0, 1, 0],
@@ -159,27 +86,7 @@
                 "breakdown_value": "Georgia"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Germany",
                 "count": 3,
                 "data": [3, 0, 0, 0],
@@ -188,27 +95,7 @@
                 "breakdown_value": "Germany"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - India",
                 "count": 9,
                 "data": [1, 4, 3, 1],
@@ -217,27 +104,7 @@
                 "breakdown_value": "India"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Ireland",
                 "count": 2,
                 "data": [0, 1, 1, 0],
@@ -246,27 +113,7 @@
                 "breakdown_value": "Ireland"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Luxembourg",
                 "count": 1,
                 "data": [0, 0, 1, 0],
@@ -275,27 +122,7 @@
                 "breakdown_value": "Luxembourg"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Netherlands",
                 "count": 1,
                 "data": [0, 0, 1, 0],
@@ -304,27 +131,7 @@
                 "breakdown_value": "Netherlands"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Norway",
                 "count": 1,
                 "data": [0, 0, 1, 0],
@@ -333,27 +140,7 @@
                 "breakdown_value": "Norway"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Poland",
                 "count": 1,
                 "data": [0, 1, 0, 0],
@@ -362,27 +149,7 @@
                 "breakdown_value": "Poland"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Russia",
                 "count": 3,
                 "data": [1, 2, 0, 0],
@@ -391,27 +158,7 @@
                 "breakdown_value": "Russia"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Slovenia",
                 "count": 2,
                 "data": [1, 1, 0, 0],
@@ -420,27 +167,7 @@
                 "breakdown_value": "Slovenia"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - Switzerland",
                 "count": 1,
                 "data": [0, 1, 0, 0],
@@ -449,27 +176,7 @@
                 "breakdown_value": "Switzerland"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - United Kingdom",
                 "count": 6,
                 "data": [1, 2, 1, 2],
@@ -478,27 +185,7 @@
                 "breakdown_value": "United Kingdom"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 0,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "Yes",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["true"]
-                            }
-                        ]
-                    }
-                },
+                "order": 0,
                 "label": "pineapple_on_pizza_survey - United States",
                 "count": 14,
                 "data": [3, 6, 4, 1],
@@ -507,27 +194,7 @@
                 "breakdown_value": "United States"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Australia",
                 "count": 2,
                 "data": [0, 2, 0, 0],
@@ -536,27 +203,7 @@
                 "breakdown_value": "Australia"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Canada",
                 "count": 1,
                 "data": [1, 0, 0, 0],
@@ -565,27 +212,7 @@
                 "breakdown_value": "Canada"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Denmark",
                 "count": 3,
                 "data": [1, 1, 1, 0],
@@ -594,27 +221,7 @@
                 "breakdown_value": "Denmark"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Estonia",
                 "count": 1,
                 "data": [0, 0, 1, 0],
@@ -623,27 +230,7 @@
                 "breakdown_value": "Estonia"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - France",
                 "count": 2,
                 "data": [2, 0, 0, 0],
@@ -652,27 +239,7 @@
                 "breakdown_value": "France"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Germany",
                 "count": 4,
                 "data": [2, 1, 1, 0],
@@ -681,27 +248,7 @@
                 "breakdown_value": "Germany"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - India",
                 "count": 5,
                 "data": [0, 2, 1, 2],
@@ -710,27 +257,7 @@
                 "breakdown_value": "India"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Ireland",
                 "count": 1,
                 "data": [0, 0, 1, 0],
@@ -739,27 +266,7 @@
                 "breakdown_value": "Ireland"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Italy",
                 "count": 2,
                 "data": [1, 1, 0, 0],
@@ -768,27 +275,7 @@
                 "breakdown_value": "Italy"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Netherlands",
                 "count": 2,
                 "data": [0, 0, 2, 0],
@@ -797,27 +284,7 @@
                 "breakdown_value": "Netherlands"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - New Zealand",
                 "count": 1,
                 "data": [0, 0, 1, 0],
@@ -826,27 +293,7 @@
                 "breakdown_value": "New Zealand"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Nigeria",
                 "count": 2,
                 "data": [0, 0, 2, 0],
@@ -855,27 +302,7 @@
                 "breakdown_value": "Nigeria"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - North Macedonia",
                 "count": 1,
                 "data": [1, 0, 0, 0],
@@ -884,27 +311,7 @@
                 "breakdown_value": "North Macedonia"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Norway",
                 "count": 1,
                 "data": [0, 0, 0, 1],
@@ -913,27 +320,7 @@
                 "breakdown_value": "Norway"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Romania",
                 "count": 1,
                 "data": [0, 0, 0, 1],
@@ -942,27 +329,7 @@
                 "breakdown_value": "Romania"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Spain",
                 "count": 2,
                 "data": [0, 1, 1, 0],
@@ -971,27 +338,7 @@
                 "breakdown_value": "Spain"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Sweden",
                 "count": 1,
                 "data": [1, 0, 0, 0],
@@ -1000,27 +347,7 @@
                 "breakdown_value": "Sweden"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Switzerland",
                 "count": 2,
                 "data": [1, 1, 0, 0],
@@ -1029,27 +356,7 @@
                 "breakdown_value": "Switzerland"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - Tunisia",
                 "count": 1,
                 "data": [0, 1, 0, 0],
@@ -1058,27 +365,7 @@
                 "breakdown_value": "Tunisia"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - United Kingdom",
                 "count": 5,
                 "data": [1, 2, 1, 1],
@@ -1087,27 +374,7 @@
                 "breakdown_value": "United Kingdom"
             },
             {
-                "action": {
-                    "id": "pineapple_on_pizza_survey",
-                    "type": "events",
-                    "order": 1,
-                    "name": "pineapple_on_pizza_survey",
-                    "custom_name": "No",
-                    "math": "dau",
-                    "math_property": null,
-                    "math_group_type_index": null,
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "does_pineapple_go_on_pizza",
-                                "operator": "exact",
-                                "type": "event",
-                                "value": ["false"]
-                            }
-                        ]
-                    }
-                },
+                "order": 1,
                 "label": "pineapple_on_pizza_survey - United States",
                 "count": 4,
                 "data": [0, 2, 1, 1],

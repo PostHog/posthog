@@ -1,0 +1,277 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { NotSignedInError } from '@/api/client'
+import { listConversations } from '@/api/conversations'
+import { isMissingFeature, type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
+import { listMySessions, setTaskArchived, type TaskSummaryApi } from '@/api/tasks'
+import { useAuthStore } from '@/auth/authStore'
+import { useProjectScope } from '@/auth/useProjectScope'
+import { useDataMode, useDemoMode } from '@/demo/demoMode'
+import { useDemoChatsQuery } from '@/demo/hooks'
+import { useConnectivity } from '@/lib/connectivity'
+import { toError } from '@/lib/errors'
+import { mergeChatLists } from '@/model/adapters/chats'
+import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import type { ChatListItem, QueryState } from '@/model/types'
+
+import { conversationListKeys } from './conversationKeys'
+
+export { conversationListKeys } from './conversationKeys'
+
+const CHAT_LIST_STALE_MS = 30_000
+
+/** Query keys for the chats list. Every key carries the host and project so a project switch never shows stale data. */
+export const sessionListKeys = {
+    all: (scope: ProjectScope | null) => ['chat-sessions', ...scopeKey(scope)] as const,
+    mine: (scope: ProjectScope | null, userId: number | undefined) =>
+        [...sessionListKeys.all(scope), userId ?? null] as const,
+}
+
+function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
+    const scope = useProjectScope()
+    const offline = useConnectivity((state) => state.status === 'offline')
+    const userId = useAuthStore((state) => state.user?.id)
+    const accountLoading = useAuthStore((state) => state.accountLoading)
+    const accountError = useAuthStore((state) => state.accountError)
+    const reloadAccount = useAuthStore((state) => state.reloadAccount)
+    // A session restored from before the app stored the numeric id has none until the account reloads.
+    const missingUserId = enabled && scope !== null && typeof userId !== 'number'
+    const active = enabled && scope !== null && typeof userId === 'number'
+    const [pulling, setPulling] = useState(false)
+    const [accountChecked, setAccountChecked] = useState(false)
+
+    useEffect(() => {
+        if (!missingUserId || accountChecked || offline) {
+            return undefined
+        }
+        let current = true
+        reloadAccount().finally(() => {
+            if (current) {
+                setAccountChecked(true)
+            }
+        })
+        return () => {
+            current = false
+        }
+    }, [missingUserId, accountChecked, reloadAccount, offline])
+
+    const sessions = useQuery({
+        queryKey: sessionListKeys.mine(scope, userId),
+        queryFn: ({ signal }) => (typeof userId === 'number' ? listMySessions(userId, signal) : Promise.resolve([])),
+        enabled: active,
+        retry: retryUnlessMissing,
+        staleTime: CHAT_LIST_STALE_MS,
+    })
+
+    const conversations = useQuery({
+        queryKey: conversationListKeys.all(scope),
+        queryFn: ({ signal }) => listConversations(signal),
+        enabled: active,
+        retry: retryUnlessMissing,
+        staleTime: CHAT_LIST_STALE_MS,
+    })
+
+    const failed = sessions.isError && sessions.data === undefined
+    // A 403 or 404 from tasks means this user has no sandbox sessions to show, not a load that a retry can fix.
+    const unavailable = failed && isMissingFeature(sessions.error)
+
+    const items = useMemo(
+        () => mergeChatLists(unavailable ? [] : sessions.data, conversations.data, scope),
+        [unavailable, sessions.data, conversations.data, scope]
+    )
+
+    const { refetch: refetchSessions } = sessions
+    const { refetch: refetchConversations } = conversations
+    const refetch = useCallback(async (): Promise<void> => {
+        setPulling(true)
+        try {
+            await Promise.all([refetchSessions(), refetchConversations()])
+        } finally {
+            setPulling(false)
+        }
+    }, [refetchSessions, refetchConversations])
+
+    if (!scope) {
+        return errorQuery(new NotSignedInError())
+    }
+    if (missingUserId) {
+        if (!accountChecked || accountLoading) {
+            return connectionLoadingQuery<ChatListItem[]>(offline, reloadAccount)
+        }
+        if (accountError) {
+            return errorQuery(new Error(accountError), reloadAccount)
+        }
+        return successQuery<ChatListItem[]>([], { refetch: reloadAccount })
+    }
+    const loadError =
+        failed && !unavailable
+            ? toError(sessions.error)
+            : conversations.isError && !isMissingFeature(conversations.error)
+              ? toError(conversations.error)
+              : null
+    const hasLoadedSource = sessions.data !== undefined || conversations.data !== undefined
+    if (loadError && !hasLoadedSource) {
+        return errorQuery(loadError, refetch)
+    }
+    if (!hasLoadedSource && ((sessions.data === undefined && !unavailable) || conversations.isPending)) {
+        return connectionLoadingQuery<ChatListItem[]>(offline, refetch)
+    }
+    return {
+        data: items,
+        isLoading: false,
+        isError: loadError !== null,
+        error: loadError,
+        isRefetching: pulling,
+        refetch,
+    }
+}
+
+export function useChatList(): QueryState<ChatListItem[]> {
+    const mode = useDataMode()
+    const demoQuery = useDemoChatsQuery()
+    const liveQuery = useLiveChatList(mode === 'live')
+    if (mode === 'loading') {
+        return loadingQuery<ChatListItem[]>()
+    }
+    if (mode === 'demo') {
+        return demoQuery
+    }
+    return liveQuery
+}
+
+export interface ChatArchiveActions {
+    /** Hides the row at once and archives the task. A failed request puts the row back and rejects. */
+    archive: (item: Pick<ChatListItem, 'sourceId'>) => Promise<void>
+    /** Puts the row back at once and unarchives the task, for the toast's Undo. */
+    restore: (item: Pick<ChatListItem, 'sourceId'>) => Promise<void>
+}
+
+function useLiveArchiveChat(): ChatArchiveActions {
+    const scope = useProjectScope()
+    const queryClient = useQueryClient()
+    // The hidden rows, so Undo and a failed archive can put one back without a refetch.
+    const hidden = useRef(new Map<string, TaskSummaryApi>())
+    const archivesInFlight = useRef(new Map<string, Promise<void>>())
+
+    const updateLinkedConversations = useCallback(
+        (taskId: string, archived: boolean): void => {
+            if (!scope) return
+            queryClient.setQueriesData<Awaited<ReturnType<typeof listConversations>>>(
+                { queryKey: conversationListKeys.all(scope) },
+                (conversations) =>
+                    conversations?.map((conversation) =>
+                        conversation.task?.id === taskId
+                            ? { ...conversation, task: { ...conversation.task, archived } }
+                            : conversation
+                    )
+            )
+        },
+        [queryClient, scope]
+    )
+
+    const putBack = useCallback(
+        (taskId: string): void => {
+            if (!scope) {
+                return
+            }
+            const session = hidden.current.get(taskId)
+            if (session) {
+                queryClient.setQueriesData<TaskSummaryApi[]>({ queryKey: sessionListKeys.all(scope) }, (sessions) =>
+                    !sessions || sessions.some((entry) => entry.id === taskId)
+                        ? sessions
+                        : [...sessions, { ...session, archived: false }]
+                )
+            }
+            updateLinkedConversations(taskId, false)
+        },
+        [queryClient, scope, updateLinkedConversations]
+    )
+
+    const archive = useCallback(
+        (item: Pick<ChatListItem, 'sourceId'>): Promise<void> => {
+            const pending = archivesInFlight.current.get(item.sourceId)
+            if (pending) {
+                return pending
+            }
+            const request = (async (): Promise<void> => {
+                if (!scope) {
+                    throw new NotSignedInError()
+                }
+                const filters = { queryKey: sessionListKeys.all(scope) }
+                await Promise.all([
+                    queryClient.cancelQueries(filters),
+                    queryClient.cancelQueries({ queryKey: conversationListKeys.all(scope) }),
+                ])
+                for (const [, sessions] of queryClient.getQueriesData<TaskSummaryApi[]>(filters)) {
+                    const session = sessions?.find((entry) => entry.id === item.sourceId)
+                    if (session) {
+                        hidden.current.set(item.sourceId, session)
+                    }
+                }
+                queryClient.setQueriesData<TaskSummaryApi[]>(filters, (sessions) =>
+                    sessions?.filter((entry) => entry.id !== item.sourceId)
+                )
+                updateLinkedConversations(item.sourceId, true)
+                try {
+                    await setTaskArchived(item.sourceId, true)
+                } catch (error) {
+                    putBack(item.sourceId)
+                    throw error
+                }
+            })()
+            archivesInFlight.current.set(item.sourceId, request)
+            const settled = (): void => {
+                archivesInFlight.current.delete(item.sourceId)
+            }
+            void request.then(settled, settled)
+            return request
+        },
+        [queryClient, scope, putBack, updateLinkedConversations]
+    )
+
+    const restore = useCallback(
+        async (item: Pick<ChatListItem, 'sourceId'>): Promise<void> => {
+            if (!scope) {
+                throw new NotSignedInError()
+            }
+            putBack(item.sourceId)
+            await archivesInFlight.current.get(item.sourceId)?.catch(() => undefined)
+            try {
+                await setTaskArchived(item.sourceId, false)
+            } catch (error) {
+                queryClient.setQueriesData<TaskSummaryApi[]>({ queryKey: sessionListKeys.all(scope) }, (sessions) =>
+                    sessions?.filter((entry) => entry.id !== item.sourceId)
+                )
+                updateLinkedConversations(item.sourceId, true)
+                throw error
+            }
+            hidden.current.delete(item.sourceId)
+            // The server orders the list, so a refetch puts the row back where it belongs.
+            void queryClient.invalidateQueries({ queryKey: sessionListKeys.all(scope) })
+            void queryClient.invalidateQueries({ queryKey: conversationListKeys.all(scope) })
+        },
+        [queryClient, scope, putBack, updateLinkedConversations]
+    )
+
+    return useMemo(() => ({ archive, restore }), [archive, restore])
+}
+
+function useDemoArchiveChat(): ChatArchiveActions {
+    const archiveChat = useDemoMode((state) => state.archiveChat)
+    const unarchiveChat = useDemoMode((state) => state.unarchiveChat)
+    return useMemo(
+        () => ({
+            archive: async (item) => archiveChat(item.sourceId),
+            restore: async (item) => unarchiveChat(item.sourceId),
+        }),
+        [archiveChat, unarchiveChat]
+    )
+}
+
+export function useArchiveChat(): ChatArchiveActions {
+    const mode = useDataMode()
+    const demoActions = useDemoArchiveChat()
+    const liveActions = useLiveArchiveChat()
+    return mode === 'demo' ? demoActions : liveActions
+}

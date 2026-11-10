@@ -124,7 +124,7 @@ function missingRequiredFields(
  * Build the `createExternalDataSource` payload from the collected field values,
  * mirroring how PostHog Cloud nests switch-group and select fields.
  */
-function buildPayload(
+export function buildPayload(
   config: SourceConfig,
   values: FieldValues,
 ): Record<string, unknown> {
@@ -136,6 +136,15 @@ function buildPayload(
         out[field.name] = { enabled, ...collect(field.fields) };
       } else if (field.type === "select") {
         const selected = (values[field.name] as string) ?? field.defaultValue;
+        // Cloud nests a select as `{ selection }` only when an option carries
+        // sub-fields; a flat select (e.g. Datadog `site`) is sent as a plain value.
+        const hasOptionFields = field.options.some(
+          (o) => (o.fields?.length ?? 0) > 0,
+        );
+        if (!hasOptionFields) {
+          out[field.name] = selected;
+          continue;
+        }
         const option = field.options.find((o) => o.value === selected);
         out[field.name] = {
           selection: selected,

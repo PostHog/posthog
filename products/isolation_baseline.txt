@@ -21,7 +21,6 @@ actions
 ai_observability
 alerts
 analytics_platform
-annotations
 apm
 approvals
 batch_exports
@@ -67,7 +66,6 @@ revenue_analytics
 signals
 skills
 slack_app
-subscriptions
 surveys
 tasks
 tracing

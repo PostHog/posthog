@@ -27,5 +27,5 @@ export function warehouseStatusFixture(
 }
 
 export function trinoStatusFixture(overrides: Partial<WarehouseTrinoStatusApi> = {}): WarehouseTrinoStatusApi {
-    return { state: 'ready', ready_at: '2026-09-01T12:00:00Z', connection: null, ...overrides }
+    return { state: 'ready', ready_at: '2026-09-01T12:00:00Z', connection: null, hoglake: false, ...overrides }
 }

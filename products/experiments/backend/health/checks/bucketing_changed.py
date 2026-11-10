@@ -22,15 +22,15 @@ from products.experiments.backend.health.bucketing_changes import (
 from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
-    changes_not_checked,
+    changes_to_check,
     delay_after_launch,
     exposed_when,
     few_exposed_units,
-    history_to_check,
     leave_out,
     not_checked_finding,
 )
 from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, HealthContext
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
@@ -47,10 +47,10 @@ _SETTING_NAMES = {
 }
 
 
-def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    history = history_to_check(ctx)
-    if history is None:
-        return None
+def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return history
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history)
     effect = bucketing_net_effect(history.counted(BucketingChange))
@@ -99,6 +99,20 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | N
 
     title = _KEY_TITLE if effect.shape == BucketingChangeShape.KEY_CHANGED else _TITLE
     what_changed = [_what_changed(net, history.team_timezone) for net in effect.net_changes]
+    if _continuity_turned_on(effect):
+        # Turning persistence on keeps the variants that exposed users already have. Only a user who logs in again from
+        # a new anonymous ID can get another one, and where an SDK can't apply persistence, nobody moves.
+        return _finding(
+            history,
+            effect,
+            severity=ExperimentHealthFindingSeverity.INFO,
+            title=title,
+            sentences=[
+                *what_changed,
+                "Turning it on doesn't move users who were already exposed to another variant, unless they log in "
+                "later on another device or after logging out.",
+            ],
+        )
     if few is not None:
         return _finding(
             history,
@@ -128,7 +142,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | N
 
 
 def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | None:
-    effect = bucketing_net_effect(changes_not_checked(history, BucketingChange))
+    effect = bucketing_net_effect(history.of_kind(BucketingChange))
     if effect is None:
         return None
     if effect.shape == BucketingChangeShape.REVERTED:
@@ -159,7 +173,7 @@ def _what_changed(change: BucketingChange, team_timezone: str) -> str:
         case BucketingSetting.AGGREGATION | BucketingSetting.BUCKETING_IDENTIFIER:
             return f"The flag changed from matching by {before} to matching by {after} on {at}."
         case BucketingSetting.EXPERIENCE_CONTINUITY:
-            return f'"Persist flag across authentication steps" was turned {after} on {at}.'
+            return f'On {at}, "Persist flag across authentication steps" was turned {after}.'
 
 
 def _consequence(effect: BucketingNetEffect) -> list[str]:
@@ -182,13 +196,28 @@ def _consequence(effect: BucketingNetEffect) -> list[str]:
                 "Users whose device ID differs from their user ID got a new variant draw, so they may have switched "
                 "variants."
             )
+        case _ if effect.net_changes[0].after:
+            consequence = "Users exposed between these changes may have switched variants."
         case _:
-            consequence = "Users who logged in got a new variant draw, so they may have switched variants."
+            consequence = (
+                "Users who logged in while it was on no longer keep the variant they got before logging in, so they "
+                "may have switched variants."
+            )
     return [
         consequence,
         "A sample ratio mismatch or users in more than one variant can come from "
         f"{the_change(effect.change_count, 'this')}.",
     ]
+
+
+def _continuity_turned_on(effect: BucketingNetEffect) -> bool:
+    """Whether one save turned persistence on and no other setting changed. A setting that changed and was set back,
+    or persistence that was off for a while, can have moved exposed users in between."""
+    return (
+        effect.changed_settings == (BucketingSetting.EXPERIENCE_CONTINUITY,)
+        and effect.change_count == 1
+        and bool(effect.net_changes[0].after)
+    )
 
 
 def _key_state(effect: BucketingNetEffect) -> list[str]:

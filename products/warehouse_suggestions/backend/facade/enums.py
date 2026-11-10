@@ -35,13 +35,25 @@ class WarehouseSuggestionAssetOutcome(LabeledStrEnum):
     UNUSED = "unused"
 
 
+class WarehouseSuggestionSurface(LabeledStrEnum):
+    MODELS = "models"
+    CATALOG = ("catalog", "Data catalog")
+
+
 class WarehouseSuggestionRefreshMode(LabeledStrEnum):
     FULL = "full"
     INCREMENTAL = "incremental"
+
+
+class WarehouseSuggestionMainSaving(LabeledStrEnum):
+    WAITING = "waiting"
+    BACKGROUND = "background"
+    SCANNED = "scanned"
 
 
 class WarehouseSuggestionRefreshIntervalBasis(LabeledStrEnum):
     SOURCE_SYNC = ("source_sync", "Source sync")
     FASTEST_SCHEDULE = ("fastest_schedule", "Fastest schedule")
     READ_RATE = ("read_rate", "Read rate")
+    CONSUMER_REFRESH = ("consumer_refresh", "Consumer refresh")
     SAVINGS = "savings"

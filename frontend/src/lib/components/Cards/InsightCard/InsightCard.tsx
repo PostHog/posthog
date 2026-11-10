@@ -11,10 +11,11 @@ import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { useInterval } from 'lib/hooks/useInterval'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { getCapacityRetryAt, getRetryCooldown } from 'lib/insights/sharedUtils'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
@@ -25,14 +26,15 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getCapacityRetryAt, getRetryCooldown } from 'scenes/insights/sharedUtils'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
+import { queryVizDefinitelyRendersToCanvas } from '~/queries/schema/node-accessors'
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { queryVizDefinitelyRendersToCanvas } from '~/queries/utils'
+import type { QueryContext } from '~/queries/types'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -47,6 +49,11 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
+import { BIDashboardFilterStatus } from 'products/business_intelligence/frontend/BIDashboardFilterStatus'
+import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
+import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
+import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
@@ -54,7 +61,7 @@ import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture
 import { InsightMeta } from './InsightMeta'
 import { InsightVisualizationSkeleton } from './InsightVisualizationSkeleton'
 
-const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+const IS_STORYBOOK = inStorybook()
 
 export function shouldRenderInsightCardViz({
     isStorybook,
@@ -90,6 +97,8 @@ type AlertModalState = {
 }
 
 export interface InsightCardProps extends Resizeable {
+    biDashboardTileId?: number
+    resultMenuEnabled?: boolean
     /** Insight to display. */
     insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -126,6 +135,8 @@ export interface InsightCardProps extends Resizeable {
     duplicate?: () => void
     setOverride?: () => void
     moveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    tileGroupMoveOptions?: TileGroupMoveOptions
+    moveToTileGroup?: (sectionKey: string | null) => void
     /** Copy this insight tile to another dashboard (same insight; requires editor on destination). */
     copyToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
@@ -165,6 +176,7 @@ export interface InsightCardProps extends Resizeable {
     projectTimezone?: string
     /** Shown above the title, for a card that has to name where its insight comes from. */
     contextHeading?: JSX.Element | null
+    onDateRangeZoom?: QueryContext['onDateRangeZoom']
 }
 
 function InsightCardInternal(
@@ -194,6 +206,8 @@ function InsightCardInternal(
         duplicate,
         setOverride,
         moveToDashboard,
+        tileGroupMoveOptions,
+        moveToTileGroup,
         copyToDashboard,
         className,
         moreButtons,
@@ -205,6 +219,8 @@ function InsightCardInternal(
         onOverlayVisibilityChange,
         filtersOverride,
         variablesOverride,
+        resultMenuEnabled,
+        biDashboardTileId,
         children,
         projectId,
         projectTimezone,
@@ -216,6 +232,7 @@ function InsightCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
+        onDateRangeZoom,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -285,7 +302,9 @@ function InsightCardInternal(
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { insightDataLoading, insightDataError } = useValues(insightDataLogic(insightLogicProps))
+    const { insightDataLoading, insightDataError, savingDisplayOptions } = useValues(
+        insightDataLogic(insightLogicProps)
+    )
 
     const [, setCooldownTick] = useState(0)
     // The embedded query stores its own failure in insightDataLogic and does not set the apiError prop.
@@ -306,8 +325,11 @@ function InsightCardInternal(
     const [compactInfoVisible, setCompactInfoVisible] = useState(false)
     const [alertModal, setAlertModal] = useState<AlertModalState | null>(null)
     useEffect(() => {
-        onOverlayVisibilityChange?.(areDetailsShown || compactInfoVisible || alertModal !== null)
-    }, [areDetailsShown, compactInfoVisible, alertModal, onOverlayVisibilityChange])
+        // A pending display-option save also keeps the card mounted, because unmounting its logic cancels the save.
+        onOverlayVisibilityChange?.(
+            areDetailsShown || compactInfoVisible || alertModal !== null || savingDisplayOptions
+        )
+    }, [areDetailsShown, compactInfoVisible, alertModal, savingDisplayOptions, onOverlayVisibilityChange])
     const openCreateAlertModal = useCallback(() => setAlertModal({}), [])
     const openEditAlertModal = useCallback((alertId: AlertType['id']) => setAlertModal({ alertId }), [])
     const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])
@@ -394,16 +416,29 @@ function InsightCardInternal(
         if (BlockingEmptyState) {
             return BlockingEmptyState
         }
+        if (biDashboardTileId !== undefined && dashboardId && isCrossFilterWorksheet(insight.query)) {
+            return (
+                <BIDashboardTile
+                    dashboardId={dashboardId}
+                    tileId={biDashboardTileId}
+                    insight={insight}
+                    query={insight.query}
+                    loadPriority={loadPriority}
+                />
+            )
+        }
         return (
             <Query
                 query={insight.query}
                 cachedResults={insight}
                 context={{
                     insightProps: insightLogicProps,
+                    dashboardResultMenu: resultMenuEnabled,
                     dataVisualizationTableVirtualized:
                         renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
                     // Small tables keep natural column widths because their full row count is cheap to render.
                     dataVisualizationTableVirtualizationCellThreshold: 100,
+                    onDateRangeZoom,
                 }}
                 readOnly
                 embedded
@@ -412,11 +447,29 @@ function InsightCardInternal(
                 editMode={false}
             />
         )
-    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement, renderVizWhenMounted])
+    }, [
+        BlockingEmptyState,
+        insight,
+        insightLogicProps,
+        variablesOverride,
+        placement,
+        renderVizWhenMounted,
+        resultMenuEnabled,
+        biDashboardTileId,
+        dashboardId,
+        loadPriority,
+        onDateRangeZoom,
+    ])
 
     const vizContent = shouldRenderViz ? (
         <div className="InsightCard__viz">
-            <div className="InsightCard__vizInner">{vizInner}</div>
+            <div className="InsightCard__vizInner">
+                {resultMenuEnabled && (!isBIVisualizationNode(insight.query) || insight.query.config.querySnapshot) ? (
+                    <DashboardInsightResultMenu insight={insight}>{vizInner}</DashboardInsightResultMenu>
+                ) : (
+                    vizInner
+                )}
+            </div>
         </div>
     ) : (
         <InsightVisualizationSkeleton query={insight.query} />
@@ -440,6 +493,11 @@ function InsightCardInternal(
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
+                        headerStatus={
+                            biDashboardTileId !== undefined && dashboardId ? (
+                                <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                            ) : undefined
+                        }
                         tile={tile}
                         insight={insight}
                         projectId={projectId}
@@ -461,6 +519,8 @@ function InsightCardInternal(
                         duplicate={duplicate}
                         setOverride={setOverride}
                         moveToDashboard={moveToDashboard}
+                        tileGroupMoveOptions={tileGroupMoveOptions}
+                        moveToTileGroup={moveToTileGroup}
                         copyToDashboard={copyToDashboard}
                         areDetailsShown={areDetailsShown}
                         setAreDetailsShown={setAreDetailsShown}

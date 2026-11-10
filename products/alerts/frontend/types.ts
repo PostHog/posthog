@@ -96,6 +96,10 @@ export interface AlertSimulationResult extends Pick<
     anomaly_count: number
     sub_detector_scores?: SubDetectorScores[]
     breakdown_results?: BreakdownSimulationResult[]
+    /** AI detector only: the model's reason for its verdict on the latest point. */
+    rationale?: string
+    /** AI detector only: the shape the model saw at the latest point. */
+    kind?: string | null
 }
 
 export interface AnomalyPoint {
@@ -172,6 +176,8 @@ export interface AlertType extends AlertTypeBase {
     checks?: AlertCheck[]
     /** Whether the alert's creator can use the AI detector. Only set when a single alert was retrieved. */
     llm_detector_available?: boolean | null
+    /** Whether the alert can open PagerDuty incidents, which only the alerts platform sends. */
+    pagerduty_available?: boolean
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number

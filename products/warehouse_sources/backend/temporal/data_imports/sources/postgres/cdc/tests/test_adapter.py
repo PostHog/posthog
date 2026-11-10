@@ -7,6 +7,7 @@ import psycopg.errors
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
     PostgresCDCAdapter,
@@ -204,8 +205,15 @@ class TestSlotSetupErrorMessage:
         error = _slot_setup_error_message(RuntimeError("connection reset"))
         assert error == "Failed to create replication slot: connection reset"
 
+    def test_undefined_table_points_at_renamed_or_dropped_table(self) -> None:
+        # ALTER PUBLICATION ADD TABLE raises this when the table no longer exists on the
+        # source database, e.g. it was renamed or dropped after PostHog last synced the schema.
+        error = _slot_setup_error_message(psycopg.errors.UndefinedTable('relation "public.orders" does not exist'))
+        assert 'relation "public.orders" does not exist' in error
+        assert "doesn't exist on your database" in error
 
-class TestRecreateSlot:
+
+class TestRecreateStream:
     @patch(f"{_ADAPTER}.create_slot_and_publication")
     @patch(f"{_ADAPTER}.create_slot", return_value="0/AA")
     @patch(f"{_ADAPTER}.publication_exists", return_value=True)
@@ -221,7 +229,7 @@ class TestRecreateSlot:
             cdc_publication_name="posthog_pub",
         )
 
-        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users", "orders"])
+        fields = PostgresCDCAdapter().recreate_stream(source, tables=["users", "orders"])
 
         assert fields == {"cdc_consistent_point": "0/AA"}
         mock_drop.assert_called_once()
@@ -256,7 +264,7 @@ class TestRecreateSlot:
             cdc_publication_name="posthog_pub",
         )
 
-        fields = PostgresCDCAdapter().recreate_slot(source, tables=tables)
+        fields = PostgresCDCAdapter().recreate_stream(source, tables=tables)
 
         assert fields == {"cdc_consistent_point": "0/BB"}
         mock_create_slot_and_pub.assert_called_once()
@@ -280,7 +288,7 @@ class TestRecreateSlot:
         )
 
         with pytest.raises(RuntimeError, match="does not exist"):
-            PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+            PostgresCDCAdapter().recreate_stream(source, tables=["users"])
 
         mock_create.assert_not_called()
         mock_create_slot_and_pub.assert_not_called()
@@ -288,7 +296,7 @@ class TestRecreateSlot:
     def test_raises_without_slot_name(self) -> None:
         source = _source(cdc_enabled=True)
         with pytest.raises(RuntimeError, match="no slot name"):
-            PostgresCDCAdapter().recreate_slot(source, tables=[])
+            PostgresCDCAdapter().recreate_stream(source, tables=[])
 
     @patch(f"{_POSTGRES}.time.sleep")
     @patch(f"{_ADAPTER}.create_slot")
@@ -311,7 +319,7 @@ class TestRecreateSlot:
             cdc_publication_name="posthog_pub",
         )
 
-        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+        fields = PostgresCDCAdapter().recreate_stream(source, tables=["users"])
 
         assert fields == {"cdc_consistent_point": "0/CC"}
         assert mock_create_slot.call_count == 2
@@ -341,7 +349,7 @@ class TestRecreateSlot:
             cdc_publication_name="posthog_pub",
         )
 
-        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+        fields = PostgresCDCAdapter().recreate_stream(source, tables=["users"])
 
         assert fields == {"cdc_consistent_point": "0/DD"}
         assert mock_create_slot.call_count == 2
@@ -404,6 +412,8 @@ class TestGetStatus:
         source = _source(cdc_enabled=True, cdc_slot_name="slot", cdc_publication_name="pub")
         status = PostgresCDCAdapter().get_status(source)
         assert status == {
+            "slot_name": "slot",
+            "publication_name": "pub",
             "slot_exists": True,
             "publication_exists": True,
             "lag_bytes": 42,
@@ -422,6 +432,42 @@ class TestGetStatus:
         status = PostgresCDCAdapter().get_status(source)
         assert status["published_tables"] == []
         mock_tables.assert_not_called()
+
+
+class TestGetLag:
+    @parameterized.expand([("slot_reports_a_position", 4096, 2048), ("slot_missing", None, None)])
+    @patch(f"{_ADAPTER}.get_max_slot_wal_keep_size_mb")
+    @patch(f"{_ADAPTER}.get_slot_lag_bytes")
+    def test_reads_the_lag_and_the_retention_cap_of_the_stored_slot(
+        self, _name, lag_bytes, cap_mb, mock_lag, mock_cap
+    ) -> None:
+        mock_lag.return_value = lag_bytes
+        mock_cap.return_value = cap_mb
+        conn = object()
+
+        lag = PostgresCDCAdapter().get_lag(conn, _source(cdc_enabled=True, cdc_slot_name="slot"))
+
+        mock_lag.assert_called_once_with(conn, "slot")
+        assert lag == (None if lag_bytes is None else CDCLag(behind_bytes=lag_bytes, retention_cap_mb=cap_mb))
+
+
+class TestValidatePrerequisites:
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.prerequisite_validator.validate_cdc_prerequisites",
+        return_value=[],
+    )
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_reads_the_slot_and_publication_from_the_setup_fields(self, _conn, mock_validate) -> None:
+        PostgresCDCAdapter().validate_prerequisites(
+            _source(),
+            management_mode="self_managed",
+            tables=[],
+            schema="public",
+            setup={"cdc_slot_name": "", "cdc_publication_name": "customer_pub"},
+        )
+
+        assert mock_validate.call_args.kwargs["slot_name"] is None
+        assert mock_validate.call_args.kwargs["publication_name"] == "customer_pub"
 
 
 class TestIsConnectionError:

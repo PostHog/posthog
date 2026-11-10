@@ -1,10 +1,10 @@
 from parameterized import parameterized
 
-from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateSimpleTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.default_webhook_template import template
 
 
-class TestDefaultWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
+class TestDefaultWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
     template = template
 
     def createHogGlobals(self, globals=None) -> dict:

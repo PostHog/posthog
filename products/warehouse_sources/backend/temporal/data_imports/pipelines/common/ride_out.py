@@ -24,8 +24,6 @@ if TYPE_CHECKING:
 # Covers the gap to the next item or safe point, the result flush, and the SDK's cancellation of
 # activities once the graceful shutdown timeout passes. A grace period shorter than this gives a
 # deadline of zero, so the import hands off at once.
-# Per-schema rollout flag. Off, every hand-off follows the legacy rule.
-IMPORT_RIDE_OUT_FLAG = "warehouse-import-ride-out"
 RIDE_OUT_GRACE_MARGIN_SECONDS = 900.0
 # An execution younger than this restarts for nearly free, so it leaves the worker at once and the
 # pod keeps draining fast. Shorter than `NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE` on purpose: that one
@@ -85,10 +83,11 @@ class DurableProgress:
                 self._handoff_reason = reason
 
 
-def activity_execution_age_seconds() -> float | None:
+def activity_execution_age_seconds(shutdown_grace_seconds: float = 0.0) -> float | None:
+    """The age leaves out the shutdown grace, for the reason given on `is_young_first_attempt`."""
     if not activity.in_activity():
         return None
-    return (datetime.now(UTC) - activity.info().started_time).total_seconds()
+    return (datetime.now(UTC) - activity.info().started_time).total_seconds() - shutdown_grace_seconds
 
 
 class HandoffGate:

@@ -1,0 +1,494 @@
+import time
+from collections.abc import Mapping
+from typing import Any, cast
+
+import structlog
+
+from products.warehouse_sources.sources.hubspot._config import HubspotSourceConfig
+from products.warehouse_sources.sources.hubspot.auth import (
+    hubspot_access_token_is_valid,
+    hubspot_exchange_legacy_grant,
+    hubspot_refresh_access_token,
+)
+from products.warehouse_sources.sources.hubspot.hubspot import HubspotResumeConfig, hubspot_source
+from products.warehouse_sources.sources.hubspot.scopes import (
+    SCOPE_GATED_OBJECTS,
+    missing_scope_error,
+    missing_scope_for_endpoint,
+    missing_scope_message,
+)
+from products.warehouse_sources.sources.hubspot.settings import (
+    DEFAULT_PROPS,
+    ENDPOINTS as HUBSPOT_ENDPOINTS,
+    HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_2026_09,
+    HUBSPOT_API_VERSION_V3,
+    HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
+    HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
+)
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    LegacyOAuthGrant,
+    OAuthMixin,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSwitchGroupConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    config,
+    detect,
+)
+
+logger = structlog.get_logger(__name__)
+
+
+@config.config
+class HubspotSourceOldConfig(config.Config):
+    hubspot_secret_key: str | None = None
+    hubspot_refresh_token: str | None = None
+
+
+@SourceRegistry.register
+class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=(
+            "^HUBSPOT_",
+            "^PRIVATE_APP_ACCESS_TOKEN$",
+            "^NEXT_PUBLIC_HUBSPOT_",
+            "^NUXT_PUBLIC_HUBSPOT_",
+            "^VITE_HUBSPOT_",
+        ),
+        script_hosts=(
+            "js.hs-scripts.com",
+            "js.hsforms.net",
+            "js-eu1.hs-scripts.com",
+            "js-eu1.hsforms.net",
+            "js.hs-analytics.net",
+            "js.hs-banner.com",
+            "js.hscollectedforms.net",
+            "js.usemessages.com",
+            "js.hsadspixel.net",
+            "js.hsleadflows.net",
+            "js.hscta.net",
+            "js-eu1.hscta.net",
+            "js.hubspotfeedback.com",
+            "feedback.hubapi.com",
+            "feedback-eu1.hubapi.com",
+            "static.hsappstatic.net",
+        ),
+        npm=(
+            "@hubspot/api-client",
+            "@hubspot/sdk",
+            "@hubspot/cli",
+            "@hubspot/local-dev-lib",
+            "@hubspot/cli-lib",
+            "@hubspot/cms-lib",
+            "@hubspot/ui-extensions",
+            "@hubspot/ui-extensions-dev-server",
+            "@hubspot/cms-components",
+            "@hubspot/cms-dev-server",
+            "@hubspot/cms-component-library",
+            "@hubspot/serverless-dev-runtime",
+            "@hubspot/app-functions-dev-server",
+            "@hubspot/webpack-cms-plugins",
+            "@hubspot/calling-extensions-sdk",
+            "@hubspot/quote-dev-sdk",
+            "@hubspot/app-connect-sdk",
+            "@hubspot/mcp-server",
+            "hubspot",
+            "node-hubspot-api",
+            "next-hubspot",
+            "react-hubspot-form",
+            "@aaronhayes/react-use-hubspot-form",
+            "react-hubspot-tracking-code-hook",
+            "gatsby-plugin-hubspot",
+            "@analytics/hubspot",
+        ),
+        pypi=("hubspot-api-client", "hubspot-sdk", "hapipy", "hubspot3", "hubspot"),
+        cargo=("hubspot",),
+        composer=(
+            "hubspot/api-client",
+            "hubspot/sdk",
+            "hubspot/hubspot-php",
+            "ryanwinchester/hubspot-php",
+            "fungku/hubspot-php",
+            "fungku/hubspot",
+            "rossjcooper/laravel-hubspot",
+            "stechstudio/laravel-hubspot",
+            "socialiteproviders/hubspot",
+            "helpscout/oauth2-hubspot",
+            "flipboxdigital/oauth2-hubspot",
+        ),
+        go=("github.com/HubSpot/hubspot-sdk-go", "github.com/belong-inc/go-hubspot"),
+        maven=(
+            "com.hubspot.sdk:hubspot-java",
+            "com.hubspot.sdk:hubspot-java-core",
+            "com.hubspot.sdk:hubspot-java-client-okhttp",
+            "com.hubspot.mobilechatsdk:mobile-chat-sdk-android",
+        ),
+        rubygems=("hubspot-api-client", "hubspot-sdk", "hubspot-ruby", "omniauth-hubspot"),
+        swiftpm=("github.com/hubspot/mobile-chat-sdk-ios",),
+    )
+
+    supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_09)
+    default_version = HUBSPOT_API_VERSION_2026_09
+    api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.HUBSPOT
+
+    def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
+        refresh_token = job_inputs.get("hubspot_refresh_token")
+        return "hubspot_integration_id" not in job_inputs and isinstance(refresh_token, str) and bool(refresh_token)
+
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ("hubspot_secret_key", "hubspot_refresh_token")
+
+    def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
+        if not self.has_legacy_oauth_tokens(job_inputs):
+            return None
+        refresh_token = cast(str, job_inputs["hubspot_refresh_token"])
+        exchanged = hubspot_exchange_legacy_grant(refresh_token)
+        return LegacyOAuthGrant(
+            kind="hubspot",
+            external_id=exchanged.external_id,
+            config={**exchanged.config, "refreshed_at": int(time.time())},
+            sensitive_config={
+                "access_token": exchanged.access_token,
+                "refresh_token": exchanged.refresh_token,
+                "id_token": None,
+            },
+            pointer_key="hubspot_integration_id",
+            legacy_keys=self.legacy_oauth_keys(),
+            refresh_token=refresh_token,
+        )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.hubspot.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.HUBSPOT,
+            category=DataWarehouseSourceCategory.CRM,
+            caption="Select an existing Hubspot account to link to PostHog or create a new connection",
+            iconPath="/static/services/hubspot.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/hubspot",
+            featured=True,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldOauthConfig(
+                        name="hubspot_integration_id", label="Hubspot account", required=True, kind="hubspot"
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="custom_properties",
+                        sync_setting=True,
+                        label="Customize synced properties",
+                        caption="Specify which properties to sync for each schema. Leave empty to use defaults. Changing properties requires a full resync.",
+                        default=False,
+                        fields=cast(
+                            list[FieldType],
+                            [
+                                SourceFieldInputConfig(
+                                    name=f"{schema_name}_properties",
+                                    label=f"{schema_name.capitalize()} properties",
+                                    type=SourceFieldInputConfigType.TEXTAREA,
+                                    required=False,
+                                    placeholder=", ".join(default_props),
+                                    secret=False,
+                                )
+                                for schema_name, default_props in DEFAULT_PROPS.items()
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # An object behind an optional scope the connection never got can't sync until the user
+        # reconnects, so name the fix instead of the generic "no permission" message below. Listed
+        # first so it wins over that message for a 403 we could attribute to a specific scope.
+        missing_scope_errors: dict[str, str | None] = {
+            missing_scope_message(endpoint, scope): (
+                f"Your HubSpot connection cannot read {endpoint}. Reconnect your HubSpot account to grant the "
+                f"{scope} permission, or turn off the {endpoint} table. Not every HubSpot plan includes it."
+            )
+            for endpoint, scope in SCOPE_GATED_OBJECTS.items()
+        }
+
+        return {
+            **missing_scope_errors,
+            "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
+            "missing or unknown hub id": None,
+            # A 401 means the OAuth grant can't read the requested object (token revoked, or the
+            # connected app lost a scope like `crm.objects.companies.read`). Every fetch loop
+            # (fetch_data._get, fetch_page, v4 associations, search) refreshes the access token on a
+            # 401 and re-raises HubspotRetryableError, so tenacity retries with a fresh token. Five
+            # straight 401s after a good refresh means the grant is dead, not a transient blip, so
+            # retrying can't recover. Match the shared message fragment all four loops emit, not the
+            # per-loop prefix or the volatile URL.
+            "401 - refreshed token, retrying": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            # HubSpot's CRM API may also surface 401 through raise_for_status() in other fetch paths.
+            # Match the stable host prefix, not the per-object URL path, which varies by endpoint.
+            "401 Client Error: Unauthorized for url: https://api.hubapi.com": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            "403 Client Error: Forbidden for url: https://api.hubapi.com": "Your HubSpot credentials do not have permission to access this data. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            # Raised by source_for_pipeline when the source config carries no refresh token at all
+            # (integration never connected or lost its token). Retrying cannot recover.
+            "Hubspot refresh token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
+            # Raised by source_for_pipeline (OAuth path) when the integration is missing its access or refresh token.
+            "Hubspot refresh or access token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
+            # Raised by OAuthMixin.get_oauth_integration when the referenced integration row no longer
+            # exists (e.g. the HubSpot connection was deleted while the source still points at it).
+            # Retrying cannot recreate a deleted integration. Match the stable prefix, not the volatile id.
+            "Integration not found": "The linked HubSpot integration no longer exists. Please reconnect your HubSpot account.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `hubspot.py`/`helpers.py` already retry these in-process via tenacity (5 attempts,
+        # exponential backoff) before re-raising `HubspotRetryableError`. A 429/5xx/malformed-body
+        # that survives all 5 attempts is a transient HubSpot/edge blip (e.g. Cloudflare 522), not
+        # a bug — Temporal's activity retry recovers once the upstream issue clears, so keep it out
+        # of error tracking as noise. Match the stable message prefix HubSpot's own status/url are
+        # appended to, not the volatile status code or URL.
+        return {
+            "Hubspot API error (retryable): status=",
+            "Hubspot API malformed JSON response (retryable)",
+            "Hubspot search error (retryable): status=",
+            "Hubspot search malformed JSON response (retryable)",
+            "Hubspot v4 associations error (retryable): status=",
+            "Hubspot v4 associations malformed JSON response (retryable)",
+            # auth.hubspot_refresh_access_token also retries in-process (5 attempts, Retry-After
+            # aware) before re-raising HubspotRetryableError with HubSpot's own 429 body verbatim
+            # (no code-added prefix, unlike the fetch-loop errors above). Match HubSpot's stable,
+            # documented rate-limit wording so this self-recovering condition doesn't get tracked
+            # as noise once Temporal's activity retry picks it back up.
+            "You have reached your rate limit.",
+            # auth.hubspot_refresh_access_token also raises this verbatim (same retry budget as
+            # above) while HubSpot migrates a portal between data centers; the portal becomes
+            # reachable again once the migration finishes, so it's self-recovering rather than a bug.
+            "Migration in progress",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # HubSpot's own wording says "portal", which is its internal name for the account the customer
+        # connected, and does not say that the sync recovers by itself once the move finishes.
+        return {
+            "Migration in progress": (
+                "HubSpot is moving your account to another data center, so PostHog can't reach it right now. "
+                "This usually clears on its own and the next sync runs on schedule."
+            ),
+        }
+
+    # TODO: clean up hubspot job inputs to not have two auth config options
+    def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:
+        if "hubspot_integration_id" in job_inputs.keys():
+            return self._config_class.from_dict(job_inputs)
+
+        return HubspotSourceOldConfig.from_dict(job_inputs)
+
+    def get_schemas(
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        schemas = []
+        for endpoint in HUBSPOT_ENDPOINTS:
+            metadata_config = HUBSPOT_METADATA_ENDPOINT_CONFIGS.get(endpoint)
+            if metadata_config is not None:
+                # Lookup tables have no server-side timestamp filter, so they are full refresh only.
+                schemas.append(
+                    SourceSchema(
+                        name=endpoint,
+                        supports_incremental=False,
+                        supports_append=False,
+                        incremental_fields=[],
+                        should_sync_default=metadata_config.should_sync_default,
+                    )
+                )
+                continue
+
+            endpoint_config = HUBSPOT_ENDPOINT_CONFIGS[endpoint]
+            supports_incremental = bool(endpoint_config.cursor_filter_property_field)
+            schemas.append(
+                SourceSchema(
+                    name=endpoint,
+                    supports_incremental=supports_incremental,
+                    supports_append=supports_incremental,
+                    incremental_fields=endpoint_config.incremental_fields,
+                    should_sync_default=endpoint_config.should_sync_default,
+                )
+            )
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def get_endpoint_permissions(
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        missing = self._missing_scopes(config, team_id)
+        reasons: dict[str, str | None] = {}
+        for endpoint in endpoints:
+            scope = missing.get(endpoint)
+            reasons[endpoint] = (
+                f"Reconnect your HubSpot account to grant the {scope} permission. Not every HubSpot plan includes it."
+                if scope is not None
+                else None
+            )
+        return reasons
+
+    def _missing_scopes(self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int) -> dict[str, str]:
+        """Optional scopes this connection lacks, keyed by the endpoint that needs one.
+
+        Discovery still lists these endpoints. A table that the picker never shows leaves the user
+        with nothing to reconnect for, so the gap is reported next to the table instead.
+        """
+        if not SCOPE_GATED_OBJECTS or not isinstance(config, HubspotSourceConfig):
+            return {}
+
+        try:
+            integration = self.get_oauth_integration(config.hubspot_integration_id, team_id)
+        except ValueError as e:
+            # A missing or deleted integration is permanent, but the scope check stays best-effort
+            # because the sync path already surfaces it with an actionable message.
+            logger.warning(f"Hubspot scope check skipped, integration lookup failed: {e}", team_id=team_id)
+            return {}
+        except Exception:
+            # A transient lookup failure must not mark a readable table as unreadable, so the check
+            # fails open. Log it so a no-op check is distinguishable from complete scopes.
+            logger.exception("Hubspot scope check skipped, integration lookup failed", team_id=team_id)
+            return {}
+
+        missing = {}
+        for endpoint in SCOPE_GATED_OBJECTS:
+            scope = missing_scope_for_endpoint(endpoint, integration.config)
+            if scope is not None:
+                missing[endpoint] = scope
+        return missing
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HubspotResumeConfig]:
+        return ResumableSourceManager[HubspotResumeConfig](inputs, HubspotResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        if isinstance(config, HubspotSourceConfig):
+            integration = self.get_oauth_integration(config.hubspot_integration_id, inputs.team_id)
+
+            if not integration.access_token or not integration.refresh_token:
+                raise ValueError(f"Hubspot refresh or access token not found for job {inputs.job_id}")
+
+            # Fail before the first request when the connection was never granted this table's
+            # scope: HubSpot would 403 on property discovery anyway, and the message it produces
+            # doesn't tell the user that reconnecting is what fixes it.
+            missing_scope = missing_scope_for_endpoint(inputs.schema_name, integration.config)
+            if missing_scope is not None:
+                raise missing_scope_error(inputs.schema_name, missing_scope)
+
+            hubspot_access_code = integration.access_token
+            refresh_token = integration.refresh_token
+        else:
+            config_hubspot_access_code = config.hubspot_secret_key
+            config_refresh_token = config.hubspot_refresh_token
+
+            if not config_refresh_token:
+                raise ValueError(f"Hubspot refresh token not found for job {inputs.job_id}")
+            else:
+                refresh_token = config_refresh_token
+
+            if not config_hubspot_access_code or not hubspot_access_token_is_valid(config_hubspot_access_code):
+                hubspot_access_code = hubspot_refresh_access_token(refresh_token, source_id=inputs.source_id)
+            else:
+                hubspot_access_code = config_hubspot_access_code
+
+        selected_properties = None
+        if isinstance(config, HubspotSourceConfig) and config.custom_properties and config.custom_properties.enabled:
+            prop_field = f"{inputs.schema_name}_properties"
+            properties_str = getattr(config.custom_properties, prop_field, None)
+            if properties_str and properties_str.strip():
+                selected_properties = [p.strip() for p in properties_str.split(",") if p.strip()]
+
+        use_search_path = self._should_use_search_path(inputs)
+
+        return hubspot_source(
+            api_key=hubspot_access_code,
+            refresh_token=refresh_token,
+            endpoint=inputs.schema_name,
+            logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
+            selected_properties=selected_properties,
+            source_id=inputs.source_id,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            use_search_path=use_search_path,
+            api_version=self.resolve_api_version(inputs.api_version),
+        )
+
+    def _should_use_search_path(self, inputs: SourceInputs) -> bool:
+        """Route to the search-based incremental path only when:
+        - the schema is configured for incremental sync,
+        - the endpoint supports incremental (has a cursor filter property),
+        - the initial full sync has completed (so we have a meaningful watermark and the
+          delta is small enough that per-page association backfills are cheap),
+        - the pipeline isn't being reset.
+
+        On the first sync for a newly-incremental schema, this falls back to the GET path
+        so we get a complete one-shot backfill (associations included) and the pipeline
+        establishes the db_incremental_field_last_value watermark for future runs.
+        """
+        if not inputs.should_use_incremental_field:
+            return False
+        if inputs.reset_pipeline:
+            return False
+        endpoint_config = HUBSPOT_ENDPOINT_CONFIGS.get(inputs.schema_name)
+        if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
+            return False
+        from products.warehouse_sources.sources.sdk import ExternalDataSchema
+
+        try:
+            schema = ExternalDataSchema.objects.get(id=inputs.schema_id, team_id=inputs.team_id)
+        except ExternalDataSchema.DoesNotExist:
+            # Schema has been deleted (or id is wrong) — safest to fall back to the GET path.
+            inputs.logger.debug(
+                f"Hubspot: ExternalDataSchema(id={inputs.schema_id}, team_id={inputs.team_id}) not found; "
+                "defaulting to full-refresh/seed GET path"
+            )
+            return False
+        except Exception:
+            # Any other lookup failure (DB blip, etc.) also falls back, but log with details
+            # so we can debug why incremental routing is disabled.
+            inputs.logger.exception(
+                f"Hubspot: failed to look up ExternalDataSchema(id={inputs.schema_id}, team_id={inputs.team_id}); "
+                "defaulting to full-refresh/seed GET path"
+            )
+            return False
+
+        return bool(schema.initial_sync_complete)

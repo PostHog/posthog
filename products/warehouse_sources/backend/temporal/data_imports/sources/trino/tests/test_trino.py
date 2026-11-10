@@ -13,7 +13,14 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from requests.exceptions import ConnectTimeout, ReadTimeout
-from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
+from trino.exceptions import (
+    Http503Error,
+    HttpError,
+    TrinoConnectionError,
+    TrinoExternalError,
+    TrinoQueryError,
+    TrinoUserError,
+)
 from trino.types import NamedRowTuple
 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
@@ -38,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     TRINO_CONNECT_TIMEOUT_ERROR,
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
     TRINO_DISCOVERY_TIMEOUT_ERROR,
+    TRINO_NOT_A_TRINO_ENDPOINT_ERROR,
     TRINO_READ_TIMEOUT_ERROR,
     DiscoveredTrinoTable,
     TrinoColumn,
@@ -313,6 +321,41 @@ def test_trino_error_to_message_preserves_tls_verification_action() -> None:
 
 
 @pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (HttpError("error 405"), TRINO_NOT_A_TRINO_ENDPOINT_ERROR),
+        (HttpError("error 405: b'<html>Method Not Allowed</html>'"), TRINO_NOT_A_TRINO_ENDPOINT_ERROR),
+        (HttpError("error 404: b'<html>Not Found</html>'"), TRINO_NOT_A_TRINO_ENDPOINT_ERROR),
+        # The page body must not pull the answer into the authentication branch.
+        (HttpError("error 405: b'Authentication is not supported here'"), TRINO_NOT_A_TRINO_ENDPOINT_ERROR),
+        (HttpError("error 401: b'Unauthorized'"), TRINO_AUTHENTICATION_ERROR),
+        # A 404 for a purged query is a transient Trino answer, not a wrong endpoint.
+        (
+            HttpError("error 404: b'Error 404 Not Found: Query not found'"),
+            "error 404: b'Error 404 Not Found: Query not found'",
+        ),
+        (HttpError("error 500: b'Internal Server Error'"), "error 500: b'Internal Server Error'"),
+        (Http503Error("error 503: service unavailable"), "error 503: service unavailable"),
+        # A 403 can be a real Trino permission answer, so it is left alone.
+        (HttpError("error 403: b'Forbidden'"), "error 403: b'Forbidden'"),
+    ],
+    ids=[
+        "405_bare",
+        "405_with_body",
+        "404_with_body",
+        "405_body_mentions_authentication",
+        "401_still_authentication",
+        "404_query_not_found_unchanged",
+        "500_unchanged",
+        "503_unchanged",
+        "403_unchanged",
+    ],
+)
+def test_trino_error_to_message_explains_a_host_that_is_not_trino(error: Exception, expected: str) -> None:
+    assert trino_error_to_message(error) == expected
+
+
+@pytest.mark.parametrize(
     ("raw_error", "expected"),
     [
         ("TrinoExternalError: Failed to query OPA backend", TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR),
@@ -511,6 +554,45 @@ def test_discover_trino_schemas_fetches_columns_in_bounded_batches() -> None:
     assert all("table_schema = ?" in call.args[0] for call in column_calls)
     assert all("table_name IN" in call.args[0] for call in column_calls)
     assert all(len(call.args[1]) <= 101 for call in column_calls)
+
+
+def test_discover_trino_schemas_retries_a_momentary_tenant_admission_delay() -> None:
+    # The managed-Trino control plane returns this exact 403 when it mints a tenant's compute-pool
+    # grant before the pool coordinator has caught up, right after a tenant is first provisioned.
+    cursor = MagicMock()
+    cursor.execute.side_effect = [
+        HttpError("error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"),
+        None,
+        None,
+    ]
+    cursor.fetchall.side_effect = [[("analytics", "events")], [("analytics", "events", "id", "bigint", "NO")]]
+
+    with patch(f"{_TRINO_MODULE}.interruptible_wait") as mock_wait:
+        discovered = discover_trino_schemas(cursor, _config())
+
+    assert discovered == [
+        DiscoveredTrinoTable(
+            catalog="hive",
+            schema="analytics",
+            name="events",
+            columns=(TrinoColumn(name="id", data_type="bigint", nullable=False),),
+        )
+    ]
+    assert cursor.execute.call_count == 3
+    mock_wait.assert_called_once()
+
+
+def test_discover_trino_schemas_gives_up_after_repeated_tenant_admission_delays() -> None:
+    cursor = MagicMock()
+    cursor.execute.side_effect = HttpError(
+        "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"
+    )
+
+    with patch(f"{_TRINO_MODULE}.interruptible_wait") as mock_wait, pytest.raises(HttpError):
+        discover_trino_schemas(cursor, _config())
+
+    assert cursor.execute.call_count == 4
+    assert mock_wait.call_count == 3
 
 
 _TRINO_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino"
@@ -972,6 +1054,9 @@ def _trino_user_error(name: str, message: str) -> TrinoUserError:
         # Deliberately retryable, not a regression: this depends on a worker's free disk at that
         # moment, shared by every query Trino schedules there, so it can clear on its own.
         (_trino_query_error("No free or healthy space available for spill"), False),
+        # A wrong endpoint is worded for the person who sets the source up, but a sync keeps retrying.
+        (HttpError("error 405: b'Method Not Allowed'"), False),
+        (HttpError("error 500: b'Internal Server Error'"), False),
     ],
     ids=[
         "access_denied",
@@ -982,6 +1067,8 @@ def _trino_user_error(name: str, message: str) -> TrinoUserError:
         "connection_reset",
         "query_memory_limit",
         "spill_space_exhausted",
+        "not_a_trino_endpoint",
+        "server_error",
     ],
 )
 def test_sync_failures_are_classified_for_retry(error: Exception, is_permanent: bool) -> None:

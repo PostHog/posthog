@@ -10,6 +10,11 @@ import { cn } from 'lib/utils/css-classes'
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
+import {
+    OFFLINE_HISTORY_BREAKDOWN_LABELS,
+    offlineBreakdownValueLabel,
+    type OfflineHistoryBreakdown,
+} from './offlineHistoryBreakdown'
 import { createOfflineScoreTrendTickFormatter } from './offlineScoreTrendAxis'
 import { OfflineScoreTrendCrosshair } from './OfflineScoreTrendCrosshair'
 import { OfflineScoreTrendLines } from './OfflineScoreTrendLines'
@@ -31,6 +36,7 @@ export interface OfflineScoreTrendChartProps {
     xDomain?: [number, number]
     showHeading?: boolean
     combineVersions?: boolean
+    breakdown?: OfflineHistoryBreakdown
 }
 
 export function OfflineScoreTrendChart({
@@ -43,6 +49,7 @@ export function OfflineScoreTrendChart({
     xDomain,
     showHeading = true,
     combineVersions = false,
+    breakdown,
 }: OfflineScoreTrendChartProps): JSX.Element {
     const baseTheme = useChartTheme()
     const theme = useMemo(
@@ -56,7 +63,7 @@ export function OfflineScoreTrendChart({
     )
     const panels = useMemo(
         () =>
-            buildOfflineTrendPanels(periods, combineVersions).map((panel) => {
+            buildOfflineTrendPanels(periods, combineVersions, breakdown).map((panel) => {
                 const domain = !panel.elapsed && xDomain ? xDomain : panel.xDomain
                 return {
                     ...panel,
@@ -64,7 +71,7 @@ export function OfflineScoreTrendChart({
                     tickFormatter: createOfflineScoreTrendTickFormatter(domain, panel.elapsed, timezone),
                 }
             }),
-        [periods, xDomain, timezone, combineVersions]
+        [periods, xDomain, timezone, combineVersions, breakdown]
     )
 
     if (panels.length === 0) {
@@ -131,6 +138,9 @@ export function OfflineScoreTrendChart({
                                                             : String(point.y)}
                                                     </strong>
                                                 </div>
+                                                {breakdown && (
+                                                    <div className="opacity-70">{`${OFFLINE_HISTORY_BREAKDOWN_LABELS[breakdown]}: ${offlineBreakdownValueLabel(meta.point.breakdown_value, breakdown)}`}</div>
+                                                )}
                                                 {periods.length > 1 && <div className="opacity-70">{meta.period}</div>}
                                                 {offlineScorePassingRuleLabel(summary.scorer) && (
                                                     <div className="opacity-70 mt-1">
@@ -172,7 +182,7 @@ export function OfflineScoreTrendChart({
                                                         ['Upload state', experiment.status],
                                                         ['Suite', experiment.suite_key],
                                                         ['Application', experiment.application_version],
-                                                        ['Model', experiment.model_version],
+                                                        ['Experiment model', experiment.model_version],
                                                         ['Prompt', experiment.prompt_version],
                                                         ['Dataset revision', experiment.dataset_revision_identifier],
                                                     ]

@@ -111,6 +111,7 @@ describe('parseExecCallInnerArgs', () => {
         ['a call command', 'call skill-get {"skill_name":"conductor"}', { skill_name: 'conductor' }],
         ['a --json flag', 'call --json skill-get {"skill_name":"conductor"}', { skill_name: 'conductor' }],
         ['a --confirm flag', 'call --confirm skill-get {"skill_name":"conductor"}', { skill_name: 'conductor' }],
+        ['a flag after the JSON body', 'call skill-get {"skill_name":"conductor"} --json', { skill_name: 'conductor' }],
         [
             'extra whitespace and more keys',
             'call   skill-get   {"skill_name":"conductor","version":4}',

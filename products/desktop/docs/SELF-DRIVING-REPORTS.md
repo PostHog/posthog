@@ -20,6 +20,7 @@ Copy-link options are in the More report actions menu. Report actions do not off
 
 A draft pull request shows the approval and merge controls, a draft note, and a secondary Ready for review button.
 Use Run skill on an open pull request to search team skills. Skills you choose often appear first, including before the store loads. If your team has no skills, the menu links to the skills store. The new cloud task opens with the skill, pull request URL, and repository set; review the prompt before you send it.
+Explicitly invoking a skill authorizes its required PR changes in a review-first run that permits publishing. Runs with publishing disabled cannot publish, and runs without a skill or direct publishing request remain review-first.
 Marking a draft ready does not approve or merge it. Existing merge checks still apply.
 Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
 
@@ -53,18 +54,6 @@ To filter reports for a user, open Filter reports, then hover over Scope.
 Hover opens the user list without moving keyboard focus. Click the search field to type, or use the keyboard to open Scope and focus the search field.
 The search starts empty and shows up to 20 options, including For you and Entire project.
 Search by name or email across all users. The search field stays visible above the results.
-
-## Mobile report tasks
-
-Discuss starts a discussion task and forwards the question to the report's scout.
-Create PR starts an implementation task. Both actions use the report's repository and team GitHub integration, resolved by the server.
-The mobile report composer does not require a personal GitHub connection or offer a repository picker.
-If cloud startup fails after task creation, retrying in the same composer or triage view starts the existing task instead of creating another task.
-Triage resets the swiped card if configuration is not ready or task startup fails.
-An ordinary new task still requires a repository from the user's GitHub integration.
-
-The report detail and triage views use the same implementation prompt. The agent fetches the report and checks for an existing PR before starting new work.
-Triage advances only after the cloud run starts. A failed submission keeps the report available and shows the error.
 
 ## Storybook previews
 

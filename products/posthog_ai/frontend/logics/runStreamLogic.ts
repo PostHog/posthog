@@ -20,10 +20,12 @@ import type { AgentConversationEvent } from '@posthog/agent-contracts/agent-conv
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 
 import {
     tasksRunsCommandCreate,
@@ -76,6 +78,7 @@ import {
     type PosthogProgressParams,
     type AgentCommand,
     type PosthogUsageUpdateParams,
+    type SessionUpdateBody,
     type SessionUpdateUsage,
     type SseErrorFrameData,
     type StoredLogEntry,
@@ -92,10 +95,10 @@ import {
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { reconcileThreadItems, reconcileToolInvocations } from '../utils/reconcileFoldedThread'
+import { type ReplySuggestions, parseReplySuggestionsParams } from '../utils/replySuggestions'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { parseTurnSuggestionParams } from '../utils/turnSuggestions'
 import { computeTurnTrailers } from '../utils/turnTrailers'
-import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
 import { registerHmrStreamAbort } from './devHmrStreamAbort'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
@@ -220,6 +223,16 @@ const AGENT_GENERATING_SESSION_UPDATES: ReadonlySet<string> = new Set([
     'tool_call',
     'plan',
 ])
+
+function opensAgentTurn(update: SessionUpdateBody): boolean {
+    if (!AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
+        return false
+    }
+    if (update.sessionUpdate !== 'agent_message_chunk' && update.sessionUpdate !== 'agent_thought_chunk') {
+        return true
+    }
+    return String(update.content?.text ?? update.text ?? '') !== ''
+}
 
 /**
  * In-band durable end-of-run sentinel emitted by both the Django stream view and the agent-proxy
@@ -1236,6 +1249,30 @@ function isAgentMessageEntry(entry: StoredLogEntry): boolean {
     )
 }
 
+const KEPT_TOOL_RESPONSE_FIELDS = ['decisionReason', 'message'] as const
+
+export function reduceToolResponseCopy(entry: StoredLogEntry): void {
+    const update = entry.notification.params?.update
+    const meta = isRecord(update) ? update._meta : undefined
+    const claudeCode = isRecord(meta) ? meta.claudeCode : undefined
+    if (!isRecord(claudeCode) || !('toolResponse' in claudeCode)) {
+        return
+    }
+    const toolResponse = claudeCode.toolResponse
+    const kept = Object.fromEntries(
+        isRecord(toolResponse)
+            ? KEPT_TOOL_RESPONSE_FIELDS.flatMap((key) =>
+                  typeof toolResponse[key] === 'string' ? [[key, toolResponse[key]]] : []
+              )
+            : []
+    )
+    if (Object.keys(kept).length > 0) {
+        claudeCode.toolResponse = kept
+    } else {
+        delete claudeCode.toolResponse
+    }
+}
+
 function persistedHumanText(entry: StoredLogEntry): string | null {
     if (entry.notification.method === '_posthog/user_message') {
         return unwrapUserMessageContent(extractUserMessageText(entry.notification.params?.content))
@@ -1539,7 +1576,7 @@ export function readFullThread(
     if (!logic || !cursor || cursor.offset === 0 || !taskId || projectId == null) {
         return null
     }
-    return api.tasks.runs.getLogPage(taskId, cursor.runId, { projectId }).then((page) => {
+    return api.tasks.runs.getLogPage(taskId, cursor.runId, { projectId, view: 'thread' }).then((page) => {
         const history = normalizeHistory(page.entries, cursor.runId, logic.values.isBootstrapResumeRun)
         const tail = logic.values.log.entries.filter(({ source }) => source !== 'replay')
         const folded = foldLogToThread(reconcileRunLog(history, tail, []).entries, {
@@ -2631,6 +2668,8 @@ export interface runStreamLogicValues {
         maxAttempts: number
         phase: RecoveryPhase
     } | null
+    replySuggestions: ReplySuggestions | null
+    replySuggestionsFrame: ReplySuggestions | null
     resolvedPermissionRequestIds: Set<string>
     respondingToPermission: boolean
     runArtifacts: RunArtifacts
@@ -2649,6 +2688,7 @@ export interface runStreamLogicValues {
     turnComplete: boolean
     turnSuggestion: TurnSuggestion | null
     turnSuggestionAcceptedHere: number | null
+    turnSuggestionExpandedHere: number | null
     turnSuggestionLedger: TurnSuggestionLedger | null
     turnSuggestionOutcomesHere: Record<number, string>
     turnSuggestionsMuted: boolean
@@ -2801,6 +2841,9 @@ export interface runStreamLogicActions {
     markTurnSuggestionAccepted: (turnIndex: number) => {
         turnIndex: number
     }
+    markTurnSuggestionExpanded: (turnIndex: number) => {
+        turnIndex: number
+    }
     mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
         partial: Partial<RunArtifacts>
     }
@@ -2918,6 +2961,9 @@ export interface runStreamLogicActions {
     setPendingRunMessage: (message: PendingRunMessage | null) => {
         message: PendingRunMessage | null
     }
+    setReplySuggestions: (replySuggestions: ReplySuggestions | null) => {
+        replySuggestions: ReplySuggestions | null
+    }
     setRunOpening: (opening: boolean) => {
         opening: boolean
     }
@@ -2991,6 +3037,11 @@ export interface runStreamLogicMeta {
             bootstrappedTaskId: string | null,
             historyTurnBase: number
         ) => TurnSuggestion | null
+        replySuggestions: (
+            replySuggestionsFrame: ReplySuggestions | null,
+            threadItems: ThreadItem[],
+            historyTurnBase: number
+        ) => ReplySuggestions | null
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         hasThreadItems: (threadItems: ThreadItem[]) => boolean
@@ -3234,6 +3285,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
         recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => ({ turnIndex, outcome }),
         markTurnSuggestionAccepted: (turnIndex: number) => ({ turnIndex }),
+        setReplySuggestions: (replySuggestions: ReplySuggestions | null) => ({ replySuggestions }),
+        markTurnSuggestionExpanded: (turnIndex: number) => ({ turnIndex }),
         /**
          * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
          * or from another tab. Dispatched from a user turn seen on the wire, and from the agent's first
@@ -3653,10 +3706,30 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
         // The turn whose card this tab accepted. That card stays up to show what it created, while
         // every other tab hides it so a second accept cannot create a duplicate.
+        replySuggestionsFrame: [
+            null as ReplySuggestions | null,
+            {
+                setReplySuggestions: (state, { replySuggestions }) =>
+                    state && replySuggestions && replySuggestions.turnIndex < state.turnIndex
+                        ? state
+                        : replySuggestions,
+                pushHumanMessage: () => null,
+                reset: () => null,
+            },
+        ],
         turnSuggestionAcceptedHere: [
             null as number | null,
             {
                 markTurnSuggestionAccepted: (_, { turnIndex }) => turnIndex,
+                reset: () => null,
+            },
+        ],
+        // The card's own logic unmounts when the virtualized thread recycles its row, so the open state lives here
+        // to keep an opened card open after the reader scrolls away and back.
+        turnSuggestionExpandedHere: [
+            null as number | null,
+            {
+                markTurnSuggestionExpanded: (_, { turnIndex }) => turnIndex,
                 reset: () => null,
             },
         ],
@@ -3835,6 +3908,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     offer.turnIndex in outcomesHere ||
                     ledger.resolvedTurns.includes(offer.turnIndex)
                 return muted || resolved ? null : offer
+            },
+        ],
+        replySuggestions: [
+            (s) => [s.replySuggestionsFrame, s.threadItems, s.historyTurnBase],
+            (
+                frame: ReplySuggestions | null,
+                threadItems: ThreadItem[],
+                historyTurnBase: number
+            ): ReplySuggestions | null => {
+                if (!frame) {
+                    return null
+                }
+                const latestPromptIndex =
+                    historyTurnBase + threadItems.filter((item) => item.type === 'human_message').length - 1
+                return frame.turnIndex === latestPromptIndex ? frame : null
             },
         ],
         latestTurnTraceId: [
@@ -4152,6 +4240,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             api.tasks.runs.getLogPage(session.taskId, session.runId, {
                 signal,
                 projectId: session.projectId,
+                view: 'thread',
                 ...(values.pagedHistory ? { tailBytes: HISTORY_TAIL_BYTES, start } : {}),
             })
         const stopHistoryPaging = (): void => {
@@ -4521,6 +4610,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.markRunStarted()
                 return
             }
+            if (method === '_posthog/reply_suggestions') {
+                actions.setReplySuggestions(parseReplySuggestionsParams(notification.params))
+                return
+            }
             if (method === '_posthog/turn_suggestion') {
                 // The log holds only outcomes this tab saw live; the ledger adds the ones sent while
                 // no tab of this conversation was open. Read once per task, when it first has an offer.
@@ -4703,7 +4796,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // stream never carries one, and the persisted one is written when the message is received, so a
             // message sent mid-turn is replayed *before* the previous turn's `turn_complete`. Guarded on
             // `turnComplete` so this costs one dispatch per turn rather than one per streamed chunk.
-            if (values.turnComplete && AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
+            if (values.turnComplete && opensAgentTurn(update)) {
                 actions.markTurnStarted()
             }
             if (update.sessionUpdate === 'current_mode_update') {
@@ -4999,6 +5092,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             ...parsed,
                             source_run_id: parsed.source_run_id ?? (id?.startsWith('log-') ? backlogRunId : runId),
                         }
+                        reduceToolResponseCopy(entry)
                         const backlogIndex = id?.startsWith('log-') ? Number(id.slice('log-'.length)) : NaN
                         if (Number.isSafeInteger(backlogIndex)) {
                             backlogIndexes.set(entry, backlogIndex)
@@ -5777,6 +5871,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         projectId,
                         tailBytes: HISTORY_PAGE_BYTES,
                         before: cursor.offset,
+                        view: 'thread',
                     })
                     const current = owned()
                     if (!current) {

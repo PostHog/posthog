@@ -7,7 +7,10 @@ import { useInView } from 'react-intersection-observer'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
-import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import {
+    DashboardWidgetPlacementMenus,
+    type DashboardWidgetPlacementMenusProps,
+} from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -56,6 +59,7 @@ type DashboardWidgetItemProps = {
     loading: boolean
     error?: string | null
     lastFetchedAt?: number
+    dashboardFilters?: DashboardWidgetComponentProps['dashboardFilters']
     onRefresh: () => void
     onRefreshWidgetData?: (tileId: number) => void
     onApplyWidgetIssueMetadataChange?: (
@@ -81,7 +85,8 @@ type DashboardWidgetItemProps = {
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     /** Injected by react-grid-layout / react-resizable — must render inside the card root. */
     children?: React.ReactNode
-} & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>
+} & Pick<DashboardWidgetPlacementMenusProps, 'tileGroupMoveOptions' | 'onMoveToTileGroup'> &
+    Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>
 
 type DashboardWidgetItemContentProps = Omit<
     DashboardWidgetItemProps,
@@ -145,6 +150,7 @@ function DashboardWidgetItemContent({
     loading,
     error,
     lastFetchedAt,
+    dashboardFilters,
     onRefresh,
     onRefreshWidgetData,
     onApplyWidgetIssueMetadataChange,
@@ -159,6 +165,8 @@ function DashboardWidgetItemContent({
     onRemove,
     onMoveToDashboard,
     onCopyToDashboard,
+    tileGroupMoveOptions,
+    onMoveToTileGroup,
     copyToDestinations,
     editOpen,
     setEditOpen,
@@ -187,6 +195,7 @@ function DashboardWidgetItemContent({
         result,
         loading,
         error,
+        dashboardFilters,
         onRefresh,
         onRefreshData: onRefreshWidgetData ? () => onRefreshWidgetData(tile.id) : undefined,
         onApplyIssueMetadataChange: onApplyWidgetIssueMetadataChange
@@ -291,6 +300,8 @@ function DashboardWidgetItemContent({
                                         placementDestinations={copyToDestinations ?? []}
                                         onMoveToDashboard={onMoveToDashboard}
                                         onCopyToDashboard={onCopyToDashboard}
+                                        tileGroupMoveOptions={tileGroupMoveOptions}
+                                        onMoveToTileGroup={onMoveToTileGroup}
                                     />
                                 )}
                                 {onRemove && (
@@ -394,6 +405,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             loading,
             error,
             lastFetchedAt,
+            dashboardFilters,
             onRefresh,
             onRefreshWidgetData,
             onApplyWidgetIssueMetadataChange,
@@ -409,6 +421,8 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onRemove,
             onMoveToDashboard,
             onCopyToDashboard,
+            tileGroupMoveOptions,
+            onMoveToTileGroup,
             children,
             className,
             style,
@@ -486,6 +500,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     loading={loading}
                     error={error}
                     lastFetchedAt={lastFetchedAt}
+                    dashboardFilters={dashboardFilters}
                     onRefresh={onRefresh}
                     onRefreshWidgetData={onRefreshWidgetData}
                     onApplyWidgetIssueMetadataChange={onApplyWidgetIssueMetadataChange}
@@ -500,6 +515,8 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onRemove={onRemove}
                     onMoveToDashboard={onMoveToDashboard}
                     onCopyToDashboard={onCopyToDashboard}
+                    tileGroupMoveOptions={tileGroupMoveOptions}
+                    onMoveToTileGroup={onMoveToTileGroup}
                     copyToDestinations={copyToDestinations}
                     editOpen={editOpen}
                     setEditOpen={setEditOpen}

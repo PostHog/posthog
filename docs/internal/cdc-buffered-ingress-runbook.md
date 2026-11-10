@@ -48,6 +48,15 @@ Replaying an unbroken run in order converges on the source's state, because the 
 A gap would break that, which is why the buffer is emptied when capture starts a snapshot there.
 A snapshot that completes without the marker, because capture never ran for the table while it snapshotted, purges the whole buffer at the hand-over.
 
+The history table cannot replay like that: each replayed change would be a second version of a row its snapshot seed already holds.
+So a snapshot in `cdc_only` or `both` reads the source's log position before it reads the first row, and keeps it as `cdc_snapshot_position` in `sync_type_config`.
+On Postgres that is the WAL insert position, read on its own connection to the source, and the read then waits up to 30 seconds for every transaction running at that moment to end, because a commit is in the WAL before it is visible.
+Only a rebuild of the table replaces it, so a resumed or restarted read keeps the position of the attempt that read first.
+While the history table holds only its seed, the history lane skips every change at or below that position, and the buffer is settled below it.
+A change committed while the snapshot reads can still add a version equal to its seed row, because the read is not one point in time.
+A snapshot that cannot read the position, for example behind a long transaction, records it as unknown (`cdc_snapshot_position_unread`), and its history lane then replays the whole buffer as before.
+A table that leaves CDC or joins it again drops the position.
+
 A TRUNCATE resets the table, empties its buffer, and drops that run's pending changes for it.
 The reset also pauses the table's schedule and cancels its running sync, so a snapshot that began before a repeated reset cannot hand over without the changes the reset drops.
 A cancel only asks the workflow to stop, and the loader still applies batches the sync queued, so while either is in progress the reset waits (`cdc_reset_waits_for_running_sync`).

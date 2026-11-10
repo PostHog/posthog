@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import ast
 import gzip
 import shutil
 import zipfile
@@ -21,6 +22,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from common.migration_utils import get_managed_app_paths
 from hogli_commands.github_auth import github_headers, github_token
 
 ArtifactMode = Literal["off", "auto", "on"]
@@ -37,6 +39,10 @@ DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 PRODUCT_DB_ROUTING_PATH = Path("products/db_routing.yaml")
 APP_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+MIGRATION_FILE_RE = re.compile(r"^\d{4}_\w+\.py$")
+MIGRATIONS_COPY_RE = re.compile(r"^COPY (?:public\.)?django_migrations \((?P<columns>[^)]*)\) FROM stdin;$")
+REPLACES_RE = re.compile(r"^\s*replaces\s*=\s*", re.MULTILINE)
+UNKNOWN_MIGRATION_SAMPLE = 5
 GITHUB_RETRY_TOTAL = 4
 GITHUB_RETRY_BACKOFF_FACTOR = 2
 GITHUB_RETRY_STATUSES = (500, 502, 503, 504)
@@ -176,18 +182,6 @@ def _recreate_database(target_db: str) -> None:
     _psql_admin(f"CREATE DATABASE {target_db};")
 
 
-def _manage(target_db: str, *args: str) -> None:
-    """Run a management command against target_db."""
-    _run(
-        ["python", "manage.py", *args],
-        env={"DATABASE_URL": f"postgres://posthog:posthog@localhost:5432/{target_db}"},
-    )
-
-
-def _ensure_migration_defaults(target_db: str) -> None:
-    _manage(target_db, "ensure_migration_defaults")
-
-
 def _psql_write(target_db: str, sql: str) -> None:
     """Run a one-shot statement against target_db."""
     _run(
@@ -242,19 +236,113 @@ def _forget_product_app_migrations(target_db: str) -> None:
     _psql_write(target_db, f"DELETE FROM django_migrations WHERE app IN ({in_list});")
 
 
+@dataclass(frozen=True, kw_only=True, slots=True, order=True)
+class _MigrationReference:
+    app: str
+    name: str
+
+
+def _recorded_migrations(schema_path: Path) -> set[_MigrationReference]:
+    """The (app, name) rows in the dump's django_migrations data block."""
+    recorded: set[_MigrationReference] = set()
+    with gzip.open(schema_path, "rt", encoding="utf-8") as dump:
+        for line in dump:
+            if match := MIGRATIONS_COPY_RE.match(line.rstrip("\n")):
+                columns = [column.strip() for column in match["columns"].split(",")]
+                app_index, name_index = columns.index("app"), columns.index("name")
+                break
+        else:
+            return recorded
+        for line in dump:
+            row = line.rstrip("\n")
+            if row == "\\.":
+                break
+            values = row.split("\t")
+            recorded.add(_MigrationReference(app=values[app_index], name=values[name_index]))
+    return recorded
+
+
+def _replaced_migrations(source: str) -> set[_MigrationReference]:
+    """The `replaces` list of a squashed migration, read without importing the module."""
+    match = REPLACES_RE.search(source)
+    if match is None:
+        return set()
+    depth, end = 0, match.end()
+    for end in range(match.end(), len(source)):
+        if source[end] in "[(":
+            depth += 1
+        elif source[end] in "])":
+            depth -= 1
+            if depth == 0:
+                break
+    try:
+        return {
+            _MigrationReference(app=app, name=name) for app, name in ast.literal_eval(source[match.end() : end + 1])
+        }
+    except (ValueError, SyntaxError, TypeError):
+        return set()
+
+
+def _checkout_migrations(app_paths: Mapping[str, Path]) -> set[_MigrationReference]:
+    # A fresh migrate records a squash's replaced names alongside the squash itself,
+    # so those names count as known even after their files are deleted.
+    known: set[_MigrationReference] = set()
+    for app, migrations_dir in app_paths.items():
+        if not migrations_dir.is_dir():
+            continue
+        for path in migrations_dir.iterdir():
+            if MIGRATION_FILE_RE.fullmatch(path.name):
+                known.add(_MigrationReference(app=app, name=path.stem))
+                source = path.read_text(encoding="utf-8")
+                if "replaces" in source:
+                    known |= _replaced_migrations(source)
+    return known
+
+
+def _check_dump_is_not_newer_than_checkout(schema_path: Path) -> None:
+    """Refuse a dump that records migrations of our own apps that this checkout lacks.
+
+    Such a dump was built from newer code, typically the newest master dump restored for a
+    branch that trails master. `migrate` only applies forward, so it cannot remove the tables or
+    swapped models the newer code introduced, and tests then fail on schema the checkout never
+    defined. Refusing the dump sends the caller to its full migrate, which is always correct.
+    """
+    app_paths = get_managed_app_paths(REPO_ROOT)
+    routed_away = set(_product_routed_app_labels())
+    recorded = {
+        migration
+        for migration in _recorded_migrations(schema_path)
+        if migration.app in app_paths and migration.app not in routed_away
+    }
+    if not recorded:
+        return
+    unknown = sorted(recorded - _checkout_migrations(app_paths))
+    if unknown:
+        sample = ", ".join(f"{migration.app}.{migration.name}" for migration in unknown[:UNKNOWN_MIGRATION_SAMPLE])
+        raise SchemaRestoreError(
+            f"schema dump records {len(unknown)} migration(s) this checkout does not have ({sample}), "
+            "so it was built from newer code; run migrations from scratch or rebase onto the dump's branch"
+        )
+
+
 def restore_schema_dump(
     *,
     target_db: str,
     recreate: bool,
     schema_path: Path = LOCAL_SCHEMA_PATH,
-    ensure_defaults: bool = True,
 ) -> None:
+    """Load a schema dump. The caller must run `migrate` next, which seeds the rows the dump lacks.
+
+    Do not seed here: the seed writes through the checkout's models, so a dump that predates a
+    model column fails the restore with `UndefinedColumn` and forces a full migrate.
+    """
     target_db = _validate_db_identifier(target_db)
     resolved_schema_path = _resolve_repo_path(schema_path)
     if not resolved_schema_path.is_file():
         raise SchemaRestoreError(f"no schema at {schema_path}; run db:download-schema first")
 
     _validate_gzip(resolved_schema_path)
+    _check_dump_is_not_newer_than_checkout(resolved_schema_path)
 
     if recreate:
         _recreate_database(target_db)
@@ -262,9 +350,6 @@ def restore_schema_dump(
     try:
         _run_psql_with_gzip_input(resolved_schema_path, target_db)
         _forget_product_app_migrations(target_db)
-
-        if ensure_defaults:
-            _ensure_migration_defaults(target_db)
     except Exception as exc:
         if recreate:
             try:
@@ -532,7 +617,7 @@ def restore_schema_if_fresh(*, target_db: str, mode: ArtifactMode) -> bool:
         click.echo(f"Database {target_db} is no longer empty; running migrations normally")
         return False
 
-    restore_schema_dump(target_db=target_db, recreate=True, ensure_defaults=True)
+    restore_schema_dump(target_db=target_db, recreate=True)
     return True
 
 
@@ -633,7 +718,7 @@ def db_download_schema(base_branch: str | None) -> None:
 
 def _recreate_test_db() -> None:
     try:
-        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
+        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -682,8 +767,7 @@ def db_restore_schema(yes: bool) -> None:
     try:
         download_latest_compatible_schema(base_branch=_effective_base_branch(None))
         _create_postgres_backup()
-        restore_schema_dump(target_db="posthog", recreate=False, ensure_defaults=False)
+        restore_schema_dump(target_db="posthog", recreate=False)
         _run([str(REPO_ROOT / "bin" / "migrate")])
-        _ensure_migration_defaults("posthog")
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

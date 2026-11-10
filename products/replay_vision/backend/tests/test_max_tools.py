@@ -1408,7 +1408,6 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
         "draft_replay_vision_scanner_prompt": False,
         "label_replay_vision_observation": False,
         "analyze_replay_vision_impact": None,  # only when it creates a cohort
-        "suggest_replay_vision_tags": False,
         # Argument-dependent, so they override is_dangerous_operation rather than the flag.
         "create_replay_vision_scanner": None,
         "update_replay_vision_scanner": None,

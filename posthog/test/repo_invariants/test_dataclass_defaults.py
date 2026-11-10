@@ -12,6 +12,8 @@ Regenerate the baseline (only to ratchet DOWN or after moving code):
 import ast
 from pathlib import Path
 
+from repo_invariant_scan_scope import ScanScope
+
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "dataclass_frozen_baseline.txt"
 SCANNED_ROOTS = ("posthog", "ee", "products", "common")
@@ -42,7 +44,7 @@ def _is_undeclared_dataclass_decorator(decorator: ast.expr) -> bool:
 
 def collect_offenders() -> dict[str, list[int]]:
     offenders: dict[str, list[int]] = {}
-    for root in SCANNED_ROOTS:
+    for root in ScanScope.from_environment().roots(SCANNED_ROOTS):
         for path in (REPO_ROOT / root).rglob("*.py"):
             if SKIPPED_DIRS.intersection(path.parts):
                 continue

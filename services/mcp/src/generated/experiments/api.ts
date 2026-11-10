@@ -188,21 +188,21 @@ export const ExperimentHoldoutsCreateBody = () => zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -501,21 +501,21 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -694,7 +694,7 @@ export const ExperimentSavedMetricsCreateBody = () => zod
         query: zod
             .unknown()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -738,7 +738,7 @@ export const ExperimentSavedMetricsPartialUpdateBody = () => zod
             .unknown()
             .optional()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -930,6 +930,9 @@ export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLower
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsCreateBodyMetricsOneItemQuantileOneMin = 0.01
+export const experimentsCreateBodyMetricsOneItemQuantileOneMax = 0.99
+
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -963,6 +966,9 @@ export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlin
 
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
+export const experimentsCreateBodyMetricsSecondaryOneItemQuantileOneMin = 0.01
+export const experimentsCreateBodyMetricsSecondaryOneItemQuantileOneMax = 0.99
 
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
@@ -5159,7 +5165,7 @@ export const ExperimentsCreateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -5350,6 +5356,18 @@ export const ExperimentsCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsCreateBodyMetricsOneItemQuantileOneMin)
+                                        .max(experimentsCreateBodyMetricsOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -5645,7 +5663,9 @@ export const ExperimentsCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -5826,7 +5846,7 @@ export const ExperimentsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -6282,7 +6302,7 @@ export const ExperimentsCreateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -6473,6 +6493,18 @@ export const ExperimentsCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsCreateBodyMetricsSecondaryOneItemQuantileOneMin)
+                                        .max(experimentsCreateBodyMetricsSecondaryOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -6768,7 +6800,9 @@ export const ExperimentsCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -7147,6 +7181,9 @@ export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingO
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsPartialUpdateBodyMetricsOneItemQuantileOneMin = 0.01
+export const experimentsPartialUpdateBodyMetricsOneItemQuantileOneMax = 0.99
+
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -7180,6 +7217,9 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlier
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemQuantileOneMin = 0.01
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemQuantileOneMax = 0.99
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
@@ -11374,7 +11414,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -11565,6 +11605,18 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsPartialUpdateBodyMetricsOneItemQuantileOneMin)
+                                        .max(experimentsPartialUpdateBodyMetricsOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -11860,7 +11912,9 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -12041,7 +12095,7 @@ export const ExperimentsPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -12501,7 +12555,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -12692,6 +12746,18 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsPartialUpdateBodyMetricsSecondaryOneItemQuantileOneMin)
+                                        .max(experimentsPartialUpdateBodyMetricsSecondaryOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -12987,7 +13053,9 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -13443,6 +13511,9 @@ export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlin
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
+export const experimentsDuplicateCreateBodyMetricsOneItemQuantileOneMin = 0.01
+export const experimentsDuplicateCreateBodyMetricsOneItemQuantileOneMax = 0.99
+
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
@@ -13476,6 +13547,9 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutli
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
+
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemQuantileOneMin = 0.01
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemQuantileOneMax = 0.99
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
@@ -17568,7 +17642,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -17759,6 +17833,18 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsDuplicateCreateBodyMetricsOneItemQuantileOneMin)
+                                        .max(experimentsDuplicateCreateBodyMetricsOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -18054,7 +18140,9 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -18235,7 +18323,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -18695,7 +18783,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'quantile']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -18886,6 +18974,18 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                ),
+                            quantile: zod
+                                .union([
+                                    zod
+                                        .number()
+                                        .min(experimentsDuplicateCreateBodyMetricsSecondaryOneItemQuantileOneMin)
+                                        .max(experimentsDuplicateCreateBodyMetricsSecondaryOneItemQuantileOneMax),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.'
                                 ),
                             retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
@@ -19181,7 +19281,9 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe(
+                                    'For mean and quantile metrics: event source. Quantile metrics need `math_property`.'
+                                ),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -19840,8 +19942,9 @@ export const ExperimentsTimeseriesResultsRetrieveParams = () => zod.object({
 export const ExperimentsTimeseriesResultsRetrieveQueryParams = () => zod.object({
     fingerprint: zod
         .string()
+        .optional()
         .describe(
-            "Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array."
+            "Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working."
         ),
     metric_uuid: zod
         .string()
@@ -19953,6 +20056,7 @@ export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin
 
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax = 100
 
 export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
 
@@ -19977,8 +20081,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
         number_of_variants: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .max(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax)
             .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
-            .describe('Total number of variants including control (default 2).'),
+            .describe('Total number of variants including control (default 2, at most 100).'),
         exposure_rate_per_day: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
@@ -19994,7 +20099,7 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
             .number()
             .nullish()
             .describe(
-                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+                'Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.'
             ),
         baseline_stats: zod
             .union([
@@ -20012,7 +20117,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
                         sum_squares: zod
                             .number()
                             .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
-                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                            .describe(
+                                "Sum of squared metric values. Mean metrics read their variance from it, and ratio\/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value."
+                            ),
                         denominator_sum: zod
                             .number()
                             .nullish()

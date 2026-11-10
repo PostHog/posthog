@@ -198,7 +198,12 @@ def write_sql_from_prompt(
     prompt_tokens_total, completion_tokens_total = 0, 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
         attempt_count += 1
-        completion = hit_openai(messages, f"{instance_region}/{user.pk}")
+        completion = hit_openai(
+            messages,
+            f"{instance_region}/{user.pk}",
+            posthog_properties={"ai_product": "hogql", "ai_feature": "draft_sql", "team_id": team.pk},
+            distinct_id=user.distinct_id,
+        )
         prompt_tokens_total += completion.prompt_tokens
         completion_tokens_total += completion.completion_tokens
         if completion.content.startswith(UNCLEAR_PREFIX):

@@ -71,7 +71,7 @@ Tuning and gating:
 - The split floor and the coarsening trigger are both derived from the budget rather than tuned separately (`COARSEN_TRIGGER_DIVISOR`), so the two directions stay consistent by construction.
 - The coarsening gate's own tunables are `COARSEN_OOM_FREE_DAYS` (default 14, deliberately longer than the split window) and `DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES` (default 1 MB), the peak above which a merge-phase death blocks regardless of how the classification rules explained it. `DELTA_COARSEN_DECLINE_TOTAL` records which gate declined, labelled by reason.
 - CDC tables are excluded for now.
-- Append tables are never split. The budget bounds the working set of a merge, and an append sync never merges, so a split only rewrites every row. Coarsening still applies to them. A split that detection queued for an append table is dropped by the next run, with the temp table of its rewrite (`reason=append_never_merges`). An operator target still runs.
+- Append tables are never split. The budget bounds the working set of a merge, and an append sync never merges, so a split only rewrites every row. Coarsening still applies to them. A split that detection queued for an append table is dropped by the next run, with the temp table of its rewrite (`reason=append_never_merges`). An operator target still runs. The next run also drops a size split that is queued for a keyed-merge table when the recorded largest partition is within the merge budget (`reason=under_merge_split_budget`). Other triggers still run.
 
 Observability: `warehouse_repartition_flagged` / `started` / `completed` / `failed` / `skipped` PostHog events (with full team/schema/source/table context, before→after scheme, sizes, durations, and trigger reason) plus `DELTA_REPARTITION_*` Prometheus metrics.
 
@@ -79,12 +79,13 @@ The existing admin repartition action now stages a `repartition_pending` target 
 
 ## Admin panel actions
 
-Most day-to-day interventions no longer need a k8s pod — they're buttons on the `ExternalDataSchema` change page in the Django admin (`/admin/warehouse_sources/externaldataschema/<schema_id>/change/`).
+Most day-to-day interventions no longer need a k8s pod — they're operations on the Warehouse sources tool in PostHog Admin (`/admin/console/tools/warehouse-sources/?schema=<schema_id>`), linked from the `ExternalDataSchema` change page in Django admin. The same tool lists the schemas of a source (`?source=<source_id>`).
 All admin-triggered runs are non-billable, and admin-triggered runs auto-pause the per-schema schedule for the duration and auto-unpause it on success.
 
 - **Trigger sync / resync.** Runs an ad-hoc `external-data-job` workflow, with checkboxes for `reset_pipeline` (wipe existing files and re-pull from scratch) and `billable`. This replaces the pod snippets under [How to resync](#how-to-resync) for most cases.
 - **Repartition / change partition mode.** Stages a `repartition_pending` target and triggers the cheap [in-place repartition](#automated-in-place-repartitioning) — rewrites the data already in S3, no source re-pull, no pod, no oversized partition materialised. You can switch `partition_mode` (`datetime` / `numerical` / `md5`), set the partitioning keys, and set the mode's knob (`partition_format`, `partition_size`, or `partition_count`).
 - **Pause / unpause schedule.** Pause the per-schema Temporal schedule manually while doing admin work.
+- **Recreate schedule.** Creates the per-schema schedule when it is missing, or updates it in place. It starts no run.
 
 ### Overriding the read chunk size (`chunk_size_override`)
 

@@ -13,6 +13,7 @@ const {
     docsLabelApplies,
     labelsForTitle,
     labelsForFiles,
+    staleLabels,
     loadRules,
     isFlagsLowHangingFruitCandidate,
     isFlagsLowHangingFruit,
@@ -91,9 +92,60 @@ const PATH_RULES = [
         paths: ['packages/agent/', 'bin/start-agent', 'posthog/*agent_root*', 'products/**/*agent_any*'],
         labels: ['feature/agent-infra'],
     },
+    {
+        paths: ['services/sized/', 'nodejs/src/ingestion/pipelines/ai/costs/providers/'],
+        minLines: 10,
+        minFiles: 3,
+        labels: ['feature/sized'],
+    },
 ]
 
+const changed = (filename, additions, deletions = 0) => ({ filename, status: 'modified', additions, deletions })
+
 const LABELS_FOR_FILES_CASES = [
+    {
+        files: [changed('services/sized/a.py', 9)],
+        expected: [],
+        description: 'a sized rule with one file under the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 10)],
+        expected: ['feature/sized'],
+        description: 'a sized rule with one file at the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 4, 6)],
+        expected: ['feature/sized'],
+        description: 'a sized rule counts deletions toward the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 5), changed('services/sized/b.py', 5)],
+        expected: ['feature/sized'],
+        description: 'a sized rule adds up lines across matching files',
+    },
+    {
+        files: [changed('services/sized/a.py', 1), changed('services/sized/b.py', 1), changed('services/sized/c.py', 1)],
+        expected: ['feature/sized'],
+        description: 'a sized rule with few lines across the file minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 2), changed('posthog/api/survey.py', 500)],
+        expected: [],
+        description: 'a sized rule ignores lines outside its paths',
+    },
+    {
+        files: [changed('services/sized/pyproject.toml', 2), changed('services/sized/uv.lock', 40)],
+        expected: [],
+        description: 'a sized rule ignores lockfile lines',
+    },
+    {
+        files: [
+            changed('services/sized/a.py', 2),
+            changed('nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', 80),
+        ],
+        expected: [],
+        description: 'a sized rule ignores generated file lines',
+    },
     {
         files: [
             { filename: 'posthog/api/survey.py', status: 'modified' },
@@ -149,6 +201,53 @@ test('labelsForFiles', async (t) => {
     for (const { files, expected, description } of LABELS_FOR_FILES_CASES) {
         await t.test(description, () => {
             assert.deepEqual(labelsForFiles(files, PATH_RULES), expected)
+        })
+    }
+})
+
+const labelEvent = (event, name, login) => ({ event, label: { name }, actor: { login } })
+
+const STALE_LABELS_CASES = [
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]')],
+        wanted: [],
+        expected: ['feature/agent-infra'],
+        description: 'a label this workflow added that no longer matches',
+    },
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]')],
+        wanted: ['feature/agent-infra'],
+        expected: [],
+        description: 'a label this workflow added that still matches',
+    },
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'someuser')],
+        wanted: [],
+        expected: [],
+        description: 'a label a person added',
+    },
+    {
+        events: [
+            labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]'),
+            labelEvent('unlabeled', 'feature/agent-infra', 'someuser'),
+            labelEvent('labeled', 'feature/agent-infra', 'someuser'),
+        ],
+        wanted: [],
+        expected: [],
+        description: 'a label a person added back after this workflow added it',
+    },
+    {
+        events: [labelEvent('labeled', 'docs', 'github-actions[bot]')],
+        wanted: [],
+        expected: [],
+        description: 'a label this workflow added that no rule maps to',
+    },
+]
+
+test('staleLabels', async (t) => {
+    for (const { events, wanted, expected, description } of STALE_LABELS_CASES) {
+        await t.test(description, () => {
+            assert.deepEqual(staleLabels(events, wanted, PATH_RULES), expected)
         })
     }
 })
@@ -261,7 +360,7 @@ for (const filename of [
     'services/llm-gateway/src/app.py',
 ]) {
     test(`the shipped config maps a change to ${filename} to the agent infra label`, () => {
-        const labels = labelsForFiles([{ filename, status: 'modified' }], loadRules())
+        const labels = labelsForFiles([changed(filename, 10)], loadRules())
         assert.ok(labels.includes('feature/agent-infra'), `${filename} does not map to feature/agent-infra`)
     })
 }

@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING, Optional
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import TICKET_ASSIGNMENT, TICKET_TAGS
+from posthog.hogql.database.lazy_join_tags import (
+    DEFINITION_TAGS,
+    ENDPOINT_CURRENT_VERSION,
+    TICKET_ASSIGNMENT,
+    TICKET_TAGS,
+)
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -14,6 +19,7 @@ from posthog.hogql.database.models import (
     DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
+    FieldTraverser,
     FloatDatabaseField,
     IntegerDatabaseField,
     LazyJoin,
@@ -40,7 +46,10 @@ from posthog.scopes import APIScopeObject
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from products.aeo.backend.facade.hogql import aeo_citation_checks
+from products.annotations.backend.facade.hogql import annotations
 from products.customer_analytics.backend.facade.customer_tasks_hogql import customer_tasks
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
@@ -62,6 +71,7 @@ from products.customer_analytics.backend.facade.hogql import (
     feature_request_product_areas,
     feature_requests,
 )
+from products.signals.backend.facade.constants import SIGNAL_USAGE_START
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
 # Source types that map to a direct-SQL engine, so a source of this type can be live-queried through a
@@ -477,6 +487,9 @@ datasets: PostgresTable = PostgresTable(
         "description": StringDatabaseField(name="description", description="What the dataset contains."),
         "metadata": StringJSONDatabaseField(name="metadata", description="JSON dataset metadata."),
         "archived": BooleanDatabaseField(name="archived", description="Whether the dataset is archived."),
+        "expired_at": DateTimeDatabaseField(
+            name="expired_at", nullable=True, description="When the dataset expired; NULL while available."
+        ),
         "current_revision_id": UUIDDatabaseField(
             name="current_revision_id",
             nullable=True,
@@ -503,6 +516,11 @@ dataset_revisions: PostgresTable = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id"),
         "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
         "revision": IntegerDatabaseField(name="revision", description="Monotonic revision number within the dataset."),
+        "expired_at": DateTimeDatabaseField(
+            name="expired_at",
+            nullable=True,
+            description="When the snapshot expired; NULL while available. Expired snapshots may be incomplete.",
+        ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who committed the revision."
         ),
@@ -774,6 +792,8 @@ data_warehouse_sources: PostgresTable = PostgresTable(
 data_modeling_views: PostgresTable = PostgresTable(
     name="data_modeling_views",
     postgres_table_name="posthog_datawarehousesavedquery",
+    access_scope="warehouse_view",
+    access_control_creator_id_field="created_by_id",
     description="Saved queries / data-modeling views built on top of warehouse data; one row per view, optionally materialized.",
     fields={
         "id": StringDatabaseField(name="id", description="View UUID."),
@@ -802,14 +822,33 @@ data_modeling_views: PostgresTable = PostgresTable(
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", description="When the view was deleted; NULL if not deleted."
         ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the view."
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the view was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the view was last updated."),
     },
 )
 
-data_warehouse_tables: PostgresTable = PostgresTable(
+
+class _DataWarehouseTablesTable(PostgresTable):
+    def blocked_object_ids(self, user_access_control: "UserAccessControl", team_id: Optional[int]) -> frozenset[str]:
+        # A table resolves its access through its source, so a rule on a source denies tables that
+        # no rule names. Only the per-table resolution finds them.
+        from products.warehouse_sources.backend.facade.api import (
+            denied_table_ids,  # noqa: PLC0415 — keeps the ORM off this module's import path
+        )
+
+        if team_id is None:
+            raise ValueError("system.data_warehouse_tables needs a team to resolve table access")
+        return frozenset(str(table_id) for table_id in denied_table_ids(team_id, user_access_control))
+
+
+data_warehouse_tables: _DataWarehouseTablesTable = _DataWarehouseTablesTable(
     name="data_warehouse_tables",
     postgres_table_name="posthog_datawarehousetable",
+    access_scope="warehouse_table",
+    access_control_creator_id_field="created_by_id",
     description="Tables belonging to a data warehouse source; one row per table. A row whose source is a "
     "direct connection is not queryable by name from this catalog — query it through that connection "
     "instead, using the source id as the query's connection id.",
@@ -822,6 +861,9 @@ data_warehouse_tables: PostgresTable = PostgresTable(
         "external_data_source_id": StringDatabaseField(
             name="external_data_source_id",
             description="Source that produced this table; joins to data_warehouse_sources.id.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the table."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the table was first synced."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the table metadata was last updated."),
@@ -907,7 +949,22 @@ source_sync_jobs: PostgresTable = PostgresTable(
     },
 )
 
-endpoint_versions: PostgresTable = PostgresTable(
+
+class _EndpointVersionsTable(PostgresTable):
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        from products.endpoints.backend.facade.models import Endpoint  # noqa: PLC0415
+
+        if team_id is None:
+            raise ValueError("system.data_modeling_endpoint_versions needs a team to resolve endpoint access")
+        endpoints = Endpoint.objects.filter(team_id=team_id, created_by_id=user_access_control.user.pk)
+        if candidate_ids is not None:
+            endpoints = endpoints.filter(id__in=candidate_ids)
+        return frozenset(str(endpoint_id) for endpoint_id in endpoints.values_list("id", flat=True))
+
+
+endpoint_versions: _EndpointVersionsTable = _EndpointVersionsTable(
     name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
     access_scope="endpoint",
@@ -937,6 +994,38 @@ endpoint_versions: PostgresTable = PostgresTable(
     },
 )
 
+
+def endpoint_current_version_join(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    fields: dict[str, list[str | int]] = {
+        **join_to_add.fields_accessed,
+        "endpoint_id": ["endpoint_id"],
+        "version": ["version"],
+    }
+    return ast.JoinExpr(
+        table=ast.SelectQuery(
+            select=[ast.Alias(alias=alias, expr=ast.Field(chain=chain)) for alias, chain in fields.items()],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["system", "data_modeling_endpoint_versions"])),
+        ),
+        alias=join_to_add.to_table,
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=[join_to_add.from_table, source]),
+                        right=ast.Field(chain=[join_to_add.to_table, target]),
+                    )
+                    for source, target in [("id", "endpoint_id"), ("current_version", "version")]
+                ]
+            ),
+        ),
+    )
+
+
 endpoints: PostgresTable = PostgresTable(
     name="data_modeling_endpoints",
     postgres_table_name="endpoints_endpoint",
@@ -957,6 +1046,27 @@ endpoints: PostgresTable = PostgresTable(
         "current_version": IntegerDatabaseField(
             name="current_version",
             description="Version number currently served; joins to data_modeling_endpoint_versions.version.",
+        ),
+        "version": LazyJoin(
+            from_field=["id"],
+            to_field=["endpoint_id"],
+            extra_from_fields=[["current_version"]],
+            join_table="system.data_modeling_endpoint_versions",
+            resolver=ENDPOINT_CURRENT_VERSION,
+            description="Current version of this endpoint. Matches the endpoint ID and current_version number.",
+        ),
+        "description": FieldTraverser(
+            chain=["version", "description"], description="Description of the current endpoint version."
+        ),
+        "query": FieldTraverser(
+            chain=["version", "query"], description="JSON HogQL query of the current endpoint version."
+        ),
+        "data_freshness_seconds": FieldTraverser(
+            chain=["version", "data_freshness_seconds"],
+            description="Maximum cache age for the current version, in seconds.",
+        ),
+        "columns": FieldTraverser(
+            chain=["version", "columns"], description="JSON schema of the current version's output columns."
         ),
         "derived_from_insight": StringDatabaseField(
             name="derived_from_insight", description="Short id of the insight this endpoint was created from, if any."
@@ -1048,6 +1158,16 @@ autoresearch_pipelines: PostgresTable = PostgresTable(
         "iteration_budget": IntegerDatabaseField(
             name="iteration_budget", description="Maximum training iterations the agent loop may spend."
         ),
+        "agent_model": StringDatabaseField(
+            name="agent_model",
+            nullable=True,
+            description="Model override for the training agent (NULL uses the autoresearch default model).",
+        ),
+        "agent_reasoning_effort": StringDatabaseField(
+            name="agent_reasoning_effort",
+            nullable=True,
+            description="Reasoning effort override for the training agent (NULL uses the autoresearch default).",
+        ),
         "iteration_budget_remaining": IntegerDatabaseField(
             name="iteration_budget_remaining",
             nullable=True,
@@ -1083,6 +1203,26 @@ autoresearch_training_runs: PostgresTable = PostgresTable(
             name="task_run_id", nullable=True, description="Task run of the agent sandbox; joins to task_runs.id."
         ),
         "status": StringDatabaseField(name="status", description="One of pending, running, completed, failed."),
+        "kickoff_reason": StringDatabaseField(
+            name="kickoff_reason",
+            nullable=True,
+            description="Why the run started: explore, scheduled, rescue, or manual (NULL for older runs).",
+        ),
+        "agent_runtime_adapter": StringDatabaseField(
+            name="agent_runtime_adapter",
+            nullable=True,
+            description="Agent runtime the run was dispatched with, for example claude or codex (NULL for older runs).",
+        ),
+        "agent_model": StringDatabaseField(
+            name="agent_model",
+            nullable=True,
+            description="Model the training agent ran on, for example claude-opus-5-5 (NULL for older runs).",
+        ),
+        "agent_reasoning_effort": StringDatabaseField(
+            name="agent_reasoning_effort",
+            nullable=True,
+            description="Reasoning effort the training agent ran with (NULL for older runs or when the model has none).",
+        ),
         "iteration_budget": IntegerDatabaseField(
             name="iteration_budget", description="Maximum iterations the run may record."
         ),
@@ -1696,6 +1836,18 @@ activity_logs: _ActivityLogsTable = _ActivityLogsTable(
         "detail": StringJSONDatabaseField(
             name="detail", description="JSON detail of what changed (field-level diffs, context)."
         ),
+        # Never declare `credential_id`, even as hidden: a query can select a hidden column by name,
+        # and the advanced API shows the id only for some credential types.
+        "credential_type": StringDatabaseField(
+            name="credential_type",
+            nullable=True,
+            description=(
+                "Kind of credential that authenticated the request that made the change, e.g. 'session', "
+                "'personal_api_key', 'oauth'. 'unattributed' means the request recorded no credential. Null for "
+                "changes made outside a request, such as background jobs, and for entries recorded before the "
+                "credential was stored."
+            ),
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the activity occurred."),
     },
 )
@@ -1725,51 +1877,6 @@ actions: PostgresTable = PostgresTable(
         "steps_json": StringJSONDatabaseField(
             name="steps_json", description="JSON array of match steps (event/selector/url conditions)."
         ),
-    },
-)
-
-annotations: PostgresTable = PostgresTable(
-    name="annotations",
-    postgres_table_name="posthog_annotation",
-    access_scope="annotation",
-    description="Annotations: dated notes overlaid on insight/dashboard charts; one row per annotation.",
-    fields={
-        "id": IntegerDatabaseField(name="id", description="Annotation id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "content": StringDatabaseField(name="content", nullable=True, description="Annotation text."),
-        "scope": StringDatabaseField(
-            name="scope",
-            description="Where the annotation applies: 'project', 'organization', 'dashboard', 'dashboard_item' (insight), or 'recording'.",
-        ),
-        "creation_type": StringDatabaseField(
-            name="creation_type", description="How the annotation was created, e.g. user-created vs GitHub."
-        ),
-        "date_marker": DateTimeDatabaseField(
-            name="date_marker", nullable=True, description="The point in time the annotation marks on a chart."
-        ),
-        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
-        "deleted": ExpressionField(
-            name="deleted",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
-            description="1 if the annotation has been deleted, 0 otherwise.",
-        ),
-        "dashboard_item_id": IntegerDatabaseField(
-            name="dashboard_item_id",
-            nullable=True,
-            description="Insight this annotation is scoped to; joins to insights.id.",
-        ),
-        "dashboard_id": IntegerDatabaseField(
-            name="dashboard_id",
-            nullable=True,
-            description="Dashboard this annotation is scoped to; joins to dashboards.id.",
-        ),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who created the annotation."
-        ),
-        "created_at": DateTimeDatabaseField(
-            name="created_at", nullable=True, description="When the annotation was created."
-        ),
-        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the annotation was last updated."),
     },
 )
 
@@ -1993,9 +2100,28 @@ notebooks: PostgresTable = PostgresTable(
     },
 )
 
-data_modeling_jobs: PostgresTable = PostgresTable(
+
+class _DataModelingJobsTable(PostgresTable):
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        # The creator of a view keeps it under a deny rule, so they keep the jobs that ran for it.
+        from products.data_modeling.backend.facade.api import (
+            saved_query_ids_created_by,  # noqa: PLC0415 — keeps the ORM off this module's import path
+        )
+
+        if team_id is None:
+            raise ValueError("system.data_modeling_jobs needs a team to resolve view access")
+        owned = saved_query_ids_created_by(team_id, user_access_control.user.pk, ids=candidate_ids)
+        return frozenset(str(view_id) for view_id in owned)
+
+
+data_modeling_jobs: _DataModelingJobsTable = _DataModelingJobsTable(
     name="data_modeling_jobs",
     postgres_table_name="posthog_datamodelingjob",
+    access_scope="warehouse_view",
+    # Child of warehouse_view: object-level access control applies to the view the job ran for.
+    access_control_id_field="saved_query_id",
     description="Materialization job runs for data-modeling views; one row per run that materializes a view.",
     fields={
         "id": StringDatabaseField(name="id", description="Job UUID."),
@@ -2003,6 +2129,8 @@ data_modeling_jobs: PostgresTable = PostgresTable(
         "data_modeling_view_id": StringDatabaseField(
             name="saved_query_id", description="View being materialized; joins to data_modeling_views.id."
         ),
+        # The access control guard reads the column under its own name.
+        "saved_query_id": StringDatabaseField(name="saved_query_id", hidden=True),
         "status": StringDatabaseField(name="status", description="Job status, e.g. Running, Completed, Failed."),
         "rows_materialized": IntegerDatabaseField(
             name="rows_materialized", description="Number of rows written so far."
@@ -2893,7 +3021,7 @@ usage_metrics: PostgresTable = PostgresTable(
 inbox_report_artefacts: PostgresTable = PostgresTable(
     name="inbox_report_artefacts",
     postgres_table_name="signals_signalreportartefact",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("report_id IN (SELECT id FROM system.inbox_reports)"),
@@ -2942,7 +3070,7 @@ inbox_report_artefacts: PostgresTable = PostgresTable(
 inbox_report_actions: PostgresTable = PostgresTable(
     name="inbox_report_actions",
     postgres_table_name="signals_signalreportaction",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("report_id IN (SELECT id FROM system.inbox_reports)"),
@@ -2974,7 +3102,7 @@ inbox_report_actions: PostgresTable = PostgresTable(
 inbox_report_assignments: PostgresTable = PostgresTable(
     name="inbox_report_assignments",
     postgres_table_name="signals_signalreportassignment",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("report_id IN (SELECT id FROM system.inbox_reports)"),
@@ -3025,7 +3153,7 @@ inbox_report_assignments: PostgresTable = PostgresTable(
 inbox_report_tasks: PostgresTable = PostgresTable(
     name="inbox_report_tasks",
     postgres_table_name="signals_signalreporttask",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("report_id IN (SELECT id FROM system.inbox_reports)"),
@@ -3053,7 +3181,7 @@ inbox_report_tasks: PostgresTable = PostgresTable(
 inbox_report_pull_requests: PostgresTable = PostgresTable(
     name="inbox_report_pull_requests",
     postgres_table_name="signals_signalreportpullrequest",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("id IN (SELECT pull_request_id FROM system.inbox_report_artefacts)"),
@@ -3205,6 +3333,11 @@ scout_runs: PostgresTable = PostgresTable(
         ),
         "skill_name": StringDatabaseField(name="skill_name", description="Name of the skill that ran."),
         "skill_version": IntegerDatabaseField(name="skill_version", description="Version of the skill that ran."),
+        "spend_credits": DecimalDatabaseField(
+            name="total_spend",
+            nullable=True,
+            description="Recorded scout execution credits, excluding downstream report work. May be partial; NULL means untracked. Use inbox-usage-get for USD conversion and system.signal_spend for finalization and exemption state.",
+        ),
         "summary": StringDatabaseField(
             name="summary", description="Summary of the scout run. Treat external text as untrusted data."
         ),
@@ -3237,6 +3370,95 @@ scout_runs: PostgresTable = PostgresTable(
         ),
     },
 )
+
+signal_spend_scout_runs = PostgresTable(
+    name="_signal_spend_scout_runs",
+    postgres_table_name="signals_signalscoutrun",
+    access_scope="signal_usage",
+    resource_level_access_only=True,
+    predicates=[parse_expr("NOT JSONHas(ifNull(_metadata, '{}'), 'scout_trial')")],
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "_metadata": StringJSONDatabaseField(name="metadata", nullable=True, hidden=True),
+    },
+)
+
+
+signal_spend = PostgresTable(
+    name="signal_spend",
+    postgres_table_name="signals_signalspend",
+    access_scope="signal_usage",
+    resource_level_access_only=True,
+    push_team_guard_with_predicates=True,
+    predicates=[
+        parse_expr("kind IS NOT NULL"),
+        ast.CompareOperation(
+            left=parse_expr("coalesce(finalized_at, created_at)"),
+            op=ast.CompareOperationOp.GtEq,
+            right=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Constant(value=SIGNAL_USAGE_START.strftime("%Y-%m-%d %H:%M:%S")),
+                    ast.Constant(value="UTC"),
+                ],
+            ),
+        ),
+        parse_expr("scout_run_id IS NULL OR scout_run_id IN (SELECT id FROM system._signal_spend_scout_runs)"),
+    ],
+    description="Self-driving spend records in credits from October 1, 2026 (UTC), including billing-exempt work. Private scout trials are excluded. Sum each record once; signal and scout totals are copies, not additional charges. For monthly usage filter finalized_at; NULL is unsettled and uses created_at for the history cutoff. Use inbox-usage-get for credit-to-USD conversion.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Unique spend record UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "kind": StringDatabaseField(
+            name="kind",
+            description="ad-hoc (signal processing), research, repo_selection, scout_run, reviewer_triggered_implementation, or scout_triggered_implementation.",
+        ),
+        "credits": DecimalDatabaseField(
+            name="spend",
+            description="Recorded usage in credits, including fractional credits and exempt work. May be partial until finalized_at is set; convert with pricing.usd_per_credit from inbox-usage-get.",
+        ),
+        "signal_id": UUIDDatabaseField(
+            name="signal_id",
+            nullable=True,
+            description="Signal owning processing or research spend; joins to document_embeddings.document_id after converting the UUID to a string.",
+        ),
+        "scout_run_id": UUIDDatabaseField(
+            name="scout_run_id",
+            nullable=True,
+            description="Scout run owning execution spend; joins to system.scout_runs.id.",
+        ),
+        "report_id": UUIDDatabaseField(
+            name="report_id",
+            nullable=True,
+            description="Report owning implementation spend; joins to system.inbox_reports.id. Other kinds use signal_id or scout_run_id.",
+        ),
+        "task_run_id": UUIDDatabaseField(
+            name="task_run_id",
+            nullable=True,
+            description="Task run that incurred the spend, if any. Internal runs may be absent from system.task_runs.",
+        ),
+        "billing_exempt": BooleanDatabaseField(
+            name="billing_exempt",
+            description="Whether this recorded usage is exempt from billing. False does not guarantee an invoice charge.",
+        ),
+        "accounting_failed": BooleanDatabaseField(
+            name="accounting_failed",
+            description="Whether accounting is incomplete or failed; running tasks can also carry this flag.",
+        ),
+        "created_at": DateTimeDatabaseField(
+            name="created_at",
+            description="When the work started or its spend record was created; not the billing date.",
+        ),
+        "finalized_at": DateTimeDatabaseField(
+            name="finalized_at",
+            nullable=True,
+            description="When accounting finalized, in UTC. Use this for monthly totals; NULL means unsettled.",
+        ),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the spend record last changed."),
+    },
+)
+
 
 scout_run_emissions: PostgresTable = PostgresTable(
     name="scout_run_emissions",
@@ -3607,7 +3829,7 @@ canvases: PostgresTable = PostgresTable(
 inbox_reports: PostgresTable = PostgresTable(
     name="inbox_reports",
     postgres_table_name="signals_signalreport",
-    access_scope="task",
+    access_scope="inbox",
     # Object-level task grants key task ids, never report ids, so they cannot narrow these rows.
     resource_level_access_only=True,
     predicates=[parse_expr("status != 'deleted'")],
@@ -3618,6 +3840,11 @@ inbox_reports: PostgresTable = PostgresTable(
     fields={
         "id": StringDatabaseField(name="id", description="Report UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
+        "triggering_signal_id": UUIDDatabaseField(
+            name="triggering_signal_id",
+            nullable=True,
+            description="Current triggering signal used to attribute report-owned implementation spend to a source. May change when a report is researched again.",
+        ),
         "title": StringDatabaseField(
             name="title",
             nullable=True,
@@ -3683,7 +3910,7 @@ inbox_reports: PostgresTable = PostgresTable(
 inbox_report_checks: PostgresTable = PostgresTable(
     name="inbox_report_checks",
     postgres_table_name="signals_signalreportcheck",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[parse_expr("report_id IN (SELECT id FROM system.inbox_reports)")],
     description=(
@@ -3751,6 +3978,217 @@ inbox_report_checks: PostgresTable = PostgresTable(
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the check was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the check row was last updated."),
+    },
+)
+
+
+def _definition_tagged_items(tagged_model: str, definitions_table: str) -> TaggedItemsTable:
+    return TaggedItemsTable(
+        tagged_model=tagged_model,
+        # Built as AST: this runs at import time, and placeholder parsing would pull posthog.schema into django.setup().
+        predicates=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["definition_id"]),
+                right=ast.SelectQuery(
+                    select=[ast.Field(chain=["id"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["system", definitions_table])),
+                ),
+            )
+        ],
+        name=f"_{tagged_model}_tagged_items",
+        postgres_table_name="posthog_taggeditem",
+        description=f"Internal junction table (PostgreSQL `posthog_taggeditem`) of tag-to-{tagged_model} links; not for direct querying — use `system.{definitions_table}.tags`.",
+        fields={
+            "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
+            "tag_id": UUIDDatabaseField(
+                name="tag_id", description="Tag applied to the definition; join to `system.tags.id`."
+            ),
+            "definition_id": UUIDDatabaseField(
+                name="object_uuid",
+                nullable=True,
+                description=f"Definition the tag is applied to; join to `system.{definitions_table}.id`.",
+            ),
+            "content_type_id": IntegerDatabaseField(
+                name="content_type_id",
+                hidden=True,
+                description=f"Kind of object the tag is applied to; the table only returns {tagged_model} rows.",
+            ),
+            "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+        },
+    )
+
+
+event_definition_tagged_items: TaggedItemsTable = _definition_tagged_items("event_definition", "event_definitions")
+property_definition_tagged_items: TaggedItemsTable = _definition_tagged_items(
+    "property_definition", "property_definitions"
+)
+
+
+def _definition_tags_select(tagged_items_table: str) -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            ti.definition_id AS definition_id,
+            arraySort(arrayDistinct(groupArray(t.name))) AS names
+        FROM {tagged_items} AS ti
+        INNER JOIN system.tags AS t ON t.id = ti.tag_id
+        GROUP BY ti.definition_id
+        """,
+        {"tagged_items": ast.Field(chain=["system", tagged_items_table])},
+    )
+
+
+class _DefinitionTagsTable(LazyTable):
+    tagged_items_table: str
+    description: str = "Internal aggregating table backing the `tags` column of the definition tables: the distinct, sorted tag names per definition."
+    fields: dict[str, FieldOrTable] = {
+        "definition_id": UUIDDatabaseField(name="definition_id", description="Definition these tags belong to."),
+        "names": StringArrayDatabaseField(
+            name="names", description="Distinct, sorted tag names applied to the definition."
+        ),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _definition_tags_select(self.tagged_items_table)
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "definition_tags"
+
+    def to_printed_hogql(self) -> str:
+        return "definition_tags"
+
+
+def definition_tags_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError(f"No fields requested from `{join_to_add.to_table}`")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_definition_tags_select(join_to_add.lazy_join.resolver_params["tagged_items_table"]),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "definition_id"]),
+            ),
+        ),
+    )
+
+
+def _definition_tags_lazy_join(tagged_items_table: TaggedItemsTable) -> LazyJoin:
+    return LazyJoin(
+        from_field=["id"],
+        join_table=_DefinitionTagsTable(tagged_items_table=tagged_items_table.name),
+        resolver=DEFINITION_TAGS,
+        resolver_params={"tagged_items_table": tagged_items_table.name},
+    )
+
+
+event_definitions: PostgresTable = PostgresTable(
+    name="event_definitions",
+    postgres_table_name="posthog_eventdefinition",
+    access_scope="event_definition",
+    description="Events known to the project, from ingestion or defined ahead of time; one row per event name.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Event definition UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Event name, e.g. '$pageview' or 'signed_up'."),
+        "created_at": DateTimeDatabaseField(
+            name="created_at",
+            nullable=True,
+            description="When the event was first seen or defined.",
+        ),
+        "last_seen_at": DateTimeDatabaseField(
+            name="last_seen_at",
+            nullable=True,
+            description="When the event was last ingested; NULL if it has not been seen since this was tracked.",
+        ),
+        "tags": _definition_tags_lazy_join(event_definition_tagged_items),
+    },
+)
+
+
+_PROPERTY_DEFINITION_TYPES: dict[int, str] = {1: "event", 2: "person", 3: "group", 4: "session"}
+
+
+class _PropertyDefinitionsTable(PostgresTable):
+    """Hides the properties that property-level access control denies the caller, as the REST list does.
+
+    The restrictions are loaded into the context before printing, so the predicate is built per query.
+    """
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        restricted = context.restricted_properties if context is not None else None
+        if not restricted:
+            return []
+        matches: list[Expr] = []
+        for prop in sorted(restricted, key=lambda p: (p.property_type, p.group_type_index or -1, p.name)):
+            conditions: list[Expr] = [
+                parse_expr("name = {name}", {"name": ast.Constant(value=prop.name)}),
+                parse_expr("_type = {type}", {"type": ast.Constant(value=prop.property_type)}),
+            ]
+            if prop.group_type_index is not None:
+                conditions.append(
+                    parse_expr("group_type_index = {index}", {"index": ast.Constant(value=prop.group_type_index)})
+                )
+            matches.append(ast.And(exprs=conditions))
+        return [ast.Not(expr=ast.Or(exprs=matches))]
+
+
+property_definitions: _PropertyDefinitionsTable = _PropertyDefinitionsTable(
+    name="property_definitions",
+    postgres_table_name="posthog_propertydefinition",
+    access_scope="property_definition",
+    push_team_guard_with_predicates=True,
+    description="Properties known to the project for events, persons, groups, and sessions; one row per property name and type.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Property definition UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Property name, e.g. '$browser' or 'plan'."),
+        "_type": IntegerDatabaseField(name="type", hidden=True),
+        "type": ExpressionField(
+            name="type",
+            expr=ast.Call(
+                name="multiIf",
+                args=[
+                    *(
+                        arg
+                        for value, label in _PROPERTY_DEFINITION_TYPES.items()
+                        for arg in (
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["_type"]),
+                                right=ast.Constant(value=value),
+                            ),
+                            ast.Constant(value=label),
+                        )
+                    ),
+                    ast.Constant(value=None),
+                ],
+            ),
+            description="What the property describes: 'event', 'person', 'group', or 'session'.",
+        ),
+        "group_type_index": IntegerDatabaseField(
+            name="group_type_index",
+            nullable=True,
+            description="Group type index (0-4) for group properties; join to `system.group_type_mappings`. NULL for other types.",
+        ),
+        "property_type": StringDatabaseField(
+            name="property_type",
+            nullable=True,
+            description="Detected value type: 'String', 'Numeric', 'Boolean', 'DateTime', or 'Duration'. NULL if not detected yet.",
+        ),
+        "_is_numerical": BooleanDatabaseField(name="is_numerical", hidden=True),
+        "is_numerical": ExpressionField(
+            name="is_numerical",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_numerical"])]),
+            description="1 if the property's values can be used in numeric aggregations, 0 otherwise.",
+        ),
+        "tags": _definition_tags_lazy_join(property_definition_tagged_items),
     },
 )
 
@@ -3824,6 +4262,10 @@ class SystemTables(TableNode):
         "data_modeling_endpoints": TableNode(name="data_modeling_endpoints", table=endpoints),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+        "event_definitions": TableNode(name="event_definitions", table=event_definitions),
+        "_event_definition_tagged_items": TableNode(
+            name="_event_definition_tagged_items", table=event_definition_tagged_items, hidden=True
+        ),
         "error_tracking_assignment_rules": TableNode(
             name="error_tracking_assignment_rules", table=error_tracking_assignment_rules
         ),
@@ -3894,11 +4336,19 @@ class SystemTables(TableNode):
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
+        "property_definitions": TableNode(name="property_definitions", table=property_definitions),
+        "_property_definition_tagged_items": TableNode(
+            name="_property_definition_tagged_items", table=property_definition_tagged_items, hidden=True
+        ),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "revenue_analytics_config": TableNode(name="revenue_analytics_config", table=revenue_analytics_config),
         "scout_configs": TableNode(name="scout_configs", table=scout_configs),
         "scout_run_emissions": TableNode(name="scout_run_emissions", table=scout_run_emissions),
         "scout_runs": TableNode(name="scout_runs", table=scout_runs),
+        "_signal_spend_scout_runs": TableNode(
+            name="_signal_spend_scout_runs", table=signal_spend_scout_runs, hidden=True
+        ),
+        "signal_spend": TableNode(name="signal_spend", table=signal_spend),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),

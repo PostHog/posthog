@@ -38,6 +38,9 @@ async def _run_gate(source_config: dict, *, verdict: str = "NOT_ACTIONABLE", ext
         patch(f"{GATE_MODULE_PATH}.afetch_source_config", AsyncMock(return_value=source_config)),
         patch(f"{GATE_MODULE_PATH}.build_async_anthropic_client", return_value=client),
         patch(f"{GATE_MODULE_PATH}.resolve_ai_gateway_config", return_value=None),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+        patch("products.signals.backend.emission.pipeline.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.record_llm_spend"),
         patch(f"{GATE_MODULE_PATH}.capture_pipeline_stage") as capture,
     ):
         dropped = await steering_filters_signal(
@@ -162,7 +165,17 @@ class TestSteeringFiltersSignal:
 
 class TestEmitSignalWiring:
     @pytest.mark.asyncio
-    async def test_emit_signal_consults_the_gate_and_drops_a_filtered_signal_before_queueing(self):
+    @pytest.mark.parametrize(
+        "source_product,source_type",
+        [
+            ("error_tracking", "issue_created"),
+            ("analytics", "anomaly_investigation"),
+            ("analytics", "alert_firing"),
+        ],
+    )
+    async def test_emit_signal_consults_the_gate_and_drops_a_filtered_signal_before_queueing(
+        self, source_product: str, source_type: str
+    ):
         # The gate reaches production only through the membership check in `emit_signal`, whose
         # `(source_product, source_type)` tuple has to match the enum values the set is built from.
         team = _make_team()
@@ -172,13 +185,16 @@ class TestEmitSignalWiring:
             patch(f"{FACADE_MODULE_PATH}.SignalSourceConfig") as source_config,
             patch(f"{FACADE_MODULE_PATH}.posthoganalytics"),
             patch(f"{FACADE_MODULE_PATH}.async_connect", connect),
+            patch(f"{FACADE_MODULE_PATH}.complete_signal_pipeline"),
+            patch(f"{FACADE_MODULE_PATH}.finalized_signal_ids", return_value=set()),
+            patch(f"{FACADE_MODULE_PATH}.validate_signal_input", return_value=None),
             patch(f"{GATE_MODULE_PATH}.steering_filters_signal", AsyncMock(return_value=True)) as gate,
         ):
             source_config.is_source_enabled.return_value = True
             await emit_signal(
                 team=team,
-                source_product="error_tracking",
-                source_type="issue_created",
+                source_product=source_product,
+                source_type=source_type,
                 source_id="record-1",
                 description="Something happened",
                 extra={"fingerprint": "abc123"},

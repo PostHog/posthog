@@ -86,6 +86,7 @@ def clickhouse_error_type(e: Exception) -> str:
 
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
+CSV_ROW_NUMBER_PATTERN = re.compile(r"\(at row (\d+)\)")
 _ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 _WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
@@ -97,8 +98,9 @@ BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check funct
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
-    "This usually means the file wasn't written correctly during import. Re-sync the source (or "
-    "re-upload the file if you manage it yourself), and contact support if it keeps happening."
+    "This happens when the file is overwritten while it's being read, or when it wasn't written correctly. "
+    "Try again, and if it keeps happening, re-sync the source (or re-upload the file if you manage it "
+    "yourself). Contact support if that doesn't fix it."
 )
 
 
@@ -112,6 +114,31 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
         code=err.code,
         code_name="s3_file_changed_during_read",
     )
+
+
+def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalformedCsvRow":
+    row_match = CSV_ROW_NUMBER_PATTERN.search(err.message)
+    file_uris = STORAGE_FILE_URI_PATTERN.findall(err.message)
+    location = f" at row {row_match.group(1)}" if row_match else ""
+    if file_uris:
+        location += f" of {file_uris[-1]}"
+    return CHQueryErrorMalformedCsvRow(
+        f"A row in a CSV file backing this table is malformed{location}. "
+        "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
+        code=err.code,
+        code_name="malformed_csv_row",
+    )
+
+
+_ARROW_PARQUET_READER_THRIFT_ERROR = "deserialize thrift"
+_PARQUET_V3_READER_THRIFT_ERROR = "Failed to parse Parquet Thrift metadata"
+_PARQUET_V3_READER_THRIFT_ERROR_CODES = ("INCORRECT_DATA", "CANNOT_EXTRACT_TABLE_STRUCTURE")
+
+
+def _is_unparseable_parquet_metadata_error(code_name: str, message: str) -> bool:
+    if code_name == "STD_EXCEPTION":
+        return _ARROW_PARQUET_READER_THRIFT_ERROR in message
+    return code_name in _PARQUET_V3_READER_THRIFT_ERROR_CODES and _PARQUET_V3_READER_THRIFT_ERROR in message
 
 
 def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
@@ -199,11 +226,11 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
-    elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
-        # A Parquet file with corrupted or oversized thrift metadata (e.g.
-        # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
-        # ClickHouse surfaces this as a raw STD_EXCEPTION (code 1001), so translate it
-        # into an actionable message instead of leaking the internals.
+    elif name == "INCORRECT_DATA" and "Expected end of line" in err.message:
+        # A bad row in a self-managed CSV file. Table validation reads only the first rows, so a later
+        # bad row first shows up at query time. The raw message holds row contents, so it stays hidden.
+        return _wrap_malformed_csv_row_error(err)
+    elif _is_unparseable_parquet_metadata_error(name, err.message):
         return CHQueryErrorCorruptedParquetMetadata(
             CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
         )
@@ -313,6 +340,12 @@ class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
 
 class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
     """A Parquet file backing a warehouse table has corrupted or oversized thrift metadata."""
+
+    pass
+
+
+class CHQueryErrorMalformedCsvRow(ExposedCHQueryError):
+    """A row in a CSV file backing a warehouse table has the wrong shape."""
 
     pass
 

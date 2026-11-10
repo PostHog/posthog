@@ -11,8 +11,10 @@
                 "backend/max_tools.py",
                 "backend/tasks/**",
                 "backend/temporal/**",
+                "backend/signals.py",
                 "backend/models/**",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py"
             ],
             "outputs": [],
             "cache": true

@@ -5,7 +5,7 @@ description: 'Use when adding timers (`setInterval`, `setTimeout`), event listen
 
 # Using kea disposables
 
-Every kea logic in this repo has `cache.disposables` injected by `disposablesPlugin` from the [`kea-disposables`](https://github.com/PostHog/kea-disposables) package, registered globally in `frontend/src/initKea.ts` and in `frontend/src/toolbar/index.tsx`. Reach for it whenever you create a resource that needs explicit teardown — the plugin runs cleanup on unmount and automatically pauses background work when the tab is hidden.
+Every kea logic in this repo has `cache.disposables` injected by `disposablesPlugin` from the [`kea-disposables`](https://github.com/PostHog/kea-disposables) package, registered globally in `frontend/src/initKea.ts` and in `frontend/src/toolbar/floating/index.tsx`. Reach for it whenever you create a resource that needs explicit teardown — the plugin runs cleanup on unmount and automatically pauses background work when the tab is hidden.
 
 The package is maintained outside this repo, so a change to the plugin itself belongs there, not here. Types come from the package too: `import type { DisposablesManager } from 'kea-disposables'`.
 
@@ -153,7 +153,7 @@ showSeekIndicator: () => {
 },
 ```
 
-**Multiple keyed window listeners in one `afterMount`** — `frontend/src/toolbar/bar/toolbarLogic.ts:655-688`
+**Multiple keyed window listeners in one `afterMount`** — `frontend/src/toolbar/shared/bar/toolbarLogic.ts:655-688`
 
 ```ts
 cache.disposables.add(() => {

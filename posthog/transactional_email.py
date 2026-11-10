@@ -18,6 +18,10 @@ class TransactionalEmailRetryableError(Exception):
 class TransactionalEmailRejected(Exception):
     """The API rejected the email and requires caller intervention."""
 
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
 
 class TransactionalEmailDeliveryUncertain(Exception):
     """The API may have accepted the email; reconcile before retrying."""
@@ -90,7 +94,7 @@ def send_transactional_email(
             retry_after = None
         raise TransactionalEmailRetryableError("rate_limited", retry_after=retry_after)
     if 300 <= response.status_code < 500 and response.status_code != 408:
-        raise TransactionalEmailRejected(f"http_{response.status_code}")
+        raise TransactionalEmailRejected(f"http_{response.status_code}", code=_error_code(response))
     if response.status_code != 202:
         raise TransactionalEmailDeliveryUncertain(f"http_{response.status_code}")
 
@@ -102,3 +106,12 @@ def send_transactional_email(
     if not isinstance(message_id, str) or not message_id:
         raise TransactionalEmailDeliveryUncertain("invalid_response")
     return message_id
+
+
+def _error_code(response: requests.Response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    code = body.get("code") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None

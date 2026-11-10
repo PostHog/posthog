@@ -14,7 +14,7 @@ import dataclasses
 from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any, Optional
 
-from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
+from products.warehouse_sources.backend.facade.contracts import PersonPropertySyncProgress, RevenueViewSyncInput
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -324,6 +324,9 @@ class PersonPropertyBackfillActivityInputs:
     # Signal-with-start uses an empty workflow seed, then supplies the real activity input via its
     # start signal. The default preserves replay for executions started before that trigger existed.
     skip_initial_run: bool = False
+    # True when the workflow records a failed run itself. A workflow from before that change leaves it
+    # False, so the activity still records its own failure for it during a rolling deploy.
+    workflow_records_failure: bool = False
 
     @property
     def binding(self) -> WarehouseBinding:
@@ -339,6 +342,25 @@ class PersonPropertyBackfillActivityInputs:
             "schema_name": self.schema_name,
             "trigger": self.trigger,
         }
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertyFailedRunInputs:
+    """Payload the sync and backfill workflows send to record a run as failed once its activity
+    has given up. The activity cannot do this itself when it was timed out, cancelled or killed."""
+
+    team_id: int
+    schema_id: uuid.UUID | None
+    saved_query_id: uuid.UUID | None
+    job_id: str | None
+    trigger: str
+    started_at: str
+    error: str
+    count_failure: bool = True
+
+    @property
+    def binding(self) -> WarehouseBinding:
+        return _binding_from_ids(self.schema_id, self.saved_query_id)
 
 
 # --- Data-quality checks gate ---------------------------------------------------------
@@ -411,6 +433,7 @@ class PersonPropertySyncRunRecord:
     produced: int
     skipped_missing_person: int
     error: str | None
+    count_failure: bool = True
 
 
 PersonPropertySyncRecorder = Callable[[PersonPropertySyncRunRecord], None]
@@ -426,3 +449,18 @@ def record_person_property_sync_run(record: PersonPropertySyncRunRecord) -> None
     if _person_property_sync_recorder is None:
         return
     _person_property_sync_recorder(record)
+
+
+PersonPropertySyncProgressRecorder = Callable[[PersonPropertySyncProgress], None]
+_person_property_sync_progress_recorder: Optional[PersonPropertySyncProgressRecorder] = None
+
+
+def register_person_property_sync_progress_recorder(fn: PersonPropertySyncProgressRecorder) -> None:
+    global _person_property_sync_progress_recorder
+    _person_property_sync_progress_recorder = fn
+
+
+def record_person_property_sync_progress(progress: PersonPropertySyncProgress) -> None:
+    if _person_property_sync_progress_recorder is None:
+        return
+    _person_property_sync_progress_recorder(progress)

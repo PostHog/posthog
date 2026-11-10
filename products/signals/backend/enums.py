@@ -25,6 +25,7 @@ class ReportTaskActionKind(LabeledStrEnum):
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
+    ASK = "ask", "Ask"
 
 
 class ReviewerSelectionOutcome(LabeledStrEnum):
@@ -38,6 +39,15 @@ class ReviewerEditAction(LabeledStrEnum):
     REMOVE = "remove", "Remove"
     REPLACE = "replace", "Replace"
     CONFIRM = "confirm", "Confirm"
+
+
+class ReviewerRemovalReason(LabeledStrEnum):
+    # Why a person removed a reviewer. Each value leads to a different instruction for research and the
+    # scouts, so a new value needs its own guidance in `reviewer_correction_notes`.
+    WRONG_AREA = "wrong_area", "Not their area"
+    ALREADY_COVERED = "already_covered", "Someone else is on it"
+    UNAVAILABLE = "unavailable", "No bandwidth"
+    OTHER = "other", "Other"
 
 
 class ReportLinkKind(LabeledStrEnum):
@@ -72,9 +82,11 @@ class SuggestedSourceProduct(LabeledStrEnum):
 class ReportLinkWritePath(StrEnum):
     # Which surface wrote a `report_link`. `EMIT` writes it with the report, before auto-start reads
     # the link gates. `EDIT` writes it on a report that exists, possibly after auto-start ran.
+    # `MERGE` writes the `duplicate_of` link when the merge endpoint folds a report into another.
     EMIT = "emit"
     EDIT = "edit"
     PIPELINE = "pipeline"
+    MERGE = "merge"
 
 
 class SignalSourceProduct(StrEnum):
@@ -92,6 +104,8 @@ class SignalSourceProduct(StrEnum):
     # A report check that failed after its report was resolved. Not a source a team connects:
     # the inbox emits it to itself so a fix that stopped holding starts a fresh report.
     SIGNALS_CHECK = "signals_check"
+    # A report a project member filed by hand through the report API. Not a source a team connects.
+    USER_AUTHORED = "user_authored"
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
@@ -231,6 +245,7 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
     ANOMALY_INVESTIGATION = "anomaly_investigation"
+    ALERT_FIRING = "alert_firing"
     FEEDBACK = "feedback"
     REVIEW = "review"
     CI_FLAKY_CHECK = "ci_flaky_check"
@@ -238,6 +253,7 @@ class SignalSourceType(StrEnum):
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
     CHECK_FAILED = "check_failed"
+    MONITORING_UNRESOLVED = "monitoring_unresolved"
     INCIDENT = "incident"
 
 
@@ -260,6 +276,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.PGANALYZE: "pganalyze",
     SignalSourceProduct.SIGNALS_SCOUT: "Signals scout",
     SignalSourceProduct.SIGNALS_CHECK: "Report check",
+    SignalSourceProduct.USER_AUTHORED: "Team member",
     SignalSourceProduct.LOGS: "Logs",
     SignalSourceProduct.HEALTH_CHECKS: "Health checks",
     SignalSourceProduct.ENDPOINTS: "Endpoints",

@@ -19,6 +19,8 @@
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
+mod support;
+
 use std::collections::HashSet;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
@@ -65,13 +67,14 @@ use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde_json::json;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+
+use support::{bootstrap_servers, consume_all};
 
 const TEAM: i32 = 7;
 const HASH: [u8; 16] = *b"0123456789abcdef";
@@ -85,10 +88,6 @@ const RECV_TIMEOUT: Duration = Duration::from_millis(200);
 const COHORT_SINGLE: i32 = 1;
 const COHORT_DAILY: i32 = 2;
 const COHORT_REF: i32 = 3;
-
-fn bootstrap_servers() -> String {
-    std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
-}
 
 /// Cohort 1: `performed_event` single. Cohort 2: `performed_event_multiple gte 2` daily.
 /// Cohort 3: pure cohort-ref to cohort 2, frozen with `freeze_with(UTC, true)` so it owns no
@@ -314,38 +313,6 @@ fn topic_message_count(topic: &str) -> i64 {
             high - low
         })
         .sum()
-}
-
-/// Read up to `expected` messages (all partitions from the beginning). Assigned explicitly — no group
-/// join, no commit — so committed offsets the test asserts on are never perturbed.
-async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i32, Vec<u8>)> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", bootstrap_servers())
-        .set("group.id", format!("scan-verifier-{}", Uuid::new_v4()))
-        .set("enable.auto.commit", "false")
-        .create()
-        .expect("create scan verifier");
-    let mut tpl = TopicPartitionList::new();
-    for partition in 0..NUM_PARTITIONS {
-        tpl.add_partition_offset(topic, partition, Offset::Beginning)
-            .expect("add partition to scan TPL");
-    }
-    consumer.assign(&tpl).expect("assign scan verifier");
-
-    let mut messages = Vec::new();
-    let start = Instant::now();
-    while messages.len() < expected && start.elapsed() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), consumer.recv()).await {
-            Ok(Ok(message)) => {
-                if let Some(payload) = message.payload() {
-                    messages.push((message.partition(), payload.to_vec()));
-                }
-            }
-            Ok(Err(err)) => panic!("scan verifier recv error: {err}"),
-            Err(_) => {}
-        }
-    }
-    messages
 }
 
 async fn shadow_changes(topic: &str, expected: usize) -> Vec<CohortMembershipChange> {
@@ -1164,10 +1131,10 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         // The followers resume past the merge on P_old's partition and the transfer on P_new's.
         let merge_resume = restore
             .plan()
-            .positions(&InputTopic::new(topics.merges.as_str()), &admitted.ownership());
+            .positions(&InputTopic::new(topics.merges.as_str()));
         let transfer_resume = restore
             .plan()
-            .positions(&InputTopic::new(topics.transfers.as_str()), &admitted.ownership());
+            .positions(&InputTopic::new(topics.transfers.as_str()));
         assert!(
             merge_resume.get(&part(p_old)).map(|offset| offset.get()) >= Some(1),
             "the merge follower resumes past the merge on P_old's partition: {merge_resume:?}",

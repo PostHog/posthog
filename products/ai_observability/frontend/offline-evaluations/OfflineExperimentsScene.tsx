@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { ProductEmptyStateGate } from 'lib/components/ProductEmptyState/ProductEmptyStateGate'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AIObservabilityDatasetsScene } from '../datasets/AIObservabilityDatasetsScene'
+import { datasetsEmptyState } from '../emptyState/datasetsEmptyState'
 import { offlineEvaluationsLogic } from './offlineEvaluationsLogic'
 import { OfflineEvaluationsScene } from './OfflineEvaluationsScene'
 import { OfflineEvaluationsTabs } from './OfflineEvaluationsTabs'
@@ -39,7 +41,7 @@ export function OfflineExperimentsScene(): JSX.Element {
             : experimentsDisabledReason ||
               (!currentTeam || !user ? 'Offline evaluations are not available in this project.' : undefined)
     const navigation = <OfflineEvaluationsTabs activeTab={activeTab} />
-    return (
+    const content = (
         <OfflineEvaluationsScene>
             {activeTabDisabledReason ? (
                 <>
@@ -61,5 +63,11 @@ export function OfflineExperimentsScene(): JSX.Element {
                 )
             )}
         </OfflineEvaluationsScene>
+    )
+
+    return activeTab === 'datasets' && !activeTabDisabledReason ? (
+        <ProductEmptyStateGate emptyState={datasetsEmptyState}>{content}</ProductEmptyStateGate>
+    ) : (
+        content
     )
 }

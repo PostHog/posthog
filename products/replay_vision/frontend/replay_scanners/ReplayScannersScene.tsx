@@ -37,23 +37,26 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { VisionDocsLink } from '../components/DocsLink'
 import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
+import { RecordingsBlockBanner } from '../components/RecordingsBlockBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
+import { RECORDINGS_BLOCK_CAUSE, replayRecordingsLogic } from '../logics/replayRecordingsLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationSearch } from '../search/ObservationSearch'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { HIGHLIGHTS_TAB } from '../utils/breadcrumbs'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { CreateScannerButton } from './components/CreateScannerButton'
+import { HighlightFeedTab } from './components/HighlightFeedTab'
 import { QuillCreateScannerButton } from './components/QuillCreateScannerButton'
 import { ScannerStatusLabel } from './components/ScannerStatusLabel'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
-import { WatchFeedTab } from './components/WatchFeedTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
-import { limitReachedTooltip } from './scannerCopy'
+import { UNRUNNABLE_DETAIL, limitReachedTooltip } from './scannerCopy'
 import { scannerStatus } from './scannerStatus'
 import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
 
@@ -160,8 +163,8 @@ function FieldGuideBanner(): JSX.Element | null {
     )
 }
 
-const KNOWN_TABS: string[] = ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
-const DEFAULT_TAB = 'watch'
+const KNOWN_TABS: string[] = [HIGHLIGHTS_TAB, 'scanners', ReplayScannerTab.Search, 'usage']
+const DEFAULT_TAB = HIGHLIGHTS_TAB
 
 export const scene: SceneExport = {
     component: ReplayScannersScene,
@@ -193,6 +196,7 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { showUsd, quota } = useValues(visionQuotaLogic)
     const quotaExhausted = quotaBannerState(quota).kind === 'exhausted'
+    const { recordingsBlock } = useValues(replayRecordingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const activeTab = KNOWN_TABS.includes(searchParams.tab) ? searchParams.tab : DEFAULT_TAB
@@ -218,13 +222,19 @@ export function ReplayScannersScene(): JSX.Element {
             title: 'Status',
             key: 'enabled',
             render: (_, scanner) => {
-                const status = scannerStatus(scanner, { quotaExhausted, drought: null })
+                const status = scannerStatus(scanner, { quotaExhausted, drought: null, recordingsBlock })
                 const tooltip =
                     status.kind === 'limit_reached'
                         ? limitReachedTooltip(scanner)
                         : status.kind === 'quota_exhausted'
                           ? "Your organization's Replay Vision credits are used up for this billing period."
-                          : null
+                          : status.kind === 'no_ai_consent' || status.kind === 'creator_lost_access'
+                            ? UNRUNNABLE_DETAIL[status.kind]
+                            : status.kind === 'replay_off'
+                              ? `${RECORDINGS_BLOCK_CAUSE['replay-off']}.`
+                              : status.kind === 'no_recordings'
+                                ? `${RECORDINGS_BLOCK_CAUSE['no-recordings']}.`
+                                : null
                 return (
                     <Tooltip title={tooltip}>
                         {/* The tooltip attaches its trigger to a DOM element, which the label component is not. */}
@@ -315,6 +325,7 @@ export function ReplayScannersScene(): JSX.Element {
             />
 
             <IngestionLimitBanner />
+            <RecordingsBlockBanner />
 
             <FieldGuideBanner />
 
@@ -322,15 +333,19 @@ export function ReplayScannersScene(): JSX.Element {
                 activeKey={activeTab}
                 onChange={(tab) => push(urls.replayVision(), tab === DEFAULT_TAB ? {} : { tab })}
                 tabs={[
-                    { key: 'watch', label: 'What to watch', content: <></> },
+                    {
+                        key: HIGHLIGHTS_TAB,
+                        label: 'Highlights',
+                        content: <></>,
+                    },
                     { key: 'scanners', label: 'Scanners', content: <></> },
                     { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },
                 ]}
             />
 
-            {activeTab === 'watch' ? (
-                <WatchFeedTab />
+            {activeTab === HIGHLIGHTS_TAB ? (
+                <HighlightFeedTab />
             ) : activeTab === ReplayScannerTab.Search ? (
                 <ObservationSearch className="mt-2 w-4/5 mx-auto" />
             ) : activeTab === 'usage' ? (

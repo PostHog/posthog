@@ -51,6 +51,7 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
+from hogli_commands.ownership_lint import OWNERSHIP_FILE_GLOBS, TEST_FILE_GLOBS, check_test_owners
 from hogli_commands.preflight_checks import (
     SEMGREP_SCOPE,
     SNAPSHOT_MANIFEST,
@@ -173,6 +174,13 @@ DIFF_CHECKS: list[DiffCheck] = [
         soft=True,
     ),
     DiffCheck(
+        key="test-owners",
+        label="test ownership (new directory of unowned tests, or a stale baseline entry)",
+        triggers=[*TEST_FILE_GLOBS, *OWNERSHIP_FILE_GLOBS],
+        verify=None,
+        run=check_test_owners,
+    ),
+    DiffCheck(
         key="ruff-format",
         label="Python format (ruff format)",
         triggers=["*.py"],
@@ -218,7 +226,7 @@ DIFF_CHECKS: list[DiffCheck] = [
         # changed-file subset both blames files outside the diff and misses reverse-dependency
         # breakage), and that costs minutes cold. Naming the command lets the agent judge.
         verify=None,
-        advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
+        advice="a type error costs a full CI re-run — consider `uv run mypy .` (what CI runs)",
     ),
     DiffCheck(
         key="django-template-format",
@@ -293,6 +301,39 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("python-env",),
     ),
     DiffCheck(
+        key="frontend-layers",
+        label="new static import from a lower frontend layer into a higher one",
+        triggers=[
+            "frontend/src/*",
+            "frontend/@posthog/*",
+            "products/*/frontend/*",
+            "common/*",
+            "packages/*",
+            "frontend/bin/layers.mjs",
+            "frontend/bin/layer-baseline.txt",
+        ],
+        verify=["hogli", "lint:frontend-layers"],
+        # Prune, never update: --update-baseline would grandfather the upward import the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:frontend-layers", "--prune-baseline"],
+        requires=("node",),
+    ),
+    DiffCheck(
+        key="frontend-css-coupling",
+        label="new component that uses a stylesheet's class without importing the stylesheet",
+        triggers=[
+            "frontend/src/*",
+            "products/*/frontend/*",
+            "frontend/bin/cssCoupling.mjs",
+            "frontend/bin/css-coupling-baseline.txt",
+        ],
+        verify=["hogli", "lint:frontend-css-coupling"],
+        # Prune, never update: --update-baseline would grandfather the coupling the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:frontend-css-coupling", "--prune-baseline"],
+        requires=("node",),
+    ),
+    DiffCheck(
         key="workflow-lint",
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
@@ -360,6 +401,13 @@ DIFF_CHECKS: list[DiffCheck] = [
         run=check_semgrep_devex,
     ),
     DiffCheck(
+        key="new-ee-files",
+        label="new file under ee/ (needs human approval)",
+        triggers=["ee/*"],
+        verify=["python", ".github/scripts/check-no-new-ee-files.py"],
+        takes_diff_scope=True,
+    ),
+    DiffCheck(
         key="cross-lane",
         label="Python or frontend changes mixed with Node or Rust changes (fails CI without a label)",
         triggers=["*"],
@@ -378,9 +426,9 @@ DIFF_CHECKS: list[DiffCheck] = [
 ]
 
 
-# A change under these paths can fail .github/workflows/ci-backend-shadow-drift.yml, which runs
+# A change under these paths can fail .github/workflows/ci-depot-action-mirrors.yml, which runs
 # the same depot_mirrors check. Running it here lands the failure pre-push instead of in CI.
-SHADOW_DRIFT_TRIGGERS = [".github/workflows/ci-backend.yml", ".github/actions/**", ".depot/**"]
+DEPOT_MIRROR_TRIGGERS = [".github/actions/**", ".depot/**"]
 
 
 def _has_node_modules() -> bool:
@@ -864,7 +912,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
         # A check that can only warn is not worth its run time in the pre-push hook.
         if chk.matched and not (strict and chk.soft and chk.run is not None):
             triggered.append(chk)
-    shadow_drift_triggered = any(matches_globs(path, SHADOW_DRIFT_TRIGGERS) for path in files)
+    depot_mirrors_triggered = any(matches_globs(path, DEPOT_MIRROR_TRIGGERS) for path in files)
 
     results: list[dict[str, Any]] = []
     failures = 0
@@ -888,15 +936,15 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
         click.secho(f"   {_ICON[depth_status]} [stack-depth] open layers in this gh stack", fg=_COLOR[depth_status])
         click.echo(f"       {depth_detail}")
 
-    if shadow_drift_triggered:
+    if depot_mirrors_triggered:
         violations = mirror_violations(REPO_ROOT, set(files))
         drift_status: Status = "fail" if violations else "pass"
         drift_detail = " · ".join(violations[:3]) if violations else "depot mirrors in sync"
         failures += drift_status == "fail"
-        results.append({"check": "shadow-drift", "status": drift_status, "files": 1, "detail": drift_detail})
+        results.append({"check": "depot-mirrors", "status": drift_status, "files": 1, "detail": drift_detail})
         if not as_json:
             click.secho(
-                f"   {_ICON[drift_status]} [shadow-drift] depot shadow drift (.depot mirrors of backend CI)",
+                f"   {_ICON[drift_status]} [depot-mirrors] depot action mirrors (.depot/actions)",
                 fg=_COLOR[drift_status],
             )
             click.echo(f"       {drift_detail}")
@@ -914,7 +962,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
 
     summary = {
         "changed_files": len(files),
-        "triggered": (["shadow-drift"] if shadow_drift_triggered else []) + [c.key for c in triggered],
+        "triggered": (["depot-mirrors"] if depot_mirrors_triggered else []) + [c.key for c in triggered],
         "failures": failures,
         "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
@@ -924,7 +972,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
     if as_json:
         click.echo(json.dumps(summary))
     else:
-        if not triggered and not shadow_drift_triggered:
+        if not triggered and not depot_mirrors_triggered:
             click.secho("   ✓ Nothing in this diff maps to a known CI failure class.", fg="green")
         click.echo()
         click.echo(

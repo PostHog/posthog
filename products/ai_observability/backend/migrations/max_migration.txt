@@ -1,1 +1,1 @@
-0067_scorer_short_name
+0076_squash_2026_11_02_schema_addons

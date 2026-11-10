@@ -410,6 +410,8 @@ export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object
 
 export const accountsNotebooksCreateBodyTitleMax = 256
 
+export const accountsNotebooksCreateBodyTagsItemMax = 255
+
 export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod
         .string()
@@ -423,7 +425,27 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
             'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook.'
         ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+    tags: zod
+        .array(zod.string().max(accountsNotebooksCreateBodyTagsItemMax))
+        .optional()
+        .describe('Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.'),
 })
+
+/**
+ * Replace the tags of an account notebook. Omit `tags` to leave them as they are.
+ */
+export const accountsNotebooksPartialUpdateBodyTagsItemMax = 255
+
+export const AccountsNotebooksPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        tags: zod
+            .array(zod.string().max(accountsNotebooksPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe("Replaces the notebook's tags. Omit to leave them untouched."),
+    })
+    .describe(
+        "Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,\nsince a note's title comes from its first line."
+    )
 
 export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -431,6 +453,13 @@ export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
         user: zod.number().describe("PostHog user id of the assignee. Must be a member of the account's organization."),
     })
     .describe('Input for assigning a user to an account relationship.')
+
+/**
+ * Run an account-user table query. Requires query, account, and person read scopes.
+ */
+export const AccountsPersonsQueryCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const accountsUpdateBodyNameMax = 400
 
@@ -1119,8 +1148,6 @@ export const customerTasksUpdateBodyNameMax = 400
 
 export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
     account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
-    name: zod.string().max(customerTasksUpdateBodyNameMax).describe('Replacement task name.'),
-    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
     due_at: zod.iso
         .datetime({ offset: true })
@@ -1135,14 +1162,14 @@ export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    name: zod.string().max(customerTasksUpdateBodyNameMax).describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
 })
 
 export const customerTasksPartialUpdateBodyNameMax = 400
 
 export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
     account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
-    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
-    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
     due_at: zod.iso
         .datetime({ offset: true })
@@ -1157,6 +1184,41 @@ export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
+})
+
+/**
+ * Update selected tasks in one transaction. No tasks change if any task fails validation.
+ */
+export const customerTasksBulkUpdateCreateBodyTaskIdsMax = 100
+
+export const CustomerTasksBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
+    task_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(customerTasksBulkUpdateCreateBodyTaskIdsMax)
+        .describe('UUIDs of up to 100 tasks to update together.'),
+    updates: zod
+        .object({
+            account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
+            assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+            due_at: zod.iso
+                .datetime({ offset: true })
+                .nullish()
+                .describe('Replacement ISO 8601 deadline, or null to clear it.'),
+            status: zod
+                .enum(['open', 'in_progress', 'completed', 'canceled'])
+                .describe(
+                    '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+                )
+                .optional()
+                .describe(
+                    'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+                ),
+            archived: zod.boolean().optional().describe('Archive tasks when true, or restore them when false.'),
+        })
+        .describe('Changes to apply to every selected task.'),
 })
 
 /**

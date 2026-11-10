@@ -43,6 +43,7 @@ from posthog.api.integration import (
     GitHubReposQuerySerializer,
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
+    external_page_links,
     github_rate_limited_response,
     github_repos_page,
     validate_github_repository_name,
@@ -61,8 +62,11 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_Q,
@@ -306,6 +310,9 @@ class UserSlackLinkableWorkspaceListResponseSerializer(serializers.Serializer):
 class UserIntegrationViewSet(viewsets.GenericViewSet):
     """`/api/users/@me/integrations/` — manage the user's personal GitHub integrations."""
 
+    # Only these actions read organization-owned installs; their targets are resolved inside the action.
+    _ip_restrictions_use_view_scope = frozenset({"github_start", "slack_start", "slack_linkable"})
+
     scope_object = "user"
     required_scopes: list[str] | None = None
     scope_object_read_actions = [
@@ -389,10 +396,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             return set()
 
         installation_ids: set[str] = set()
-        for ti in Integration.objects.filter(team=team, kind="github").values("integration_id"):
-            iid = ti["integration_id"]
-            if iid:
-                installation_ids.add(str(iid))
+        for ti in IntegrationManager.github.oauth.list(team.id):
+            if ti.integration_id:
+                installation_ids.add(str(ti.integration_id))
         return installation_ids
 
     @extend_schema(
@@ -514,6 +520,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         return Response(
             github_repos_page(
+                request,
                 UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.CRITICAL),
                 query_serializer.validated_data,
             )
@@ -576,7 +583,15 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             offset=offset,
         )
 
-        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+        next_offset = offset + limit if has_more else None
+        return Response(
+            {
+                "branches": branches,
+                "default_branch": default_branch,
+                "has_more": has_more,
+                **external_page_links(request, offset=offset, limit=limit, next_offset=next_offset),
+            }
+        )
 
     @extend_schema(
         summary="List the user's GitHub install-approval requests",
@@ -756,6 +771,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         candidates = (
             Integration.objects.filter(kind="slack", team__organization_id__in=org_ids)
+            .exclude(team__organization_id__in=get_ip_blocked_organization_ids(request))
             .exclude(integration_id__in=already_linked_slack_team_ids)
             .select_related("team", "team__organization")
         )
@@ -824,10 +840,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         # the resolved team (the simple "Link my Slack account" path).
         body: Any = request.data if isinstance(request.data, dict) else {}
         slack_team_id_hint = body.get("slack_team_id")
-        workspace_query = Integration.objects.filter(team=team, kind="slack")
-        if slack_team_id_hint:
-            workspace_query = workspace_query.filter(integration_id=slack_team_id_hint)
-        workspace = workspace_query.first()
+        workspace = IntegrationManager.slack.oauth.find(
+            team.id, external_id=str(slack_team_id_hint) if slack_team_id_hint else None
+        )
         if workspace is None:
             raise exceptions.ValidationError(
                 "This project has no Slack workspace connected. Ask an admin to install the Slack app first."
@@ -845,7 +860,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         install_url = build_invite_url(
             slack_user_id=None,
-            slack_team_id=workspace.integration_id,
+            slack_team_id=workspace.integration_id or "",
             posthog_team_id=team.id,
             channel=None,
             thread_ts=None,
@@ -923,7 +938,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         return disconnect_codex_integration(user)
 
 
-def _resolve_team_for_github_start(user: User, request: Request):
+def _resolve_team_for_github_start(user: User, request: Request) -> "Team | None":
     """Resolve which team to use for team-level GitHub install discovery.
 
     PostHog Desktop passes ``team_id`` (project/team) in the JSON body because the
@@ -934,16 +949,20 @@ def _resolve_team_for_github_start(user: User, request: Request):
     if not isinstance(data, dict):
         data = {}
     raw_id = data.get("team_id")
+    team = user.current_team
     if raw_id is not None and raw_id != "":
         try:
             tid = int(raw_id)
         except (TypeError, ValueError):
             raise exceptions.ValidationError("team_id must be an integer")
-        team = user.teams.filter(id=tid).first()
-        if team is None:
-            raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
-        return team
-    return user.current_team
+        team = Team.objects.filter(id=tid, organization_id__in=UserPermissions(user).organization_memberships).first()
+    if team is not None:
+        enforce_ip_restrictions(
+            request, user, request.successful_authenticator, organization_id=str(team.organization_id)
+        )
+    if raw_id is not None and raw_id != "" and (team is None or not user.teams.filter(id=team.id).exists()):
+        raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
+    return team
 
 
 def _has_unlinked_github_installations(user: User) -> bool | None:
@@ -969,14 +988,8 @@ def _has_unlinked_github_installations(user: User) -> bool | None:
 def _team_github_installation_id(team: Any) -> str | None:
     if team is None:
         return None
-    team_row = (
-        Integration.objects.filter(team=team, kind="github")
-        .exclude(integration_id__isnull=True)
-        .exclude(integration_id="")
-        .order_by("id")
-        .first()
-    )
-    return str(team_row.integration_id) if team_row is not None and team_row.integration_id else None
+    team_row = next((row for row in IntegrationManager.github.oauth.list(team.id) if row.integration_id), None)
+    return str(team_row.integration_id) if team_row is not None else None
 
 
 def _attempt_app_oauth_fast_path(

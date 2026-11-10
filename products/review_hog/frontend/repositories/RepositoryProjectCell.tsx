@@ -3,13 +3,47 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
+import type {
+    AutomaticFlashForEnumApi,
+    ReviewInstallationApi,
+    ReviewRepositoryOverviewEntryApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
 import { FLASH_FOR_OPTIONS, canTakeFromOtherProject, projectName } from './repositoryChoices'
+import { RepositoryDraftsSwitch } from './RepositoryDraftsSwitch'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 import { RuleControls } from './RuleControls'
 import { RuleStateIcon } from './RuleStateIcon'
+
+/** Any member may include a repository nobody claims yet under a "selected" claim. Taking one stays with admins. */
+function canIncludeRepository(
+    entry: ReviewRepositoryOverviewEntryApi,
+    installation: ReviewInstallationApi | null,
+    canEdit: boolean,
+    takeable: boolean
+): boolean {
+    if (entry.owner === 'none') {
+        return canEdit || installation?.scope === 'selected'
+    }
+    return canEdit && takeable
+}
+
+/** Below "everyone" the button turns the repository on, which any member may do. At "everyone" an
+ * exception can only narrow the repository, so only admins get the button. */
+function addExceptionCopy(
+    name: string,
+    projectFlashFor: AutomaticFlashForEnumApi,
+    canEdit: boolean
+): { label: string; ariaLabel: string } | null {
+    if (projectFlashFor !== 'everyone') {
+        return { label: 'Turn on', ariaLabel: `Turn on automatic reviews for ${name}` }
+    }
+    if (!canEdit) {
+        return null
+    }
+    return { label: 'Exception', ariaLabel: `Add exception for ${name}` }
+}
 
 /** The project side of one repository: whether this project reviews it, and its exception if any. */
 export function RepositoryProjectCell({
@@ -34,8 +68,10 @@ export function RepositoryProjectCell({
     const name = entry.full_name
     const savingReason = busyRepositories.includes(name) ? 'Saving…' : undefined
     const takeable = canTakeFromOtherProject(entry, installation)
-    const canInclude = canEdit && (entry.owner === 'none' || takeable)
+    const canInclude = canIncludeRepository(entry, installation, canEdit, takeable)
     const canRemove = canEdit && entry.in_project && entry.selected && installation?.scope !== 'all'
+    // An exception row puts the switch on the line of its select, so each row keeps one draft control.
+    const draftsOnStatusLine = entry.in_project && entry.exception === null
 
     const include = (): void => {
         if (!takeable) {
@@ -63,18 +99,18 @@ export function RepositoryProjectCell({
     } else if (entry.exception === null) {
         // A row on the project rule carries no text, only the project icon: the project default above says the rest once.
         const projectRule = FLASH_FOR_OPTIONS.find((option) => option.value === projectFlashFor)?.label
-        const addExceptionButton = canEdit ? (
+        const addCopy = addExceptionCopy(name, projectFlashFor, canEdit)
+        const addExceptionButton = addCopy ? (
             <LemonButton
                 size="xsmall"
                 type="secondary"
                 icon={<IconPlus />}
-                tooltip="Add an exception, starting from the project default"
-                aria-label={`Add exception for ${name}`}
+                aria-label={addCopy.ariaLabel}
                 onClick={() => addException(entry)}
                 disabledReason={savingReason}
                 data-attr="review-hog-repository-add-exception"
             >
-                Exception
+                {addCopy.label}
             </LemonButton>
         ) : null
         status = (
@@ -97,8 +133,9 @@ export function RepositoryProjectCell({
             {(status || canInclude || canRemove) && (
                 <div className="flex min-h-7 flex-wrap items-center gap-2">
                     {status}
-                    {(canInclude || canRemove) && (
-                        <span className="ml-auto flex items-center gap-1">
+                    {(canInclude || canRemove || draftsOnStatusLine) && (
+                        <span className="ml-auto flex items-center gap-2">
+                            {draftsOnStatusLine && <RepositoryDraftsSwitch entry={entry} />}
                             {canInclude ? (
                                 <LemonButton
                                     size="xsmall"
@@ -137,9 +174,12 @@ export function RepositoryProjectCell({
                     onAddPerson={(userId, kind) => addExceptionPerson(entry, userId, kind)}
                     onRemovePerson={(person) => removeExceptionPerson(entry, person)}
                     tag={
-                        <LemonTag type="warning" size="small">
-                            Exception
-                        </LemonTag>
+                        <span className="flex items-center gap-2">
+                            <LemonTag type="warning" size="small">
+                                Exception
+                            </LemonTag>
+                            <RepositoryDraftsSwitch entry={entry} />
+                        </span>
                     }
                     removeException={canEdit ? { projectFlashFor, onRemove: () => clearException(entry) } : undefined}
                     dataAttr="review-hog-repository-flash-for"
