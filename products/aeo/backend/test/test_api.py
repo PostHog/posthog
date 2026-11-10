@@ -841,6 +841,24 @@ class TestAEOPromptAPI(APIBaseTest):
         ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_rankings_rank_a_target_domain_labeled_competitor_once_as_the_target(self) -> None:
+        ids = self._import_prompts([{"prompt": "funnels?"}])
+        with team_scope(self.team.pk):
+            for name, domain in (("Example", "example.com"), ("Acme", "acme.co.uk")):
+                AEOBrand.objects.create(
+                    team=self.team, name=name, domain=domain, kind="competitor", status="confirmed", source="manual"
+                )
+        self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=10, answer_text="Example and Acme.")
+
+        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
+            rankings = self.client.get(f"{self.url}rankings/").json()
+
+        assert [(row["domain"], row["is_target"], row["answers_mentioning"]) for row in rankings["brands"]] == [
+            ("acme.co.uk", False, 1),
+            ("example.com", True, 1),
+        ]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_fallback_skips_brands_ignored_or_labeled_otherwise(self) -> None:
         ids = self._import_prompts([{"prompt": "funnels?"}])
         with team_scope(self.team.pk):

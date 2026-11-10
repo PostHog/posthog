@@ -140,7 +140,10 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
     citations = _Citations(resolve_effective_team_id(team_id), since=window_start, until=until)
     ranked_domains = citations.ranked_domains()
     # Competitors a person confirmed in the brand catalog win; until there are any, derive them from citations.
-    confirmed = _confirmed_competitors(team_id)
+    # Our own domains always rank as the target, even when someone labeled one a competitor.
+    confirmed = {
+        domain: aliases for domain, aliases in _confirmed_competitors(team_id).items() if domain not in targets
+    }
     competitors = list(confirmed) or _competitors(
         ranked_domains, targets, brand_names(target_domains), catalog_excluded=_catalog_exclusions(team_id)
     )
