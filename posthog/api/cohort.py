@@ -90,7 +90,7 @@ from posthog.models.activity_logging.activity_page import (
     parse_activity_page_params,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TTL_DAYS
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import (
@@ -1023,7 +1023,7 @@ _FLAG_CALL_CRITERION_TYPE_REASON = (
     'Only "Completed event", "Did not complete event" and "Completed an event multiple times" can use this event.'
 )
 _FLAG_CALL_WINDOW_REASON = (
-    f"PostHog keeps this event for {FLAG_EVALUATIONS_TTL_DAYS} days, so pick a range relative to today that goes back "
+    f"PostHog keeps this event for {FLAG_EVALUATIONS_RETENTION_DAYS} days, so pick a range relative to today that goes back "
     f'{_MAX_FLAG_CALL_LOOKBACK_HOURS // 24} days or less, such as "Last 30 days".'
 )
 _FLAG_CALL_KEY_REASON = (

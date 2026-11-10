@@ -548,6 +548,9 @@ class LazyTable(Table):
 class LazyTableToAdd:
     lazy_table: LazyTable
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+    # The names in `fields_accessed` whose column holds what `toJSONString` of the chain returns, so that the outer
+    # read does not serialize it again. Lazy table resolution adds them only for `EventsWithFlagCallsTable`.
+    json_text_fields: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)

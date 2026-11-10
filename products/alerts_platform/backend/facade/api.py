@@ -7,13 +7,16 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertReceiverEdit,
+    AlertRouteEdit,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
@@ -35,11 +38,14 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
     StoredAlertDestination,
+    StoredAlertReceiver,
+    StoredAlertRoute,
     VerdictChange,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic import (
     alert_destinations,
+    alert_routing,
     delivery_holds,
     destination_sends,
     platform_lifecycle,
@@ -206,6 +212,27 @@ def list_configurations(
     )
 
 
+def native_configuration_keys(
+    *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
+) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, id)` of every alert of a kind with no source row, newest first. A source that keeps
+    rows for its other alerts pages the two together on these, then reads only the page with
+    `list_configurations`. With `created_by_uuid`, only the ones that user created."""
+    return platform_reads.native_configuration_keys(
+        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
+    )
+
+
+def native_configuration_ids(
+    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+) -> tuple[UUID, ...]:
+    """Ids of the team's alerts of a kind with no source row whose `source_config[key]` is one of
+    `values`, such as the alerts on a set of insights."""
+    return platform_reads.native_configuration_ids(
+        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
+    )
+
+
 def count_configurations(
     *,
     team_id: int,
@@ -325,27 +352,41 @@ def update_configuration(
     source_kinds: Sequence[str],
     configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
+    With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
     """
     return platform_writes.update_configuration(
-        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, change=change
+        team_id=team_id,
+        source_kinds=source_kinds,
+        configuration_id=configuration_id,
+        change=change,
+        snooze_until=snooze_until,
+        snooze_changed=snooze_changed,
     )
 
 
 def create_configuration(
-    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    edit: PlatformAlertConfigurationEdit,
+    created_by_id: int | None,
+    natively: bool | None = None,
 ) -> PlatformAlertConfigurationView:
-    """Creates an alert the platform owns, with its source's own row when the source keeps one.
+    """Creates an alert the platform owns, with its source's own row when the source keeps one. With
+    `natively`, the caller decides whether that row is skipped.
 
     Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
     settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
     """
     return platform_writes.create_configuration(
-        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id
+        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id, natively=natively
     )
 
 
@@ -430,6 +471,14 @@ def delete_orphaned_shadow_copies(
     )
 
 
+def fill_missing_creators(
+    *, source_kind: SourceKind, creators_of: Callable[[Collection[UUID]], Mapping[UUID, int]], dry_run: bool
+) -> int:
+    """Copies `created_by` from the source rows onto the copies of `source_kind` that have none, and
+    returns the count. `creators_of` maps the given source row ids to their creators' user ids."""
+    return platform_writes.fill_missing_creators(source_kind=source_kind, creators_of=creators_of, dry_run=dry_run)
+
+
 def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
     """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
     for a delete that is about to remove the destinations."""
@@ -471,3 +520,40 @@ def recent_destination_sends(
 ) -> tuple[DestinationSend, ...]:
     """The newest sends to the named destination HogFunctions, on both delivery paths, newest first."""
     return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
+
+
+def list_alert_receivers(*, team_id: int) -> tuple[StoredAlertReceiver, ...]:
+    return alert_routing.list_receivers(team_id=team_id)
+
+
+def create_alert_receiver(*, team_id: int, edit: AlertReceiverEdit) -> StoredAlertReceiver:
+    """Raises `AlertDestinationValidationError` on a refused receiver."""
+    return alert_routing.create_receiver(team_id=team_id, edit=edit)
+
+
+def update_alert_receiver(*, team_id: int, receiver_id: UUID, edit: AlertReceiverEdit) -> StoredAlertReceiver:
+    """Raises `UnknownAlertRouting` for an id the team has no receiver with."""
+    return alert_routing.update_receiver(team_id=team_id, receiver_id=receiver_id, edit=edit)
+
+
+def delete_alert_receiver(*, team_id: int, receiver_id: UUID) -> None:
+    """Deletes the receiver and its routes. Raises `UnknownAlertRouting` for an id the team has no receiver with."""
+    alert_routing.delete_receiver(team_id=team_id, receiver_id=receiver_id)
+
+
+def list_alert_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
+    return alert_routing.list_routes(team_id=team_id)
+
+
+def create_alert_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:
+    return alert_routing.create_route(team_id=team_id, edit=edit)
+
+
+def update_alert_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> StoredAlertRoute:
+    """Raises `UnknownAlertRouting` for an id the team has no route with."""
+    return alert_routing.update_route(team_id=team_id, route_id=route_id, edit=edit)
+
+
+def delete_alert_route(*, team_id: int, route_id: UUID) -> None:
+    """Raises `UnknownAlertRouting` for an id the team has no route with."""
+    alert_routing.delete_route(team_id=team_id, route_id=route_id)

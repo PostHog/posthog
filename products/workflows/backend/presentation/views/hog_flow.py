@@ -77,9 +77,11 @@ from posthog.permissions import (
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
+    WORKFLOWS_MANUAL_RUN_JWT_PURPOSE,
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
+    create_hog_flow_manual_invocation,
     create_hog_flow_scheduled_invocation,
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
@@ -7735,12 +7737,13 @@ class HogFlowViewSet(
     @action(detail=True, methods=["POST"])
     def run(self, request: Request, *args, **kwargs) -> Response:
         """
-        Fire a schedule-triggered workflow immediately, outside its regular schedule.
+        Run a workflow with a `schedule` or `manual` trigger now, once.
 
-        Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
-        dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
-        guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
-        the scheduler itself applies in `internal_process_due_schedules`.
+        A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+        workflow runs for the calling user, as the trigger button in the editor does. Other
+        triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+        trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+        active, same gate the scheduler itself applies in `internal_process_due_schedules`.
 
         Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
         after a timed-out request): a repeat with the same key returns the first call's result
@@ -7752,9 +7755,22 @@ class HogFlowViewSet(
             raise exceptions.ValidationError("Workflow must be active to run. Enable it first.")
 
         trigger_type = hog_flow.trigger_type
-        if trigger_type != "schedule":
+        if trigger_type not in ("schedule", "manual"):
             raise exceptions.ValidationError(
-                f"Only workflows with a 'schedule' trigger can be run this way (this one has '{trigger_type}')."
+                f"Only workflows with a 'schedule' or 'manual' trigger can be run this way (this one has '{trigger_type}')."
+            )
+        # A manual run's event belongs to the user who started it, so a caller without an email
+        # (a service credential) has no person to run it for.
+        user_email = getattr(request.user, "email", None)
+        if trigger_type == "manual" and not user_email:
+            raise exceptions.ValidationError("A manual trigger runs for a user. Call this endpoint as a user.")
+        if trigger_type == "manual" and not WORKFLOWS_MANUAL_RUN_JWT_PURPOSE.enabled():
+            return Response(
+                {
+                    "detail": "Manual triggers are not set up on this PostHog instance. "
+                    "An admin needs to set WORKFLOWS_CANCEL_JWT_SECRET on the web and plugin servers."
+                },
+                status=503,
             )
 
         serializer = HogFlowRunRequestSerializer(data=request.data)
@@ -7783,9 +7799,17 @@ class HogFlowViewSet(
                 return Response(HogFlowRunResponseSerializer(cached_result).data)
 
         try:
-            response = create_hog_flow_scheduled_invocation(
-                team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
-            )
+            if trigger_type == "manual":
+                response = create_hog_flow_manual_invocation(
+                    team_id=self.team_id,
+                    hog_flow_id=str(hog_flow.id),
+                    user_id=cast(str, user_email),
+                    variables=variables,
+                )
+            else:
+                response = create_hog_flow_scheduled_invocation(
+                    team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
+                )
         except requests.exceptions.ReadTimeout:
             # CDP already had the request when the timeout fired, so it may already have
             # queued the invocation — unlike a connection failure below, nothing here rules
@@ -7808,14 +7832,39 @@ class HogFlowViewSet(
         if response.status_code != 200:
             if cache_key:
                 cache.delete(cache_key)
+            if trigger_type == "manual":
+                return _manual_run_refusal(response)
             return Response({"detail": response.text}, status=response.status_code)
 
         result = response.json()
         if cache_key:
             cache.set(cache_key, result, timeout=HOG_FLOW_RUN_IDEMPOTENCY_TTL_SECONDS)
 
-        self._report_workflow_action("hog_flow_run_now", hog_flow, {})
+        self._report_workflow_action("hog_flow_run_now", hog_flow, {"trigger_type": trigger_type})
         return Response(HogFlowRunResponseSerializer(result).data)
+
+
+def _manual_run_refusal(response: requests.Response) -> Response:
+    """Turn CDP's refusal of a manual run into a message for the editor's toast."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    detail = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), str) else response.text
+    if response.status_code == 429:
+        return Response(
+            {"detail": "This workflow was disabled after too many failed or slow runs. Check its logs."}, status=429
+        )
+    # A 401 or 403 here is a fault between Django and CDP, not the user's. Passed through, the
+    # frontend would read it as an expired session.
+    if response.status_code in (401, 403):
+        return Response(
+            {"detail": "The workflow engine refused the call. Try again, and contact support if it keeps happening."},
+            status=502,
+        )
+    if response.status_code >= 500:
+        return Response({"detail": detail}, status=502)
+    return Response({"detail": detail}, status=response.status_code)
 
 
 class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
