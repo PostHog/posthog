@@ -38,34 +38,47 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     }
 
     const CYCLOTRON_DB = { host: 'localhost', port: 5432, database: 'test_cyclotron_node' }
-    const dbUrl = (host: string, port: number): string =>
-        `postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`
+    const CYCLOTRON_TABLES = ['cyclotron_jobs', 'cyclotron_email_team_seq', 'conversion_watchers']
 
     type Lock = { client: PoolClient; pid: number }
     type StallableProxy = { url: string; stall: () => void; close: () => Promise<void> }
 
+    let admin: Pool
+    let schema: string
     let db: Pool
     let queueName: string
     let teamId: number
-    let jobIds: string[]
     let queues: CyclotronJobQueuePostgresV2[]
     let locks: Lock[]
     let proxies: StallableProxy[]
 
+    // Other suites and runs share this database and consume the literal email queue, so every test gets the
+    // Cyclotron tables in a schema of its own.
+    const dbUrl = (host: string, port: number): string => {
+        const url = new URL(`postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`)
+        url.searchParams.set('options', `-c search_path=${schema},public`)
+        return url.toString()
+    }
+
     beforeAll(() => {
-        db = new Pool({ connectionString: dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port) })
+        admin = new Pool({
+            connectionString: `postgres://posthog:posthog@${CYCLOTRON_DB.host}:${CYCLOTRON_DB.port}/${CYCLOTRON_DB.database}`,
+        })
     })
 
     afterAll(async () => {
-        await db.end()
+        await admin.end()
     })
 
-    // The database is shared with other suites and runs, so each test owns its queue name,
-    // team and jobs, and cleans up only those.
-    beforeEach(() => {
+    beforeEach(async () => {
+        schema = `job_queue_test_${uuidv4().replace(/-/g, '')}`
+        await admin.query(`CREATE SCHEMA ${schema}`)
+        for (const table of CYCLOTRON_TABLES) {
+            await admin.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`)
+        }
+        db = new Pool({ connectionString: dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port) })
         queueName = `job-queue-v2-test-${uuidv4()}`
         teamId = 1_000_000 + Math.floor(Math.random() * 1_000_000_000)
-        jobIds = []
         queues = []
         locks = []
         proxies = []
@@ -82,8 +95,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             await queue.stopConsumer()
             await queue.stopProducer()
         }
-        await db.query('DELETE FROM cyclotron_jobs WHERE id = ANY($1)', [jobIds])
-        await db.query('DELETE FROM cyclotron_email_team_seq WHERE team_id = ANY($1)', [[teamId, otherTeamId()]])
+        await db.end()
+        await admin.query(`DROP SCHEMA ${schema} CASCADE`)
     })
 
     const otherTeamId = (): number => teamId + 1
@@ -107,7 +120,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         overrides: Partial<CyclotronJobInvocation> = {}
     ): Promise<string> {
         const id = uuidv7()
-        jobIds.push(id)
         await queue.queueInvocations([
             { ...baseInvocation, id, teamId, queue: queueName as CyclotronJobQueueKind, ...overrides },
         ])
@@ -121,14 +133,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     ): Promise<{ claimed: (count?: number) => Promise<CyclotronJobInvocation[]> }> {
         const claims: CyclotronJobInvocation[] = []
         await queue.startAsConsumer(from as CyclotronJobQueueKind, (invocations) => {
-            const ours = invocations.filter((invocation) => jobIds.includes(invocation.id))
-            const others = invocations.filter((invocation) => !jobIds.includes(invocation.id))
-            claims.push(...ours)
-            // Other suites share the email queue: hand their jobs back as they were.
-            const handedBack = queue.queueInvocationResults(others.map((invocation) => createResult({ invocation })))
-            return Promise.resolve({
-                backgroundTask: Promise.all([handedBack, ours.length ? work(ours) : undefined]),
-            })
+            claims.push(...invocations)
+            return Promise.resolve({ backgroundTask: invocations.length ? work(invocations) : Promise.resolve() })
         })
         return {
             claimed: (count = 1) =>
@@ -325,7 +331,10 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                 }),
             ])
 
-            expect(await jobRow(id)).toMatchObject({ queue_name: on(to), priority: persisted ? 3 : 1 })
+            expect(await jobRow(id)).toMatchObject({
+                queue_name: on(to),
+                priority: persisted ? 3 : 1,
+            })
         }
     )
 

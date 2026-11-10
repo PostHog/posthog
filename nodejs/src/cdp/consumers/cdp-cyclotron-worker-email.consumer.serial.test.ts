@@ -452,24 +452,20 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             worker.emailService.sesV2Client = ses.client({ credentials: () => new Promise(() => undefined) })
         }
 
-        it('writes its result once its deadline and the wait for its call passed, before the stop deadline less its write margin, and keeps its room taken', async () => {
-            stallCredentials(await startWorker(roomFor(1)))
+        it('writes its result once its deadline and the wait for its call passed, before a stop that starts while it runs returns, and keeps its room taken', async () => {
+            const worker = await startWorker(roomFor(1))
+            stallCredentials(worker)
             const enqueuedAt = Date.now()
             const [stuck] = await enqueue(transactionalSend([invoice.metadata]))
-
             await waitForExpect(async () => expect((await jobRow(stuck)).status).toBe('running'))
-            await waitForExpect(
-                async () => expect((await jobRow(stuck)).queueMetadata?.attachmentLoadRetries).toBe(1),
-                callsCannotOutlast + 5_000,
-                50
-            )
-            const writtenAfter = Date.now() - enqueuedAt
-            expect(writtenAfter).toBeGreaterThanOrEqual(callsCannotOutlast)
-            expect(writtenAfter).toBeLessThanOrEqual(callsCannotOutlast + 2_000)
-            expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
-
             const [next] = await enqueue(transactionalSend([invoice.metadata]))
             await deferredRow(next, 1)
+
+            await worker.stop()
+
+            expect((await jobRow(stuck)).queueMetadata?.attachmentLoadRetries).toBe(1)
+            expect(Date.now() - enqueuedAt).toBeGreaterThanOrEqual(callsCannotOutlast)
+            expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
             expect(delivered()).toEqual([])
         })
 
