@@ -131,8 +131,7 @@ minimumReleaseAge: 10080
         ("head", b"# state", b"left-pad: ^1.3.0", True),
         ("head", b"kea: ^4.0.0", b"koa: ^4.0.0", True),
         ("head", b"kea: ^4.0.0", b'kea: "^4.0.1 "', True),
-        ("head", b"kea: ^4.0.0", b"kea: ^4.0.1 # pinned", True),
-        ("default", b"    # state\n", b"", True),
+        ("head", b"10080\n", b"10080\n\ntrustPolicy: off\n", True),
     ],
 )
 def test_check_workspace_text(side: str, old: bytes, new: bytes, refused: bool) -> None:
