@@ -209,8 +209,11 @@ class VercelIntegration:
         # Vercel names a resource only by our row id, and an integration read by id needs the team.
         # The installation gives the organization, so read the Vercel rows of its teams.
         team_ids = Team.objects.filter(organization_id=installation.organization_id).values_list("id", flat=True)
-        resources = IntegrationManager.vercel.oauth.list_across_teams(CrossTeamFilter(team_ids=tuple(team_ids)))
-        resource = next((row for row in resources if row.id == resource_pk), None)
+        # Rows come back ordered by id, so `after_id` with `limit=1` reads only the row with this id, if any.
+        resources = IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(team_ids), after_id=resource_pk - 1, limit=1)
+        )
+        resource = resources[0] if resources and resources[0].id == resource_pk else None
         if resource is None:
             raise exceptions.NotFound("Resource not found")
         return resource
@@ -616,7 +619,7 @@ class VercelIntegration:
         logger.info("Starting Vercel resource update", resource_id=resource_id, integration="vercel")
         resource, installation = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
 
-        updated_config = copy.deepcopy(resource.config)
+        updated_config = copy.deepcopy(dict(resource.config))
         updated_config.update(resource_data)
 
         validated_config = ResourceConfig(**updated_config)
