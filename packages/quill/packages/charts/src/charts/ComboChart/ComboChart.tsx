@@ -76,7 +76,7 @@ export interface ComboChartProps<Meta = unknown> {
 
 export function ComboChart<Meta = unknown>({ onError, ...rest }: ComboChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <ComboChartInner {...rest} />
         </ChartErrorBoundary>
     )

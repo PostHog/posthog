@@ -84,6 +84,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_invalid_version_race,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
+    is_warehouse_bucket_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     capture_repartition_event,
@@ -1275,7 +1276,9 @@ async def _handle_import_error(
     # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the
     # Delta table. Not a PostHog defect and not a customer credential problem (see
     # TRANSIENT_OBJECT_STORE_ERRORS), and retrying resolves it, so it shouldn't page anyone.
-    if is_transient_object_store_error(error):
+    # The text check also catches our bucket's error after another exception type wrapped it, so
+    # the source's own patterns below never read its 403 body as a customer access denial.
+    if is_transient_object_store_error(error) or is_warehouse_bucket_error(error_msg):
         await logger.awarning(error_msg)
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
