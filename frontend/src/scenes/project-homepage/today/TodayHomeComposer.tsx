@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { organizationLogic } from 'scenes/organizationLogic'
-
 import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
 import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
@@ -11,7 +9,6 @@ import { TodayStarterSuggestions } from './TodayStarterSuggestions'
 
 export function TodayHomeComposer(): JSX.Element {
     const { isNewProject } = useValues(todayLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { prefillRequest } = useValues(todayHomeComposerLogic)
     const { homeTaskStarted } = useActions(todayHomeComposerLogic)
 
@@ -26,7 +23,7 @@ export function TodayHomeComposer(): JSX.Element {
                     fallback={<QuillTaskComposerSkeleton />}
                 />
             </div>
-            {isNewProject && currentOrganization?.is_ai_data_processing_approved ? <TodayStarterSuggestions /> : null}
+            {isNewProject ? <TodayStarterSuggestions /> : null}
         </>
     )
 }
