@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import json
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -21,7 +21,8 @@ from social_django.models import UserSocialAuth
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -48,6 +49,8 @@ from products.signals.backend.report_generation.team_membership import (
 from ..models import SignalActorKind, SignalReportArtefact, SignalScoutConfig
 
 logger = logging.getLogger(__name__)
+
+_CONNECTING_LOGIN_KEY = "connecting_user_github_login"
 
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
@@ -1006,7 +1009,9 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
     if not org_member_user_ids:
         return {}
 
-    users = User.objects.filter(id__in=org_member_user_ids).prefetch_related(*_github_identity_prefetches())
+    users = with_team_github_logins(
+        User.objects.filter(id__in=org_member_user_ids).prefetch_related(*_github_identity_prefetches())
+    )
 
     user_uuid_to_login: dict[str, str] = {}
     for user in users:
@@ -1086,7 +1091,7 @@ def list_project_members(
         # handful of rows. The cap waits for the maintainer ordering, which needs the whole team.
         users = _users_holding_logins(users, team, _logins_on_team(roster, team_slug))
     members: list[ProjectMemberIdentity] = []
-    for user in users:
+    for user in with_team_github_logins(users):
         login = raw.lower() if (raw := user.get_github_login()) else None
         members.append(
             ProjectMemberIdentity(
@@ -1154,7 +1159,9 @@ def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]
     if not candidate_ids:
         return {}
 
-    users = User.objects.filter(id__in=candidate_ids).prefetch_related(*_github_identity_prefetches()).order_by("id")
+    users = with_team_github_logins(
+        User.objects.filter(id__in=candidate_ids).prefetch_related(*_github_identity_prefetches()).order_by("id")
+    )
 
     login_to_user: dict[str, User] = {}
     for user in users:
@@ -1187,15 +1194,11 @@ def _candidate_user_ids_for_org_and_logins(org_id: str, logins_lower: frozenset[
             logins_lower,
         ).values_list("user_id", flat=True)
     )
-    candidates.update(
-        _filter_github_login_field_lc(
-            Integration.objects.filter(kind="github", created_by_id__in=mid_sq).exclude(
-                config__connecting_user_github_login=None
-            ),
-            "config__connecting_user_github_login",
-            logins_lower,
-        ).values_list("created_by_id", flat=True)
-    )
+    member_ids = list(OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True))
+    for row in IntegrationManager.github.any.list_by_creators(member_ids, config_key=_CONNECTING_LOGIN_KEY):
+        login = row.config.get(_CONNECTING_LOGIN_KEY)
+        if row.created_by_id is not None and isinstance(login, str) and login.lower() in logins_lower:
+            candidates.add(row.created_by_id)
     return candidates
 
 
@@ -1220,7 +1223,7 @@ def _filter_github_login_field_lc(
 
 
 def _github_identity_prefetches() -> tuple[Prefetch, ...]:
-    """Prefetch relations read by `User.get_github_login()`."""
+    """Prefetch relations read by `User.get_github_login()`. See `with_team_github_logins` for the team fallback."""
     return (
         Prefetch(
             "integrations",
@@ -1228,11 +1231,18 @@ def _github_identity_prefetches() -> tuple[Prefetch, ...]:
             to_attr="_prefetched_github_user_integrations",
         ),
         Prefetch("social_auth", UserSocialAuth.objects.filter(provider="github")),
-        Prefetch(
-            "integration_set",
-            Integration.objects.filter(kind="github")
-            .exclude(config__connecting_user_github_login=None)
-            .only("config", "id", "created_by_id"),
-            to_attr="_prefetched_github_integrations",
-        ),
     )
+
+
+def with_team_github_logins(users: Iterable[User]) -> list[User]:
+    """Load the users and attach the GitHub integrations that `User.get_github_login()` falls back to."""
+    loaded = list(users)
+    rows_by_creator: dict[int, list[IntegrationRecord]] = defaultdict(list)
+    for row in IntegrationManager.github.any.list_by_creators(
+        [user.id for user in loaded], config_key=_CONNECTING_LOGIN_KEY
+    ):
+        if row.created_by_id is not None:
+            rows_by_creator[row.created_by_id].append(row)
+    for user in loaded:
+        user._prefetched_github_integrations = rows_by_creator.get(user.id, [])  # type: ignore[attr-defined]
+    return loaded

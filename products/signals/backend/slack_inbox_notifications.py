@@ -280,20 +280,37 @@ def resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     return set(report.team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
 
 
-def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, SignalUserAutonomyConfig]:
+@frozen
+class _OwnTarget:
+    integration: IntegrationRecord
+    channel: str
+    min_priority: str | None
+
+
+def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, _OwnTarget]:
     """Per-user configs that name an own Slack target on this team's integration.
 
     The target is a channel or the reviewer's own Slack account. A reviewer absent from this map
     has no own target and falls back to the team default.
     """
-    configs = (
-        SignalUserAutonomyConfig.objects.filter(user_id__in=user_ids)
-        .filter(slack_notification_integration__team_id=team_id)
+    configs = list(
+        SignalUserAutonomyConfig.objects.filter(user_id__in=user_ids, slack_notification_integration_id__isnull=False)
         .exclude(slack_notification_channel__isnull=True)
         .exclude(slack_notification_channel="")
-        .select_related("slack_notification_integration")
     )
-    return {config.user_id: config for config in configs}
+    integrations = IntegrationManager.slack.any.get_many(
+        team_id,
+        {config.slack_notification_integration_id for config in configs if config.slack_notification_integration_id},
+    )
+    return {
+        config.user_id: _OwnTarget(
+            integration=integrations[config.slack_notification_integration_id],
+            channel=config.slack_notification_channel or "",
+            min_priority=config.slack_notification_min_priority,
+        )
+        for config in configs
+        if config.slack_notification_integration_id in integrations
+    }
 
 
 def _team_notification_target(team_id: int, *, priority: str | None) -> tuple[IntegrationRecord, str] | None:
@@ -551,7 +568,7 @@ class _RouteTable:
 
 def _reviewer_destination(
     *,
-    own_config: SignalUserAutonomyConfig | None,
+    own_config: _OwnTarget | None,
     priority: str | None,
     team_integration: IntegrationRecord | None,
     team_channel: str | None,
@@ -561,10 +578,10 @@ def _reviewer_destination(
     `None` means this reviewer gets no notification at all.
     """
     if own_config is not None:
-        if not _meets_min_priority(priority, own_config.slack_notification_min_priority):
+        if not _meets_min_priority(priority, own_config.min_priority):
             return None
-        integration: IntegrationRecord | None = own_config.slack_notification_integration
-        channel = own_config.slack_notification_channel
+        integration: IntegrationRecord | None = own_config.integration
+        channel = own_config.channel
         is_team_channel = False
     elif team_integration is not None and team_channel:
         integration, channel, is_team_channel = team_integration, team_channel, True
@@ -863,14 +880,12 @@ def _build_added_reviewer_routes(team_id: int, user_ids: set[int], priority: str
         # An unprioritized report still pings a reviewer with no min-priority threshold: the
         # initial path would have delivered it via the team channel, but this path has no
         # fallback, so `_meets_min_priority`'s no-priority-never-notifies rule would lose it.
-        min_priority = config.slack_notification_min_priority
+        min_priority = config.min_priority
         if (priority is not None or min_priority is not None) and not _meets_min_priority(priority, min_priority):
             continue
-        integration = config.slack_notification_integration
-        channel = config.slack_notification_channel
-        if integration is None or not channel:
-            continue
-        table.add(_Destination(integration=integration, channel=channel, is_team_channel=False), user=user)
+        table.add(
+            _Destination(integration=config.integration, channel=config.channel, is_team_channel=False), user=user
+        )
     return table.routes()
 
 

@@ -65,6 +65,13 @@ These reads go across teams, for example to the teams that share one GitHub inst
 - `get_by_external_id(external_id, id)` returns the row with this id and this external id, or raises `IntegrationNotFound`.
 - `count_by_external_id(external_id)` and `exists_by_external_id(external_id)`.
 
+These reads also go across teams, for support commands and sweeps. They need an accessor with a kind:
+
+- `list_by_account_name(account_name, team_ids=None)` returns the rows whose `config["account"]["name"]` matches, ignoring case, newest first.
+- `list_by_creators(created_by_ids, config_key=...)` returns the rows that these users created and that have a value under the config key.
+- `list_across_teams(where=..., config_in={key: [values]}, exclude_team_id=...)` returns the rows whose config matches, ordered by team and id.
+- `team_ids_across_teams(where=...)` returns the sorted ids of the teams that have a matching row.
+
 They need an accessor with a kind: on `IntegrationManager.any` they raise `ValueError`, because external ids are unique only per provider.
 Do not take the first row of `list_by_external_id` without `team_ids`: the rule `github-installation-first-team` flags it for GitHub.
 

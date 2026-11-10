@@ -206,6 +206,109 @@ class TestIntegrationAccessors(BaseTest):
     def test_exists_compares_config_keys_for_equality(self, _name: str, where: dict[str, Any], expected: bool) -> None:
         assert IntegrationManager.postgresql.credentials.exists(self.team.id, where=where) is expected
 
+    @parameterized.expand(
+        [
+            ("exact_case", "a", "own_and_other", True),
+            ("ignores_case", "A", "own_and_other", True),
+            ("limited_to_teams", "a", "other_only", False),
+            ("no_teams", "a", "no_teams", False),
+            ("unknown_account", "zzz", "own_and_other", False),
+        ]
+    )
+    def test_list_by_account_name(self, _name: str, account: str, teams: str, expect_own_row: bool) -> None:
+        other = Integration.objects._with_auth(ANY).create(
+            team=self.other_team, kind="github", integration_id="other_install", config={"account": {"name": "a"}}
+        )
+        team_ids = {
+            "own_and_other": [self.team.id, self.other_team.id],
+            "other_only": [self.other_team.id],
+            "no_teams": [],
+        }[teams]
+
+        rows = IntegrationManager.github.any.list_by_account_name(account, team_ids=team_ids)
+
+        assert (self.rows["github_oauth"].id in {row.id for row in rows}) is expect_own_row
+        assert (other.id in {row.id for row in rows}) is (account.lower() == "a" and bool(team_ids))
+        assert [row.id for row in rows] == sorted((row.id for row in rows), reverse=True)
+
+    def test_list_by_account_name_reads_every_team_without_team_ids_and_skips_other_kinds(self) -> None:
+        Integration.objects._with_auth(ANY).create(
+            team=self.other_team, kind="slack", integration_id="s", config={"account": {"name": "a"}}
+        )
+
+        rows = IntegrationManager.github.any.list_by_account_name("a")
+
+        assert {row.kind for row in rows} == {"github"}
+        assert {row.team_id for row in rows} == {self.team.id}
+
+    def test_list_by_creators(self) -> None:
+        creator = self.user
+        Integration.objects._with_auth(ANY).create(
+            team=self.other_team,
+            kind="github",
+            integration_id="with_login",
+            config={"login": "Octo"},
+            created_by=creator,
+        )
+        Integration.objects._with_auth(ANY).create(
+            team=self.team, kind="github", integration_id="without_login", config={}, created_by=creator
+        )
+        Integration.objects._with_auth(ANY).create(
+            team=self.team, kind="slack", integration_id="slack_login", config={"login": "x"}, created_by=creator
+        )
+
+        rows = IntegrationManager.github.any.list_by_creators([creator.id], config_key="login")
+
+        assert [row.integration_id for row in rows] == ["with_login"]
+        assert IntegrationManager.github.any.list_by_creators([], config_key="login") == []
+        assert IntegrationManager.github.any.list_by_creators([creator.id + 10**6], config_key="login") == []
+
+    @parameterized.expand([("lookup", "a__b"), ("reserved", "auth_type"), ("not_a_name", "a b")])
+    def test_list_by_creators_refuses_unsafe_config_keys(self, _name: str, key: str) -> None:
+        with self.assertRaises(UnsupportedIntegrationFilter):
+            IntegrationManager.github.any.list_by_creators([1], config_key=key)
+
+    @parameterized.expand(
+        [
+            ("where_only", {"provider": "ses"}, None, None, {"a", "b", "c"}),
+            ("where_and_in", {"provider": "ses"}, {"domain": ["one.example.com"]}, None, {"a", "c"}),
+            ("in_only", None, {"domain": ["two.example.com", "one.example.com"]}, None, {"a", "b", "c", "d"}),
+            ("exclude_team", {"provider": "ses"}, None, "other", {"a", "b"}),
+            ("empty_in", {"provider": "ses"}, {"domain": []}, None, set()),
+            ("no_match", {"provider": "none"}, None, None, set()),
+        ]
+    )
+    def test_list_across_teams(
+        self, _name: str, where: Any, config_in: Any, exclude: str | None, expected: set[str]
+    ) -> None:
+        for team, external_id, config in [
+            (self.team, "a", {"provider": "ses", "domain": "one.example.com"}),
+            (self.team, "b", {"provider": "ses", "domain": "two.example.com"}),
+            (self.other_team, "c", {"provider": "ses", "domain": "one.example.com"}),
+            (self.other_team, "d", {"provider": "other", "domain": "two.example.com"}),
+        ]:
+            Integration.objects._with_auth(ANY).create(
+                team=team, kind="email", integration_id=external_id, config=config
+            )
+        exclude_team_id = self.other_team.id if exclude == "other" else None
+        rows = IntegrationManager.email.any.list_across_teams(
+            where=where, config_in=config_in, exclude_team_id=exclude_team_id
+        )
+
+        assert {row.integration_id for row in rows} == expected
+        assert [(row.team_id, row.id) for row in rows] == sorted((row.team_id, row.id) for row in rows)
+
+    def test_team_ids_across_teams_returns_distinct_sorted_teams(self) -> None:
+        for team, external_id in [(self.other_team, "x"), (self.team, "y"), (self.team, "z")]:
+            Integration.objects._with_auth(ANY).create(
+                team=team, kind="email", integration_id=external_id, config={"provider": "ses"}
+            )
+
+        assert IntegrationManager.email.any.team_ids_across_teams(where={"provider": "ses"}) == sorted(
+            [self.team.id, self.other_team.id]
+        )
+        assert IntegrationManager.email.any.team_ids_across_teams(where={"provider": "nope"}) == []
+
     def test_find_returns_the_oldest_row_and_list_can_reverse(self) -> None:
         newer = IntegrationManager.github.oauth.create(self.team.id, external_id="newer", config={})
 
@@ -326,6 +429,10 @@ class TestIntegrationAccessors(BaseTest):
             ("get_by_external_id", lambda: IntegrationManager.any.get_by_external_id("github_oauth", 1)),
             ("count_by_external_id", lambda: IntegrationManager.any.count_by_external_id("github_oauth")),
             ("exists_by_external_id", lambda: IntegrationManager.any.exists_by_external_id("github_oauth")),
+            ("list_by_account_name", lambda: IntegrationManager.any.list_by_account_name("a")),
+            ("list_by_creators", lambda: IntegrationManager.any.list_by_creators([1], config_key="a")),
+            ("list_across_teams", lambda: IntegrationManager.any.list_across_teams()),
+            ("team_ids_across_teams", lambda: IntegrationManager.any.team_ids_across_teams(where={"a": 1})),
         ]
     )
     def test_cross_team_operations_need_a_kind(self, _name: str, call: Callable[[], Any]) -> None:

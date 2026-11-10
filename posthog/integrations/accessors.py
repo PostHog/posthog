@@ -93,6 +93,11 @@ def _where_q(where: Mapping[str, ConfigValue] | None) -> Q:
     return q
 
 
+def _checked_config_key(key: str) -> None:
+    if not isinstance(key, str) or not _CONFIG_KEY.match(key) or "__" in key or key in RESERVED_CONFIG_KEYS:
+        raise UnsupportedIntegrationFilter(f"Cannot read the config key {key!r}")
+
+
 def _is_unique_key_violation(error: IntegrityError) -> bool:
     constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
     return constraint == _UNIQUE_KEY_CONSTRAINT or _UNIQUE_KEY_CONSTRAINT in str(error)
@@ -371,6 +376,60 @@ class IntegrationReader:
 
     async def adelete(self, team_id: int, id: int, *, ignore_usages: bool = False) -> None:
         await database_sync_to_async(self.delete)(team_id, id, ignore_usages=ignore_usages)
+
+    @instrumented("list_by_account_name", rows="returned")
+    def list_by_account_name(
+        self, account_name: str, *, team_ids: Iterable[int] | None = None
+    ) -> builtins.list[IntegrationRecord]:
+        """Rows whose `config["account"]["name"]` equals this name, ignoring case, newest first.
+
+        Pass `team_ids` to read only the rows of these teams. Raises `ValueError` on `IntegrationManager.any`.
+        """
+        rows = self._cross_team_rows("list_by_account_name").filter(config__account__name__iexact=account_name)
+        if team_ids is not None:
+            rows = rows.filter(team_id__in=builtins.list(team_ids))
+        return list(rows.order_by("-id"))
+
+    @instrumented("list_by_creators", rows="returned")
+    def list_by_creators(self, created_by_ids: Iterable[int], *, config_key: str) -> builtins.list[IntegrationRecord]:
+        """Rows of every team that these users created and that have a value under `config[config_key]`, oldest id first.
+
+        Raises `ValueError` on `IntegrationManager.any`.
+        """
+        _checked_config_key(config_key)
+        # nosemgrep: orm-field-injection - the key is one checked JSON key segment
+        rows = self._cross_team_rows("list_by_creators").filter(
+            created_by_id__in=builtins.list(created_by_ids), **{f"config__{config_key}__isnull": False}
+        )
+        return list(rows.order_by("id"))
+
+    @instrumented("list_across_teams", rows="returned")
+    def list_across_teams(
+        self,
+        *,
+        where: Mapping[str, ConfigValue] | None = None,
+        config_in: Mapping[str, Iterable[str]] | None = None,
+        exclude_team_id: int | None = None,
+    ) -> builtins.list[IntegrationRecord]:
+        """Rows of every team whose config matches, ordered by team and id. For support commands and sweeps.
+
+        `where` compares config keys for equality. `config_in` needs a config key to hold one of the listed strings.
+        Raises `ValueError` on `IntegrationManager.any`.
+        """
+        rows = self._cross_team_rows("list_across_teams").filter(_where_q(where))
+        for key, values in (config_in or {}).items():
+            _checked_config_key(key)
+            # nosemgrep: orm-field-injection - the key is one checked JSON key segment, and `__in` fixes the lookup
+            rows = rows.filter(**{f"config__{key}__in": builtins.list(values)})
+        if exclude_team_id is not None:
+            rows = rows.exclude(team_id=exclude_team_id)
+        return list(rows.order_by("team_id", "id"))
+
+    @instrumented("team_ids_across_teams")
+    def team_ids_across_teams(self, *, where: Mapping[str, ConfigValue]) -> builtins.list[int]:
+        """The sorted ids of the teams that have a row whose config matches. Raises `ValueError` on `IntegrationManager.any`."""
+        rows = self._cross_team_rows("team_ids_across_teams").filter(_where_q(where))
+        return builtins.list(rows.order_by("team_id").values_list("team_id", flat=True).distinct())
 
 
 class AuthAccessor(IntegrationReader):
