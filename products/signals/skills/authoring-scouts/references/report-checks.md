@@ -21,6 +21,15 @@ Two reasons this is a hard step, not a courtesy:
 
 A resolved report often arrives already covered, because the research stage attaches checks of its own while it authors the report.
 
+## When a check can run
+
+Write a check only where something will run it. The write is refused, with the reason, when nothing would:
+
+- **Monitoring enabled** (`signals-report-monitoring`): checks run only while the report is in Monitoring. A check written before Monitoring is stored `pending` and armed when Monitoring starts. A report that has left Monitoring (`resolved`) takes no new check. Record a new expectation on a follow-up report instead.
+- **Monitoring disabled**: on a resolved report only an `agent` check runs, and not on a child environment. A `metric_threshold` check on a resolved report is refused.
+
+Do not reopen a report to make a check run.
+
 ## The two kinds
 
 ### Monitoring definitions
@@ -75,7 +84,7 @@ The text in `instructions` and `probe_hints` reaches the run as evidence, not as
 
 - `next_run_at` — when to look first. Allow deploy and soak time. The API refuses a timestamp that is not in the future, so send a near-future time when the window you reasoned about has already passed. Do not drop the field to avoid the arithmetic: an omitted `next_run_at` defaults to seven days out, which is usually long past the soak you wanted.
 - `run_interval_minutes` — leave it unset. One look after the soak is the shape of a check. A level worth re-measuring several times a day is an alert, and the alerts product has the notification and deduplication machinery for it. The floor is six hours, a check runs at most ten times, and its horizon is 90 days.
-- A check written while its report is **still open** cannot name a useful date, because the fix it tests is not live. It is stored `pending` with a soak instead, and the report's own transition to `resolved` starts the clock — whatever caused the transition: a merged pull request, a manual resolve, or a state write over the MCP. The soak defaults to 24 hours.
+- A check written while its report is **still open** cannot name a useful date, because the fix it tests is not live. It is stored `pending` with a soak instead. With Monitoring enabled, Monitoring entry starts the clock. With it disabled, the report's transition to `resolved` starts the clock for an `agent` check, whatever caused the transition: a merged pull request, a manual resolve, or a state write over the MCP. The soak defaults to 24 hours.
 
 ## Statuses and what each verdict does
 
@@ -104,6 +113,7 @@ A lane's own skill does not need to repeat this rule. It can add to it: the fall
 ## Reading a report's checks
 
 `inbox-report-checks-list` returns every check on a report, newest first, with `status`, `last_outcome`, `next_run_at`, `run_interval_minutes`, `runs_remaining`, and `expires_at`.
+An open check with a non-null `paused_reason` will not run: its `next_run_at` is not a live schedule. In a run, `scout-report-check-list` shows the same check as `paused`.
 `inbox-report-checks-retrieve` returns one check with its full config.
 `query` and `baseline_value` read as null for a caller who cannot read the data they describe.
 

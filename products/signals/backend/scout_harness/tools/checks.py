@@ -46,7 +46,11 @@ from products.signals.backend.report_checks import (
     monitoring_window_end,
     parse_check_config,
 )
-from products.signals.backend.report_lifecycle import legacy_agent_checks_enabled
+from products.signals.backend.report_lifecycle import (
+    CheckLaneBlock,
+    legacy_agent_checks_enabled,
+    post_monitoring_check_block,
+)
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
 MAX_CHECK_EXPLANATION_LENGTH = 1_000
@@ -55,6 +59,11 @@ MAX_CHECK_EXPLANATION_LENGTH = 1_000
 MAX_CHECKS_LISTED = 50
 _OUTCOMES = get_args(CheckOutcome)
 _INCONCLUSIVE_REASONS = get_args(CheckInconclusiveReason)
+_BLOCK_REASONS: dict[CheckLaneBlock, str] = {
+    CheckLaneBlock.LEFT_MONITORING: "its report left Monitoring, and checks run only during Monitoring",
+    CheckLaneBlock.METRIC_NEEDS_MONITORING: "metric checks run only during Monitoring, which is disabled here",
+    CheckLaneBlock.CHILD_ENVIRONMENT: "follow-up scouts do not run in child environments",
+}
 
 
 class InvalidCheckResultError(ValueError):
@@ -87,6 +96,8 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
             return "its report is `monitoring`"
         if now >= min(monitoring_window_end(start, check.soak_minutes), start + MAX_CHECK_HORIZON):
             return "its Monitoring window ended"
+    elif (block := post_monitoring_check_block(check.report, check.kind)) is not None:
+        return _BLOCK_REASONS[block]
     elif check.kind != SignalReportCheck.Kind.AGENT or not legacy_agent_checks_enabled(check.report):
         return f"its report is `{report_status}`"
     if check.expires_at <= now:
@@ -237,15 +248,15 @@ class ScoutCheckSummary:
 def _run_state(check: SignalReportCheck, report_status: str, dispatched_run_id: str | None, now: datetime) -> str:
     """One word for where a check is, so a scout can tell a check it may answer from one it may not.
 
-    `waiting_on_report`: pending, and no fix to measure yet. `paused`: active, but its report is
-    suppressed or its horizon passed, so the coordinator does not dispatch it. `scheduled`: active,
+    `waiting_on_report`: pending, and no fix to measure yet. `paused`: open, but the coordinator
+    does not run it: its report left Monitoring or is suppressed, or its horizon passed. `scheduled`: active,
     not due yet. `due`: active and due now, so a run on its lane may record the verdict. `queued`:
     dispatched, and the run has not started. `running`: the dispatched run started and has time
     left. `stale`: the dispatched run had its whole window and recorded nothing, so the coordinator
     records an errored run and dispatches again. Any other value is the terminal status.
     """
     if check.status == SignalReportCheck.Status.PENDING:
-        return "waiting_on_report"
+        return "paused" if post_monitoring_check_block(check.report, check.kind) is not None else "waiting_on_report"
     if check.status != SignalReportCheck.Status.ACTIVE:
         return check.status
     if _pause_reason(check, report_status, now) is not None:

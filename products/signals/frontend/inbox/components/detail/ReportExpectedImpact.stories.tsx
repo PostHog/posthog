@@ -31,6 +31,7 @@ const check: SignalReportCheckApi = {
         comparison: { operator: 'lte', value: 50 },
         baseline_value: 80,
     },
+    paused_reason: null,
     approved_at: null,
     next_run_at: '2026-09-12T00:00:00Z',
     soak_minutes: 20160,

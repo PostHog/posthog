@@ -6301,6 +6301,14 @@ export interface MonitoringCheckTimingApi {
     next_measurement_at: string | null
 }
 
+export type CheckLaneBlockEnumApi = (typeof CheckLaneBlockEnumApi)[keyof typeof CheckLaneBlockEnumApi]
+
+export const CheckLaneBlockEnumApi = {
+    LeftMonitoring: 'left_monitoring',
+    MetricNeedsMonitoring: 'metric_needs_monitoring',
+    ChildEnvironment: 'child_environment',
+} as const
+
 /**
  * * `passed` - Passed
  * * `failed` - Failed
@@ -6359,6 +6367,8 @@ export interface SignalReportCheckApi {
     config: SignalReportCheckConfigApi
     /** Server-derived timing for open checks on Monitoring reports, including archived Monitoring periods. Omitted when Monitoring is disabled or the check is outside that lane. */
     readonly monitoring_timing?: MonitoringCheckTimingApi | null
+    /** Why this open check will not run on its resolved report, or null when it can. `left_monitoring`: checks run only during Monitoring and the report has left it. `metric_needs_monitoring`: Monitoring is disabled, and only agent checks run after resolution. `child_environment`: follow-up scouts do not run in child environments. When set, `next_run_at` is not a live schedule. */
+    readonly paused_reason: CheckLaneBlockEnumApi | null
     /** @nullable */
     readonly approved_at: string | null
     /** Stored coordinator schedule, provisional while pending. During Monitoring this can be the observation-window end rather than another measurement; use `monitoring_timing` for interim timing. */
@@ -10850,7 +10860,7 @@ export interface ScoutCheckSummaryApi {
      * @nullable
      */
     last_outcome_reason: string | null
-    /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
+    /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: open, but nothing runs it: its report left Monitoring or is suppressed, or its horizon passed. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
     run_state: string
     /** True while an `agent` check waits on a dispatched run to record its verdict. */
     waiting_on_run: boolean

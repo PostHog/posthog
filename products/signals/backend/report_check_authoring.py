@@ -52,11 +52,30 @@ from products.signals.backend.report_checks import (
     validate_metric_check_for_write,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
-from products.signals.backend.report_lifecycle import effective_report_status
+from products.signals.backend.report_lifecycle import (
+    CheckLaneBlock,
+    effective_report_status,
+    post_monitoring_check_block,
+)
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_monitoring_attempts import complete_implementation, current_monitoring_attempt
 
 logger = structlog.get_logger(__name__)
+
+_BLOCKED_CHECK_MESSAGES: dict[CheckLaneBlock, str] = {
+    CheckLaneBlock.LEFT_MONITORING: (
+        "This report has left Monitoring, and checks run only during Monitoring, so this check would never run. "
+        "Record the expectation on a follow-up report instead."
+    ),
+    CheckLaneBlock.METRIC_NEEDS_MONITORING: (
+        "Metric checks run only during Monitoring, which is not enabled for this organization, so this check "
+        "would never run on a resolved report. Use an agent check instead."
+    ),
+    CheckLaneBlock.CHILD_ENVIRONMENT: (
+        "Follow-up scouts do not run checks on reports in child environments, so this check would never run. "
+        "Record the expectation on a follow-up report in the parent project instead."
+    ),
+}
 
 _METRIC_DISPLAY_FIELDS = frozenset({"metric_kind", "value_format", "unit"})
 
@@ -86,7 +105,9 @@ def create_check(
     """Write one check on a report, armed or pending.
 
     Legacy authoring accepts explicit dates or a soak duration. Pending dates remain provisional
-    until Monitoring entry, or resolution for agent checks while Monitoring is disabled.
+    until Monitoring entry, or resolution for agent checks while Monitoring is disabled. A check that
+    nothing would run on the report's current lifecycle is refused rather than stored as a schedule
+    no executor reads (``post_monitoring_check_block``).
 
     The report row is locked for the same reason the REST path locks it: the per-report cap is a
     count followed by an insert, which only holds if concurrent creates serialize. The status
@@ -109,6 +130,8 @@ def create_check(
         )
         if locked_report is None:
             raise CheckCreationError("The report this check belongs to is gone.")
+        if (block := post_monitoring_check_block(locked_report, kind)) is not None:
+            raise CheckCreationError(_BLOCKED_CHECK_MESSAGES[block])
         if soak_minutes is None:
             assert next_run_at is not None
             soak_minutes = soak_minutes_from_gap(next_run_at, now)

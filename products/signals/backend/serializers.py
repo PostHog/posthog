@@ -79,6 +79,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_lifecycle import CheckLaneBlock, post_monitoring_check_block
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.report_search import (
     DEFAULT_LIMIT as REPORT_SEARCH_DEFAULT_LIMIT,
@@ -3266,6 +3267,15 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "`query` and `baseline_value` are null when you cannot read the data they describe."
         )
     )
+    paused_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why this open check will not run on its resolved report, or null when it can. "
+            "`left_monitoring`: checks run only during Monitoring and the report has left it. "
+            "`metric_needs_monitoring`: Monitoring is disabled, and only agent checks run after resolution. "
+            "`child_environment`: follow-up scouts do not run in child environments. "
+            "When set, `next_run_at` is not a live schedule."
+        ),
+    )
 
     def _monitoring_enabled(self, instance: SignalReportCheck) -> bool:
         enabled_by_team = cast(dict[int, bool], self.context.setdefault("report_monitoring_enabled_by_team", {}))
@@ -3298,6 +3308,15 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             attempt=attempt,
             verification=verifications_by_report[instance.report_id].get(instance.id),
         )
+
+    @extend_schema_field(serializers.ChoiceField(choices=CheckLaneBlock.choices, allow_null=True))
+    def get_paused_reason(self, instance: SignalReportCheck) -> str | None:
+        if instance.status not in SignalReportCheck.OPEN_STATUSES:
+            return None
+        block = post_monitoring_check_block(
+            instance.report, instance.kind, monitoring_enabled=self._monitoring_enabled(instance)
+        )
+        return None if block is None else block.value
 
     @extend_schema_field(MonitoringCheckTimingSerializer(allow_null=True))
     def get_monitoring_timing(self, instance: SignalReportCheck) -> dict[str, object] | None:
@@ -3347,6 +3366,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "status",
             "config",
             "monitoring_timing",
+            "paused_reason",
             "approved_at",
             "next_run_at",
             "soak_minutes",

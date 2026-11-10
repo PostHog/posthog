@@ -50,6 +50,7 @@ const check: SignalReportCheckApi = {
         value_format: reportMetricsFixture[0].value_format,
         unit: reportMetricsFixture[0].unit,
     },
+    paused_reason: null,
     approved_at: null,
     next_run_at: '2026-10-13T00:00:00Z',
     soak_minutes: 20160,
