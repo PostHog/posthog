@@ -2276,17 +2276,32 @@ describe('EmailService', () => {
             it.each([
                 {
                     case: 'delivers tracking-off mail without open or click tracking',
+                    trackingEnabled: false,
                     untrackedSet: 'posthog-messaging-untracked',
                     error: undefined,
                     inbox: [{ to: ['"Test User" <test@example.com>'], html: trackableHtml }],
                 },
                 {
                     case: 'fails tracking-off mail instead of sending it tracked when no untracked set is named',
+                    trackingEnabled: false,
                     untrackedSet: '',
                     error: expect.stringContaining('SES_UNTRACKED_CONFIGURATION_SET is empty'),
                     inbox: [],
                 },
-            ])('$case', async ({ untrackedSet, error, inbox }) => {
+                {
+                    case: 'delivers tracked mail when no untracked set is named',
+                    trackingEnabled: true,
+                    untrackedSet: '',
+                    error: undefined,
+                    inbox: [
+                        {
+                            to: ['"Test User" <test@example.com>'],
+                            html: expect.stringContaining('<img src="https://fake-ses.example.com/open" />'),
+                        },
+                    ],
+                },
+            ])('$case', async ({ trackingEnabled, untrackedSet, error, inbox }) => {
+                invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled }
                 const ses = await startFakeSes({
                     'posthog-messaging': { tracking: true },
                     'posthog-messaging-untracked': { tracking: false },
