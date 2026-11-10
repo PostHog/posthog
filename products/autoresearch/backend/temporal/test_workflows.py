@@ -602,11 +602,12 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, True, True, "already_running"),
-            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, True, True, "already_ran_today"),
-            ("tasks_usage_limited", None, True, True, True, "tasks_gated"),
-            ("rollout_withdrawn_since_discovery", None, False, False, True, "tasks_gated"),
-            ("organization_deactivated_since_discovery", None, False, True, False, "tasks_gated"),
+            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, True, True, 7, "already_running"),
+            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, True, True, 7, "already_ran_today"),
+            ("tasks_usage_limited", None, True, True, True, 7, "tasks_gated"),
+            ("rollout_withdrawn_since_discovery", None, False, False, True, 7, "tasks_gated"),
+            ("organization_deactivated_since_discovery", None, False, True, False, 7, "tasks_gated"),
+            ("gated_with_no_run_due", None, True, True, True, None, "manual_only"),
         ]
     )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
@@ -617,10 +618,11 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         usage_limited: bool,
         in_rollout: bool,
         organization_active: bool,
+        research_interval_days: Optional[int],
         expected_reason: str,
         mock_run_training: MagicMock,
     ) -> None:
-        pipeline = self._create_pipeline()
+        pipeline = self._create_pipeline(research_interval_days=research_interval_days)
         if run_status:
             AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=10)
         self.mock_usage_limited.return_value = usage_limited
@@ -632,6 +634,8 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
         assert result.reason == expected_reason
         mock_run_training.assert_not_called()
+        pipeline.refresh_from_db()
+        assert pipeline.kickoff_skip_reason == (expected_reason if expected_reason == "tasks_gated" else None)
 
     @parameterized.expand(
         [
@@ -672,13 +676,29 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
                 task_id=uuid.uuid4() if prior_run == "sandbox" else None,
                 agent_runtime_adapter=None if prior_run == "external" else "claude",
             )
-        pipeline = self._create_pipeline()
+        pipeline = self._create_pipeline(
+            kickoff_skip_reason=AutoresearchPipeline.KickoffSkipReason.TASKS_GATED,
+            kickoff_skip_detail="The Tasks usage limit is reached",
+            kickoff_skipped_at=django_timezone.now() - timedelta(days=1),
+        )
 
         result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
 
         assert result.reason == expected_reason
         assert result.error is None
         assert mock_run_training.called is (expected_reason == "explore")
+        pipeline.refresh_from_db()
+        if expected_reason == "team_daily_cap":
+            assert pipeline.kickoff_skip_reason == "team_daily_cap"
+            assert pipeline.kickoff_skip_detail == "1 of 1 training runs in the last 24 hours"
+            assert pipeline.kickoff_skipped_at is not None
+            assert pipeline.kickoff_skipped_at > django_timezone.now() - timedelta(minutes=1)
+        else:
+            assert (pipeline.kickoff_skip_reason, pipeline.kickoff_skip_detail, pipeline.kickoff_skipped_at) == (
+                None,
+                None,
+                None,
+            )
 
     @parameterized.expand(
         [
@@ -775,6 +795,8 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         else:
             assert not result.kicked_off
             mock_run_training.assert_not_called()
+        pipeline.refresh_from_db()
+        assert pipeline.kickoff_skip_reason is None
 
     @parameterized.expand(
         [
@@ -839,6 +861,8 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         else:
             result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
             assert result.reason == "not_launchable"
+            pipeline.refresh_from_db()
+            assert (pipeline.kickoff_skip_reason, pipeline.kickoff_skip_detail) == ("not_launchable", "left")
 
 
 @pytest.mark.parametrize(

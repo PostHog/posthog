@@ -22,6 +22,7 @@ from products.autoresearch.backend.facade.contracts import (
     AutoresearchConflict,
     Iteration,
     IterationTrailEntry,
+    KickoffSkip,
     LiveTrainingRun,
     Model,
     Pipeline,
@@ -48,6 +49,7 @@ RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 KICKOFF_REASON_CHOICES = api.KICKOFF_REASON_CHOICES
+KICKOFF_SKIP_REASON_CHOICES = api.KICKOFF_SKIP_REASON_CHOICES
 RESEARCH_INTERVAL_DAYS_CHOICES = api.RESEARCH_INTERVAL_DAYS_CHOICES
 TRAINING_PHASE_CHOICES = api.TRAINING_PHASE_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
@@ -529,6 +531,30 @@ class TrainingTrendPointSerializer(DataclassSerializer):
         fields = ["iteration_number", "best_holdout_score"]
 
 
+@extend_schema_serializer(component_name="AutoresearchKickoffSkip")
+class KickoffSkipSerializer(DataclassSerializer):
+    reason = serializers.ChoiceField(
+        choices=KICKOFF_SKIP_REASON_CHOICES,
+        read_only=True,
+        help_text=(
+            "Why the run did not start. tasks_gated: the creator cannot start a Tasks sandbox now. "
+            "no_creator: the pipeline has no creator to own the run. team_daily_cap: the project used all its "
+            "training runs of the last 24 hours. not_launchable: the launch was refused, for example because "
+            "the target action is gone."
+        ),
+    )
+    detail = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="More about the reason, for example '3 of 3 training runs in the last 24 hours'. Null when there is none.",
+    )
+    skipped_at = serializers.DateTimeField(read_only=True, help_text="When the daily sweep did not start the run.")
+
+    class Meta:
+        dataclass = KickoffSkip
+        fields = ["reason", "detail", "skipped_at"]
+
+
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
@@ -730,6 +756,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "Null when research_interval_days is null."
         ),
     )
+    last_kickoff_skip = KickoffSkipSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the daily sweep last did not start a training run that was due. Null when the sweep has not "
+            "skipped a due run since it last started one."
+        ),
+    )
     not_promoted_reason = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -874,6 +908,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "effective_agent_reasoning_effort",
             "training_phase",
             "next_research_at",
+            "last_kickoff_skip",
             "not_promoted_reason",
             "success_auc",
             "plateau_iterations",

@@ -110,6 +110,7 @@ from .contracts import (
     InvalidTarget,
     Iteration,
     IterationTrailEntry,
+    KickoffSkip,
     LivePipelineCapReached,
     LiveTrainingRun,
     MaterializedFeatures,
@@ -457,6 +458,13 @@ def _pipeline_to_contract(
         effective_agent_reasoning_effort=agent_config.reasoning_effort,
         training_phase=schedule.phase,
         next_research_at=schedule.next_research_at,
+        last_kickoff_skip=(
+            KickoffSkip(
+                reason=row.kickoff_skip_reason, detail=row.kickoff_skip_detail, skipped_at=row.kickoff_skipped_at
+            )
+            if row.kickoff_skip_reason and row.kickoff_skipped_at
+            else None
+        ),
         not_promoted_reason=(
             activity.not_promoted_reason
             if row.status == AutoresearchPipeline.Status.BOOTSTRAPPING and champion is None
@@ -2214,6 +2222,7 @@ VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]
 MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
 TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
 KICKOFF_REASON_CHOICES = AutoresearchTrainingRun.KickoffReason.choices
+KICKOFF_SKIP_REASON_CHOICES = AutoresearchPipeline.KickoffSkipReason.choices
 RESEARCH_INTERVAL_DAYS_CHOICES = list(_RESEARCH_INTERVAL_DAYS_CHOICES)
 TRAINING_PHASE_CHOICES = [("explore", "Explore"), ("maintain", "Maintain")]
 ITERATION_STATUS_CHOICES = AutoresearchIteration.Status.choices

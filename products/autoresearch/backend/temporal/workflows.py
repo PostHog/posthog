@@ -902,13 +902,16 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     so the activity retry applies.
 
     A stale training run of the pipeline is closed first, outside the lock, so it does not block the start.
+
+    When a run is due and does not start, the pipeline stores why (``_record_kickoff_skip()``). A started
+    run clears it.
     """
     fail_stale_training_runs(team_id=inp.team_id, pipeline_id=inp.pipeline_id)
-    # The gates can call out to billing and flags, so they run before the row lock is taken.
+    # The gates can call out to billing and flags, so they run before the row lock is taken. They
+    # apply after the schedule, so a pipeline with no run due does not record a skip.
     with team_scope(inp.team_id):
         loaded = AutoresearchPipeline.objects.select_related("created_by", "team__organization").get(pk=inp.pipeline_id)
-    if loaded.created_by is not None and (gate := _tasks_gate(loaded)):
-        return KickoffTrainingResult(kicked_off=False, reason="tasks_gated", detail=gate)
+    gate = _tasks_gate(loaded) if loaded.created_by is not None else None
     limits = limits_for_team(inp.team_id)
 
     with team_scope(inp.team_id), transaction.atomic():
@@ -968,12 +971,15 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
                 "autoresearch_kickoff_training_no_creator",
                 pipeline_id=inp.pipeline_id,
             )
-            return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
+            return _record_kickoff_skip(inp, AutoresearchPipeline.KickoffSkipReason.NO_CREATOR, error=error)
+
+        if gate:
+            return _record_kickoff_skip(inp, AutoresearchPipeline.KickoffSkipReason.TASKS_GATED, detail=gate)
 
         # Checked last, so a pipeline with no run due does not wait on the team's advisory lock.
         if cap := check_training_run_cap(inp.team_id, limits):
             detail = f"{cap.used} of {cap.limit} training runs in the last 24 hours"
-            return KickoffTrainingResult(kicked_off=False, reason="team_daily_cap", detail=detail)
+            return _record_kickoff_skip(inp, AutoresearchPipeline.KickoffSkipReason.TEAM_DAILY_CAP, detail=detail)
 
         rescue = kickoff_reason == AutoresearchTrainingRun.KickoffReason.RESCUE
         try:
@@ -989,7 +995,11 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         except (ValueError, SandboxInferenceError, ActionNotFound) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
-            return KickoffTrainingResult(kicked_off=False, reason="not_launchable", error=str(exc))
+            return _record_kickoff_skip(inp, AutoresearchPipeline.KickoffSkipReason.NOT_LAUNCHABLE, error=str(exc))
+        if pipeline.kickoff_skip_reason:
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(
+                kickoff_skip_reason=None, kickoff_skip_detail=None, kickoff_skipped_at=None
+            )
     if rescue:
         logger.info("autoresearch_kickoff_training_rescue", pipeline_id=inp.pipeline_id)
         return KickoffTrainingResult(kicked_off=True, reason="rescue_unscorable")
@@ -1030,6 +1040,28 @@ def _sweep_access_block(pipeline: AutoresearchPipeline) -> str | None:
     ):
         return "Outside the autoresearch rollout"
     return None
+
+
+def _record_kickoff_skip(
+    inp: KickoffTrainingInput,
+    reason: AutoresearchPipeline.KickoffSkipReason,
+    *,
+    detail: str | None = None,
+    error: str | None = None,
+) -> KickoffTrainingResult:
+    """Store on the pipeline why a due run did not start, so the API can show it, and log it. Call under the row lock."""
+    stored_detail = detail or error
+    AutoresearchPipeline.objects.filter(pk=inp.pipeline_id).update(
+        kickoff_skip_reason=reason, kickoff_skip_detail=stored_detail, kickoff_skipped_at=django_timezone.now()
+    )
+    logger.warning(
+        "autoresearch_kickoff_training_skipped",
+        pipeline_id=inp.pipeline_id,
+        team_id=inp.team_id,
+        reason=reason.value,
+        detail=stored_detail,
+    )
+    return KickoffTrainingResult(kicked_off=False, reason=reason.value, detail=detail, error=error)
 
 
 def _tasks_gate(pipeline: AutoresearchPipeline) -> str | None:
