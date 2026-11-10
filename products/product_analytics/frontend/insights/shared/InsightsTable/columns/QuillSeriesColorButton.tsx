@@ -9,10 +9,13 @@ import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resul
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
+import { seriesRowColor } from '../seriesRowColor'
+
 export function QuillSeriesColorButton({ item }: { item: IndexedTrendResult }): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
+    const color = seriesRowColor(item, getTrendsColor(item))
 
     return (
         <Button
@@ -24,7 +27,7 @@ export function QuillSeriesColorButton({ item }: { item: IndexedTrendResult }): 
         >
             {/* The series color comes from the chart's palette or the user's choice, so it can't be a token. */}
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <span className="size-3 rounded-full" style={{ backgroundColor: getTrendsColor(item) }} />
+            <span className="size-3 rounded-full" style={{ backgroundColor: color }} />
         </Button>
     )
 }

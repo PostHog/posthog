@@ -26,6 +26,7 @@ import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 import { QuillInsightsTable } from './QuillInsightsTable'
+import { seriesRowColor } from './seriesRowColor'
 import { CalcColumnState, InsightsTableColumn, MAX_VALUE_COLUMNS, useInsightsTableModel } from './useInsightsTableModel'
 
 export interface InsightsTableProps {
@@ -376,18 +377,7 @@ export function InsightsTable({
             emptyState={emptyState}
             data-attr="insights-table-graph"
             useURLForSorting={!editMode}
-            rowRibbonColor={
-                isLegend
-                    ? (item) => {
-                          const isPrevious = !!item.compare && item.compare_label === 'previous'
-
-                          const themeColor = getTrendsColor(item)
-                          const mainColor = isPrevious ? `${themeColor}80` : themeColor
-
-                          return mainColor
-                      }
-                    : undefined
-            }
+            rowRibbonColor={isLegend ? (item) => seriesRowColor(item, getTrendsColor(item)) : undefined}
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
