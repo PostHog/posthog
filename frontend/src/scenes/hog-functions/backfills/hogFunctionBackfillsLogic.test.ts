@@ -1,6 +1,7 @@
+import { render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
-
-import { lemonToast } from '@posthog/lemon-ui'
+import { createElement } from 'react'
+import { ToastContainer } from 'react-toastify'
 
 import api from 'lib/api'
 
@@ -88,8 +89,7 @@ describe('hogFunctionBackfillsLogic', () => {
         expect(mockApi.enableBackfills).not.toHaveBeenCalled()
     })
 
-    it('shows an error and stops loading when enabling backfills fails', async () => {
-        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+    it('shows an error when enabling fails, then opens backfills once a reload brings the batch export', async () => {
         mockApi.get.mockResolvedValue(makeHogFunction())
         mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
 
@@ -97,7 +97,11 @@ describe('hogFunctionBackfillsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        await expectLogic(logic).toMatchValues({ isLoading: false, isReady: false })
-        expect(errorToast).toHaveBeenCalledWith('Failed to enable backfills for this destination.')
+        render(createElement(ToastContainer))
+        await screen.findByText('Failed to enable backfills for this destination.')
+
+        mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
+        logic.actions.loadHogFunction()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: true })
     })
 })
