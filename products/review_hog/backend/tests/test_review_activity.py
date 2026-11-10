@@ -948,6 +948,30 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
     )
 
 
+@pytest.mark.django_db
+async def test_a_turn_that_ran_the_devex_lens_counts_its_session_when_it_found_nothing() -> None:
+    # Without the zero, the completed event cannot tell a devex session that found nothing from a turn without one.
+    selection = FlashSelection(kept=[], dropped=[], cap=4, lens_part_count=1)
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}._combine_and_clean", return_value=[]),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
+        patch(f"{_MODULE}.load_prior_findings_with_verdicts", return_value=[]),
+        patch(f"{_MODULE}._changed_since_last_review", return_value=None),
+        patch(f"{_MODULE}.dedupe_flash_findings", AsyncMock(return_value=selection)),
+        patch(f"{_MODULE}.replace_deduplicated_findings", return_value=[]),
+        patch(f"{_MODULE}.replace_dropped_findings"),
+        patch(f"{_MODULE}.persist_verdicts"),
+        patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
+    ):
+        result = await ActivityEnvironment().run(
+            dedup_activity, SandboxStageInput(**_single_agent_stage(devex_lens=True))
+        )
+
+    assert result.flash_stats is not None and result.flash_stats.candidates["devex"] == 0
+
+
 @pytest.mark.parametrize(
     "trigger_source,commands_on,review_mode,note_names_deep",
     [

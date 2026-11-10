@@ -2006,7 +2006,11 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(
-                issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines, changed_since=changed_since
+                issues,
+                flash_selection,
+                reviewable_lines=lens_plan.reviewable_lines,
+                changed_since=changed_since,
+                devex_lens=input.devex_lens,
             )
         else:
             # Flash posts what it finds whatever other comments say; only Full checks the PR's comments.
