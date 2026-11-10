@@ -39,6 +39,7 @@ const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
 const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
+export const EDGE_URL = `http://127.0.0.1:${EDGE_PORT}`
 const TEMPLATES_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
 const GROUPS_EMPTY_WITHIN_MS = 45_000
@@ -83,7 +84,7 @@ export function createEnvironment(): Environment {
             }
             await terminate(plan, STOP_GRACE_MS)
             await startStack(REPO_ROOT, stateDir, env)
-            const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
+            const specs = roleSpecs(env, EDGE_URL, secrets)
             const groups = consumerGroupsOf(specs)
             const killedLeftovers = plan.groups.length + plan.pids.length > 0
             await waitForExpect(

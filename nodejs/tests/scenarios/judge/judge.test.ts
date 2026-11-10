@@ -1,0 +1,189 @@
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+
+import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
+import { internalFetch } from '~/common/utils/request'
+
+import { JobCounts } from '../probe/cyclotron-probe'
+import { ProviderEdge, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
+import { JournalEntry, Judge, createJudge } from './judge'
+
+const TRACKING_KEYS = 'scenario-tracking-key'
+const UNIT = 'run-a-1'
+const IDLE: JobCounts = { running: 0, available: 0, scheduledLater: 0 }
+const SEED = { teams: [{ teamId: 7, emailIntegrationId: 1 }], flows: [] }
+const NEVER_ABORTED = new AbortController().signal
+
+describe('judge', () => {
+    let edge: ProviderEdge
+    let ses: SESv2Client
+    let jobs: JobCounts
+    let judge: Judge
+
+    beforeEach(async () => {
+        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS })
+        ses = new SESv2Client({
+            endpoint: edge.url,
+            region: 'us-east-1',
+            credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
+            maxAttempts: 1,
+        })
+        jobs = IDLE
+        judge = createJudge({ edgeUrl: edge.url, probe: { counts: () => Promise.resolve(jobs) }, pollMs: 10 })
+        await judge.open(SEED)
+    })
+
+    afterEach(async () => {
+        ses.destroy()
+        await edge.close()
+    })
+
+    const deliver = (unitId: string, actionId = 'email'): Promise<unknown> =>
+        ses
+            .send(
+                new SendEmailCommand({
+                    FromEmailAddress: 'flows@www.example.com',
+                    Destination: { ToAddresses: [`${unitId}@${UNIT_EMAIL_DOMAIN}`] },
+                    Content: {
+                        Simple: {
+                            Subject: { Data: 'Scenario delivery' },
+                            Body: { Text: { Data: 'Scenario delivery' } },
+                            Headers: [
+                                {
+                                    Name: 'X-PostHog-Tracking-Code',
+                                    Value: new EmailTrackingCodeSigner(TRACKING_KEYS, '').generate({
+                                        functionId: 'flow-1',
+                                        id: `invocation-${unitId}`,
+                                        teamId: 7,
+                                        state: { actionId },
+                                    }),
+                                },
+                            ],
+                        },
+                    },
+                })
+            )
+            .catch((error: Error) => error)
+
+    const rejectNextSend = (): Promise<unknown> =>
+        internalFetch(`${edge.url}/_faults`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }),
+        })
+
+    const answerNextSendWith503 = (): void => {
+        edge.addFault({
+            name: 'ses.unavailable',
+            answer: { kind: 'status', answer: { status: 503, type: 'ServiceUnavailable', message: 'Unavailable' } },
+            dose: { count: 1 },
+        })
+    }
+
+    const offered = (answer: JournalEntry['answer'] = { accepted: true }): JournalEntry => ({
+        unitId: UNIT,
+        kind: 'event',
+        teamId: 7,
+        offeredAt: Date.now(),
+        answer,
+        expect: { deliveries: ['email'] },
+    })
+
+    it.each<[string, JournalEntry, () => Promise<unknown>, object]>([
+        ['delivered once', offered(), () => deliver(UNIT), { passed: true, observed: 0, unitIds: [] }],
+        [
+            'delivered on a retry after a retried status',
+            offered(),
+            async () => {
+                answerNextSendWith503()
+                await deliver(UNIT)
+                await deliver(UNIT)
+            },
+            { passed: true, observed: 0 },
+        ],
+        [
+            'ended on purpose by a terminal fault',
+            offered(),
+            async () => {
+                await rejectNextSend()
+                await deliver(UNIT)
+            },
+            { passed: true, observed: 0 },
+        ],
+        [
+            'refused by the intake, so nothing is expected',
+            offered({ accepted: false, transportError: 'broker down' }),
+            () => Promise.resolve(),
+            { passed: true, observed: 0 },
+        ],
+        [
+            'never received by the edge',
+            offered(),
+            () => deliver('run-b-1'),
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email: the edge never received it`,
+                unitIds: [UNIT],
+            },
+        ],
+        [
+            'delivered for another action only',
+            offered(),
+            () => deliver(UNIT, 'webhook'),
+            { passed: false, observed: 1, unitIds: [UNIT] },
+        ],
+        [
+            'answered only with a retried status',
+            offered(),
+            async () => {
+                answerNextSendWith503()
+                await deliver(UNIT)
+            },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email: the last of 1 attempts was answered 503`,
+                unitIds: [UNIT],
+            },
+        ],
+    ])('at_least_once for a unit %s', async (_story, entry, act, expected) => {
+        judge.record(entry)
+        await act()
+
+        const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {})
+
+        expect(result).toMatchObject({ name: 'at_least_once', ...expected })
+    })
+
+    it('ignores what the edge recorded before the run opened', async () => {
+        await deliver(UNIT)
+        await judge.open(SEED)
+        judge.record(offered())
+
+        const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {})
+
+        expect(result).toMatchObject({ passed: false, unitIds: [UNIT] })
+    })
+
+    it.each<[string, JobCounts, boolean, object]>([
+        [
+            'jobs are still unfinished',
+            { running: 1, available: 1, scheduledLater: 1 },
+            true,
+            { converged: false, unfinishedJobs: 3, unrecorded: [] },
+        ],
+        ['a delivery has no record', IDLE, false, { converged: false, unfinishedJobs: 0, unrecorded: [UNIT] }],
+        ['the queues are empty and every delivery is recorded', IDLE, true, { converged: true, unfinishedJobs: 0 }],
+    ])(
+        'converges only when no job is unfinished and every delivery is recorded: %s',
+        async (_story, counts, delivered, expected) => {
+            jobs = counts
+            judge.record(offered())
+            if (delivered) {
+                await deliver(UNIT)
+            }
+
+            expect(await judge.converge(50, NEVER_ABORTED)).toMatchObject(expected)
+        }
+    )
+})
