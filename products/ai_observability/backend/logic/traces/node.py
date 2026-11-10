@@ -3,6 +3,7 @@ import json
 from posthog.dataclasses import frozen
 
 from ...facade.contracts import TraceNodeKind
+from ..message_normalizer.values import Value
 from .event import kind_of_event
 from .trace_queries import TraceNodeRow, read_flag, read_number, read_text
 
@@ -66,6 +67,16 @@ class NodeEvent:
             output=self._first_present(candidates.output),
             tools=self._first_present(candidates.tools),
         )
+
+    @property
+    def input(self) -> Value:
+        key = self.io_keys.input
+        return self.row.properties[key] if key else None
+
+    @property
+    def output(self) -> Value:
+        key = self.io_keys.output
+        return self.row.properties[key] if key else None
 
     @property
     def error(self) -> str | None:

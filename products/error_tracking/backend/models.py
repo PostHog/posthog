@@ -1209,3 +1209,49 @@ class ErrorTrackingIssueSummary(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_errortrackingissuesummary"
+
+
+class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
+    """The answer to one tag question about an issue.
+
+    A row holds only the answer of the highest-ranked tagger that answered, so write it through
+    logic/issue_tags/writer.py. A missing row and a null `value` both read as unknown.
+    """
+
+    class Source(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        JEV = "jev", "Jev"
+
+    # db_constraint=False keeps inserts lock-free on hot tables (posthog_team / posthog_user);
+    # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # The unique constraint leads with issue, so the default foreign key index is redundant.
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="tags", db_index=False)
+    key = models.CharField(max_length=64)
+    value = models.BooleanField(null=True)
+    probability = models.FloatField(null=True)
+    source = models.CharField(max_length=32, choices=Source)
+    # The model or rule that made the answer, so a change to it can trigger a re-run.
+    model = models.CharField(max_length=128, null=True)
+    question_version = models.PositiveSmallIntegerField()
+    set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        db_constraint=False,
+        db_index=False,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingissuetag"
+        constraints = [
+            models.UniqueConstraint(fields=["issue", "key"], name="et_issue_tag_issue_key_unique"),
+        ]
+        indexes = [
+            # Serves the SET_NULL update when a user is deleted. Answers from automated taggers have no
+            # person, so the index leaves them out.
+            models.Index(fields=["set_by"], name="et_issue_tag_set_by", condition=models.Q(set_by__isnull=False)),
+        ]

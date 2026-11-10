@@ -1,0 +1,44 @@
+rules:
+    - id: intl-segmenter-needs-a-feature-check
+      message: |
+          `new Intl.Segmenter(...)` without a feature check. Firefox before 125 and Safari before
+          14.1 have no `Intl.Segmenter`, and the constructor throws a `TypeError` there. At module
+          scope that throw fails the import, so the error boundary catches it and every scene that
+          reaches the module shows "An error has occurred" instead of the UI.
+
+          Build the segmenter on first use, only if the browser has it, and give the caller a path
+          that works without one:
+
+              let segmenter: Intl.Segmenter | null | undefined
+
+              function graphemeSegmenter(): Intl.Segmenter | null {
+                  if (segmenter === undefined) {
+                      segmenter =
+                          typeof Intl.Segmenter === 'function'
+                              ? new Intl.Segmenter('und', { granularity: 'grapheme' })
+                              : null
+                  }
+                  return segmenter
+              }
+
+          `frontend/src/layout/today/leadingEmoji.ts` is the reference. If the surface is one a very
+          old browser never reaches, add `// nosemgrep: intl-segmenter-needs-a-feature-check` with
+          the reason.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - frontend/src
+              - packages
+              - products
+          exclude:
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+      patterns:
+          - pattern: new Intl.Segmenter(...)
+          - pattern-not-inside: |
+                typeof Intl.Segmenter === 'function' ? ... : ...
+          - pattern-not-inside: |
+                if (typeof Intl.Segmenter === 'function') { ... }
+      metadata:
+          category: best-practice
