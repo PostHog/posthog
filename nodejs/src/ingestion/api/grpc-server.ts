@@ -610,7 +610,7 @@ export class WorkerIngestServer {
      */
     private async runPump(): Promise<void> {
         while (!this.stopped) {
-            if (this.inFlight.size === 0) {
+            if (this.inFlight.awaitingCollection === 0) {
                 await new Promise<void>((resolve) => {
                     this.wakePump = resolve
                 })
@@ -622,11 +622,12 @@ export class WorkerIngestServer {
                     return
                 }
                 if (completed === null) {
-                    // The pipeline drained between feeds while acked work is
-                    // still being registered — yield briefly and re-pump.
+                    // Not expected: the pump only pulls while the pipeline
+                    // holds an accepted sub-batch. Back off instead of spinning.
                     await sleep(this.pumpIdleMs)
                     continue
                 }
+                this.inFlight.onCollected(completed.streamId, completed.seq)
                 // Settle concurrently: the pump goes straight back to the
                 // pipeline while this batch's side effects finish, so one slow
                 // batch cannot head-of-line block other streams' acks.
@@ -888,6 +889,14 @@ export class WorkerIngestServer {
                     this.slots.release()
                     return
                 }
+                this.inFlight.onFeeding({
+                    streamId: stream.id,
+                    seq,
+                    consumerId: stream.hello.consumerId,
+                    streamEpoch: String(stream.hello.streamEpoch),
+                    assignmentEpoch: String(subBatch.assignmentEpoch),
+                    messages: serialized,
+                })
                 let feedAccepted = false
                 try {
                     while (true) {
@@ -898,14 +907,7 @@ export class WorkerIngestServer {
                         const result = await this.feedGuarded(stream, seq, serialized, budget)
                         if (result.ok) {
                             feedAccepted = true
-                            this.inFlight.onFed({
-                                streamId: stream.id,
-                                seq,
-                                consumerId: stream.hello.consumerId,
-                                streamEpoch: String(stream.hello.streamEpoch),
-                                assignmentEpoch: String(subBatch.assignmentEpoch),
-                                messages: serialized,
-                            })
+                            this.inFlight.onAccepted(stream.id, seq)
                             break
                         }
                         if (result.kind === 'at_capacity') {
@@ -925,6 +927,7 @@ export class WorkerIngestServer {
                     // releases it after the batch settles; every other exit
                     // must give the slot back here.
                     if (!feedAccepted) {
+                        this.inFlight.onAbandoned(stream.id, seq)
                         this.slots.release()
                     }
                 }

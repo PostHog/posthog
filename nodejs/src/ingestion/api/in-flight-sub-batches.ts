@@ -16,7 +16,7 @@ const oldestInFlightAge = new Gauge({
     help: 'Age of the oldest fed sub-batch that has not settled; the stuck-batch shutdown starts past its deadline',
 })
 
-export interface FedSubBatch {
+export interface AdmittedSubBatch {
     streamId: number
     seq: number
     consumerId: string
@@ -31,20 +31,31 @@ export interface StuckSubBatch {
     inFlightMs: number
 }
 
+type Phase = 'feeding' | 'inPipeline' | 'settling'
+
+const PHASE_ORDER: Record<Phase, number> = { feeding: 0, inPipeline: 1, settling: 2 }
+
 interface Entry {
-    subBatch: FedSubBatch
+    subBatch: AdmittedSubBatch
     accounting: AcceptedBatch
+    phase: Phase
     streamOpen: boolean
 }
 
 /**
- * Sub-batches the pipeline accepted and that have not settled, by
- * `streamId:seq`. Holds the in-flight accounting the processor autoscaler
- * reads. Kept apart from the streams, so a sub-batch whose stream died is
- * still collected and released when it settles.
+ * Sub-batches from admission until they settle, by `streamId:seq`:
+ *
+ *   onFeeding -> feeding -> onAccepted -> inPipeline -> onCollected -> settling -> onSettled
+ *
+ * An entry exists before its sub-batch reaches the pipeline, and its phase
+ * only moves forward, so the order in which the reader and the pump report a
+ * sub-batch cannot corrupt the counts. Holds the in-flight accounting the
+ * processor autoscaler reads. Kept apart from the streams, so a sub-batch
+ * whose stream died is still collected and released.
  */
 export class InFlightSubBatches {
     private readonly entries = new Map<string, Entry>()
+    private inPipeline = 0
 
     constructor(readonly stuckTimeoutMs: number) {}
 
@@ -52,31 +63,57 @@ export class InFlightSubBatches {
         return this.entries.size
     }
 
+    /** Sub-batches the pipeline holds that the pump has not collected. */
+    get awaitingCollection(): number {
+        return this.inPipeline
+    }
+
     get checkIntervalMs(): number {
         return this.stuckTimeoutMs > 0 ? Math.min(this.stuckTimeoutMs / 4, 10_000) : 10_000
     }
 
-    onFed(subBatch: FedSubBatch): void {
+    onFeeding(subBatch: AdmittedSubBatch): void {
         this.entries.set(key(subBatch.streamId, subBatch.seq), {
             subBatch,
             accounting: batchAccepted(subBatch.messages.length),
+            phase: 'feeding',
             streamOpen: true,
         })
     }
 
+    onAccepted(streamId: number, seq: number): void {
+        const entry = this.entries.get(key(streamId, seq))
+        if (entry) {
+            this.moveTo(entry, 'inPipeline')
+        }
+    }
+
+    onCollected(streamId: number, seq: number): void {
+        const entry = this.entries.get(key(streamId, seq))
+        if (entry) {
+            this.moveTo(entry, 'settling')
+        }
+    }
+
     onSettled(streamId: number, seq: number, outcome: 'ok' | 'failed', processed: number): void {
-        const entryKey = key(streamId, seq)
-        const entry = this.entries.get(entryKey)
+        const entry = this.remove(streamId, seq)
         if (!entry) {
             return
         }
-        this.entries.delete(entryKey)
         if (outcome === 'ok') {
             batchProcessed(entry.accounting.acceptedAt, processed)
         } else {
             batchFailed()
         }
         batchReleased(entry.accounting)
+    }
+
+    /** The sub-batch left without the pipeline accepting it. */
+    onAbandoned(streamId: number, seq: number): void {
+        const entry = this.remove(streamId, seq)
+        if (entry) {
+            batchReleased(entry.accounting)
+        }
     }
 
     onStreamEnded(streamId: number): void {
@@ -125,6 +162,30 @@ export class InFlightSubBatches {
                 streamOpen: entry.streamOpen,
             })
         }
+    }
+
+    private moveTo(entry: Entry, phase: Phase): void {
+        if (PHASE_ORDER[phase] <= PHASE_ORDER[entry.phase]) {
+            return
+        }
+        if (entry.phase === 'inPipeline') {
+            this.inPipeline--
+        }
+        if (phase === 'inPipeline') {
+            this.inPipeline++
+        }
+        entry.phase = phase
+    }
+
+    private remove(streamId: number, seq: number): Entry | undefined {
+        const entryKey = key(streamId, seq)
+        const entry = this.entries.get(entryKey)
+        if (!entry) {
+            return undefined
+        }
+        this.moveTo(entry, 'settling')
+        this.entries.delete(entryKey)
+        return entry
     }
 }
 

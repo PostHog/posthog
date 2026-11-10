@@ -69,6 +69,8 @@ class FrameSource implements AsyncIterable<IngestStreamRequest> {
 class FakeDriver implements StreamIngestDriver {
     feeds: { streamId: number; seq: number; offsets: number[]; partitions: number[]; budget: SubBatchBudget }[] = []
     feedResult: FeedResult = { ok: true }
+    pendingFeed: Promise<FeedResult> | null = null
+    nextCalls = 0
     private completions: CompletedSubBatch[] = []
     private nextWaiters: Deferred<CompletedSubBatch | null>[] = []
     nextError: Error | null = null
@@ -86,10 +88,11 @@ class FakeDriver implements StreamIngestDriver {
             partitions: messages.map((m) => m.partition),
             budget,
         })
-        return Promise.resolve(this.feedResult)
+        return this.pendingFeed ?? Promise.resolve(this.feedResult)
     }
 
     next(): Promise<CompletedSubBatch | null> {
+        this.nextCalls++
         if (this.nextError) {
             return Promise.reject(this.nextError)
         }
@@ -409,7 +412,7 @@ describe('WorkerIngestServer', () => {
         expect(onFatal).toHaveBeenCalledWith(expect.objectContaining({ message: 'pipeline poisoned' }))
     })
 
-    describe('stuck-batch shutdown', () => {
+    describe('in-flight sub-batches', () => {
         const STUCK_TIMEOUT_MS = 200
         const HEALTHY_FED_AT_MS = 100
         const FIRST_CHECK_PAST_DEADLINE_MS = 250
@@ -587,6 +590,30 @@ describe('WorkerIngestServer', () => {
             await jest.advanceTimersByTimeAsync(10 * STUCK_TIMEOUT_MS)
 
             expect(onStuck).not.toHaveBeenCalled()
+        })
+
+        it('trips the stuck-batch shutdown on a sub-batch whose feed never returns', async () => {
+            await startWatched({})
+            driver.pendingFeed = new Deferred<FeedResult>().promise
+            const hung = await feed('consumer-hung', [10])
+
+            await jest.advanceTimersByTimeAsync(FIRST_CHECK_PAST_DEADLINE_MS)
+
+            expect(onStuck).toHaveBeenCalledTimes(1)
+            expect(loggedErrors('WorkerIngest sub-batch stuck')).toEqual([
+                expect.objectContaining({ key: `${hung.streamId}:1` }),
+            ])
+        })
+
+        it('does not pull from the pipeline while its only collected sub-batch settles', async () => {
+            await startWatched({})
+            const stream = await feed('consumer-1', [10])
+            await eventually(() => driver.nextCalls === 1)
+
+            neverSettle(stream)
+            await flushEventLoop()
+
+            expect(driver.nextCalls).toBe(1)
         })
 
         it('collects every sub-batch of a stream that died, so none of them looks stuck', async () => {

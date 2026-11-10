@@ -2,11 +2,11 @@ import { register } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
-import { FedSubBatch, InFlightSubBatches } from './in-flight-sub-batches'
+import { AdmittedSubBatch, InFlightSubBatches } from './in-flight-sub-batches'
 
 const TIMEOUT_MS = 100
 
-function subBatch(streamId: number, seq: number, offsets: number[] = [seq]): FedSubBatch {
+function subBatch(streamId: number, seq: number, offsets: number[] = [seq]): AdmittedSubBatch {
     return {
         streamId,
         seq,
@@ -69,46 +69,91 @@ describe('InFlightSubBatches', () => {
 
     it.each([
         {
-            outcome: 'ok' as const,
-            expected: {
-                ingestion_api_batches_in_flight: 0,
-                ingestion_api_events_in_flight: 0,
-                ingestion_api_batches_processed_total: 1,
-                ingestion_api_messages_processed_total: 2,
-                ingestion_api_batch_errors_total: 0,
-            },
+            ending: 'settles ok',
+            end: (subBatches: InFlightSubBatches) => subBatches.onSettled(1, 1, 'ok', 2),
+            processed: 1,
+            messages: 2,
+            errors: 0,
         },
         {
-            outcome: 'failed' as const,
-            expected: {
-                ingestion_api_batches_in_flight: 0,
-                ingestion_api_events_in_flight: 0,
-                ingestion_api_batches_processed_total: 0,
-                ingestion_api_messages_processed_total: 0,
-                ingestion_api_batch_errors_total: 1,
-            },
+            ending: 'settles failed',
+            end: (subBatches: InFlightSubBatches) => subBatches.onSettled(1, 1, 'failed', 2),
+            processed: 0,
+            messages: 0,
+            errors: 1,
         },
-    ])('holds a fed sub-batch in flight until it settles $outcome', async ({ outcome, expected }) => {
+        {
+            ending: 'is abandoned before the pipeline accepts it',
+            end: (subBatches: InFlightSubBatches) => subBatches.onAbandoned(1, 1),
+            processed: 0,
+            messages: 0,
+            errors: 0,
+        },
+    ])('holds an admitted sub-batch in flight until it $ending', async ({ end, processed, messages, errors }) => {
         const before = await accountingSnapshot()
 
-        inFlight.onFed(subBatch(1, 1, [10, 11, 12]))
+        inFlight.onFeeding(subBatch(1, 1, [10, 11, 12]))
         expect(inFlight.size).toBe(1)
         expect(await accountingDelta(before)).toMatchObject({
             ingestion_api_batches_in_flight: 1,
             ingestion_api_events_in_flight: 3,
         })
 
-        inFlight.onSettled(1, 1, outcome, 2)
-        inFlight.onSettled(1, 1, outcome, 2)
+        end(inFlight)
+        end(inFlight)
 
         expect(inFlight.size).toBe(0)
-        expect(await accountingDelta(before)).toEqual(expected)
+        expect(await accountingDelta(before)).toEqual({
+            ingestion_api_batches_in_flight: 0,
+            ingestion_api_events_in_flight: 0,
+            ingestion_api_batches_processed_total: processed,
+            ingestion_api_messages_processed_total: messages,
+            ingestion_api_batch_errors_total: errors,
+        })
     })
 
+    it.each([
+        {
+            order: 'the reader reports acceptance before the pump collects',
+            steps: ['accepted', 'collected', 'settled'] as const,
+            awaitingAfterEach: [1, 0, 0],
+        },
+        {
+            order: 'the pump collects before the reader reports acceptance',
+            steps: ['collected', 'accepted', 'settled'] as const,
+            awaitingAfterEach: [0, 0, 0],
+        },
+        {
+            order: 'the feed is abandoned',
+            steps: ['abandoned', 'accepted', 'collected'] as const,
+            awaitingAfterEach: [0, 0, 0],
+        },
+    ])(
+        'counts only accepted, uncollected sub-batches as awaiting collection when $order',
+        ({ steps, awaitingAfterEach }) => {
+            const report = {
+                accepted: () => inFlight.onAccepted(1, 1),
+                collected: () => inFlight.onCollected(1, 1),
+                settled: () => inFlight.onSettled(1, 1, 'ok', 1),
+                abandoned: () => inFlight.onAbandoned(1, 1),
+            }
+            inFlight.onFeeding(subBatch(1, 1))
+            expect(inFlight.awaitingCollection).toBe(0)
+
+            const awaiting = steps.map((step) => {
+                report[step]()
+                return inFlight.awaitingCollection
+            })
+
+            expect(awaiting).toEqual(awaitingAfterEach)
+            expect(inFlight.size).toBe(0)
+        }
+    )
+
     it('keeps sub-batches of different streams apart even when their seqs match', () => {
-        inFlight.onFed(subBatch(1, 1))
-        inFlight.onFed(subBatch(2, 1))
-        inFlight.onFed(subBatch(2, 2))
+        inFlight.onFeeding(subBatch(1, 1))
+        inFlight.onFeeding(subBatch(2, 1))
+        inFlight.onFeeding(subBatch(2, 2))
         inFlight.onStreamEnded(1)
         inFlight.onSettled(2, 1, 'ok', 1)
         jest.setSystemTime(TIMEOUT_MS + 1)
@@ -128,9 +173,9 @@ describe('InFlightSubBatches', () => {
     })
 
     it('reports a sub-batch as stuck only once it is in flight longer than the timeout', () => {
-        inFlight.onFed(subBatch(1, 1))
+        inFlight.onFeeding(subBatch(1, 1))
         jest.setSystemTime(40)
-        inFlight.onFed(subBatch(1, 2))
+        inFlight.onFeeding(subBatch(1, 2))
 
         expect(inFlight.findStuck(TIMEOUT_MS)).toEqual([])
         expect(inFlight.findStuck(TIMEOUT_MS + 1)).toEqual([{ key: '1:1', streamId: 1, inFlightMs: TIMEOUT_MS + 1 }])
@@ -138,9 +183,9 @@ describe('InFlightSubBatches', () => {
     })
 
     it('tracks the oldest in-flight age and drops it to 0 once everything settles', async () => {
-        inFlight.onFed(subBatch(1, 1))
+        inFlight.onFeeding(subBatch(1, 1))
         jest.setSystemTime(30)
-        inFlight.onFed(subBatch(1, 2))
+        inFlight.onFeeding(subBatch(1, 2))
 
         inFlight.findStuck(50)
         expect(await metricValue('ingestion_api_grpc_oldest_in_flight_batch_age_seconds')).toBe(0.05)
@@ -156,7 +201,7 @@ describe('InFlightSubBatches', () => {
 
     it('never reports stuck sub-batches when the timeout is 0, but still tracks the oldest age', async () => {
         inFlight = new InFlightSubBatches(0)
-        inFlight.onFed(subBatch(1, 1))
+        inFlight.onFeeding(subBatch(1, 1))
 
         expect(inFlight.findStuck(600_000)).toEqual([])
         expect(await metricValue('ingestion_api_grpc_oldest_in_flight_batch_age_seconds')).toBe(600)
@@ -164,9 +209,9 @@ describe('InFlightSubBatches', () => {
 
     it('logs each stuck sub-batch once per trip and skips one that settled since it was found', async () => {
         const trips = await metricValue('ingestion_api_grpc_stuck_batches_total')
-        inFlight.onFed(subBatch(1, 1, [10, 11]))
-        inFlight.onFed(subBatch(2, 1, [20]))
-        inFlight.onFed(subBatch(3, 1, [30]))
+        inFlight.onFeeding(subBatch(1, 1, [10, 11]))
+        inFlight.onFeeding(subBatch(2, 1, [20]))
+        inFlight.onFeeding(subBatch(3, 1, [30]))
         jest.setSystemTime(TIMEOUT_MS + 1)
         const stuck = inFlight.findStuck(Date.now())
 
