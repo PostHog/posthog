@@ -80,13 +80,42 @@ function imageContent(node: JSONContent, contentWidth: number): Content | null {
     }
 }
 
+function buttonBorder(style: EmailBlockStyle, background: string): UnlayerValues {
+    if (!style.borderWidth) {
+        return {}
+    }
+    const side = { width: `${style.borderWidth}px`, style: 'solid', color: style.borderColor ?? background }
+    const border: UnlayerValues = {}
+    for (const name of ['Top', 'Right', 'Bottom', 'Left']) {
+        border[`border${name}Width`] = side.width
+        border[`border${name}Style`] = side.style
+        border[`border${name}Color`] = side.color
+    }
+    return { border }
+}
+
+function buttonSize(style: EmailBlockStyle): UnlayerValues {
+    return style.buttonWidth
+        ? { autoWidth: false, width: `${Math.min(100, number(style.buttonWidth, 100))}%` }
+        : { autoWidth: true, width: '100%' }
+}
+
+function buttonText(style: EmailBlockStyle, page: EmailPageStyle): UnlayerValues {
+    return {
+        fontSize: `${number(style.fontSize, page.fontSize)}px`,
+        fontWeight: number(style.fontWeight, 600),
+        lineHeight: `${number(style.lineHeight, 120)}%`,
+        ...(style.fontFamily ? { fontFamily: { label: style.fontFamily, value: style.fontFamily } } : {}),
+    }
+}
+
 function buttonContent(node: JSONContent, page: EmailPageStyle): Content | null {
     const style = styleOf(node)
-    const text = oldEditorInlineHtml(node.content, { ...page, linkColor: style.color ?? page.buttonTextColor })
+    const color = style.color ?? page.buttonTextColor
+    const text = oldEditorInlineHtml(node.content, { ...page, linkColor: color })
     if (!text) {
         return null
     }
-    const color = style.color ?? page.buttonTextColor
     const background = style.backgroundColor ?? page.buttonBackgroundColor
     const href = safeEmailLink(node.attrs?.href)
     return {
@@ -95,33 +124,11 @@ function buttonContent(node: JSONContent, page: EmailPageStyle): Content | null 
             text,
             ...(href ? { href: webLink(href) } : {}),
             buttonColors: { color, backgroundColor: background, hoverColor: color, hoverBackgroundColor: background },
-            size: style.buttonWidth
-                ? { autoWidth: false, width: `${Math.min(100, number(style.buttonWidth, 100))}%` }
-                : { autoWidth: true, width: '100%' },
+            size: buttonSize(style),
             padding: `${number(style.innerPaddingY, 12)}px ${number(style.innerPaddingX, 24)}px`,
-            fontSize: `${number(style.fontSize, page.fontSize)}px`,
-            fontWeight: number(style.fontWeight, 600),
-            lineHeight: `${number(style.lineHeight, 120)}%`,
+            ...buttonText(style, page),
             borderRadius: `${number(style.borderRadius, page.buttonBorderRadius)}px`,
-            ...(style.borderWidth
-                ? {
-                      border: {
-                          borderTopWidth: `${style.borderWidth}px`,
-                          borderTopStyle: 'solid',
-                          borderTopColor: style.borderColor ?? background,
-                          borderRightWidth: `${style.borderWidth}px`,
-                          borderRightStyle: 'solid',
-                          borderRightColor: style.borderColor ?? background,
-                          borderBottomWidth: `${style.borderWidth}px`,
-                          borderBottomStyle: 'solid',
-                          borderBottomColor: style.borderColor ?? background,
-                          borderLeftWidth: `${style.borderWidth}px`,
-                          borderLeftStyle: 'solid',
-                          borderLeftColor: style.borderColor ?? background,
-                      },
-                  }
-                : {}),
-            ...(style.fontFamily ? { fontFamily: { label: style.fontFamily, value: style.fontFamily } } : {}),
+            ...buttonBorder(style, background),
             textAlign: style.textAlign ?? 'left',
             containerPadding: sidesCss(style.padding ?? { ...DEFAULT_BLOCK_SIDES, top: 12, bottom: 12 }),
         },
@@ -145,6 +152,23 @@ function dividerContent(node: JSONContent): Content {
     }
 }
 
+function textContent(node: JSONContent, page: EmailPageStyle, contentWidth: number): Content | null {
+    const style = styleOf(node)
+    const { kind, html } = oldEditorBlockHtml(node, page, contentWidth)
+    if (kind === 'html') {
+        return html ? { type: 'html', values: { html, containerPadding: '0px' } } : null
+    }
+    return {
+        type: 'text',
+        values: {
+            text: html,
+            textAlign: style.textAlign ?? 'left',
+            containerPadding: sidesCss(style.padding ?? DEFAULT_BLOCK_SIDES),
+            ...(style.backgroundColor ? { backgroundColor: style.backgroundColor } : {}),
+        },
+    }
+}
+
 function blockContent(node: JSONContent, page: EmailPageStyle, contentWidth: number): Content | null {
     switch (node.type) {
         case 'emailImage':
@@ -161,21 +185,9 @@ function blockContent(node: JSONContent, page: EmailPageStyle, contentWidth: num
                     containerPadding: sidesCss(styleOf(node).padding ?? NO_SIDES),
                 },
             }
+        default:
+            return textContent(node, page, contentWidth)
     }
-    const style = styleOf(node)
-    const { kind, html } = oldEditorBlockHtml(node, page, contentWidth)
-    if (kind === 'text') {
-        return {
-            type: 'text',
-            values: {
-                text: html,
-                textAlign: style.textAlign ?? 'left',
-                containerPadding: sidesCss(style.padding ?? DEFAULT_BLOCK_SIDES),
-                ...(style.backgroundColor ? { backgroundColor: style.backgroundColor } : {}),
-            },
-        }
-    }
-    return html ? { type: 'html', values: { html, containerPadding: '0px' } } : null
 }
 
 function withMeta(content: Content, ids: Ids): Record<string, any> {
