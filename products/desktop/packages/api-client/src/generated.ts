@@ -14658,6 +14658,9 @@ export namespace Schemas {
     };
     export type Organization = {
         id: string;
+        /**
+         * Name of the organization.
+         */
         name: string;
         slug: string;
         logo_media_id?: (string | null) | undefined;

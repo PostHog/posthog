@@ -693,6 +693,51 @@ const orgMembersList = (): ToolBase<
     },
 })
 
+const OrganizationCreateSchema = () => {
+    const CreateBody = orvalSchemas.CreateBody()
+    return CreateBody.omit({
+        logo_media_id: true,
+        enforce_2fa: true,
+        enforce_verified_domains: true,
+        members_can_invite: true,
+        members_can_create_projects: true,
+        members_can_use_personal_api_keys: true,
+        members_can_see_org_members: true,
+        allow_publicly_shared_resources: true,
+        read_only_mcp_access: true,
+        member_notice: true,
+        is_ai_data_processing_approved: true,
+        is_ai_training_opted_in: true,
+        default_anonymize_ips: true,
+        default_role_id: true,
+    })
+}
+
+const organizationCreate = (): ToolBase<ReturnType<typeof OrganizationCreateSchema>, Schemas.Organization> => ({
+    name: 'organization-create',
+    schema: OrganizationCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OrganizationCreateSchema>>) => {
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.Organization>({
+            method: 'POST',
+            path: `/api/organizations/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'slug',
+            'teams.*.id',
+            'teams.*.name',
+            'teams.*.project_id',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const OrganizationEnforce2faSchema = () => {
     const PartialUpdateBody = orvalSchemas.PartialUpdateBody()
     const PartialUpdateParams = orvalSchemas.PartialUpdateParams()
@@ -1016,6 +1061,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comments-send-to-slack-execute': commentsSendToSlackExecute,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,
+    'organization-create': organizationCreate,
     'organization-enforce-2fa-prepare': organizationEnforce2faPrepare,
     'organization-enforce-2fa-execute': organizationEnforce2faExecute,
     'organization-get': organizationGet,

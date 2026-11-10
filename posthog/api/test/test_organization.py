@@ -155,6 +155,54 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Organization.objects.count(), 1)
 
+    @parameterized.expand(
+        [
+            ("unscoped_oauth_token", "oauth", False, status.HTTP_201_CREATED),
+            ("org_scoped_oauth_token", "oauth", True, status.HTTP_403_FORBIDDEN),
+            ("org_scoped_personal_api_key", "personal_api_key", True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_organization_with_token(
+        self, _name: str, credential: str, org_scoped: bool, expected_status: int
+    ) -> None:
+        scoped_organizations = [str(self.organization.id)] if org_scoped else []
+        if credential == "oauth":
+            oauth_app = OAuthApplication.objects.create(
+                name="Test OAuth App",
+                client_id="test_client_id",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                user=self.user,
+            )
+            token = "pha_test_org_create_token"
+            OAuthAccessToken.objects.create(
+                application=oauth_app,
+                user=self.user,
+                token=token,
+                scope="organization:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_organizations=scoped_organizations,
+            )
+        else:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X",
+                user=self.user,
+                secure_value=hash_key_value(token),
+                scoped_organizations=scoped_organizations,
+                scopes=["organization:write"],
+            )
+
+        with self.is_cloud(True):
+            response = self.client.post(
+                "/api/organizations/", {"name": "New org"}, headers={"authorization": f"Bearer {token}"}
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(Organization.objects.count(), 2 if expected_status == status.HTTP_201_CREATED else 1)
+
     # Updating organizations
 
     def test_update_organization_default_role(self):

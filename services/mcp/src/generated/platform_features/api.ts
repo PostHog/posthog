@@ -13,6 +13,90 @@ export const ListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+export const createBodyNameMax = 64
+
+export const createBodyMemberNoticeOneMessageMax = 1000
+
+export const createBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const createBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const CreateBody = () => zod.object({
+    name: zod.string().max(createBodyNameMax).describe('Name of the organization.'),
+    logo_media_id: zod.string().nullish(),
+    enforce_2fa: zod.boolean().nullish(),
+    enforce_verified_domains: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
+        ),
+    members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
+    members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
+    allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(createBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(createBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(createBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
+    is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
+    default_anonymize_ips: zod
+        .boolean()
+        .optional()
+        .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
+    default_role_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the role to automatically assign to new members joining the organization'),
+})
+
 export const RetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
 })
@@ -34,7 +118,7 @@ export const partialUpdateBodyIpRestrictionsItemMax = 64
 export const partialUpdateBodyIpRestrictionsMax = 100
 
 export const PartialUpdateBody = () => zod.object({
-    name: zod.string().max(partialUpdateBodyNameMax).optional(),
+    name: zod.string().max(partialUpdateBodyNameMax).optional().describe('Name of the organization.'),
     logo_media_id: zod.string().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     enforce_verified_domains: zod

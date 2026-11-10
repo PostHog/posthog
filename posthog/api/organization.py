@@ -62,6 +62,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
+    get_authenticator_scoped_organization_ids,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
@@ -355,6 +356,7 @@ class OrganizationSerializer(
             "uses_most_specific_access_resolution",
         ]
         extra_kwargs = {
+            "name": {"help_text": "Name of the organization."},
             "slug": {
                 "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
@@ -928,6 +930,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return super().partial_update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
+        # The new organization would sit outside the token's scope, so the token could never use it.
+        if get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
+            raise exceptions.PermissionDenied(
+                "Access limited to specific organizations can't create a new organization. "
+                "Use an API key or connection with access to all organizations."
+            )
         # Set user context for activity logging
         with ImpersonatedContext(self.request):
             super().perform_create(serializer)
