@@ -273,6 +273,22 @@ def _renovate_pr(**overrides: Any) -> dict[str, Any]:
         pytest.param(_renovate_pr(), _BOT_AUTHORS_POLICY, ReviewMode.LABEL, True, id="label-mode-without-the-label"),
         pytest.param(_renovate_pr(), None, ReviewMode.ALL, False, id="policy-names-no-bot"),
         pytest.param(
+            _renovate_pr(),
+            "bot_authors:\n  - {name: renovate, login: 'renovate[bot]'}\n",
+            ReviewMode.ALL,
+            False,
+            id="entry-without-an-id",
+        ),
+        pytest.param(
+            _renovate_pr(),
+            f"bot_authors:\n  - {{name: renovate, login: 'renovate[bot]', id: '{_RENOVATE_ID}'}}\n",
+            ReviewMode.ALL,
+            False,
+            id="entry-with-a-text-id",
+        ),
+        pytest.param(_renovate_pr(), "bot_authors: 'renovate[bot]'\n", ReviewMode.ALL, False, id="entries-not-a-list"),
+        pytest.param(_renovate_pr(), "bot_authors: [\n", ReviewMode.ALL, False, id="unreadable-policy"),
+        pytest.param(
             _renovate_pr(author_id=1), _BOT_AUTHORS_POLICY, ReviewMode.ALL, False, id="same-login-other-account"
         ),
         pytest.param(
