@@ -97,16 +97,16 @@ describe('provider edge', () => {
     })
 
     it('leaves tracking unknown when the edge has no configuration sets', async () => {
-        await send(ALICE)
+        expect(await send(ALICE)).toBe('sent')
 
-        expect((await truth()).records[0].detail.message?.tracked).toBeUndefined()
+        expect((await truth()).records[0].detail.message!.tracked).toBeUndefined()
     })
 
-    it('answers a request the edge fails on with a 500 and keeps serving', async () => {
-        const { status, json } = await call('GET', '//edge:99999/')
-
-        expect([status, json.message]).toEqual([500, expect.stringContaining('The edge failed')])
-        expect((await call('GET', '/_health')).json).toEqual({ ok: true })
+    it('answers a request target that is not a URL with a 400', async () => {
+        expect(await call('GET', '//edge:99999/')).toEqual({
+            status: 400,
+            json: { message: 'The request target is not a URL.' },
+        })
     })
 
     it('records a send whose address list is not a list as a 400', async () => {

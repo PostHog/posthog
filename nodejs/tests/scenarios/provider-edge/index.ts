@@ -143,23 +143,19 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             respond(res, { status: 400, body: { message: 'The body is not JSON.' } })
             return
         }
-        const reply = route(req, new URL(req.url ?? '/', 'http://edge'), body)
+        const url = URL.parse(req.url ?? '/', 'http://edge')
+        if (url === null) {
+            respond(res, { status: 400, body: { message: 'The request target is not a URL.' } })
+            return
+        }
+        const reply = route(req, url, body)
         if (reply !== 'drop-connection') {
             respond(res, reply)
         }
     }
 
     const server = http.createServer((req, res) => {
-        handle(req, res).catch((error: unknown) => {
-            if (res.headersSent || req.socket.destroyed) {
-                res.destroy()
-                return
-            }
-            respond(
-                res,
-                sesError({ status: 500, type: 'InternalFailure', message: `The edge failed: ${String(error)}` })
-            )
-        })
+        handle(req, res).catch(() => res.destroy())
     })
     await new Promise<void>((resolve, reject) => {
         server.once('error', reject)
