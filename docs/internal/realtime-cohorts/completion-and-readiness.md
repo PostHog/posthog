@@ -257,7 +257,7 @@ And Django can accept a flag that Rust then evaluates dynamically, for example w
 - **It does not mean complete history.**
   A person stamp covers persons updated since the run's horizon.
   A behavioral stamp covers history only up to the seeder's lookback cap.
-  Django refuses a backfill for a cohort that looks back further, unless `REALTIME_COHORT_MAX_HISTORY_DAYS` is set above that cap.
+  Django keeps a cohort that looks back further off realtime when its criteria are saved, unless `REALTIME_COHORT_MAX_HISTORY_DAYS` is set above that cap.
 - **It does not cover leaving the realtime set.**
   The finalizer does not check whether the cohort was deleted, made static or stopped being realtime while the run was in flight.
 

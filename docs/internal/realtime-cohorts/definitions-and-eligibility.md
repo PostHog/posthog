@@ -100,7 +100,8 @@ The API serializer sets `cohort_type = 'realtime'` when all of the following hol
 A sliding window counts by its length, with a month as 30 days and a year as 365, the same lengths the Rust evaluator uses.
 An absolute start date counts from its written date to the team's current day, and a range with only an end date always counts as too long.
 The history limit is not rechecked as time passes.
-A realtime cohort whose start date later passes the limit stays realtime until a save that changes its criteria, and the backfill judge refuses a new backfill for it in the meantime.
+A realtime cohort whose start date later passes the limit stays realtime until a save that changes its criteria.
+A backfill for it in the meantime, such as a disaster-recovery run, is truncated at the seeder's cap.
 A resave through `resave_cohorts` or team enablement rechecks every cohort, so it does take such a cohort off realtime.
 Keep `REALTIME_COHORT_MAX_HISTORY_DAYS` at or below the seeder's `SEEDER_MAX_LOOKBACK_DAYS`.
 

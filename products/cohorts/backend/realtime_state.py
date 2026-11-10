@@ -314,8 +314,8 @@ def _cohort_progress(
 def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:
     readiness: dict[int, CohortRealtimeReadiness] = {}
     pending: list[Cohort] = []
-    # The save and the judge use the team's calendar day, and UTC can be one day off it. For that day, an
-    # absolute start date at the limit can read on the other side of it here, which changes only the reason.
+    # The save uses the team's calendar day, and UTC can be one day off it. For that day, an absolute
+    # start date at the limit can read on the other side of it here, which changes only the reason.
     today = timezone.now().date()
     limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
 
@@ -323,23 +323,18 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
         settled = _settled_state(cohort)
         if settled is None:
             pending.append(cohort)
-        elif settled == CohortRealtimeState.DAILY and behavioral_history_over_limit(
-            (cohort.filters or {}).get("properties"), limit_days=limit_days, today=today
-        ):
-            readiness[cohort.id] = CohortRealtimeReadiness(
-                state=settled,
-                ready_at=None,
-                build=None,
-                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT,
-                history_limit_days=limit_days,
-            )
         else:
+            over_limit = settled == CohortRealtimeState.DAILY and behavioral_history_over_limit(
+                (cohort.filters or {}).get("properties"), limit_days=limit_days, today=today
+            )
             readiness[cohort.id] = CohortRealtimeReadiness(
                 # Only a prepared realtime cohort has a moment it became targetable. A person
                 # property cohort always was, and it can carry a stamp from an earlier definition.
                 state=settled,
                 ready_at=cohort.realtime_ready_at if settled == CohortRealtimeState.READY else None,
                 build=None,
+                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT if over_limit else None,
+                history_limit_days=limit_days if over_limit else None,
             )
 
     if not pending:

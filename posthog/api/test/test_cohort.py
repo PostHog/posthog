@@ -8471,6 +8471,14 @@ class TestCohortTypeIntegration(APIBaseTest):
             self.assertEqual(rename.status_code, 200, rename.data)
             self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
 
+            lengthen = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                {"filters": performed_pageview_since("2025-09-01")},
+                format="json",
+            )
+            self.assertEqual(lengthen.status_code, 200, lengthen.data)
+            self.assertNotEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type and condition_type fields"""
 
