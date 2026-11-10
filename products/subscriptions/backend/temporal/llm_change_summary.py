@@ -493,7 +493,7 @@ def generate_change_summary(
                         "schema": to_strict_json_schema(ReportSummary),
                     },
                 },
-                timeout=20,
+                timeout=30,
                 messages=cast(list[ChatCompletionMessageParam], messages),
                 user=user_tag,
             )

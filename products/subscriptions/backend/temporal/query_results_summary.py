@@ -144,7 +144,7 @@ async def condense_query_results(
                     model="gpt-6-luna",
                     reasoning_effort="low",
                     max_completion_tokens=4_096,
-                    timeout=20,
+                    timeout=30,
                     messages=cast(list[ChatCompletionMessageParam], messages),
                     user=user_tag,
                 )

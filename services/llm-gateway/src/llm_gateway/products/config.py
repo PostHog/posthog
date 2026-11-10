@@ -277,7 +277,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "product_analytics": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"gpt-4.1-mini"}),
+        allowed_models=frozenset({"gpt-4.1-mini", "gpt-6-luna"}),
         allow_api_keys=True,
     ),
     "signals": ProductConfig(
