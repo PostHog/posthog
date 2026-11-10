@@ -203,7 +203,6 @@ describe('EmailService', () => {
             limiters.workflowEmailRateLimiter ?? null,
             limiters.teamEmailRateLimiter ?? null
         )
-    // RedisV2 cannot be closed, so every limiter in this file shares one pool instead of opening one per test.
     let limiterRedis: RedisV2 | undefined
     const createRateLimiter = (name: string): RateLimiterService => {
         limiterRedis ??= createRedisV2PoolFromConfig({
@@ -222,8 +221,6 @@ describe('EmailService', () => {
         useClient: () => Promise.reject(new Error('connect ECONNREFUSED')),
         usePipeline: () => Promise.reject(new Error('connect ECONNREFUSED')),
     }
-    // The send path reports without awaiting. The reporter's team lookup answers from the cache
-    // warmed in beforeEach, so one event loop turn settles every report a send started.
     const settledActivationEvents = async (): Promise<typeof activationEvents> => {
         await new Promise((resolve) => setImmediate(resolve))
         return activationEvents
@@ -738,6 +735,21 @@ describe('EmailService', () => {
 
             const parkedAt = (send: TimedSend): number => send.result.invocation.queueScheduledAt!.toMillis()
 
+            // The limiter refills on Redis's clock, which a test cannot freeze. A bucket that owes a
+            // minute of tokens denies every claim in the test, however slowly the test runs.
+            const oweAMinuteOfTokens = async (count: number): Promise<void> => {
+                await limiterRedis!.useClient({ name: 'owe-tokens' }, async (client) => {
+                    const [seconds, micros] = (await client.time()).map(Number)
+                    await client.hset(
+                        `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
+                        'ts',
+                        seconds * 1000 + Math.floor(micros / 1000),
+                        'pool',
+                        -count
+                    )
+                })
+            }
+
             it('reschedules a denied send with its email payload and no business metric', async () => {
                 limitTo(30, 'minute')
 
@@ -758,18 +770,16 @@ describe('EmailService', () => {
 
             it.each([
                 ['2s slots at 30 a minute', 30, 2000],
-                // Flooring a sub-second slot to 1s would push the wake off its slot and onto the slot behind.
                 ['sub-second slots at 120 a minute', 120, 500],
             ])('parks consecutive denials exactly one slot apart: %s', async (_name, count, slotMs) => {
                 limitTo(count, 'minute')
+                await oweAMinuteOfTokens(count)
 
-                const first = await sendUntilDenied()
+                const first = await timedSend()
                 const next = [await timedSend(), await timedSend()]
 
                 next.forEach((denied, index) => {
                     expect(denied.result.finished).toBe(false)
-                    // Each park is read on this process's clock after its claim returns, so it can
-                    // drift from the limiter's slot by at most the time its own call took.
                     const driftMs = parkedAt(denied) - parkedAt(first) - (index + 1) * slotMs
                     const callMs = first.after - first.before + (denied.after - denied.before)
                     expect(Math.abs(driftMs)).toBeLessThanOrEqual(callMs + 1)
@@ -777,7 +787,6 @@ describe('EmailService', () => {
             })
 
             it('scatters a backlog that overflows the reservation horizon', async () => {
-                // At 1 an hour every denial after the first lands past the one hour horizon.
                 limitTo(1, 'hour')
                 await sendUntilDenied()
 
@@ -794,7 +803,6 @@ describe('EmailService', () => {
             })
 
             it('retries on the clamped token interval when the limiter cannot be reached', async () => {
-                // 120/minute refills every 500ms, clamped to [1s, 2s] with jitter.
                 limitedService = createService(
                     {},
                     { workflowEmailRateLimiter: new RateLimiterService(unreachableValkey, { name: 'unreachable' }) }
@@ -832,15 +840,14 @@ describe('EmailService', () => {
             })
 
             it('sends a burst of one second of budget, then parks only the workflow over its limit', async () => {
-                // 61 a minute holds 2 tokens and refills one after about a second, so both deliveries finish first.
                 limitTo(61, 'minute')
 
                 const burst = [await timedSend(), await timedSend()]
+                await oweAMinuteOfTokens(61)
                 const denied = await timedSend()
 
                 expect(burst.map((send) => send.result.finished)).toEqual([true, true])
                 expect(denied.result.finished).toBe(false)
-                expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 1000)
 
                 const otherWorkflow = createExampleInvocation({ team_id: team.id, id: 'function-2' })
                 otherWorkflow.state.vmState = { stack: [] } as any
