@@ -3452,6 +3452,8 @@ class TestSavedQueryRun(APIBaseTest):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         saved_query, _dag, node = self._make_saved_query_with_node("floored_view")
+        saved_query.incremental_state = {"watermark": "2026-01-01T00:00:00+00:00"}
+        saved_query.save(update_fields=["incremental_state"])
         node.type = NodeType.MAT_VIEW
         node.save(update_fields=["type"])
         job = DataModelingJob.objects.create(
@@ -3469,6 +3471,9 @@ class TestSavedQueryRun(APIBaseTest):
 
         self.assertEqual(response.status_code, expected_status, response.content)
         self.assertEqual(mock_client.start_workflow.call_count, 1 if expected_status == 200 else 0)
+        if expected_status == 409:
+            saved_query.refresh_from_db()
+            self.assertEqual(saved_query.incremental_state, {"watermark": "2026-01-01T00:00:00+00:00"})
 
     @parameterized.expand(
         [
