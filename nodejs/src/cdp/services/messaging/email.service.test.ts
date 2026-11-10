@@ -1805,35 +1805,78 @@ describe('EmailService', () => {
                 }
             )
 
-            it('when a flow sends its next email inline while a download of the email before is still running, it waits for that download, and reschedules as a load retry once its deadline passes', async () => {
-                const emailService = sender({ attachmentSendDeadlineMs: 500 })
-                bucket.answer = 'stallFileBodies'
+            const inOneAdmission = async <T>(sends: () => Promise<T>): Promise<T> => {
                 const registry = new InFlightRegistry({
                     budgetBytes: Number.MAX_SAFE_INTEGER,
                     heapLimitBytes: Number.MAX_SAFE_INTEGER,
                     maxInFlight: 1,
                 })
+                const admission = registry.tryStart(pdf.bytes.length, sends)
+                return await (admission as Extract<typeof admission, { started: unknown }>).started
+            }
+            const outcomeOf = (result: Awaited<ReturnType<EmailService['executeSendEmail']>>) => ({
+                finished: result.finished,
+                error: result.error,
+                loadRetries: result.invocation.queueMetadata?.attachmentLoadRetries,
+            })
+            const sent = { finished: true, error: undefined, loadRetries: undefined }
+            const retriedLoad = { finished: false, error: undefined, loadRetries: 1 }
 
-                const admission = registry.tryStart(pdf.bytes.length, async () => {
+            it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
+                const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
+                bucket.answer = 'stallFileBodies'
+
+                const { first, second } = await inOneAdmission(async () => {
                     send([pdf, attachmentFile()])
                     const first = await emailService.executeSendEmail(invocation)
-                    const downloadsOfTheFirst = bucket.downloads
+                    bucket.answer = 'pass'
                     send([pdf, logo])
-                    return { first, second: await emailService.executeSendEmail(invocation), downloadsOfTheFirst }
+                    return { first, second: await emailService.executeSendEmail(invocation) }
                 })
-                const { first, second, downloadsOfTheFirst } = await (
-                    admission as Extract<typeof admission, { started: unknown }>
-                ).started
 
                 expect(first.error).toMatch(/^attachments_missing: /)
-                expect({
-                    finished: second.finished,
-                    error: second.error,
-                    loadRetries: second.invocation.queueMetadata?.attachmentLoadRetries,
-                }).toEqual({ finished: false, error: undefined, loadRetries: 1 })
-                expect(bucket.downloads).toBe(downloadsOfTheFirst)
-                expect(ses.delivered).toEqual([])
+                await waitForExpect(() => expect(bucket.abandonedRequests).toBe(1), 3000)
+                expect(outcomeOf(second)).toEqual(sent)
+                expect(ses.deliveredTo(recipient)).toEqual([
+                    { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
+                ])
             })
+
+            // The SDK does not abort a call while it waits for its credentials, so this call outlives the deadline
+            // of the email before. The bucket cannot hold a download that way: an aborted download settles at once.
+            it.each([
+                ['loads its files and sends only once that call settles', true, sent, 1],
+                ['reschedules as a load retry, having loaded nothing, once its deadline passes', false, retriedLoad, 0],
+            ])(
+                'when a flow sends its next email inline while the SES call of the email before still waits for its credentials, it %s',
+                async (_name, credentialsArrive, expected, emailsSent) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
+                    let giveCredentials!: () => void
+                    const credentials = new Promise<{ accessKeyId: string; secretAccessKey: string }>((resolve) => {
+                        giveCredentials = () =>
+                            resolve({ accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' })
+                    })
+                    emailService.sesV2Client = ses.client({ credentials: () => credentials })
+                    let downloadsWhenItSettles: number | undefined
+
+                    const { first, second, downloadsOfTheFirst } = await inOneAdmission(async () => {
+                        const first = await emailService.executeSendEmail(invocation)
+                        const downloadsOfTheFirst = bucket.downloads
+                        if (credentialsArrive) {
+                            setTimeout(() => {
+                                downloadsWhenItSettles = bucket.downloads
+                                giveCredentials()
+                            }, 300)
+                        }
+                        return { first, second: await emailService.executeSendEmail(invocation), downloadsOfTheFirst }
+                    })
+
+                    expect(outcomeOf(first)).toEqual(retriedLoad)
+                    expect(outcomeOf(second)).toEqual(expected)
+                    expect((downloadsWhenItSettles ?? bucket.downloads) - downloadsOfTheFirst).toBe(0)
+                    expect(ses.deliveredTo(recipient)).toHaveLength(emailsSent)
+                }
+            )
 
             const loadRetry = { finished: false, error: undefined, loadRetries: 1, rescheduled: true, failed: false }
             const sesMayHaveSent = {

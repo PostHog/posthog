@@ -458,17 +458,12 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             const [stuck] = await enqueue(transactionalSend([invoice.metadata]))
 
             await waitForExpect(async () => expect((await jobRow(stuck)).status).toBe('running'))
-            const retried = await waitForExpect(
-                async () => {
-                    const row = await jobRow(stuck)
-                    expect(row.status).toBe('available')
-                    return row
-                },
+            await waitForExpect(
+                async () => expect((await jobRow(stuck)).queueMetadata?.attachmentLoadRetries).toBe(1),
                 callsCannotOutlast + 5_000,
                 50
             )
             const writtenAfter = Date.now() - enqueuedAt
-            expect(retried.scheduled.getTime()).toBeGreaterThan(Date.now())
             expect(writtenAfter).toBeGreaterThanOrEqual(callsCannotOutlast)
             expect(writtenAfter).toBeLessThanOrEqual(callsCannotOutlast + 2_000)
             expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
@@ -489,7 +484,9 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             ;(await lostRunFails).drop()
 
             await waitForExpect(async () => expect(await loopErrors()).toBe(1), callsCannotOutlast + 5_000, 50)
-            expect((await jobRow(send.id)).status).not.toBe('running')
+            // The retry it writes falls due while the wait for its call runs, so the worker can already be running
+            // the send again. Only its state shows the write.
+            expect((await jobRow(send.id)).queueMetadata?.attachmentLoadRetries).toBe(1)
             expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
         })
     })
