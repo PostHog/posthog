@@ -1003,12 +1003,71 @@ async fn a_team_larger_than_one_batch_is_erased_in_full() {
     let persons: Vec<PropertyRecord> = (1..=7).map(|id| record(id, 1, "{}")).collect();
     writer.put(&sole_partition(), 1, &persons).await.unwrap();
 
-    assert_eq!(writer.erase_team_in_batches(7, 2).await.unwrap(), 7);
+    assert_eq!(
+        writer
+            .erase_team_in_batches(7, 2, Duration::from_secs(30))
+            .await
+            .unwrap(),
+        7
+    );
 
     let reader = PropertyReader::new(&config(), store(&dir));
     for id in 1..=7 {
         assert_eq!(reader.get_fresh(7, id).await.unwrap(), None, "person {id}");
     }
     writer.close().await;
+    reader.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_erasure_leaves_a_shard_whose_store_does_not_answer_and_erases_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let person_in = |shard: u32| (1..).find(|&id| shard_for(7, id, SHARDS) == shard).unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    writer
+        .put(
+            &sole_partition(),
+            1,
+            &[record(person_in(0), 1, "{}"), record(person_in(1), 1, "{}")],
+        )
+        .await
+        .unwrap();
+    // In SSTs, so the erasure's scan has to read the store rather than a replayed memtable.
+    writer.flush_memtables().await;
+    writer.close().await;
+    // Shard 0 stalls and comes first, so the healthy shard is only reached by going on past it.
+    let slow = PropertyWriter::new(
+        &config(),
+        Arc::new(StalledShard {
+            inner: store(&dir),
+            shard: "shard-00000".to_string(),
+            fail: false,
+            delay: Some(Duration::from_millis(400)),
+        }),
+    );
+    slow.assign(&sole_partition(), 2, 1, || true).await.unwrap();
+
+    let erased = tokio::time::timeout(
+        Duration::from_secs(20),
+        slow.erase_team_in_batches(7, 2, Duration::from_millis(100)),
+    )
+    .await
+    .expect("every batch is bounded");
+
+    assert!(
+        matches!(erased, Err(PropertyStoreError::Timeout)),
+        "{erased:?}"
+    );
+    let reader = PropertyReader::new(&config(), store(&dir));
+    assert!(
+        reader.get_fresh(7, person_in(0)).await.unwrap().is_some(),
+        "the stalled shard keeps its keys for the next pass"
+    );
+    assert_eq!(
+        reader.get_fresh(7, person_in(1)).await.unwrap(),
+        None,
+        "the healthy shard after it was erased"
+    );
+    slow.close().await;
     reader.close().await;
 }

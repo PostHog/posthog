@@ -35,6 +35,7 @@ async fn a_listed_team_is_erased_from_the_owned_shards() {
         person_id,
         version: 1,
         deleted: false,
+        created_at: 0,
         properties: Bytes::from_static(b"{}"),
     };
     writer
