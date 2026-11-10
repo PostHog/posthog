@@ -5,8 +5,10 @@ import { useLayoutEffect, useRef } from 'react'
 import { Text } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TodayExplore } from './TodayExplore'
+import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
@@ -30,7 +32,15 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, isNewProject, recentObjects, returnFocusReportId, useSampleData } = useValues(todayLogic)
+    const {
+        greeting,
+        isNewProject,
+        recentObjects,
+        recentsHasLoaded,
+        frequentObjectsLoading,
+        returnFocusReportId,
+        useSampleData,
+    } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
     const {
         currentProjectId,
@@ -44,8 +54,9 @@ export function TodayHomePage(): JSX.Element {
     } = useValues(todayHighlightsLogic)
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+    const { currentOrganization } = useValues(organizationLogic)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
-    const homeComposer = useFeatureFlag('TODAY_HOME_COMPOSER') && postHogAiTasks
+    const homeComposer = postHogAiTasks && !!currentOrganization?.is_ai_data_processing_approved
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -104,9 +115,14 @@ export function TodayHomePage(): JSX.Element {
                 {homeComposer ? <TodayHomeComposer /> : null}
             </section>
             <div className="TodayHome__body">
-                <TodayPulseSection />
-                {isNewProject && recentObjects.length === 0 ? <TodayExplore /> : <TodayRecents />}
-                <TodayForYou />
+                {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
+                {isNewProject ? <TodayForYou /> : null}
+                {recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
+                    <TodayExplore />
+                ) : (
+                    <TodayRecents />
+                )}
+                {isNewProject ? null : <TodayForYou />}
             </div>
         </div>
     )
