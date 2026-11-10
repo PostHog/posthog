@@ -25,6 +25,8 @@ import {
     workflowMetricsSummaryLogic,
 } from './workflowMetricsSummaryLogic'
 
+const SANDBOX_ONLY_RATE = { value: '-', tag: null, detail: 'All emails were sent from the sandbox sender' }
+
 const series = (labels: string[], ...namedValues: [string, number[]][]): AppMetricsTimeSeriesResponse => ({
     labels,
     interval: 'day',
@@ -479,7 +481,7 @@ describe('workflowMetricsSummaryLogic', () => {
             ],
             emailsSent: 20,
             stepTotals: [{ id: 'sandbox-1', sent: 20, delivered: 17, bounced: 2, markedAsSpam: 1, sandboxBlocked: 0 }],
-            health: { sent: 20, ownSenderSent: 0, hardBounces: 0, bounced: 2, complaints: 1 },
+            health: { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE },
         },
         {
             name: 'own and sandbox steps, and a step that moved between senders',
@@ -497,7 +499,14 @@ describe('workflowMetricsSummaryLogic', () => {
                 { id: 'email-1', sent: 105, delivered: 102, bounced: 3, markedAsSpam: 4, sandboxBlocked: 0 },
                 { id: 'sandbox-1', sent: 20, delivered: 20, bounced: 0, markedAsSpam: 0, sandboxBlocked: 0 },
             ],
-            health: { sent: 125, ownSenderSent: 100, hardBounces: 2, bounced: 3, complaints: 4 },
+            health: {
+                bounce: {
+                    value: '2.00%',
+                    tag: { label: 'Healthy', type: 'success' },
+                    detail: '2 hard, 3 bounced in total',
+                },
+                complaint: { value: '4.00%', tag: null, detail: '4 marked as spam' },
+            },
         },
         {
             name: 'a sandbox block that is not a spam complaint',
@@ -508,7 +517,7 @@ describe('workflowMetricsSummaryLogic', () => {
             ],
             emailsSent: 6,
             stepTotals: [{ id: 'sandbox-1', sent: 6, delivered: 6, bounced: 0, markedAsSpam: 0, sandboxBlocked: 3 }],
-            health: { sent: 6, ownSenderSent: 0, hardBounces: 0, bounced: 0, complaints: 0 },
+            health: { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE },
         },
     ])('counts sandbox sender email for $name', async ({ steps, rows, emailsSent, stepTotals, health }) => {
         serveAppMetrics(rows)

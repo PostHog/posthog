@@ -6,7 +6,7 @@ import type { Dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { RATE_LEVEL_TAG, classifyRate, minimumVolumeToClassify } from '../Reputation/emailRateLevels'
+import { RATE_LEVEL_TAG } from '../Reputation/emailRateLevels'
 import { workflowLogic } from '../workflowLogic'
 import { workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
 import { workflowOverviewLogic } from './workflowOverviewLogic'
@@ -40,23 +40,6 @@ function HealthItem({
             {detail ? <span className="text-xs text-muted">{detail}</span> : null}
         </div>
     )
-}
-
-function rateItem(
-    kind: 'bounce' | 'complaint',
-    count: number,
-    sent: number,
-    detail: string
-): { value: string; tag: { label: string; type: LemonTagType } | null; detail: string } {
-    if (sent === 0) {
-        return { value: '-', tag: null, detail: 'No emails sent' }
-    }
-    const rate = count / sent
-    return {
-        value: percentage(rate, 2, true),
-        tag: sent < minimumVolumeToClassify(kind) ? null : RATE_LEVEL_TAG[classifyRate(rate, kind)],
-        detail,
-    }
 }
 
 // A failed step does not fail the run when the step continues on error, so the run status filter would miss it.
@@ -101,28 +84,7 @@ export function WorkflowOverviewHealth({
     const loading = (healthTotalsLoading && !healthTotals) || (stepTotalsLoading && failedRuns === null)
     const totals = healthTotals ?? {}
     const started = totals.triggered ?? 0
-    const emailSent = emailHealth.sent
     const pushSent = totals.push_sent ?? 0
-    // Reputation thresholds apply to permanent bounces only, as on the Reputation page.
-    const bounce =
-        emailHealth.ownSenderSent === 0 && emailSent > 0
-            ? {
-                  value: '-',
-                  tag: null,
-                  detail: `${humanFriendlyNumber(emailHealth.bounced)} bounced in total. The sandbox sender doesn't track hard bounces.`,
-              }
-            : rateItem(
-                  'bounce',
-                  emailHealth.hardBounces,
-                  emailHealth.ownSenderSent,
-                  `${humanFriendlyNumber(emailHealth.hardBounces)} hard, ${humanFriendlyNumber(emailHealth.bounced)} bounced in total`
-              )
-    const complaint = rateItem(
-        'complaint',
-        emailHealth.complaints,
-        emailSent,
-        `${humanFriendlyNumber(emailHealth.complaints)} marked as spam`
-    )
     const failed = stepTotalsFailed || healthTotalsFailed
 
     return (
@@ -176,13 +138,13 @@ export function WorkflowOverviewHealth({
                         <>
                             <HealthItem
                                 label="Hard bounce rate"
-                                tooltip="Permanent bounces as a share of emails sent. A high hard bounce rate can pause email from this workflow automatically."
-                                {...bounce}
+                                tooltip="Permanent bounces as a share of emails sent from your own sender. A high hard bounce rate can pause email from this workflow automatically."
+                                {...emailHealth.bounce}
                             />
                             <HealthItem
                                 label="Spam complaint rate"
-                                tooltip="Spam complaints as a share of emails sent. A high complaint rate can pause email from this workflow automatically."
-                                {...complaint}
+                                tooltip="Spam complaints as a share of emails sent from your own sender. A high complaint rate can pause email from this workflow automatically."
+                                {...emailHealth.complaint}
                             />
                         </>
                     ) : null}
