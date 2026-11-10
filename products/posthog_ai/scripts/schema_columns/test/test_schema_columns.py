@@ -78,7 +78,9 @@ def test_unknown_table_raises() -> None:
 def test_renders_only_columns_hogql_exposes() -> None:
     rendered = schema_columns("system.insights")
 
-    assert "`team_id` | Integer | NOT NULL" in rendered
+    assert "`id` | Integer | NOT NULL" in rendered
+    # `team_id` is hidden because the team guard already scopes every row, so the reference omits it.
+    assert "`team_id`" not in rendered
     # `deleted` is an expression column over the hidden `_deleted`; the alias is what resolves.
     assert "`deleted` | Integer | NOT NULL" in rendered
     assert "`_deleted`" not in rendered

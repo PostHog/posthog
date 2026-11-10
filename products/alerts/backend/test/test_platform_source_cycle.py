@@ -32,6 +32,7 @@ from posthog.tasks.alerts.utils import (
     RenderedInsightChart,
     next_check_time,
 )
+from posthog.temporal.ai.anomaly_investigation.workflow import _investigated_alert as load_investigated_alert
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
@@ -1172,6 +1173,39 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             assert investigation.evaluated["value"] == 150.0
             assert investigation.evaluated["triggered_dates"] == ["2026-09-16"]
         assert len(claims.deliveries) == (1 if not claimed and verdict is None else 0)
+
+    def test_an_alert_insight_keeps_no_row_for_is_investigated_under_its_own_id(self) -> None:
+        alert = self._alert(detector_config={"type": "zscore", "threshold": 0.95, "window": 30})
+        insight = alert.insight
+        configuration = self._copy(
+            None,
+            owner=PlatformAlertOwner.PLATFORM,
+            created_by_id=self.user.id,
+            source_config={
+                "insight_id": insight.id,
+                SOURCE_CONDITION_KEY: {"detector": alert.detector_config},
+                "investigation_agent_enabled": True,
+                "investigation_gates_notifications": True,
+            },
+        )
+        alert.delete()
+
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+
+        assert outcome.held_delivery is not None
+        (start,) = claims.starts
+        assert (start.alert_id, start.user_id) == (str(configuration.id), self.user.id)
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get(id=start.investigation_id)
+        assert (investigation.alert_configuration_id, investigation.configuration_id) == (None, configuration.id)
+        investigated = load_investigated_alert(self.team.id, configuration.id)
+        assert investigated is not None
+        assert (investigated.id, investigated.insight_id, investigated.investigation_gates_notifications) == (
+            configuration.id,
+            insight.id,
+            True,
+        )
 
     def test_a_firing_whose_investigation_cannot_be_decided_still_goes_out(self) -> None:
         _alert, configuration = self._investigated_alert(investigation_gates_notifications=True)

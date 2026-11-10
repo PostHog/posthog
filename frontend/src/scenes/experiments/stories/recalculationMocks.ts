@@ -51,8 +51,20 @@ export function recalculationMocks(
     const results: MetricRecalculationResultApi[] = metricUuids.map((metricUuid) => {
         const result = resultFor(metricUuid)
         return result
-            ? { metric_uuid: metricUuid, status: 'completed', result, error_message: null }
-            : { metric_uuid: metricUuid, status: 'failed', result: null, error_message: 'Metric failed to compute' }
+            ? {
+                  metric_uuid: metricUuid,
+                  status: 'completed',
+                  result,
+                  error_message: null,
+                  configuration_status: 'current',
+              }
+            : {
+                  metric_uuid: metricUuid,
+                  status: 'failed',
+                  result: null,
+                  error_message: 'Metric failed to compute',
+                  configuration_status: 'current',
+              }
     })
     const failedUuids = results.filter(({ status }) => status === 'failed').map(({ metric_uuid }) => metric_uuid)
 
@@ -85,7 +97,12 @@ export function recalculationMocks(
         rows_read: null,
         estimated_rows_total: null,
     }
-    const latest: ExperimentMetricsRecalculationLatestApi = { ...run, active_run: null, result_source: 'recalculation' }
+    const latest: ExperimentMetricsRecalculationLatestApi = {
+        ...run,
+        active_run: null,
+        result_source: 'recalculation',
+        exceeds_recalculation_age_limit: false,
+    }
     const job: ExperimentMetricsRecalculationJobApi = { ...run, is_existing: true }
     const base = `/api/projects/:team_id/experiments/${experiment.id}/metrics_recalculation`
 
