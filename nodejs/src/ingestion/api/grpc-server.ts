@@ -479,7 +479,8 @@ export class WorkerIngestServer {
         }
         this.beginDrain()
         // A poisoned pipeline never settles, and a stuck-batch shutdown has already drained.
-        await this.waitDrained(this.fatalError || this.stuckDrainDone ? 0 : Date.now() + this.drainTimeoutMs)
+        const waitMs = this.fatalError || this.stuckDrainDone ? 0 : this.drainTimeoutMs
+        await this.waitDrained(Date.now() + waitMs)
         this.stopped = true
         this.stopAbort.abort()
         for (const stream of this.streams.values()) {
