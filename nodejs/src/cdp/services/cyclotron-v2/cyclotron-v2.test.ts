@@ -1997,8 +1997,7 @@ describe('Cyclotron V2', () => {
         const BACKLOG_QUEUE = 'future-backlog'
         const BACKLOG_ROWS = 20_000
         const BACKLOG_BUFFER_BUDGET = 30
-        // A claim also writes index entries for the claimed row, and those cost a level more once the backlog deepens the trees.
-        const CLAIM_BUFFER_BUDGET = 80
+        const BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES = 80
 
         type PlanMode = 'custom' | 'generic'
 
@@ -2027,14 +2026,13 @@ describe('Cyclotron V2', () => {
             await client.connect()
             try {
                 await client.query('TRUNCATE cyclotron_jobs')
-                // The later-scheduled rows take the lowest dequeue_seq values, as long-delayed emails do.
                 await client.query(
                     `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq)
                      SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
                             CASE WHEN g <= $3 THEN NOW() - interval '1 minute'
                                  ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
                             NOW(), NOW(),
-                            CASE WHEN g <= $3 THEN $2::int + g ELSE g - $3::int END
+                            CASE WHEN g <= $3 THEN $2::int + g ELSE g - $3::int END AS future_rows_take_the_lowest_dequeue_seq
                      FROM generate_series(1, $2::int + $3::int) g`,
                     [queue, backlogJobs, dueJobs]
                 )
@@ -2104,7 +2102,7 @@ describe('Cyclotron V2', () => {
                 'the email fair dequeue',
                 'email',
                 1,
-                CLAIM_BUFFER_BUDGET,
+                BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES,
                 PARAMETERIZED_SQL_PLANS,
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
