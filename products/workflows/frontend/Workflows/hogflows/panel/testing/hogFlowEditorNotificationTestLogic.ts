@@ -237,7 +237,7 @@ export interface hogFlowEditorNotificationTestLogicMeta {
         ) => string | null
         testRecipientDisabledReason: (
             sandboxTestMembers: OrganizationMemberType[] | null,
-            members: any,
+            members: OrganizationMemberType[] | null,
             membersLoading: boolean,
             membersLoadFailed: boolean,
             testRecipient: string | null
