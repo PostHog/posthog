@@ -47,8 +47,8 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
             edge.clearFaults()
             edge.addFault(
                 fault === 'drop-connection'
-                    ? { name: 'ses.drop_connection', params: {} }
-                    : { name: 'ses.status', params: fault }
+                    ? { name: 'ses.drop_connection', answer: { kind: 'drop-connection' }, dose: { share: 1 } }
+                    : { name: 'ses.status', answer: { kind: 'status', answer: fault }, dose: { share: 1 } }
             )
         },
         close: async () => {

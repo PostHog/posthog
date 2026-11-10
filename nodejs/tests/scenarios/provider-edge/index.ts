@@ -1,14 +1,23 @@
 import http from 'http'
 import { AddressInfo } from 'net'
+import { text } from 'stream/consumers'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { CardFault, FaultList, FaultSpec, SesStatusAnswer } from './faults'
-import { ConfigurationSets, SEND_EMAIL_PATH, SesMessage, readSendEmail, trackingCodeOf, unitIdOf } from './ses'
+import { CardFault, FaultList, FaultRule, SesStatusAnswer, ruleOf } from './faults'
+import {
+    ConfigurationSets,
+    SEND_EMAIL_PATH,
+    SesMessage,
+    addressesOf,
+    readSendEmail,
+    trackingCodeOf,
+    unitIdOf,
+} from './ses'
 import { TRUTH_PAGE_LIMIT, Truth, TruthRecord } from './truth'
 
-export type { CardFault, FaultSpec } from './faults'
+export type { CardFault, FaultRule } from './faults'
 export type { SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
 export type { TruthPage, TruthRecord } from './truth'
@@ -22,7 +31,7 @@ export type ProviderEdgeOptions = {
 export type ProviderEdge = {
     url: string
     records: readonly TruthRecord[]
-    addFault(fault: FaultSpec): string
+    addFault(rule: FaultRule): string
     clearFaults(): void
     close(): Promise<void>
 }
@@ -39,15 +48,6 @@ function respond(res: http.ServerResponse, { status, body, errorType }: Reply): 
 
 function sesError(answer: SesStatusAnswer): Reply {
     return { status: answer.status, body: { message: answer.message }, errorType: answer.type }
-}
-
-function readBody(req: http.IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const chunks: Buffer[] = []
-        req.on('data', (chunk: Buffer) => chunks.push(chunk))
-        req.on('end', () => resolve(Buffer.concat(chunks).toString()))
-        req.on('error', reject)
-    })
 }
 
 function parseBody(raw: string): unknown {
@@ -78,14 +78,15 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return sesError(request.error)
         }
         const { message } = request
-        const correlation = { unitId: unitIdOf(message.to), actionId: actionIdOf(trackingCodeOf(message)) }
-        const fault = faults.take(message.to)
+        const recipients = addressesOf(message.to)
+        const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
+        const fault = faults.take(recipients)
         if (fault?.answer.kind === 'drop-connection') {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })
             req.socket.destroy()
             return 'drop-connection'
         }
-        if (fault) {
+        if (fault?.answer.kind === 'status') {
             const { answer } = fault.answer
             truth.append({ kind: 'ses.send', status: answer.status, fault: fault.name, ...correlation, detail: {} })
             return sesError(answer)
@@ -102,7 +103,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             const problems = parsed.error.issues.map((issue) => `${issue.path.join('.') || 'fault'}: ${issue.message}`)
             return { status: 400, body: { problems } }
         }
-        return { status: 201, body: { id: faults.add(parsed.data) } }
+        return { status: 201, body: { id: faults.add(ruleOf(parsed.data)) } }
     }
 
     const route = (req: http.IncomingMessage, url: URL, body: unknown): Reply | 'drop-connection' => {
@@ -136,17 +137,32 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
     }
 
+    const handle = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+        const body = parseBody(await text(req))
+        if (body === undefined) {
+            respond(res, { status: 400, body: { message: 'The body is not JSON.' } })
+            return
+        }
+        const reply = route(req, new URL(req.url ?? '/', 'http://edge'), body)
+        if (reply !== 'drop-connection') {
+            respond(res, reply)
+        }
+    }
+
     const server = http.createServer((req, res) => {
-        void readBody(req).then((raw) => {
-            const body = parseBody(raw)
-            if (body === undefined) {
-                respond(res, { status: 400, body: { message: 'The body is not JSON.' } })
+        handle(req, res).catch((error: unknown) => {
+            if (res.headersSent || req.socket.destroyed) {
+                res.destroy()
                 return
             }
-            const reply = route(req, new URL(req.url ?? '/', 'http://edge'), body)
-            if (reply !== 'drop-connection') {
-                respond(res, reply)
-            }
+            respond(
+                res,
+                sesError({
+                    status: 400,
+                    type: 'BadRequestException',
+                    message: `The edge could not read the request: ${String(error)}`,
+                })
+            )
         })
     })
     await new Promise<void>((resolve) => server.listen(options.port, '127.0.0.1', resolve))
@@ -155,7 +171,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     return {
         url: `http://127.0.0.1:${port}`,
         records: truth.records,
-        addFault: (fault) => faults.add(fault),
+        addFault: (rule) => faults.add(rule),
         clearFaults: () => faults.clear(),
         close: async () => {
             server.closeAllConnections()

@@ -24,63 +24,45 @@ export type CardFault = z.infer<typeof CardFault>
 
 export type SesStatusAnswer = { status: number; type: string; message: string }
 
-type AdapterFault =
-    | { name: 'ses.status'; params: SesStatusAnswer }
-    | { name: 'ses.drop_connection'; params: Record<string, never> }
+export type SesAnswer = { kind: 'status'; answer: SesStatusAnswer } | { kind: 'drop-connection' }
 
-export type FaultSpec = (Pick<CardFault, 'name' | 'params'> | AdapterFault) & {
+export type FaultRule = {
+    name: string
+    answer: SesAnswer
     match?: z.infer<typeof Match>
-    dose?: z.infer<typeof Dose>
+    dose: z.infer<typeof Dose>
     for?: string
 }
 
-export type SesAnswer = { kind: 'status'; answer: SesStatusAnswer } | { kind: 'drop-connection' }
-
-type ActiveFault = {
-    id: string
-    spec: FaultSpec
-    until: number
-    matched: number
-    applied: number
-}
-
-export type AppliedFault = { name: FaultSpec['name']; answer: SesAnswer }
-
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
 
-function answerOf(spec: FaultSpec): SesAnswer {
-    switch (spec.name) {
-        case 'ses.reject':
-            return { kind: 'status', answer: REJECTED }
-        case 'ses.status':
-            return { kind: 'status', answer: spec.params }
-        case 'ses.drop_connection':
-            return { kind: 'drop-connection' }
-    }
+export function ruleOf(fault: CardFault): FaultRule {
+    return { ...fault, answer: { kind: 'status', answer: REJECTED } }
 }
 
-function matches(spec: FaultSpec, recipients: string[]): boolean {
-    return spec.match?.recipient === undefined || recipients.includes(spec.match.recipient)
+type ActiveFault = { id: string; rule: FaultRule; until: number; matched: number; applied: number }
+
+const SHARE_TOLERANCE = 1e-9
+
+function matches(rule: FaultRule, recipients: string[]): boolean {
+    return rule.match?.recipient === undefined || recipients.includes(rule.match.recipient)
 }
 
-function doseTakes(fault: ActiveFault): boolean {
-    const dose = fault.spec.dose
-    if (dose === undefined) {
-        return true
-    }
+function doseTakes({ rule: { dose }, matched, applied }: ActiveFault): boolean {
     if ('count' in dose) {
-        return fault.applied < dose.count
+        return applied < dose.count
     }
-    return Math.floor(fault.matched * dose.share) > Math.floor((fault.matched - 1) * dose.share)
+    const crossings = (sends: number): number => Math.floor(sends * dose.share + SHARE_TOLERANCE)
+    return crossings(matched) > crossings(matched - 1)
 }
 
 export class FaultList {
     private faults: ActiveFault[] = []
 
-    add(spec: FaultSpec): string {
+    add(rule: FaultRule): string {
         const id = randomUUID()
-        const until = spec.for === undefined ? Infinity : Date.now() + durationMs(spec.for)
-        this.faults.push({ id, spec, until, matched: 0, applied: 0 })
+        const until = rule.for === undefined ? Infinity : Date.now() + durationMs(rule.for)
+        this.faults.push({ id, rule, until, matched: 0, applied: 0 })
         return id
     }
 
@@ -94,17 +76,17 @@ export class FaultList {
         this.faults = []
     }
 
-    take(recipients: string[]): AppliedFault | undefined {
+    take(recipients: string[]): FaultRule | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
         for (const fault of this.faults) {
-            if (!matches(fault.spec, recipients)) {
+            if (!matches(fault.rule, recipients)) {
                 continue
             }
             fault.matched += 1
             if (doseTakes(fault)) {
                 fault.applied += 1
-                return { name: fault.spec.name, answer: answerOf(fault.spec) }
+                return fault.rule
             }
         }
         return undefined

@@ -23,7 +23,7 @@ export interface SesMessage {
     tags: Record<string, string>
     tenant: string | undefined
     configurationSet: string | undefined
-    tracked: boolean
+    tracked: boolean | undefined
 }
 
 export type SesRequest = { message: Omit<SesMessage, 'messageId'> } | { error: SesStatusAnswer }
@@ -45,8 +45,11 @@ function toRecord(entries: NameValueList | undefined): Record<string, string> {
 function configurationSetOf(
     name: string | undefined,
     known: ConfigurationSets | undefined
-): { tracking: boolean } | undefined {
-    if (name === undefined || known === undefined) {
+): { tracking: boolean | undefined } | undefined {
+    if (known === undefined) {
+        return { tracking: undefined }
+    }
+    if (name === undefined) {
         return { tracking: false }
     }
     return known[name]
@@ -108,9 +111,13 @@ export function readSendEmail(
     }
 }
 
-export function unitIdOf(recipients: string[]): string | undefined {
+export function addressesOf(mailboxes: string[]): string[] {
+    return mailboxes.map((mailbox) => /<([^<>]+)>\s*$/.exec(mailbox)?.[1] ?? mailbox)
+}
+
+export function unitIdOf(addresses: string[]): string | undefined {
     const suffix = `@${UNIT_EMAIL_DOMAIN}`
-    return recipients.find((address) => address.endsWith(suffix))?.slice(0, -suffix.length)
+    return addresses.find((address) => address.endsWith(suffix))?.slice(0, -suffix.length)
 }
 
 export function trackingCodeOf(message: Omit<SesMessage, 'messageId'>): string | undefined {

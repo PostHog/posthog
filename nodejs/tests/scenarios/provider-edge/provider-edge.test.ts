@@ -74,7 +74,7 @@ describe('provider edge', () => {
         return json.id
     }
 
-    it('records a send with the unit id from the recipient and the action id from the signed tracking code', async () => {
+    it('records a send with the unit id, the action id from the signed tracking code, and unknown tracking without configuration sets', async () => {
         const trackingCode = new EmailTrackingCodeSigner(TRACKING_KEYS, 'https://track.example.com').generate({
             functionId: 'flow-1',
             id: 'invocation-1',
@@ -93,6 +93,30 @@ describe('provider edge', () => {
                 actionId: 'email-step',
             }),
         ])
+        expect((await truth()).records[0].detail.message?.tracked).toBeUndefined()
+    })
+
+    it('answers a send it cannot read with a 400 and keeps serving', async () => {
+        const { status } = await call('POST', '/v2/email/outbound-emails', {
+            Destination: { ToAddresses: 'not-a-list' },
+            Content: { Simple: { Subject: { Data: 'Hello' } } },
+        })
+
+        expect(status).toBe(400)
+        expect((await call('GET', '/_health')).json).toEqual({ ok: true })
+    })
+
+    it('correlates and matches a recipient with a display name by its bare address', async () => {
+        await addFault({
+            name: 'ses.reject',
+            params: { type: 'rejected' },
+            match: { recipient: ALICE },
+            dose: { count: 1 },
+        })
+
+        expect(await sendEach([`"Alice" <${ALICE}>`, `"Alice" <${ALICE}>`])).toEqual(['MessageRejected', 'sent'])
+
+        expect((await truth()).records.map((record) => record.unitId)).toEqual(['run-1-1', 'run-1-1'])
     })
 
     it.each([
