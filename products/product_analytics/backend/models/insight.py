@@ -516,3 +516,4 @@ class InsightAgentRead(TeamScopedRootMixin):
         constraints = [
             models.UniqueConstraint(fields=["team", "user", "insight"], name="product_analytics_unique_agent_read")
         ]
+        indexes = [models.Index(fields=["team", "user", "-last_read_at"], name="product_analytics_agent_recent")]
