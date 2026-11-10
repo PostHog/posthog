@@ -181,6 +181,11 @@ const createEmailParams = (
         },
     }
 }
+function useStaticSesCredentials(service: EmailService): EmailService {
+    service.sesV2Client!.config.credentials = () => Promise.resolve({ accessKeyId: 'test', secretAccessKey: 'test' })
+    return service
+}
+
 describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
@@ -2425,17 +2430,52 @@ describe('EmailService', () => {
                 invocation.hogFunction.metadata = { tracking_enabled: false }
             })
 
-            it('skips pixel and link rewriting and uses the untracked configuration set when tracking is off', async () => {
-                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging-untracked')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-                // Delivery/bounce attribution must survive tracking-off: the untracked configuration
-                // set still emits delivery events, and the webhook needs this header to attribute them.
-                const headerNames = sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)
-                expect(headerNames).toContain('X-PostHog-Tracking-Code')
+            it.each([
+                {
+                    case: 'delivers tracking-off mail without open or click tracking',
+                    trackingEnabled: false,
+                    untrackedSet: 'posthog-messaging-untracked',
+                    error: undefined,
+                    inbox: [{ to: ['"Test User" <test@example.com>'], html: trackableHtml }],
+                },
+                {
+                    case: 'fails tracking-off mail instead of sending it tracked when no untracked set is named',
+                    trackingEnabled: false,
+                    untrackedSet: '',
+                    error: expect.stringContaining('SES_UNTRACKED_CONFIGURATION_SET is empty'),
+                    inbox: [],
+                },
+                {
+                    case: 'delivers tracked mail when no untracked set is named',
+                    trackingEnabled: true,
+                    untrackedSet: '',
+                    error: undefined,
+                    inbox: [
+                        {
+                            to: ['"Test User" <test@example.com>'],
+                            html: expect.stringContaining('/I0/open.gif'),
+                        },
+                    ],
+                },
+            ])('$case', async ({ trackingEnabled, untrackedSet, error, inbox }) => {
+                invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled }
+                const ses = new FakeSes({
+                    'posthog-messaging': { opens: true, clicks: true },
+                    'posthog-messaging-untracked': { opens: false, clicks: false },
+                })
+                const sesEndpoint = await ses.start()
+                try {
+                    const sesService = useStaticSesCredentials(
+                        createService({ sesEndpoint, sesUntrackedConfigurationSet: untrackedSet })
+                    )
+
+                    const result = await sesService.executeSendEmail(invocation)
+
+                    expect(result.error).toEqual(error)
+                    expect(ses.deliveries.map(({ to, html }) => ({ to, html }))).toEqual(inbox)
+                } finally {
+                    await ses.stop()
+                }
             })
 
             it.each([
@@ -2574,14 +2614,6 @@ describe('EmailService', () => {
                     )
                 }
             )
-
-            it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-            })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3

@@ -111,7 +111,7 @@ export interface BoxPlotProps<Meta = unknown> {
 
 export function BoxPlot<Meta = unknown>({ onError, ...rest }: BoxPlotProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <BoxPlotInner {...rest} />
         </ChartErrorBoundary>
     )
