@@ -851,8 +851,14 @@ class _PinClient:
         return {path: self.default_branch.get(path) for path in paths}
 
 
-def _pinning_check_run(blobs: object) -> dict:
-    return {"output": {"summary": f"<!-- stamphog:v1 {json.dumps({'files': [], 'blobs': blobs})} -->"}}
+def _pinning_check_run(blobs: object, name: str = "Proof", run_id: int = 1) -> dict:
+    return {
+        "id": run_id,
+        "name": name,
+        "status": "completed",
+        "app": {"id": 123},
+        "output": {"summary": f"<!-- stamphog:v1 {json.dumps({'files': [], 'blobs': blobs})} -->"},
+    }
 
 
 class AttestationPinTests(SimpleTestCase):
@@ -880,13 +886,15 @@ class AttestationPinTests(SimpleTestCase):
         assert check_run["pinned_blobs_current"] is expected
 
     def test_only_a_bounded_number_of_pinning_check_runs_is_read(self) -> None:
-        # A job of any PR can post as GitHub Actions, so its check runs must not use up the budget
-        # that the real publisher's run needs.
-        pinning = [_pinning_check_run({"prover.py": "a" * 40}) for _ in range(7)]
+        # A job of any PR can post as GitHub Actions, and a re-run leaves older runs of a check
+        # behind. Neither may use up the budget that a publisher's newest run needs.
+        pinning = [_pinning_check_run({"prover.py": "a" * 40}, f"Proof {n}", run_id=10 + n) for n in range(7)]
         unread = [
             {"output": {"summary": '<!-- stamphog:v1 ["a.py"] -->'}},
             {**pinning[0], "app": {"id": 15368}},
             {"output": {"summary": pinning[0]["output"]["summary"] * 2}},
+            {**pinning[6], "id": 1},
+            {**pinning[6], "id": 99, "status": "in_progress"},
         ]
         client = _PinClient([*unread, *pinning], self._DEFAULT_BRANCH)
 
@@ -895,7 +903,7 @@ class AttestationPinTests(SimpleTestCase):
         )
 
         assert all("pinned_blobs_current" not in check_run for check_run in unmarked)
-        assert [check_run["pinned_blobs_current"] for check_run in (a, b, c, d, e, f, g)] == [True] * 5 + [False] * 2
+        assert [check_run["pinned_blobs_current"] for check_run in (a, b, c, d, e, f, g)] == [False] * 2 + [True] * 5
         assert client.blob_reads == 5
 
 
