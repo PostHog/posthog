@@ -3,7 +3,14 @@ import { join } from 'node:path'
 import type { ApiToolLibrary, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
-import { loginQuery, posthogHomeDir, resolveCredentials, type Credentials } from '@/posthog/credentials'
+import {
+    loginQuery,
+    posthogHomeDir,
+    resolveCredentials,
+    type CredentialOptions,
+    type Credentials,
+} from '@/posthog/credentials'
+import { parseProjectId } from '@/posthog/ids'
 import { KeySession } from '@/posthog/key-session'
 import type { LoginQuery } from '@/posthog/login/choose'
 import { canStepUp } from '@/posthog/scope-challenge'
@@ -100,13 +107,14 @@ export class Context {
         return home === undefined ? undefined : join(home, 'skills')
     }
 
-    private async credentialOptions(): Promise<Parameters<typeof resolveCredentials>[1]> {
+    private async credentialOptions(): Promise<CredentialOptions> {
         const loaded = await this.config()
+        const projectId = loaded?.config.projectId
         return {
             ...this.globals,
             configPath: loaded?.path,
             configHost: loaded?.config.host,
-            configProjectId: loaded?.config.projectId?.toString(),
+            configProjectId: projectId === undefined ? undefined : parseProjectId(projectId),
         }
     }
 

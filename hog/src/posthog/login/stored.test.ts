@@ -55,7 +55,7 @@ describe('stored logins', () => {
         expect(runtime.files[file.path] ?? '').not.toContain('phx_renewed')
     })
 
-    test('a renewal leaves a keychain leftover to the next login or logout', async () => {
+    test('a renewal leaves a pending keychain removal to the next login or logout', async () => {
         const runtime = fakeRuntime({ keychain: { [EU]: JSON.stringify({ apiKey: 'phx_left_over' }) } })
         const { secrets } = runtime
         const deleted: string[] = []
@@ -66,20 +66,13 @@ describe('stored logins', () => {
                 return secrets.delete(name)
             },
         }
-        const record = {
-            store: 'keychain',
-            type: 'personal_api_key',
-            projectId: '42',
-            host: EU,
-            keychainLeftover: true,
-        }
-        runtime.files[SETTINGS_FILE] = JSON.stringify({ logins: { [EU]: { '42': record } }, host: EU })
+        const record = { store: 'keychain', type: 'personal_api_key', projectId: '42', host: EU }
+        const pendingRemovals = [{ store: 'keychain', host: EU, projectId: null }]
+        runtime.files[SETTINGS_FILE] = JSON.stringify({ logins: { [EU]: { '42': record } }, pendingRemovals })
 
         await writeLogin(runtime, new KeychainStore(runtime), login(EU, 'phx_renewed'))
 
         expect(deleted).toEqual([])
-        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
-            logins: { [EU]: { '42': { keychainLeftover: true } } },
-        })
+        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}')).toMatchObject({ pendingRemovals })
     })
 })

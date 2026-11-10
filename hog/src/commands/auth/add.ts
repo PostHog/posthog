@@ -1,4 +1,4 @@
-import { printPending, readPending, resumeApproval } from '@/core/approval'
+import { printPending, resumeApproval } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { ADD_COMMAND, loginWait } from '@/posthog/login/flow'
@@ -36,11 +36,9 @@ export default defineCommand({
         // The scope list is large, so commands that never step up don't load it.
         const { finishStepUp, stepUp } = await import('@/posthog/login/step-up')
         if (options.wait) {
-            const wait = loginWait(ctx.runtime, ADD_COMMAND)
-            const started = await readPending(ctx.runtime, wait)
-            const startedFor =
-                started?.projectId === undefined ? undefined : { host: started.host, projectId: started.projectId }
-            return finishStepUp(ctx, await resumeApproval(ctx, wait, started), startedFor)
+            const { pending, value } = await resumeApproval(ctx, loginWait(ctx.runtime, ADD_COMMAND))
+            // A request an older hog started doesn't name its project, so the approved one counts.
+            return finishStepUp(ctx, value, { host: pending.host, projectId: pending.projectId ?? value.projectId })
         }
         if (args.scopes.length === 0) {
             throw new HogError(

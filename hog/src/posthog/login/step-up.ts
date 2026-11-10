@@ -10,9 +10,7 @@ import { sameHost } from '@/posthog/host'
 import type { OAuthLogin } from '@/posthog/oauth'
 import { addToKeyHint, canStepUp, fewestScopes, isScopeName } from '@/posthog/scope-challenge'
 import { scopesNotCovered } from '@/posthog/scopes'
-import { readSettings } from '@/posthog/settings'
 
-import { chooseLogin } from './choose'
 import { ADD_COMMAND, loginFlow, saveLogin } from './flow'
 
 export type StepUpResult =
@@ -25,23 +23,10 @@ export type StepUpResult =
           replacedRevoked: boolean | null
       }
 
-// `startedFor` is the login the step-up asked scopes for. Without it, the login the folder uses counts,
-// read without its secret, so `hog auth add --wait` doesn't open the keychain or renew a login it is
-// about to replace.
-export async function finishStepUp(
-    ctx: Context,
-    approved: OAuthLogin,
-    startedFor?: LoginTarget
-): Promise<StepUpResult> {
-    const expected =
-        startedFor ??
-        (await ctx
-            .loginQuery()
-            .then(async (query) => chooseLogin(await readSettings(ctx.runtime), query).record)
-            .catch(() => undefined))
+export async function finishStepUp(ctx: Context, approved: OAuthLogin, expected: LoginTarget): Promise<StepUpResult> {
     // The approval asked for this login's scopes. Saving it as another project's login would replace
     // the scopes that login has, so hog revokes it instead.
-    if (expected && sameHost(expected.host, approved.host) && expected.projectId !== approved.projectId) {
+    if (sameHost(expected.host, approved.host) && expected.projectId !== approved.projectId) {
         // PostHog has redeemed the device code, so a retry must start a new approval.
         await Promise.all([approved.logout(ctx.runtime), clearPending(ctx.runtime, ADD_COMMAND)])
         throw new HogError(

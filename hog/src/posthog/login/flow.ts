@@ -11,9 +11,8 @@ import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import { withLoginLock, type OAuthLogin } from '@/posthog/oauth'
 import { stepUpCommand } from '@/posthog/scope-challenge'
-import { readSettings } from '@/posthog/settings'
 
-import { readLogin, writeLogin } from './stored'
+import { readLogin, readSettings, writeLogin } from './stored'
 
 export const LOGIN_COMMAND = 'hog auth login'
 export const ADD_COMMAND = 'hog auth add'
@@ -99,7 +98,7 @@ export async function saveLogin(
         }
         try {
             // A keychain that times out sends the login to the file below.
-            await writeLogin(runtime, store, key, { lastLogin: true, removeIfLate: true })
+            await writeLogin(runtime, store, key, { leftBehind: [] })
         } catch (error) {
             // The probe writes an item of its own, so the keychain can still refuse this login's item,
             // such as one an older hog build saved.
@@ -109,7 +108,8 @@ export async function saveLogin(
             keychainError = error.message
             store = new FileStore(runtime)
             // The failed keychain write can still land after hog gave up on it.
-            await writeLogin(runtime, store, key, { lastLogin: true, keychainLeftover: true })
+            const late = { store: 'keychain', host: key.host, projectId: key.projectId } as const
+            await writeLogin(runtime, store, key, { leftBehind: [late] })
         }
         return stored || undefined
     })

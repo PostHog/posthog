@@ -199,6 +199,10 @@ export async function loadConfig(runtime: Runtime): Promise<LoadedConfig | undef
     return { path, root: dirname(path), config }
 }
 
+export function configPathFor(runtime: Runtime, loaded: LoadedConfig | undefined): string {
+    return loaded?.path ?? join(runtime.cwd(), CONFIG_FILE)
+}
+
 // Changes one part of posthog.json and keeps everything else as written, including keys hog
 // doesn't know. Creates the file in the working folder when there is none.
 export async function updateConfig(
@@ -206,7 +210,7 @@ export async function updateConfig(
     loaded: LoadedConfig | undefined,
     change: (raw: Record<string, unknown>) => void
 ): Promise<string> {
-    const path = loaded?.path ?? join(runtime.cwd(), CONFIG_FILE)
+    const path = configPathFor(runtime, loaded)
     const raw = loaded
         ? parseJson(await runtime.readFile(path), JsonObject, {
               code: 'invalid_config',

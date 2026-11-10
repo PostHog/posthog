@@ -86,7 +86,7 @@ interface OAuthLoginFields {
 // Serializes the processes that renew or remove the login to one host and project.
 export function withLoginLock<T>(runtime: Runtime, target: LoginTarget, work: () => Promise<T>): Promise<T> {
     // By origin, so `https://eu.posthog.com/` and `https://eu.posthog.com` take the same lock.
-    const name = createHash('sha256').update(itemName(target)).digest('hex').slice(0, 16)
+    const name = createHash('sha256').update(itemName(target.host, target.projectId)).digest('hex').slice(0, 16)
     return withFileLock(runtime, `refresh-${name}.lock`, work)
 }
 

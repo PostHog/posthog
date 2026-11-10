@@ -1,8 +1,8 @@
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import { CONFIG_FILE, updateConfig } from '@/core/config'
+import { configPathFor, updateConfig } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
@@ -12,7 +12,7 @@ import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
-import { cloudRegion, HostSchema, parseHost, REGIONS } from '@/posthog/host'
+import { cloudRegion, HostSchema, parseHost, REGIONS, sameHost } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
 import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
@@ -51,20 +51,26 @@ function nextCommand(scopes: readonly string[] | null): string {
 // The login is already saved, so a file hog can't write only warns.
 async function nameInConfig(ctx: Context, { host, projectId }: LoggedIn): Promise<NamedIn> {
     const loaded = await ctx.config()
-    const named = loaded?.config.projectId
-    if (loaded && loaded.config.host === host && named !== undefined && parseProjectId(named) === projectId) {
+    const { host: namedHost, projectId: named } = loaded?.config ?? {}
+    if (
+        loaded &&
+        namedHost &&
+        sameHost(namedHost, host) &&
+        named !== undefined &&
+        parseProjectId(named) === projectId
+    ) {
         return { path: loaded.path, status: 'unchanged', error: null }
     }
-    const path = loaded?.path ?? join(ctx.runtime.cwd(), CONFIG_FILE)
     try {
-        await updateConfig(ctx.runtime, loaded, (raw) => {
+        const path = await updateConfig(ctx.runtime, loaded, (raw) => {
             raw.host = host
             raw.projectId = Number(projectId)
         })
+        return { path, status: loaded ? 'updated' : 'created', error: null }
     } catch (error) {
+        const path = configPathFor(ctx.runtime, loaded)
         return { path, status: 'failed', error: error instanceof Error ? error.message : String(error) }
     }
-    return { path, status: loaded ? 'updated' : 'created', error: null }
 }
 
 async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
@@ -148,7 +154,7 @@ export default defineCommand({
             )
         }
         if (options.wait) {
-            return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
+            return finish(ctx, (await resumeApproval(ctx, loginWait(ctx.runtime))).value)
         }
 
         refuseInCi(ctx, LOGIN_COMMAND, CI_CREDENTIALS_HINT)

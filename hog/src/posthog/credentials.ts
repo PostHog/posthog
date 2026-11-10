@@ -5,12 +5,12 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { chooseLogin, ProjectMismatch, type LoginChoice, type LoginQuery } from '@/posthog/login/choose'
-import { loginStorage, readLogin } from '@/posthog/login/stored'
+import { loginStorage, readLogin, readSettings } from '@/posthog/login/stored'
 
 import { MemoryKeyStorage, PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
 import { cloudRegion, hostKey, parseHost, REGIONS, type Host } from './host'
 import { parseProjectId, type ProjectId } from './ids'
-import { loginsFor, readSettings } from './settings'
+import { fallbackHost } from './settings'
 import { parsePersonalApiKey } from './tokens'
 import { exchangeWorkloadToken } from './workload'
 
@@ -30,7 +30,7 @@ export type CredentialSource = Credentials['source']
 
 interface RawCredentials {
     apiKey: string
-    projectId: string
+    projectId: ProjectId
     host: string | undefined
 }
 
@@ -45,14 +45,29 @@ export const CI_CREDENTIALS_HINT =
 // so posthog.json can supply it.
 function fromLookup(
     lookup: (name: string) => string | undefined,
-    configProjectId?: string
+    configProjectId: ProjectId | undefined
 ): RawCredentials | undefined {
     const apiKey = lookup(PERSONAL_API_KEY_ENV_VAR)
-    const projectId = lookup('HOG_PROJECT_ID') ?? configProjectId
+    const projectId = apiKey ? (lookupProjectId(lookup) ?? configProjectId) : undefined
     if (!apiKey || !projectId) {
         return undefined
     }
     return { apiKey, projectId, host: lookup('HOG_HOST') || undefined }
+}
+
+function lookupProjectId(lookup: (name: string) => string | undefined): ProjectId | undefined {
+    const raw = lookup('HOG_PROJECT_ID')
+    return raw
+        ? parseProjectId(raw, { code: 'invalid_credentials', context: 'HOG_PROJECT_ID is not valid.' })
+        : undefined
+}
+
+function envLookup(runtime: Runtime): (name: string) => string | undefined {
+    return (name) => runtime.env[name] || undefined
+}
+
+function envProjectId(runtime: Runtime): ProjectId | undefined {
+    return lookupProjectId(envLookup(runtime))
 }
 
 function parseDotenv(contents: string, path: string): Map<string, string> {
@@ -120,26 +135,28 @@ export function posthogFile(runtime: Runtime, name: string): string {
     return join(home, name)
 }
 
-function envProjectId(runtime: Runtime): ProjectId | undefined {
-    const raw = runtime.env.HOG_PROJECT_ID
-    return raw
-        ? parseProjectId(raw, { code: 'invalid_credentials', context: 'HOG_PROJECT_ID is not valid.' })
-        : undefined
+export interface CredentialOptions {
+    host?: Host
+    dotenvFile?: string
+    configPath?: string
+    configHost?: Host
+    configProjectId?: ProjectId
+    // For callers that must never open the keychain or get a token, like telemetry.
+    envOnly?: boolean
+    workloadProviders?: readonly WorkloadProvider[]
 }
 
 // What picks the stored login a command uses. Logout uses it too, so it removes the login commands send.
 export function loginQuery(
     runtime: Runtime,
-    options: { host?: Host; configPath?: string; configHost?: Host; configProjectId?: string }
+    {
+        host,
+        configPath,
+        configHost,
+        configProjectId,
+    }: Pick<CredentialOptions, 'host' | 'configPath' | 'configHost' | 'configProjectId'>
 ): LoginQuery {
-    const { configProjectId } = options
-    return {
-        host: options.host,
-        projectId: envProjectId(runtime),
-        configPath: options.configPath,
-        configHost: options.configHost,
-        configProjectId: configProjectId === undefined ? undefined : parseProjectId(configProjectId),
-    }
+    return { host, projectId: envProjectId(runtime), configPath, configHost, configProjectId }
 }
 
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
@@ -149,19 +166,7 @@ export function loginQuery(
 // HOG_PROJECT_ID. posthog.json comes from the repository, so its host never redirects a key: it can
 // pick a stored login for that host, and otherwise only stops the command when the key belongs to
 // another host.
-export async function resolveCredentials(
-    runtime: Runtime,
-    // `envOnly` is for callers that must never open the keychain or get a token, like telemetry.
-    options: {
-        host?: Host
-        dotenvFile?: string
-        configPath?: string
-        configHost?: Host
-        configProjectId?: string
-        envOnly?: boolean
-        workloadProviders?: readonly WorkloadProvider[]
-    }
-): Promise<Credentials> {
+export async function resolveCredentials(runtime: Runtime, options: CredentialOptions): Promise<Credentials> {
     const checkConfigHost = (host: Host): void => {
         const { configHost } = options
         if (options.host === undefined && configHost !== undefined && hostKey(configHost) !== hostKey(host)) {
@@ -177,14 +182,10 @@ export async function resolveCredentials(
         const failure = { code: 'invalid_credentials' }
         const host = options.host ?? (raw.host === undefined ? DEFAULT_HOST : parseHost(raw.host, failure))
         checkConfigHost(host)
-        return new PersonalAPIKey({
-            host,
-            projectId: parseProjectId(raw.projectId, failure),
-            apiKey: parsePersonalApiKey(raw.apiKey, failure),
-        })
+        return new PersonalAPIKey({ host, projectId: raw.projectId, apiKey: parsePersonalApiKey(raw.apiKey, failure) })
     }
 
-    const fromEnv = fromLookup((name) => runtime.env[name] || undefined, options.configProjectId)
+    const fromEnv = fromLookup(envLookup(runtime), options.configProjectId)
     if (fromEnv) {
         return { key: keyFrom(fromEnv), source: 'env', storage: null }
     }
@@ -207,11 +208,11 @@ export async function resolveCredentials(
     }
 
     const workloadProvider = detectWorkloadProvider(runtime.env, options.workloadProviders)
-    const workloadProjectId = runtime.env.HOG_PROJECT_ID || options.configProjectId
+    const workloadProjectId = workloadProvider && (envProjectId(runtime) ?? options.configProjectId)
     if (!options.envOnly && workloadProvider && workloadProjectId) {
         const key = await exchangeWorkloadToken(runtime, {
             host: workloadHost(options),
-            projectId: parseProjectId(workloadProjectId, { code: 'invalid_credentials' }),
+            projectId: workloadProjectId,
             provider: workloadProvider,
         })
         if (key) {
@@ -233,12 +234,7 @@ export async function resolveCredentials(
         })
         const query = loginQuery(runtime, options)
         const { choice, record } = chooseLogin(settings, query)
-        // Another hog process can move the secret to another item, as a renewal does with a login
-        // filed under its host alone, after settings.json was read. settings.json then names the new item.
-        const login =
-            record &&
-            ((await readLogin(runtime, settings, record)) ??
-                (await readLogin(runtime, await readSettings(runtime), record)))
+        const login = record && (await readLogin(runtime, settings, record))
         if (login) {
             // Before a renewal, so hog never renews a key it then refuses to send.
             checkConfigHost(login.key.host)
@@ -260,8 +256,9 @@ export async function resolveCredentials(
             throw new ProjectMismatch(query, { host: choice.host, projectId: choice.projectId }, settings)
         }
         // posthog.json names a host hog has no login to, and the last login is to another host.
-        if (!record && settings.host && loginsFor(settings, settings.host).length > 0) {
-            checkConfigHost(settings.host)
+        const lastHost = fallbackHost(settings)
+        if (!record && lastHost) {
+            checkConfigHost(lastHost)
         }
     }
 
@@ -289,7 +286,10 @@ function workloadHost(options: { host?: Host; configHost?: Host }): Host {
     return cloudRegion(options.configHost) ?? REGIONS.us
 }
 
-function notAuthenticatedHint(workloadProvider: WorkloadProvider | undefined, projectId: string | undefined): string {
+function notAuthenticatedHint(
+    workloadProvider: WorkloadProvider | undefined,
+    projectId: ProjectId | undefined
+): string {
     if (workloadProvider === undefined) {
         return `Run \`hog auth login\`, or set HOG_PERSONAL_API_KEY. ${PROJECT_SETTINGS_HINT}.`
     }

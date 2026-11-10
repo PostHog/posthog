@@ -9,6 +9,7 @@ import { FAKE_WORKLOAD_PROVIDER, fakeRuntime, type FakeRuntimeOptions } from '@/
 import { PostHogApi } from './api'
 import { resolveCredentials } from './credentials'
 import { parseHost } from './host'
+import { parseProjectId } from './ids'
 import { KeySession } from './key-session'
 
 const OIDC_TOKEN = 'eyJoZWFkZXIi.eyJwYXlsb2FkIi.c2lnbmF0dXJl'
@@ -82,7 +83,7 @@ describe('workload credentials', () => {
 
         const credentials = await resolveCredentials(runtime, {
             workloadProviders: [FAKE_PROVIDER],
-            configProjectId: '42',
+            configProjectId: parseProjectId('42'),
         })
 
         expect(credentials.source).toBe('workload')
