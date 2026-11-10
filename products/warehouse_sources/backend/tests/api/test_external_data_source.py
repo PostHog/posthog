@@ -6623,6 +6623,50 @@ class TestExternalDataSource(APIBaseTest):
         Project.objects.filter(id__in=[1, 2]).delete()
         Team.objects.filter(id__in=[1, 2]).delete()
 
+        expected = [
+            {
+                "table": "table_1",
+                "label": None,
+                "should_sync": False,
+                "should_sync_default": True,
+                "description": None,
+                "rows": None,
+                "incremental_fields": [
+                    {
+                        "label": "id",
+                        "type": "integer",
+                        "field": "id",
+                        "field_type": "integer",
+                        "nullable": True,
+                        # Index lookup raises against the mocked pg_connection (object())
+                        # and falls back to the no-warning default (is_indexed=True).
+                        "is_indexed": True,
+                        "recommended": True,
+                        "notes": [
+                            "Only marks new rows. Edits to existing rows don't sync.",
+                            "Can be empty. Rows where it's empty never sync.",
+                        ],
+                    }
+                ],
+                "incremental_available": True,
+                "append_available": True,
+                "cdc_available": None,
+                "xmin_available": False,
+                "incremental_field": "id",
+                "sync_type": None,
+                "supports_webhooks": False,
+                "webhook_only": False,
+                "prefers_full_refresh": False,
+                "available_columns": [
+                    {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
+                ],
+                "detected_primary_keys": ["id"],
+                "primary_key_detection_supported": True,
+                "permission_error": None,
+                "rls_warning": None,
+            }
+        ]
+
         with override_settings(CLOUD_DEPLOYMENT="US"):
             team_2 = Team.objects.create(id=2, organization=self.team.organization)
             response = self.client.post(
@@ -6638,44 +6682,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             assert response.status_code == 200
-            assert response.json() == [
-                {
-                    "table": "table_1",
-                    "label": None,
-                    "should_sync": False,
-                    "should_sync_default": True,
-                    "description": None,
-                    "rows": None,
-                    "incremental_fields": [
-                        {
-                            "label": "id",
-                            "type": "integer",
-                            "field": "id",
-                            "field_type": "integer",
-                            "nullable": True,
-                            # Index lookup raises against the mocked pg_connection (object())
-                            # and falls back to the no-warning default (is_indexed=True).
-                            "is_indexed": True,
-                        }
-                    ],
-                    "incremental_available": True,
-                    "append_available": True,
-                    "cdc_available": None,
-                    "xmin_available": False,
-                    "incremental_field": "id",
-                    "sync_type": None,
-                    "supports_webhooks": False,
-                    "webhook_only": False,
-                    "prefers_full_refresh": False,
-                    "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
-                    ],
-                    "detected_primary_keys": ["id"],
-                    "primary_key_detection_supported": True,
-                    "permission_error": None,
-                    "rls_warning": None,
-                }
-            ]
+            assert response.json() == expected
 
             new_team = Team.objects.create(id=984961485, name="new_team", organization=self.team.organization)
 
@@ -6718,44 +6725,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             assert response.status_code == 200
-            assert response.json() == [
-                {
-                    "table": "table_1",
-                    "label": None,
-                    "should_sync": False,
-                    "should_sync_default": True,
-                    "description": None,
-                    "rows": None,
-                    "incremental_fields": [
-                        {
-                            "label": "id",
-                            "type": "integer",
-                            "field": "id",
-                            "field_type": "integer",
-                            "nullable": True,
-                            # Index lookup raises against the mocked pg_connection (object())
-                            # and falls back to the no-warning default (is_indexed=True).
-                            "is_indexed": True,
-                        }
-                    ],
-                    "incremental_available": True,
-                    "append_available": True,
-                    "cdc_available": None,
-                    "xmin_available": False,
-                    "incremental_field": "id",
-                    "sync_type": None,
-                    "supports_webhooks": False,
-                    "webhook_only": False,
-                    "prefers_full_refresh": False,
-                    "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
-                    ],
-                    "detected_primary_keys": ["id"],
-                    "primary_key_detection_supported": True,
-                    "permission_error": None,
-                    "rls_warning": None,
-                }
-            ]
+            assert response.json() == expected
 
             new_team = Team.objects.create(id=984961486, name="new_team", organization=self.team.organization)
 
