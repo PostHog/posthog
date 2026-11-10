@@ -1,11 +1,13 @@
 """The reports a personal ranking considers: a few server-side pools, deduped and capped, with the facts the prompt shows.
 
+Every pool holds only reports tied to the person: routed to them, or claimed by them.
+
 The pools come in the configured order, and a report keeps the position of the first pool that holds it.
 That order is the model order: the fallback when the LLM does not rank a report.
 """
 
 import datetime
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from django.db.models import Max, QuerySet
@@ -15,7 +17,6 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.briefing_reports import (
     SUMMARY_LEAD_LIMIT,
     implementation_pull_request_state,
@@ -23,19 +24,16 @@ from products.signals.backend.briefing_reports import (
     reports_for_person,
     summary_lead,
 )
-from products.signals.backend.implementation_pr import (
-    fetch_implementation_pr_state_for_reports,
-    implementation_pr_report_filter,
-)
+from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 from products.signals.backend.models import AutonomyPriority, SignalReport, SignalReportArtefact
 from products.signals.backend.personal_ranking.config import CandidatePool, PersonalRankingConfig, candidate_pools
 from products.signals.backend.ranking.access import can_view_inbox_ranking
-from products.signals.backend.ranking.inbox_sort import InboxRanker, latest_ranking_value, resolve_recommended_arm
+from products.signals.backend.ranking.inbox_sort import InboxRanker, resolve_recommended_arm
 from products.signals.backend.ranking.report_predictions import ReportPredictions, read_report_predictions
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_claims import reports_claimed_for_user
 from products.signals.backend.report_lifecycle import report_status_filter
-from products.signals.backend.report_priority import latest_priority_rank, latest_report_priorities
+from products.signals.backend.report_priority import latest_report_priorities
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 
 logger = structlog.get_logger(__name__)
@@ -49,7 +47,6 @@ EXCLUDED_STATUSES: tuple[str, ...] = (
     SignalReport.Status.CLOSED,
     SignalReport.Status.DELETED,
 )
-_OPEN_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 # The recommended order is computed here, so the `for_you` pool reads at most this many reports to sort.
 _FOR_YOU_SCAN_LIMIT = 300
 _TITLE_MAX_CHARS = 200
@@ -163,49 +160,6 @@ def _ids(queryset: QuerySet[SignalReport], size: int) -> list[str]:
     return [str(report_id) for report_id in queryset.values_list("id", flat=True)[:size]]
 
 
-def _scored_pool(queryset: QuerySet[SignalReport], head: str, size: int) -> list[str]:
-    """Reports with a current score for `head`, the highest first. Unscored and stale reports drop out."""
-    return _ids(
-        queryset.annotate(_pool_score=latest_ranking_value(head, "scores"))
-        .filter(_pool_score__isnull=False)
-        .order_by("-_pool_score", "-updated_at", "id"),
-        size,
-    )
-
-
-def _priority_pool(queryset: QuerySet[SignalReport], lowest_priority: str, size: int) -> list[str]:
-    """Reports with `lowest_priority` or a more urgent one, the most urgent first. A score is not needed."""
-    return _ids(
-        queryset.annotate(_pool_priority=latest_priority_rank())
-        .filter(_pool_priority__lte=AutonomyPriority.values.index(lowest_priority))
-        .order_by("_pool_priority", "-updated_at", "id"),
-        size,
-    )
-
-
-def _filtered(
-    team_reports: QuerySet[SignalReport], team_id: int, pool: CandidatePool, since: datetime.datetime
-) -> QuerySet[SignalReport]:
-    if pool.actionable_only:
-        reports = team_reports.filter(
-            status=SignalReport.Status.READY,
-            latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
-            latest_already_addressed=False,
-        )
-    else:
-        reports = (
-            team_reports.filter(status__in=_OPEN_STATUSES)
-            .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
-            .exclude(latest_already_addressed=True)
-        )
-    reports = reports.filter(created_at__gte=since)
-    if pool.has_pr is True:
-        reports = reports.filter(implementation_pr_report_filter(team_id=team_id))
-    elif pool.has_pr is False:
-        reports = reports.exclude(implementation_pr_report_filter(team_id=team_id))
-    return reports
-
-
 def _pool_ids(
     team: Team,
     user: User,
@@ -215,10 +169,9 @@ def _pool_ids(
     team_reports: QuerySet[SignalReport],
     now: datetime.datetime,
 ) -> list[str]:
-    since = now - datetime.timedelta(days=pool.window_days or config.window_days)
     match pool.source:
         case "for_you_recommended":
-            return _recommended_for_you(team, user, since, pool.size)
+            return _recommended_for_you(team, user, now - datetime.timedelta(days=config.window_days), pool.size)
         case "for_you_updated":
             return _ids(reports_for_person(team.id, user).order_by("-updated_at", "id"), pool.size)
         case "assigned":
@@ -228,25 +181,23 @@ def _pool_ids(
                 ),
                 pool.size,
             )
-        case "scored":
-            assert pool.head is not None
-            return _scored_pool(_filtered(team_reports, team.id, pool, since), pool.head, pool.size)
-        case "priority":
-            return _priority_pool(_filtered(team_reports, team.id, pool, since), pool.lowest_priority, pool.size)
+
+
+def _open_team_reports(team: Team) -> QuerySet[SignalReport]:
+    # The gate-aware filter, because a `monitoring` report reads as resolved while the monitoring gate is off.
+    return SignalReport.objects.filter(team_id=team.id).exclude(
+        report_status_filter(EXCLUDED_STATUSES, team_id=team.id)
+    )
 
 
 def _pools(
-    team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime, can_view_ranking: bool
+    team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime
 ) -> list[tuple[str, list[str]]]:
-    # The gate-aware filter, because a `monitoring` report reads as resolved while the monitoring gate is off.
-    team_reports = SignalReport.objects.filter(team_id=team.id).exclude(
-        report_status_filter(EXCLUDED_STATUSES, team_id=team.id)
-    )
+    team_reports = _open_team_reports(team)
     return [
         (pool.name, _pool_ids(team, user, pool, config, team_reports=team_reports, now=now))
         for pool in candidate_pools(config)
-        # The `scored` pools show the ranking model's order, so only a person who can see the ranking gets them.
-        if pool.size and (pool.source != "scored" or can_view_ranking)
+        if pool.size
     ]
 
 
@@ -294,7 +245,37 @@ def gather_candidates(
 ) -> list[Candidate]:
     """`with_sources=False` skips the ClickHouse read of each report's source, which only the prompt shows."""
     can_view_ranking = can_view_inbox_ranking(user, team)
-    merged = merge_pools(_pools(team, user, config, now=now, can_view_ranking=can_view_ranking), config.max_candidates)
+    merged = merge_pools(_pools(team, user, config, now=now), config.max_candidates)
+    return _load_candidates(team, user, merged, can_view_ranking=can_view_ranking, with_sources=with_sources)
+
+
+def stored_candidates(team: Team, user: User, report_ids: Sequence[str]) -> list[Candidate]:
+    """The current facts of the reports a stored list considered, with no pool query and no source read.
+
+    A plain read serves this list without a pool query, so it applies the pool rules here. A report that closed or
+    stopped being this person's drops out, and no new report joins. `pools` is empty, because only a build reads it.
+    """
+    ids = list(report_ids)
+    for_person = reports_for_person(team.id, user).filter(id__in=ids).values_list("id", flat=True)
+    claimed = (
+        _open_team_reports(team)
+        .filter(id__in=ids)
+        .filter(reports_claimed_for_user(team_id=team.id, user_id=user.id))
+        .values_list("id", flat=True)
+    )
+    still_theirs = {str(report_id) for report_id in (*for_person, *claimed)}
+    return _load_candidates(
+        team,
+        user,
+        {report_id: [] for report_id in ids if report_id in still_theirs},
+        can_view_ranking=can_view_inbox_ranking(user, team),
+        with_sources=False,
+    )
+
+
+def _load_candidates(
+    team: Team, user: User, merged: Mapping[str, Sequence[str]], *, can_view_ranking: bool, with_sources: bool
+) -> list[Candidate]:
     if not merged:
         return []
     ids = list(merged)

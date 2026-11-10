@@ -549,28 +549,28 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(pushSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('redirects off the bots tab when the bot-analysis flag is disabled', async () => {
-        router.actions.push('/web/bots')
-        await expectLogic(logic).toFinishAllListeners()
+    it.each(['/web/bots', '/web/content-autopilot'])(
+        'redirects off %s when the AI visibility flag is disabled',
+        async (path) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
+                {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+                    [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+                }
+            )
 
-        // The pathname is project-prefixed in tests (e.g. /project/997/web); assert we left the bots route.
-        expect(router.values.location.pathname.endsWith('/web')).toBe(true)
-    })
+            router.actions.push(path)
+            await expectLogic(logic).toFinishAllListeners()
 
-    it('redirects off content autopilot when either alpha flag is disabled', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-        })
-
-        router.actions.push('/web/content-autopilot')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(router.values.location.pathname.endsWith('/web')).toBe(true)
-    })
+            // The pathname is project-prefixed in tests (e.g. /project/997/web); assert we left the route.
+            expect(router.values.location.pathname.endsWith('/web')).toBe(true)
+        }
+    )
 
     it('defaults the bots tab to the last day when the URL carries no date', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
 
         router.actions.push('/web/bots')
@@ -595,13 +595,9 @@ describe('webAnalyticsLogic URL restoration', () => {
     })
 
     it('opens content autopilot without carrying dashboard filters', async () => {
-        featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
-            {
-                [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-                [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
-            }
-        )
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
+        })
         logic.actions.setWebAnalyticsFilters([
             {
                 type: PropertyFilterType.Session,
@@ -666,8 +662,8 @@ describe('webAnalyticsLogic URL restoration', () => {
     })
 
     it("scrubs another tab's filters param when switching to the bots tab", async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
         logic.actions.setWebAnalyticsFilters([FILTER_A])
         await expectLogic(logic).toFinishAllListeners()
@@ -682,8 +678,8 @@ describe('webAnalyticsLogic URL restoration', () => {
     })
 
     it('adopts a deep-linked filters param when the bots tab mounts', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
         router.actions.push('/web/bots', { filters: [FILTER_A] })
         await expectLogic(logic).toFinishAllListeners()
@@ -700,8 +696,8 @@ describe('webAnalyticsLogic URL restoration', () => {
     })
 
     it('writes persisted bot filters into the URL when the bots tab mounts', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
         router.actions.push('/web/bots')
         await expectLogic(logic).toFinishAllListeners()

@@ -7,10 +7,11 @@ use std::io::Read;
 
 use crate::bytescan::{self as scan, Span};
 use crate::compression;
+use crate::inspect::edits::EditSource;
 use serde::de::IgnoredAny;
 
 use super::canvas::{self, CanvasImage};
-use posthog_replay_anonymizer::v4_image_refs::ImageDecline;
+use crate::v4_image_refs::ImageDecline;
 
 use super::images::{extract_images, ImageSink};
 use super::message::{canonicalize_keys, Event, Message};
@@ -411,11 +412,18 @@ pub fn extract_event_images(
     inner: &[u8],
     event: &Event,
     sink: &mut ImageSink<'_>,
+    copy: Option<&mut Copier<'_>>,
 ) -> Option<Vec<u8>> {
-    let (mut stored, takes_images) = match &*expansion(inner, event) {
-        Expansion::Failed | Expansion::Skipped => (None, false),
-        Expansion::Decoded(fields) => (Some(expanded(inner, event, fields)), true),
-        Expansion::Plain => (move_out_canvas_images(inner, event, sink), true),
+    let (mut stored, takes_images) = match (&*expansion(inner, event), copy) {
+        (Expansion::Failed | Expansion::Skipped, _) => (None, false),
+        (Expansion::Decoded(fields), copy) => (Some(expanded(inner, event, fields, copy)), true),
+        // Only a canvas event holds canvas images, and only a DOM event holds slots that the writer changes.
+        (Expansion::Plain, Some(copy)) => {
+            let mut out = Vec::with_capacity(event.span.1 - event.span.0);
+            copy(EditSource::Payload, inner, event.span, &mut out);
+            (Some(out), true)
+        }
+        (Expansion::Plain, None) => (move_out_canvas_images(inner, event, sink), true),
     };
     let arrived = &inner[event.span.0..event.span.1];
     if let Cow::Owned(one_line) = without_line_breaks(stored.as_deref().unwrap_or(arrived)) {
@@ -516,13 +524,26 @@ fn write_object(
     out.push(b'}');
 }
 
-fn expanded(inner: &[u8], event: &Event, fields: &[Decoded]) -> Vec<u8> {
+/// Copies a range of the payload or of a decoded string into the stored event, with what the writer changes there.
+pub type Copier<'c> = dyn FnMut(EditSource, &[u8], Span, &mut Vec<u8>) + 'c;
+
+fn expanded(
+    inner: &[u8],
+    event: &Event,
+    fields: &[Decoded],
+    mut copy: Option<&mut Copier<'_>>,
+) -> Vec<u8> {
     let mut out = Vec::with_capacity(event.span.1 - event.span.0);
     let json = |span: Span| {
         fields
             .iter()
             .find(|f| f.span == span)
             .map(|f| f.json.as_deref())
+    };
+    let mut put = |source: EditSource, bytes: &[u8], range: Span, out: &mut Vec<u8>| match &mut copy
+    {
+        Some(copy) => copy(source, bytes, range, out),
+        None => out.extend_from_slice(&bytes[range.0..range.1]),
     };
     write_object(inner, event.span, &mut out, |key, value, out| {
         if key == b"cv" {
@@ -532,22 +553,24 @@ fn expanded(inner: &[u8], event: &Event, fields: &[Decoded]) -> Vec<u8> {
             if let Some(decoded) = json(value) {
                 // A full snapshot whose data is empty has no data, as in the player.
                 let Some(decoded) = decoded else { return false };
-                out.extend_from_slice(decoded);
+                put(EditSource::Field(value), decoded, (0, decoded.len()), out);
                 return true;
             }
             if scan::is_object(inner, value) {
                 write_object(inner, value, out, |_, value, out| {
                     match json(value) {
-                        Some(Some(decoded)) => out.extend_from_slice(decoded),
+                        Some(Some(decoded)) => {
+                            put(EditSource::Field(value), decoded, (0, decoded.len()), out)
+                        }
                         Some(None) => return false,
-                        None => out.extend_from_slice(&inner[value.0..value.1]),
+                        None => put(EditSource::Payload, inner, value, out),
                     }
                     true
                 });
                 return true;
             }
         }
-        out.extend_from_slice(&inner[value.0..value.1]);
+        put(EditSource::Payload, inner, value, out);
         true
     });
     out
@@ -612,8 +635,10 @@ mod tests {
             .events
             .iter()
             .map(|e| {
-                serde_json::from_slice(&extract_event_images(&message.inner, e, &mut sink).unwrap())
-                    .unwrap()
+                serde_json::from_slice(
+                    &extract_event_images(&message.inner, e, &mut sink, None).unwrap(),
+                )
+                .unwrap()
             })
             .collect();
 
@@ -664,7 +689,7 @@ mod tests {
                 .events
                 .iter()
                 .map(|e| {
-                    let stored = extract_event_images(&message.inner, e, &mut sink)
+                    let stored = extract_event_images(&message.inner, e, &mut sink, None)
                         .unwrap_or_else(|| message.inner[e.span.0..e.span.1].to_vec());
                     serde_json::from_slice(&stored).unwrap()
                 })
@@ -708,7 +733,7 @@ mod tests {
         );
         let mut sink = sink();
         assert_eq!(
-            extract_event_images(&message.inner, &message.events[1], &mut sink),
+            extract_event_images(&message.inner, &message.events[1], &mut sink, None),
             None
         );
 
@@ -814,7 +839,7 @@ mod tests {
         let stored: Vec<Vec<u8>> = message
             .events
             .iter()
-            .map(|e| extract_event_images(&message.inner, e, &mut sink).unwrap())
+            .map(|e| extract_event_images(&message.inner, e, &mut sink, None).unwrap())
             .collect();
         assert!(stored
             .iter()
@@ -845,7 +870,8 @@ mod tests {
         let mut message =
             message_with(json!([{"type": 2, "timestamp": 1, "data": compressed, "cv": "2024-10"}]));
         message.decode_compressed();
-        let stored = extract_event_images(&message.inner, &message.events[0], &mut sink()).unwrap();
+        let stored =
+            extract_event_images(&message.inner, &message.events[0], &mut sink(), None).unwrap();
         assert!(String::from_utf8_lossy(&stored).contains(r#""textContent":"a"#));
         assert_eq!(
             serde_json::from_slice::<Value>(&stored).unwrap(),
@@ -870,7 +896,10 @@ mod tests {
         ]));
         let mut sink = sink();
         for event in &message.events {
-            assert_eq!(extract_event_images(&message.inner, event, &mut sink), None);
+            assert_eq!(
+                extract_event_images(&message.inner, event, &mut sink, None),
+                None
+            );
         }
         assert!(sink.images.is_empty());
     }
@@ -979,7 +1008,7 @@ mod tests {
         for (event, pointer, outcome) in cases {
             let message = message_with(json!([event]));
             let mut sink = sink();
-            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink)
+            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink, None)
                 .map(|stored| serde_json::from_slice::<Value>(&stored).unwrap());
             let replacement = match outcome {
                 Outcome::Kept => {

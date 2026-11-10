@@ -6,6 +6,90 @@ import * as orvalSchemas from '@/generated/aeo/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const AeoBrandsGetSchema = () => {
+    const AeoBrandsRetrieveParams = orvalSchemas.AeoBrandsRetrieveParams()
+    return AeoBrandsRetrieveParams.omit({ project_id: true }).extend({
+        id: AeoBrandsRetrieveParams.shape['id'].describe('The brand id (a UUID), from `aeo-brands-list`.'),
+    })
+}
+
+const aeoBrandsGet = (): ToolBase<ReturnType<typeof AeoBrandsGetSchema>, Schemas.AEOBrand> => ({
+    name: 'aeo-brands-get',
+    schema: AeoBrandsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoBrandsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AEOBrand>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_brands/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AeoBrandsListSchema = () => {
+    const AeoBrandsListQueryParams = orvalSchemas.AeoBrandsListQueryParams()
+    return AeoBrandsListQueryParams
+}
+
+const aeoBrandsList = (): ToolBase<
+    ReturnType<typeof AeoBrandsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAEOBrandList>
+> => ({
+    name: 'aeo-brands-list',
+    schema: AeoBrandsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoBrandsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAEOBrandList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_brands/`,
+            query: {
+                kind: params.kind,
+                limit: params.limit,
+                offset: params.offset,
+                status: params.status,
+            },
+        })
+        return await withPostHogUrl(context, result, '/web/content-autopilot')
+    },
+})
+
+const AeoBrandsUpdateSchema = () => {
+    const AeoBrandsPartialUpdateBody = orvalSchemas.AeoBrandsPartialUpdateBody()
+    const AeoBrandsPartialUpdateParams = orvalSchemas.AeoBrandsPartialUpdateParams()
+    return AeoBrandsPartialUpdateParams.omit({ project_id: true })
+        .extend(AeoBrandsPartialUpdateBody.shape)
+        .extend({
+            id: AeoBrandsPartialUpdateParams.shape['id'].describe('The brand id (a UUID), from `aeo-brands-list`.'),
+        })
+}
+
+const aeoBrandsUpdate = (): ToolBase<ReturnType<typeof AeoBrandsUpdateSchema>, Schemas.AEOBrand> => ({
+    name: 'aeo-brands-update',
+    schema: AeoBrandsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoBrandsUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.aliases !== undefined) {
+            body['aliases'] = params.aliases
+        }
+        const result = await context.api.request<Schemas.AEOBrand>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_brands/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AeoPromptsArchiveSchema = () => {
     const AeoPromptsDestroyParams = orvalSchemas.AeoPromptsDestroyParams()
     return AeoPromptsDestroyParams.omit({ project_id: true }).extend({
@@ -47,8 +131,10 @@ const aeoPromptsChecksList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/checks/`,
             query: {
                 engine: params.engine,
+                include_answer_text: params.include_answer_text,
                 limit: params.limit,
                 offset: params.offset,
+                since: params.since,
                 version: params.version,
             },
         })
@@ -119,11 +205,36 @@ const aeoPromptsList = (): ToolBase<
                 active: params.active,
                 include_archived: params.include_archived,
                 limit: params.limit,
+                needs_improvement: params.needs_improvement,
                 offset: params.offset,
                 topic: params.topic,
             },
         })
         return await withPostHogUrl(context, result, '/web/content-autopilot')
+    },
+})
+
+const AeoPromptsOverviewGetSchema = () => {
+    const AeoPromptsOverviewQueryParams = orvalSchemas.AeoPromptsOverviewQueryParams()
+    return AeoPromptsOverviewQueryParams
+}
+
+const aeoPromptsOverviewGet = (): ToolBase<
+    ReturnType<typeof AeoPromptsOverviewGetSchema>,
+    Schemas.AEOPromptSetOverview
+> => ({
+    name: 'aeo-prompts-overview-get',
+    schema: AeoPromptsOverviewGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsOverviewGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AEOPromptSetOverview>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/overview/`,
+            query: {
+                days: params.days,
+            },
+        })
+        return result
     },
 })
 
@@ -229,11 +340,15 @@ const aeoPromptsVersionsList = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'aeo-brands-get': aeoBrandsGet,
+    'aeo-brands-list': aeoBrandsList,
+    'aeo-brands-update': aeoBrandsUpdate,
     'aeo-prompts-archive': aeoPromptsArchive,
     'aeo-prompts-checks-list': aeoPromptsChecksList,
     'aeo-prompts-get': aeoPromptsGet,
     'aeo-prompts-import': aeoPromptsImport,
     'aeo-prompts-list': aeoPromptsList,
+    'aeo-prompts-overview-get': aeoPromptsOverviewGet,
     'aeo-prompts-stats-get': aeoPromptsStatsGet,
     'aeo-prompts-topics-list': aeoPromptsTopicsList,
     'aeo-prompts-update': aeoPromptsUpdate,

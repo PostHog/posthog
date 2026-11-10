@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SessionRecordingSidebarStacking } from '~/types'
 
 import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
-import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
+import { useVisionSurfaceShown } from 'products/replay_vision/frontend/utils/useVisionSurfaceShown'
 
 import { DebugReplayButton } from './player-meta/DebugReplayButton'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -107,9 +107,11 @@ function SessionRecordingPlayerInternal({
     withSidebar: boolean
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
-    const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock } = useValues(playerSettingsLogic)
+    const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock, watchPanelCollapsed } =
+        useValues(playerSettingsLogic)
     const { setWatchDebugDock } = useActions(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const visionSurfaceShown = useVisionSurfaceShown()
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const linkedIssuesAvailable = useLinkedIssuesAvailable()
@@ -124,6 +126,7 @@ function SessionRecordingPlayerInternal({
                 ref={playerRef}
                 className={clsx('SessionRecordingPlayerWrapper SessionRecordingPlayerWrapper--watch', {
                     'SessionRecordingPlayerWrapper--watch-right-dock': rightDock,
+                    'SessionRecordingPlayerWrapper--watch-panel-collapsed': watchPanelCollapsed,
                 })}
             >
                 <div className="SessionRecordingPlayerWrapper__column">
@@ -135,7 +138,7 @@ function SessionRecordingPlayerInternal({
                     >
                         <PurePlayer noMeta={noMeta} noBorder={noBorder} />
                     </div>
-                    {!isFullScreen && <WatchPanel summaryActions={debugReplayAction} />}
+                    {!isFullScreen && <WatchPanel />}
                 </div>
                 {rightDock && (
                     <PlayerSidebar
@@ -157,7 +160,7 @@ function SessionRecordingPlayerInternal({
         >
             <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
-                {visionSurfaceShown(logicProps) && <SummarizeRecordingBar extraActions={debugReplayAction} />}
+                {visionSurfaceShown && <SummarizeRecordingBar extraActions={debugReplayAction} />}
             </div>
             {withSidebar && <PlayerSidebar />}
         </div>

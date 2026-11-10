@@ -1,4 +1,5 @@
 import re
+import time
 import dataclasses
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     DELTA_BATCH_ROWS,
+    DELTA_MISSING_RETRY_DELAYS_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
@@ -199,7 +201,18 @@ def plan_delta_read(
     the stored rows don't name their files.
     """
     with _delta_errors(table_name):
-        table = DeltaTable(uri, storage_options=storage_options)
+        # A writer that replaces the table deletes its folder and writes it again, so a missing
+        # table can come back seconds later.
+        for attempt, delay in enumerate(DELTA_MISSING_RETRY_DELAYS_SECONDS, start=1):
+            try:
+                table = DeltaTable(uri, storage_options=storage_options)
+                break
+            except TableNotFoundError:
+                if logger is not None:
+                    logger.info("Delta table not found, retrying", table=table_name, attempt=attempt)
+                time.sleep(delay)
+        else:
+            table = DeltaTable(uri, storage_options=storage_options)
         version = table.version()
         cursor = ObjectStorageDeltaCursor(version=version, table_id=str(table.metadata().id), file_names=by_file)
         dataset = cast(ds.FileSystemDataset, table.to_pyarrow_dataset())
@@ -269,3 +282,9 @@ def iter_delta_tables(
 ) -> Iterator[pa.Table]:
     """Stream one whole Delta snapshot."""
     yield from plan_delta_read(uri, storage_options, table_name, logger=logger).iter_tables(batch_rows)
+
+
+def check_delta_table(uri: str, storage_options: dict[str, str], table_name: str) -> None:
+    """Load the table's `_delta_log`, which needs the same read access as a sync, without reading data."""
+    with _delta_errors(table_name):
+        DeltaTable(uri, storage_options=storage_options, without_files=True)

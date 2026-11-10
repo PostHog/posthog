@@ -11,10 +11,10 @@ jest.mock('@/api/insights', () => ({ getInsightSummary: jest.fn() }))
 jest.mock('./MermaidDiagram', () => ({ MermaidDiagram: jest.fn(() => null) }))
 const summary = getInsightSummary as jest.MockedFunction<typeof getInsightSummary>
 let client: QueryClient
-function view(text: string): ReturnType<typeof render> {
+function view(text: string, projectUrl?: string): ReturnType<typeof render> {
     return render(
         <QueryClientProvider client={client}>
-            <ChatMarkdown text={text} />
+            <ChatMarkdown text={text} projectUrl={projectUrl} />
         </QueryClientProvider>
     )
 }
@@ -62,6 +62,17 @@ describe('reply object rendering', () => {
         fireEvent.press(screen.getByText('the guide'))
         fireEvent.press(screen.getByText('https://example.com/auto'))
         expect(open.mock.calls).toEqual([['https://example.com/guide'], ['https://example.com/auto']])
+    })
+    test.each([
+        ['/dashboard/123?tab=details#top', 'https://app.example.com/project/42/dashboard/123?tab=details#top'],
+        ['/project/99/insights/abc', 'https://app.example.com/project/99/insights/abc'],
+        ['/organization/settings', 'https://app.example.com/organization/settings'],
+        ['https://external.example.com/guide', 'https://external.example.com/guide'],
+    ])('opens %s in its intended project', (path, expected) => {
+        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
+        const screen = view(`[Link](${path})`, 'https://app.example.com/project/42')
+        fireEvent.press(screen.getByText('Link'))
+        expect(open).toHaveBeenCalledWith(expected)
     })
     test.each([
         ['ordinary prose', 'plain words '],

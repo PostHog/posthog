@@ -77,12 +77,12 @@ def query_workflow_flakiness(
     min_failed_duration_seconds: int = NO_OP_JOB_MAX_SECONDS,
     workload: Workload = Workload.DEFAULT,
 ) -> list[FlakyJobRun]:
-    jobs_source = curated.jobs_source(created_floor=True)
+    jobs_source = curated.jobs_source(created_floor=True, since=date_from)
     if jobs_source is None:
         return []
     response = curated.run(
         _SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
-            "__RUNS_SOURCE__", curated.run_source(started_floor=True)
+            "__RUNS_SOURCE__", curated.run_source(started_floor=True, since=date_from)
         ),
         query_type="engineering_analytics.workflow_flakiness",
         workload=workload,

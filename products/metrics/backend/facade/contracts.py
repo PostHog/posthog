@@ -42,6 +42,9 @@ from .enums import (
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+DEFAULT_QUERY_COUNT_DAYS = 30
+MAX_QUERY_COUNT_DAYS = 90
+MAX_PROMQL_LENGTH = 8192
 MAX_SPARKLINE_BATCH_SIZE = 20
 
 
@@ -65,6 +68,18 @@ METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 
 # Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
 METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
+
+# Gates the metrics that the query computes from spans and logs, on top of METRICS_FEATURE_FLAG.
+METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
+
+# Names under this prefix are computed from spans and logs at query time, never ingested.
+# Other products must not let users create metrics with this prefix.
+DERIVED_METRIC_PREFIX = "posthog.derived."
+
+# Labels an async MetricsQuery status with each source a derived metric reads, so retrieval can check access.
+# Stable wire identifier shared by query-status producers and readers. Renaming requires
+# a dual-read rollout and a drain of in-flight query statuses.
+DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX = "metrics-derived-source:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,6 +425,21 @@ class MetricsOverview:
     services: tuple[MetricsServiceOverview, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class MetricQueryCount:
+    """How often queries read one metric of a team inside a window of days.
+
+    A query counts once for each metric that it selects, whatever the number of clauses or selectors that name it.
+    Builder, heatmap and PromQL queries count, from the app, alerts and the Prometheus API.
+    SQL mode queries do not count.
+    A PromQL selector that names no metric, such as `{__name__=~"http_.*"}`, counts nothing.
+    """
+
+    metric_name: str
+    query_count: int
+    last_queried_at: dt.datetime
+
+
 class DashboardImportError(ValueError):
     """A dashboard import cannot start or continue. The message is safe to show to the user."""
 
@@ -548,3 +578,14 @@ class SuggestedDashboardError(Exception):
 
 class SuggestedDashboardNotFound(SuggestedDashboardError):
     pass
+
+
+class PromQLQueryError(ValueError):
+    """A PromQL query that Snuffle rejected or could not run. The message is safe to show.
+
+    `transient` says the backend failed rather than the query, so the same query can succeed later.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient

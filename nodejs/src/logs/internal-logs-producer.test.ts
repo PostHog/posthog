@@ -73,8 +73,11 @@ describe('InternalLogsProducer', () => {
         jest.useRealTimers()
     })
 
-    it('sends a batch the logs consumer verifies as internal', async () => {
-        await send(new InternalLogsProducer(config(), teamManager), [entry()])
+    it.each([
+        { source: 'hog_flow', serviceName: 'posthog-internal-workflows' },
+        { source: 'hog_function', serviceName: 'posthog-internal-hog-functions' },
+    ])('sends a $source batch the logs consumer verifies as internal', async ({ source, serviceName }) => {
+        await send(new InternalLogsProducer(config(), teamManager), [entry()], source)
 
         expect(fetchMock).toHaveBeenCalledTimes(1)
         const [url, options] = fetchMock.mock.calls[0]
@@ -83,14 +86,15 @@ describe('InternalLogsProducer', () => {
         expect(headers.Authorization).toEqual('Bearer phc_team_2')
         const verifier = new InternalLogsVerifier(KEY, '2')
         expect(verifier.verify(headers['x-posthog-internal'], 2, SIGNED_AT.toISOString())).toEqual({
-            source: 'hog_flow',
+            source,
             billed: false,
             teamRules: false,
+            serviceName,
         })
 
         const body = parseJSON(options!.body as string) as any
         expect(body.resourceLogs[0].resource.attributes).toEqual([
-            { key: 'service.name', value: { stringValue: 'posthog-internal-workflows' } },
+            { key: 'service.name', value: { stringValue: serviceName } },
         ])
         expect(body.resourceLogs[0].scopeLogs[0].logRecords).toEqual([
             {
@@ -130,7 +134,7 @@ describe('InternalLogsProducer', () => {
 
     it.each([
         { name: 'a team not on the allowlist', entries: [entry({ team_id: 3 })] },
-        { name: 'a source with no policy', source: 'hog_function', entries: [entry()] },
+        { name: 'a source with no policy', source: 'no_such_source', entries: [entry()] },
         { name: 'no endpoint', overrides: { LOGS_INTERNAL_PRODUCER_URL: '' }, entries: [entry()] },
         { name: 'no signing key', overrides: { LOGS_INTERNAL_INGESTION_SIGNING_KEYS: ' ' }, entries: [entry()] },
         { name: 'an empty allowlist', overrides: { LOGS_INTERNAL_PRODUCER_TEAMS: '' }, entries: [entry()] },
@@ -204,6 +208,18 @@ describe('InternalLogsProducer', () => {
         await sent
 
         expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
+    })
+
+    it.each([
+        { name: 'is 30 seconds, like a Kafka request', retryTimeoutMs: 300_000, expectedTimeoutMs: 30_000 },
+        { name: 'ends with the retry window', retryTimeoutMs: 2_000, expectedTimeoutMs: 2_000 },
+    ])('the timeout of one attempt $name', async ({ retryTimeoutMs, expectedTimeoutMs }) => {
+        await send(
+            new InternalLogsProducer(config({ LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: retryTimeoutMs }), teamManager),
+            [entry()]
+        )
+
+        expect(fetchMock).toHaveBeenCalledWith(URL, expect.objectContaining({ timeoutMs: expectedTimeoutMs }))
     })
 
     it('signs each retry again, so a request that hung past the signature window does not make the retry billed', async () => {

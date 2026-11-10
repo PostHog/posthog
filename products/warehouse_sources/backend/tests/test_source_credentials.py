@@ -2,6 +2,7 @@ import csv
 from typing import Any, cast
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -19,6 +20,7 @@ from posthog.models.team import Team
 
 from products.warehouse_sources.backend.facade.contracts import SharedCredentialsError
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
+from products.warehouse_sources.backend.integration_usages import integration_usages
 from products.warehouse_sources.backend.logic.credential_auth_types import (
     UnknownCredentialKindError,
     typed_in_auth_type,
@@ -31,6 +33,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     WarehouseSourceCredentialsStore,
 )
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.presentation.views.external_data_source.shared_credentials import (
     shared_credentials_conflict_response,
@@ -40,7 +43,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.job
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-from products.workflows.backend.facade.contracts import WorkflowSummary
+from products.workflows.backend.facade.testing import create_workflow_for_test
+
+# These tests check the stored credentials, so raw saves keep their inputs as they are.
+pytestmark = pytest.mark.raw_warehouse_source_credentials
+
 
 PG_FIELDS: dict[str, Any] = {
     "host": "db.example.com",
@@ -99,7 +106,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     def _create(self, source: ExternalDataSource, fields: dict[str, Any]) -> int:
         reference = WarehouseSourceCredentialsStore.create(source, fields)
-        SourceInputsStore.save(source, SourceInputsStore.load(source))
+        SourceInputsStore.write_credentials_reference(source, reference)
         assert reference.legacy_id is not None
         return reference.legacy_id
 
@@ -176,7 +183,6 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
-            ("inputs_save", lambda source: SourceInputsStore.save(source, {"schema": "other"}), True),
             ("model_save", lambda source: source.save(), True),
             # A sync holds an old copy of its source, so a runtime write must not move the pointer.
             ("runtime_write", lambda source: SourceInputsStore.update_runtime(source, {"cdc_slot_name": "s"}), False),
@@ -256,7 +262,6 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         assert not Integration.objects._with_auth(AuthTypeSelector.ANY).filter(team_id=self.team.pk).exists()
         source.credentials_integration_id = "1"
         assert WarehouseSourceCredentialsStore.get(source) is None
-        assert WarehouseSourceCredentialsStore.release(source) is False
 
     @parameterized.expand(
         [
@@ -292,7 +297,6 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
         assert WarehouseSourceCredentialsStore.get(source) is None
         assert WarehouseSourceCredentialsStore.get_many([source]) == {}
-        assert WarehouseSourceCredentialsStore.release(source) is False
         with self.assertRaises(CredentialsNotFoundError):
             WarehouseSourceCredentialsStore.update(source, {**PG_FIELDS, "password": "new"})
         assert self._fields_of_row(store_pk) == PG_FIELDS
@@ -363,7 +367,9 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             ("shared_host_change", "source", {**PG_FIELDS, "host": "new.example.com"}, False, "new_row"),
             ("shared_user_change", "source", {**PG_FIELDS, "user": "writer"}, True, "new_row"),
             ("shared_tunnel_change", "source", {**PG_FIELDS, "ssh_tunnel": {"enabled": "False"}}, False, "new_row"),
-            ("shared_same_fields_as_strings", "source", {**PG_FIELDS, "port": 5432}, False, "conflict"),
+            # A write that changes no stored value needs no confirmation.
+            ("shared_same_fields_as_strings", "source", {**PG_FIELDS, "port": 5432}, False, "in_place"),
+            ("shared_unset_optional_field", "source", {**PG_FIELDS, "database": None}, False, "in_place"),
         ]
     )
     def test_update_of_a_shared_row_needs_confirmation_or_makes_a_new_row(
@@ -373,25 +379,27 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         pk = self._create(source, PG_FIELDS)
         if other_user == "source":
             self._referencing(pk)
-        workflows = (
-            [WorkflowSummary(id="wf1", name="Nightly sync", status="active")] if other_user == "workflow" else []
-        )
+        if other_user == "workflow":
+            create_workflow_for_test(
+                team_id=self.team.pk,
+                name="Nightly sync",
+                status="active",
+                actions=[
+                    {"id": "query", "type": "function", "config": {"inputs": {"db": {"value": {"integrationId": pk}}}}}
+                ],
+            )
 
-        with patch(
-            "products.workflows.backend.integration_usages.get_active_workflows_using_integration",
-            return_value=workflows,
-        ):
-            if outcome == "conflict":
-                with self.assertRaises(SharedCredentialsError) as raised:
-                    WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
-                assert raised.exception.integration_id == pk
-                assert [usage.type for usage in raised.exception.usages] == [
-                    "workflow" if other_user == "workflow" else "warehouse_source"
-                ]
-                assert source.credentials_integration_id == str(pk)
-                assert WarehouseSourceCredentialsStore.get(source) == PG_FIELDS
-                return
-            reference = WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
+        if outcome == "conflict":
+            with self.assertRaises(SharedCredentialsError) as raised:
+                WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
+            assert raised.exception.integration_id == pk
+            assert [usage.type for usage in raised.exception.usages] == [
+                "workflow" if other_user == "workflow" else "warehouse_source"
+            ]
+            assert source.credentials_integration_id == str(pk)
+            assert WarehouseSourceCredentialsStore.get(source) == PG_FIELDS
+            return
+        reference = WarehouseSourceCredentialsStore.update(source, new_fields, allow_shared=allow_shared)
 
         new_pk = reference.legacy_id
         assert new_pk is not None
@@ -404,7 +412,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             # The source points at the new row only when the caller saves it with its inputs.
             assert ExternalDataSource.objects.get(id=source.id).credentials_integration_id == str(pk)
         assert WarehouseSourceCredentialsStore.get(source) == {
-            key: str(value) if key == "port" else value for key, value in new_fields.items()
+            key: str(value) if key == "port" else value for key, value in new_fields.items() if value is not None
         }
         assert _row(new_pk).config[WAREHOUSE_SOURCE_TYPE_CONFIG_KEY] == "Postgres"
 
@@ -576,49 +584,47 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             WarehouseSourceCredentialsStore.update(postgres, PG_FIELDS)
         assert WarehouseSourceCredentialsStore.get(stripe) == STRIPE_FIELDS
 
+    def test_soft_delete_keeps_the_row_and_looks_up_no_usages(self) -> None:
+        source = self._source()
+        self._create(source, PG_FIELDS)
+
+        with patch("products.warehouse_sources.backend.integration_usages.list_sources_using_integration") as usages:
+            source.soft_delete()
+
+        usages.assert_not_called()
+        source.refresh_from_db()
+        assert source.deleted is True
+        assert len(IntegrationManager.source("postgresql").any.list(self.team.id)) == 1
+
     @parameterized.expand(
         [
-            ("orphan", False, True),
-            ("still_used_by_another_source", True, False),
+            ("unused", False, 0),
+            ("still_used_by_another_source", True, 1),
         ]
     )
-    def test_release_never_deletes_the_row(self, _name: str, shared: bool, orphaned: bool) -> None:
+    def test_discard_created_deletes_the_source_and_its_unused_row(
+        self, _name: str, shared: bool, rows_left: int
+    ) -> None:
         source = self._source()
+        source_pk = source.pk
         pk = self._create(source, PG_FIELDS)
         if shared:
             self._referencing(pk)
 
-        assert WarehouseSourceCredentialsStore.release(source) is orphaned
-        assert IntegrationManager.source("postgresql").credentials.get(self.team.id, pk).id == pk
+        SourceInputsStore.discard_created(source)
 
-    def test_release_of_a_reference_the_source_cannot_use_is_a_no_op(self) -> None:
+        assert not ExternalDataSource.objects.filter(pk=source_pk).exists()
+        assert len(IntegrationManager.source("postgresql").credentials.list(self.team.id)) == rows_left
+
+    def test_discard_created_keeps_a_row_out_of_the_store_scope(self) -> None:
         source = self._source()
         oauth_row = IntegrationManager.hubspot.oauth.create(self.team.id, external_id="H1", config={})
-
         source.credentials_integration_id = str(oauth_row.id)
-        assert WarehouseSourceCredentialsStore.release(source) is False
-        source.credentials_integration_id = None
-        assert WarehouseSourceCredentialsStore.release(source) is False
+        source.save()
 
-    @patch("products.warehouse_sources.backend.models.external_data_source.capture_exception")
-    def test_soft_delete_keeps_the_row_and_survives_store_failure(self, capture: Any) -> None:
-        deleted, failing, without_row = self._source(), self._source(), self._source()
-        for source in (deleted, failing):
-            self._create(source, PG_FIELDS)
+        SourceInputsStore.discard_created(source)
 
-        with patch.object(
-            WarehouseSourceCredentialsStore, "release", wraps=WarehouseSourceCredentialsStore.release
-        ) as release:
-            deleted.soft_delete()
-            without_row.soft_delete()
-        release.assert_called_once_with(deleted)
-        assert len(IntegrationManager.source("postgresql").any.list(self.team.id)) == 2
-
-        with patch.object(WarehouseSourceCredentialsStore, "release", side_effect=RuntimeError("boom")):
-            failing.soft_delete()
-        failing.refresh_from_db()
-        assert failing.deleted is True
-        capture.assert_called_once()
+        assert IntegrationManager.hubspot.oauth.get(self.team.id, oauth_row.id).id == oauth_row.id
 
     @parameterized.expand(
         [
@@ -633,7 +639,8 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         ]
     )
     def test_reference_detection_in_inputs(self, _name: str, inputs: dict[str, Any] | None, expected: bool) -> None:
-        source = self._source()
+        # A Custom source has no credentials row or column, so its reads return `job_inputs` as stored.
+        source = self._source(ExternalDataSourceType.CUSTOM)
         source.job_inputs = inputs
         source.save()
 
@@ -699,6 +706,10 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             expected = [(editor.id, False)]
             assert WarehouseSourceCredentialsStore.update(editor, {**PG_FIELDS, "password": "new"}).legacy_id == pk
         assert [(ref.id, ref.unreadable) for ref in found] == expected
+        # Such a user blocks a delete of the row, with its own usage type.
+        assert [usage.type for usage in integration_usages(self.team.id, pk) if usage.id == str(broken.id)] == (
+            ["unreadable_warehouse_source"] if counted else []
+        )
 
     def test_conflict_response_names_the_other_users(self) -> None:
         source = self._source()
@@ -741,27 +752,32 @@ class TestWarehouseSourceUsageProvider(BaseTest):
             self.team.id, external_id="pg", config={WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres"}
         )
 
-    @parameterized.expand(
-        [
-            ("credentials_column", None, "prod", "Postgres (prod)"),
-            ("oauth_pointer_without_prefix", "linear_integration_id", None, "Postgres"),
-        ]
-    )
-    def test_the_sdk_reports_a_source_that_points_at_the_row(
-        self, _name: str, inputs_key: str | None, prefix: str | None, name: str
-    ) -> None:
+    @parameterized.expand([("with_prefix", "prod", "Postgres (prod)"), ("without_prefix", None, "Postgres")])
+    def test_the_sdk_reports_a_source_that_points_at_the_row(self, _name: str, prefix: str | None, name: str) -> None:
         row = self._row()
-        pointer: dict[str, Any] = (
-            {"job_inputs": {inputs_key: str(row.id)}}
-            if inputs_key
-            else {"job_inputs": {}, "credentials_integration_id": str(row.id)}
-        )
-        source = self._source(prefix=prefix, **pointer)
-        self._source(deleted=True, **pointer)
+        source = self._source({}, prefix=prefix, credentials_integration_id=str(row.id))
+        self._source({}, deleted=True, credentials_integration_id=str(row.id))
 
         assert IntegrationManager.any.with_source_rows().usages(self.team.id, row.id) == [
             IntegrationUsage(type="warehouse_source", id=str(source.id), name=name)
         ]
+
+    @parameterized.expand([("live", False), ("deleted", True)])
+    def test_the_sdk_reports_a_destination_that_writes_through_the_row(self, _name: str, deleted: bool) -> None:
+        row = IntegrationManager.postgresql.credentials.create(self.team.id, external_id="pg", config={})
+        destination = ExternalDataDestination.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="Reporting",
+            integration_id=row.id,
+            deleted=deleted,
+        )
+
+        assert IntegrationManager.any.usages(self.team.id, row.id) == (
+            []
+            if deleted
+            else [IntegrationUsage(type="warehouse_destination", id=str(destination.id), name="Reporting")]
+        )
 
     def test_delete_of_a_used_row_raises_and_keeps_the_row(self) -> None:
         row = self._row()

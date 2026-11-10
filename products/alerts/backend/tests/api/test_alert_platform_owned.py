@@ -22,16 +22,27 @@ from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     EarlierFlag,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import (
+    AlertCheck,
+    AlertConfiguration,
+    InvestigationStatus,
+    InvestigationVerdict,
+)
+from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, update_configuration
+from products.alerts_platform.backend.facade.api import get_configuration, record_verdict_change, update_configuration
 from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
     SourceKind,
+    VerdictChange,
 )
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
+from products.notebooks.backend.facade.api import create_notebook
 
 
 def _iso(moment: datetime) -> str:
@@ -77,6 +88,22 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             source_detail=detail,
         )
 
+    def _follow_up(self, minutes_ago: int, *, firing_minutes_ago: int) -> None:
+        firing_at = self._at(firing_minutes_ago)
+        with team_scope(self.team.id):
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=firing_at)
+            request = record_verdict_change(
+                VerdictChange(
+                    team_id=self.team.id,
+                    configuration_id=self.copy_id,
+                    firing_evaluation_key=f"slot:{firing_at.isoformat()}",
+                    episode_started_at=firing_at,
+                    firing_event_id="$insight_alert_firing",
+                ),
+                now=self._at(minutes_ago),
+            )
+        assert request is not None
+
     def _own_check(self, minutes_ago: int, date: str, rationale: str) -> None:
         check = AlertCheck.objects.create(
             alert_configuration=self.alert,
@@ -100,8 +127,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand([("list",), ("retrieve",)])
     def test_a_moved_alert_shows_the_platform_state_and_last_check(self, action: str) -> None:
         self._record(30, "firing", value=150.0)
-        with team_scope(self.team.id):
-            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self._at(30))
+        self._follow_up(10, firing_minutes_ago=30)
 
         row = self._row(action)
 
@@ -113,6 +139,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         self._record(30, "errored", error="Query timed out")
         # A snoozed check evaluates nothing, so it measures no value either.
         self._record(15, "snoozed")
+        self._follow_up(10, firing_minutes_ago=60)
 
         row = self._row("retrieve", "?checks_limit=2")
 
@@ -161,6 +188,56 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
             "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
         }
+
+    def test_a_moved_alert_shows_each_checks_investigation_and_what_the_agent_suppressed(self) -> None:
+        notebook = create_notebook(self.team.id, title="Signups investigation", content=None)
+        for minutes_ago in (40, 30, 20, 10):
+            self._record(
+                minutes_ago,
+                "firing",
+                value=150.0,
+                detail={SUPPRESSED_BY_AGENT_KEY: True} if minutes_ago == 10 else None,
+            )
+        InsightAlertInvestigation.objects.for_team(self.team.id).create(
+            team=self.team,
+            alert_configuration=self.alert,
+            configuration_id=self.copy_id,
+            evaluation_key=f"slot:{self._at(40).isoformat()}",
+            kind=InsightAlertInvestigation.Kind.AGENT,
+            status=InvestigationStatus.DONE,
+            verdict=InvestigationVerdict.FALSE_POSITIVE,
+            summary="A release changed the event name.",
+            notebook_id=notebook.id,
+        )
+        released = [
+            (40, HoldReleasedBy.VERDICT),
+            (30, HoldReleasedBy.SAFETY_NET),
+            (20, HoldReleasedBy.CLAIM_REFUSED),
+        ]
+        for minutes_ago, released_by in released:
+            platform_testing.released_hold(
+                self.copy_id,
+                team_id=self.team.id,
+                at=self._at(minutes_ago),
+                action=HoldRelease.SUPPRESS,
+                released_by=released_by,
+            )
+
+        checks = self._row("retrieve")["checks"]
+
+        fields = (
+            "investigation_status",
+            "investigation_verdict",
+            "investigation_summary",
+            "investigation_notebook_short_id",
+            "notification_suppressed_by_agent",
+        )
+        assert [tuple(check[field] for field in fields) for check in checks] == [
+            (None, None, None, None, True),
+            (None, None, None, None, True),
+            (None, None, None, None, False),
+            ("done", "false_positive", "A release changed the event name.", notebook.short_id, True),
+        ]
 
     def test_a_moved_detector_alert_marks_the_points_both_stacks_fired_on(self) -> None:
         self._own_check(60 * 24, "2026-10-18", "Before the move.")
@@ -213,7 +290,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         self._record(30, "firing", value=150.0)
 
         with patch(
-            "products.alerts.backend.platform_alert_reads.check_page_by_legacy_id",
+            "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
             side_effect=RuntimeError("ClickHouse is down"),
         ):
             row = self._row("retrieve")
@@ -253,7 +330,16 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             )
 
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
-        self._edit_on_the_platform(lambda stored: replace(stored, name="Edited on the platform"))
+        stored_config = self._copy().source_config
+        # A platform edit names only the settings it sends, so the insight check settings stay as stored.
+        self._edit_on_the_platform(
+            lambda stored: replace(
+                stored,
+                name="Edited on the platform",
+                source_config={key: stored_config[key] for key in ("insight_id", "condition")},
+            )
+        )
+        assert self._copy().source_config["config"] == stored_config["config"] is not None
         insight_edit = self.client.patch(
             f"{self.url}/{self.alert.id}/",
             {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
@@ -270,19 +356,49 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}),
+            ("rename", {"name": "Renamed"}, "firing"),
+            (
+                "threshold",
+                {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
+                "not_firing",
+            ),
+        ]
+    )
+    def test_an_insight_edit_to_a_copy_without_the_check_settings_ends_a_firing_only_on_a_real_change(
+        self, _name: str, payload: dict[str, Any], state: str
+    ) -> None:
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            older = {key: stored_config[key] for key in ("insight_id", "condition")}
+            platform_testing.set_source_config(self.copy_id, older)
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self.now)
+
+        response = self.client.patch(f"{self.url}/{self.alert.id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        with team_scope(self.team.id):
+            instance = platform_testing.alert_for(self.copy_id)
+        assert instance is not None
+        assert instance.state == state
+
+    @parameterized.expand(
+        [
+            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}, {}),
             # The insight API checks a detector against its insight and its access rules, so only it may set one.
-            ("detector", {"detector": {"type": "zscore"}}),
+            ("detector", {"detector": {"type": "zscore"}}, {}),
+            ("series", {}, {"config": {"type": "TrendsAlertConfig", "series_index": 1}}),
+            ("skip_weekend", {}, {"skip_weekend": True}),
+            ("evaluation_delay", {}, {"evaluation_delay_intervals": 3}),
         ]
     )
     def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(
-        self, _name: str, condition_change: dict[str, Any]
+        self, _name: str, condition_change: dict[str, Any], settings_change: dict[str, Any]
     ) -> None:
         stored_config = self._copy().source_config
 
         def edit(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
             condition = {**stored.source_config["condition"], **condition_change}
-            return replace(stored, source_config={**stored.source_config, "condition": condition})
+            return replace(stored, source_config={**stored.source_config, **settings_change, "condition": condition})
 
         with pytest.raises(InvalidPlatformAlertEdit):
             self._edit_on_the_platform(edit)
@@ -308,6 +424,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.organization.save()
         self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
         AlertConfiguration.objects.filter(id=self.alert.id).update(**stored)
+        if stored.get("calculation_interval") == AlertCalculationInterval.REAL_TIME:
+            with team_scope(self.team.id):
+                platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
 
         with (
             patch.object(AlertConfiguration, "check_real_time_alert_limit", return_value=real_time_limit_error),

@@ -55,6 +55,9 @@ def _append_unconfirmed_attachment_notice(
 
 
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
+# Each chunk of a split code block repeats the label, so one too long to be a language hint would
+# leave almost no room for code, and a message per few characters.
+_MAX_FENCE_LABEL_LEN = 32
 
 
 class _SlackChunkPacker:
@@ -134,6 +137,8 @@ class _SlackChunkPacker:
             cursor = end + 1 if end < len(body) and body[end] == "\n" else end
 
     def _add_code_block(self, language: str, body: str) -> None:
+        if len(language) > _MAX_FENCE_LABEL_LEN:
+            language = ""
         fence_open = f"```{language}\n" if language else "```\n"
         fence_close = "\n```"
         if len(fence_open) + len(body) + len(fence_close) <= self._limit:
@@ -266,6 +271,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         actor_slack_user_id=target,
         turn_trace_id=input.trace_id,
         turn_person_message=person_message,
+        include_thread_cost=True,
     )
 
     if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):

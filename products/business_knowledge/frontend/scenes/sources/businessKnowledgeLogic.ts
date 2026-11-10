@@ -26,6 +26,7 @@ import type { CreateUrlSourcePayload, KnowledgeLibrary, RefreshIntervalOption } 
 import type { KnowledgeLibraryApi, KnowledgeSourceApi } from '../../generated/api.schemas'
 import {
     DEFAULT_URL_SOURCE_FORM,
+    fileNameWithoutExtension,
     type CrawlMode,
     type KnowledgeSource,
     type TextSourceFormValues,
@@ -288,6 +289,9 @@ export interface businessKnowledgeLogicActions {
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
+    setSourceFile: (file: File | null) => {
+        file: File | null
+    }
     setSourceTypeFilter: (sourceTypeFilter: SourceTypeFilter) => {
         sourceTypeFilter: SourceTypeFilter
     }
@@ -404,6 +408,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         setAddedByFilter: (addedByFilter: AddedByFilter) => ({ addedByFilter }),
         setLibraryScope: (libraryScope: string) => ({ libraryScope }),
         setCreateLibraryIds: (libraryIds: string[]) => ({ libraryIds }),
+        setSourceFile: (file: File | null) => ({ file }),
         openLibraryDialog: (libraryDialog: LibraryDialog) => ({ libraryDialog }),
         closeLibraryDialog: true,
         createLibrary: (name: string) => ({ name }),
@@ -636,6 +641,14 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
     listeners(({ actions, cache, values }) => ({
         openCreateModal: () => {
             actions.setCreateLibraryIds(isLibraryScope(values.libraryScope) ? [values.libraryScope] : [])
+        },
+        setSourceFile: ({ file }) => {
+            const { name, file: previousFile } = values.fileSource
+            const nameIsDerived = !name.trim() || (!!previousFile && name === fileNameWithoutExtension(previousFile))
+            actions.setFileSourceValue('file', file)
+            if (file && nameIsDerived) {
+                actions.setFileSourceValue('name', fileNameWithoutExtension(file))
+            }
         },
         submitTextSourceSuccess: () => {
             posthog.capture('business knowledge source created', { source_type: 'text' })

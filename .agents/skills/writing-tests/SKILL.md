@@ -49,6 +49,12 @@ That sets the limit too: fold in variations of the same behavior, and don't bolt
 Search before you write.
 If you haven't looked for the nearest existing test, you can't answer this question.
 
+A new test file also needs a team owner, because ownership routes its failures and flakes.
+Put it next to the code it tests, inside `products/<name>/` when one product owns that behavior, so it inherits that owner.
+Check with `hogli owners:who <path>`.
+If no team owns it, name the team responsible for the behavior it checks in the nearest `owners.yaml`, not the team of a helper it imports.
+CI fails a test file in a new directory that no team owns, and `hogli ci:preflight` runs the same check before you push.
+
 ## Don't write it — the five no's
 
 Most low-value tests fall into one of these. Recognize and skip them.
@@ -97,6 +103,9 @@ Want more coverage? Add it at the bottom.
 If the only way to exercise your logic is to stand up a database, a request, and a render, the logic is tangled with its dependencies.
 Pull it into a pure function or a kea logic and test _that_ directly: you get a faster test and better-factored code at once.
 Escalating to the next rung is the last resort, not the default.
+
+When you extract a decision this way, such as the dedupe, routing, or eligibility rule that [.agents/architecture.md](../../architecture.md) keeps pure, put the case matrix on the pure function and keep one database-backed test as a wiring guard.
+Without that guard, a refactor that stops calling the decision passes every pure case.
 
 - If logic is in (or can be moved to) a pure function, test the function — don't stand up a DB, a request, or a render.
 - Frontend: test the **kea logic** (`logic.actions` / `logic.values`), not a full component render, whenever the behavior lives in the logic.

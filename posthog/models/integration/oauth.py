@@ -26,7 +26,7 @@ from posthog.egress.slack.observability import record_slack_api_response
 from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.schema_enums import SlackIntegrationScope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.scopes import get_oauth_scopes_supported
 
 from . import apple_ads, common, model, refresh_tracking
@@ -198,10 +198,15 @@ class OauthConfig:
 # StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
 # frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
 #
-# Every scope here is approved for the public Cloud app, so the same list is requested on every
-# instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
-# note by SlackIntegrationScope in frontend/src/types.ts.
+# Every scope here is approved for the public Cloud app, so every instance requests it.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+
+
+def posthog_slack_scope() -> str:
+    # See SlackIntegrationScopeInReview in frontend/src/types.ts for why only DEV and local request these.
+    if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV":
+        return ",".join([POSTHOG_SLACK_SCOPE, *(scope.value for scope in SlackIntegrationScopeInReview)])
+    return POSTHOG_SLACK_SCOPE
 
 
 def _apple_ads_acl_accounts(access_token: str) -> list[dict[str, Any]]:
@@ -331,7 +336,7 @@ _POSTHOG_CONNECT_ALLOW_DEV = bool(settings.DEBUG or settings.TEST or settings.E2
 
 POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", *(("DEV",) if _POSTHOG_CONNECT_ALLOW_DEV else ()))
 
-POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write")
+POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write", "inbox:read", "inbox:write")
 
 POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 
@@ -669,7 +674,7 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://slack.com/oauth/v2/authorize",
                 token_url="https://slack.com/api/oauth.v2.access",
-                scope=POSTHOG_SLACK_SCOPE,
+                scope=posthog_slack_scope(),
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -1499,6 +1504,10 @@ class OauthIntegration:
             config["expires_in"] = 3600
 
         config["refreshed_at"] = int(time.time())
+        if kind == "linear":
+            # A token refresh rewrites `refreshed_at` and a reconnect keeps `created_at`, so neither says
+            # when the workspace last authorized the app. See `LinearIntegration.authorized_before_webhooks`.
+            config["authorized_at"] = config["refreshed_at"]
 
         integration, created = model.Integration.objects.update_or_create(
             team_id=team_id,

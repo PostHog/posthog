@@ -8,7 +8,9 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 
 import hashlib
 import datetime
+import itertools
 from collections import Counter
+from collections.abc import Iterator
 from typing import Any
 
 from django.conf import settings
@@ -23,6 +25,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
@@ -42,6 +45,8 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
 
 DEADLOCK_RETRY_ATTEMPTS = 3
+
+HEAD_OBJECT_PARALLELISM = 8
 
 # The ID tiebreak keeps LIMIT/OFFSET paging stable when rows share a timestamp.
 # The reference is unique within a team, so it does not need a tiebreak.
@@ -129,19 +134,22 @@ def generate_symbol_set_upload_presigned_urls(file_key: str, content_length: int
     return urls
 
 
-def upload_content(content: bytearray) -> tuple[str, str]:
-    content_hash = hashlib.sha512(content).hexdigest()
+def check_upload_size(size: int) -> None:
+    if size > ONE_HUNDRED_MEGABYTES:
+        raise ValidationError(
+            code="file_too_large", detail="Combined source map and symbol set must be less than 100MB"
+        )
 
+
+def upload_content(content: bytearray) -> tuple[str, str]:
     if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(
             code="object_storage_required",
             detail="Object storage must be available to allow source map uploads.",
         )
 
-    if len(content) > ONE_HUNDRED_MEGABYTES:
-        raise ValidationError(
-            code="file_too_large", detail="Combined source map and symbol set must be less than 100MB"
-        )
+    check_upload_size(len(content))
+    content_hash = hashlib.sha512(content).hexdigest()
 
     upload_path = generate_symbol_set_file_key()
     object_storage.write(upload_path, bytes(content))
@@ -618,6 +626,25 @@ def bulk_check_upload(
     return bulk_check_symbol_sets(uploads, team, force=force, skip_on_conflict=skip_on_conflict)
 
 
+def _head_uploaded_file(symbol_set: ErrorTrackingSymbolSet) -> dict[str, Any] | None:
+    if not symbol_set.storage_ptr:
+        return None
+    return object_storage.head_object(file_key=symbol_set.storage_ptr)
+
+
+def _head_uploaded_files_in_batches(
+    symbol_sets: list[ErrorTrackingSymbolSet],
+) -> Iterator[tuple[ErrorTrackingSymbolSet, dict[str, Any] | None]]:
+    for batch in itertools.batched(symbol_sets, HEAD_OBJECT_PARALLELISM, strict=False):
+        s3_uploads = map_in_caller_context(
+            _head_uploaded_file,
+            batch,
+            max_workers=HEAD_OBJECT_PARALLELISM,
+            thread_name_prefix="symbol_set_head",
+        )
+        yield from zip(batch, s3_uploads, strict=True)
+
+
 def bulk_finish_upload(
     team: Team, content_hashes: dict[str, str], *, analytics_props: AnalyticsProps | None = None
 ) -> None:
@@ -640,11 +667,7 @@ def bulk_finish_upload(
                 detail=f"Unknown symbol set IDs: {', '.join(sorted(missing_symbol_set_ids))}",
             )
 
-        for symbol_set in symbol_sets:
-            s3_upload = None
-            if symbol_set.storage_ptr:
-                s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
-
+        for symbol_set, s3_upload in _head_uploaded_files_in_batches(symbol_sets):
             if s3_upload:
                 content_length = s3_upload.get("ContentLength")
                 if content_length:

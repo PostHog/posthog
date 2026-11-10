@@ -1010,10 +1010,7 @@ async fn update_produces_person_state_to_kafka() {
     .unwrap();
     consumer.assign(&tpl).unwrap();
 
-    let msg = consumer
-        .poll(Duration::from_secs(5))
-        .expect("no message received on the routing partition")
-        .expect("kafka error");
+    let msg = common::poll_record(&consumer, Duration::from_secs(5), "the routing partition");
 
     // Verify message key
     let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
@@ -1171,7 +1168,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
 // ============================================================
 // Test 7: E2E - update produces to local Kafka and is consumable
-// Requires local Kafka (localhost:9092) and etcd running.
+// Requires local Kafka (127.0.0.1:9092) and etcd running.
 // ============================================================
 
 #[tokio::test]
@@ -1257,10 +1254,7 @@ async fn e2e_update_produces_to_local_kafka() {
         .unwrap();
     consumer.assign(&tpl).unwrap();
 
-    let msg = consumer
-        .poll(Duration::from_secs(10))
-        .expect("no message received from local Kafka")
-        .expect("kafka error");
+    let msg = common::poll_record(&consumer, Duration::from_secs(10), "local Kafka");
 
     let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
     assert_eq!(key, "1:42");
@@ -2084,6 +2078,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         offset: 0,
         partition: 0,
         stream: personhog_leader::cache::Stream {
+            cluster: None,
             topic: std::sync::Arc::from(mock_cluster.topic.as_str()),
             partition: 0,
         },
@@ -2136,6 +2131,68 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         .fetch_person_at(&mark, &key)
         .await
         .expect("the pool must survive cancellations");
+    assert_eq!(recovered.id, 7);
+}
+
+#[tokio::test]
+async fn a_mark_on_another_cluster_recovers_from_its_broker() {
+    use personhog_coordination::types::ClusterEndpoint;
+    use rdkafka::producer::FutureRecord;
+
+    let Some(secondary) = common::secondary_kafka_bootstrap() else {
+        return;
+    };
+    let old_topic = common::owned_broker_topic_on(&secondary, 1).await;
+    let producer = common::create_kafka_producer_on(&secondary).await;
+    let person = Person {
+        id: 7,
+        uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+        team_id: 1,
+        properties: b"{}".to_vec(),
+        properties_last_updated_at: Vec::new(),
+        properties_last_operation: Vec::new(),
+        created_at: 1_700_000_000,
+        version: 1,
+        is_identified: false,
+        is_user_id: None,
+        last_seen_at: None,
+        is_deleted: false,
+    };
+    producer
+        .send(
+            FutureRecord::to(&old_topic.topic)
+                .key("1:7")
+                .partition(0)
+                .payload(&person.encode_to_vec()),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("produce");
+
+    let recovery = test_recovery(KAFKA_BOOTSTRAP);
+    let mark = DirtyMark {
+        version: person.version,
+        offset: 0,
+        partition: 0,
+        stream: personhog_leader::cache::Stream {
+            cluster: Some(std::sync::Arc::new(ClusterEndpoint {
+                name: "old-cluster".to_string(),
+                hosts: secondary,
+                tls: false,
+            })),
+            topic: std::sync::Arc::from(old_topic.topic.as_str()),
+            partition: 0,
+        },
+        is_deleted: false,
+    };
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 7,
+    };
+    let recovered = recovery
+        .fetch_person_at(&mark, &key)
+        .await
+        .expect("recovers from the mark's cluster");
     assert_eq!(recovered.id, 7);
 }
 

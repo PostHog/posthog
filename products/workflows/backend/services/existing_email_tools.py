@@ -8,6 +8,7 @@ import dns.exception
 from dns.rdtypes.ANY.CNAME import CNAME
 from dns.rdtypes.ANY.TXT import TXT
 
+from posthog.cloud_utils import is_cloud
 from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
@@ -47,8 +48,11 @@ def lookup_existing_email_tools(root_domain: str) -> list[str]:
     if cached is not None:
         return cached
 
-    if (oob_domain := matched_oob_domain(root_domain)) is not None:
+    if is_cloud() and (oob_domain := matched_oob_domain(root_domain)) is not None:
         logger.info("security.oob_domain_seen domain=%s guard=existing_email_tools", oob_domain)
+        # The lookup alone confirms the path to whoever runs the collaborator, so the name is
+        # refused rather than resolved. No tool is reported for it.
+        return []
     resolver = dns.resolver.Resolver()
     resolver.lifetime = LOOKUP_TIMEOUT_SECONDS
     lookups = {

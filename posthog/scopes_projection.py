@@ -2,7 +2,7 @@
 
 Writes the same file to two trees: `services/mcp/src/lib/oauth-scopes.generated.ts`
 for the MCP server and `frontend/src/lib/oauthScopes.generated.ts` for the web app.
-Each carries three constants:
+Each carries four constants:
 
 - OAUTH_SCOPES_SUPPORTED (from `get_oauth_scopes_supported()`): the MCP server
   publishes RFC 9728 protected-resource metadata at
@@ -22,6 +22,8 @@ Each carries three constants:
 - LEGACY_SCOPE_FALLBACKS: a new scope object mapped to the legacy one it split
   off. The MCP server applies it in `hasScope` (`src/lib/api.ts`), so a token
   carrying only the legacy scope still sees and calls tools that require the new one.
+- RISKY_SCOPE_WARNINGS: what each risky scope lets a token do. The web app's scope pickers show it
+  next to the scope, so every picker uses the same wording as the workload trust policy screens.
 
 Generating both from `posthog/scopes.py` keeps that module the single
 authority for scope classification; the TS side is a projection of it.
@@ -52,9 +54,13 @@ def render_oauth_scopes() -> str:
     all_scopes: list[str] = scopes_globals["get_oauth_scopes_supported"]()
     hidden_scopes: list[str] = sorted(scopes_globals["OAUTH_SCOPES_HIDDEN"])
     legacy_fallbacks: dict[str, str] = scopes_globals["LEGACY_SCOPE_FALLBACKS"]
+    risky_scope_warnings: dict[str, str] = scopes_globals["RISKY_SCOPE_WARNINGS"]
 
     body = ",\n".join(f"    {json.dumps(s)}" for s in all_scopes)
     hidden_body = ",\n".join(f"    {json.dumps(s)}" for s in hidden_scopes)
+    risky_body = "".join(
+        f"    {json.dumps(scope)}: {json.dumps(warning)},\n" for scope, warning in sorted(risky_scope_warnings.items())
+    )
     fallbacks_body = "".join(
         f"    [{json.dumps(new)}, {json.dumps(legacy)}],\n" for new, legacy in sorted(legacy_fallbacks.items())
     )
@@ -91,6 +97,12 @@ def render_oauth_scopes() -> str:
         "export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([\n"
         f"{fallbacks_body}"
         "])\n"
+        "\n"
+        "// What each risky scope lets a token do (mirrors RISKY_SCOPE_WARNINGS in posthog/scopes.py).\n"
+        "// Scope pickers show it next to the scope, so people add it with care.\n"
+        "export const RISKY_SCOPE_WARNINGS: Readonly<Record<string, string>> = {\n"
+        f"{risky_body}"
+        "}\n"
     )
     return output
 

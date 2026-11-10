@@ -10,10 +10,9 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.property_access_types import RestrictedProperty
 
-from posthog.models import PropertyDefinition
-
 from products.batch_exports.backend.custom_events_schema import parse_events_hogql_query, serialize_events_query_schema
 from products.batch_exports.backend.facade.contracts import UnsupportedHogQLQueryError
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:

@@ -1,15 +1,12 @@
-import { useMemo } from 'react'
+import { useContext } from 'react'
 
 import type { ProjectScope } from '@/api/reports'
 
-import { useAuthStore } from './authStore'
+import { ProjectScopeOverride, useSessionProjectScope } from './projectScope'
 
+/** The project a screen reads: the nearest `ProjectScopeOverride`, else the session's project. */
 export function useProjectScope(): ProjectScope | null {
-    const signedIn = useAuthStore((state) => state.signedIn)
-    const host = useAuthStore((state) => state.host)
-    const projectId = useAuthStore((state) => state.projectId)
-    return useMemo(
-        () => (signedIn && host && projectId !== null ? { host: host.replace(/\/$/, ''), projectId } : null),
-        [signedIn, host, projectId]
-    )
+    const override = useContext(ProjectScopeOverride)
+    const session = useSessionProjectScope()
+    return override ?? session
 }

@@ -158,6 +158,15 @@ def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int])
     return queries.subscription_ids_in_team(team_id=team_id, subscription_ids=subscription_ids)
 
 
+def insight_short_ids_subscribed_by(*, team_id: int, user_id: int, email: str, now: datetime, limit: int) -> list[str]:
+    """Short ids of insights in active subscriptions the user receives, newest subscription first.
+
+    Email subscriptions match the user's address among the recipients. Slack and Teams
+    subscriptions have no person recipient, so they match the user who created them.
+    """
+    return queries.insight_short_ids_subscribed_by(team_id=team_id, user_id=user_id, email=email, now=now, limit=limit)
+
+
 def user_has_slack_subscription(*, team_id: int, user_id: int) -> bool:
     """Whether the user created a subscription that delivers to Slack in this team. A disabled one counts."""
     return queries.user_has_slack_subscription(team_id=team_id, user_id=user_id)
@@ -303,6 +312,29 @@ def update_subscription(
         subscription_id=subscription_id,
         write=write,
         partial=partial,
+        analytics_props=analytics_props,
+    )
+
+
+def take_subscription_ownership(
+    *,
+    team: Team,
+    organization: Organization,
+    user: User,
+    viewer: UserAccessControl,
+    subscription_id: int,
+    analytics_props: AnalyticsProps,
+) -> contracts.SubscriptionRecord:
+    """Make `user` the owner of the subscription and enable it. Deliveries then run with their access.
+
+    Raises the same errors as `update_subscription`.
+    """
+    return subscription_writes.take_subscription_ownership(
+        team=team,
+        organization=organization,
+        user=user,
+        viewer=viewer,
+        subscription_id=subscription_id,
         analytics_props=analytics_props,
     )
 

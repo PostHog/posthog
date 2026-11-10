@@ -23,12 +23,16 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorS3Error, wrap_clickhouse_query_error
 from posthog.models import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.models import (
+    CONNECTION_SAVE_REASON,
     DAG,
     DataModelingJob,
     DataModelingJobEngine,
@@ -38,7 +42,12 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
     NodeType,
+    ViewColumnSource,
+    ViewEngine,
+    ViewEngineDialect,
+    ViewEngineTarget,
 )
+from products.data_modeling.backend.facade.tasks import refresh_downstream_view_columns
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.presentation.views.saved_query.editing import (
@@ -51,7 +60,7 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
     SavedQueryResumeSchedulesRequestSerializer,
     SavedQueryRunSerializer,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 
@@ -175,6 +184,225 @@ class TestSavedQuery(APIBaseTest):
             ],
         )
         self.assertIsNotNone(saved_query["latest_history_id"])
+
+    def test_create_raw_managed_trino_view(self) -> None:
+        trino_sql = 'SELECT * FROM "warehouse_catalog".production.hub_occupancy'
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "hub_occupancy",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": trino_sql,
+                        "executionTarget": "managed_trino",
+                        "sendRawQuery": True,
+                    },
+                    "types": [["hub_id", "Int64"], ["occupied_at", "DateTime64(6)"]],
+                },
+                format="json",
+            )
+        self.assertEqual(response.status_code, 201, response.content)
+        # The sidebar adds the created view from this response, before any list reload.
+        self.assertTrue(response.json()["is_raw_managed_trino"])
+        view = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
+        assert view.query is not None and view.columns is not None
+        self.assertEqual(view.query["query"], trino_sql)
+        self.assertEqual(view.query["executionTarget"], "managed_trino")
+        self.assertEqual(set(view.columns), {"hub_id", "occupied_at"})
+        self.assertFalse(Node.objects.filter(saved_query=view).exists())
+
+        # The sidebar lists raw Trino views only under hosted Trino, so the list must mark them.
+        for flag_enabled in (True, False):
+            with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+                listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
+            rows = {row["name"]: row for row in listed["results"]}
+            self.assertEqual(rows["hub_occupancy"]["is_raw_managed_trino"], flag_enabled)
+            self.assertEqual(
+                rows["hub_occupancy"]["engine"]["target"], "managed_trino" if flag_enabled else "clickhouse"
+            )
+
+        # HogQL on ClickHouse cannot expand Trino SQL, so the view stays out of the HogQL database.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "select * from hub_occupancy"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        # Expanding the view would fail on its inner Trino table instead, so the view name pins the filter.
+        self.assertIn("Unknown table `hub_occupancy`", response.json()["detail"])
+
+    @parameterized.expand([("live_source", False), ("deleted_source", True)])
+    def test_list_marks_a_connection_view_without_the_trino_flag(self, _name: str, source_deleted: bool) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            deleted=source_deleted,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="hub_occupancy",
+            query={"kind": "HogQLQuery", "query": "SELECT * FROM hub_occupancy", "connectionId": str(source.pk)},
+        )
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
+        engine = {row["name"]: row["engine"] for row in listed["results"]}["hub_occupancy"]
+        self.assertEqual(engine["target"], "connection")
+        self.assertFalse(engine["capabilities"]["materialize"]["available"])
+
+    @parameterized.expand(
+        [
+            ("hogql", "SELECT id FROM orders WHERE id > 1", False),
+            ("raw", "SELECT id FROM orders WHERE payload->>'kind' = 'paid'", True),
+        ]
+    )
+    def test_saving_a_view_on_a_direct_connection_is_refused(self, _name: str, sql: str, send_raw: bool) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="shop",
+            job_inputs={"host": "localhost", "port": 5432, "database": "shop", "user": "u", "schema": "shop"},
+        )
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        query = {
+            "kind": "HogQLQuery",
+            "query": sql,
+            "connectionId": str(source.pk),
+            **({"sendRawQuery": True} if send_raw else {}),
+        }
+        existing = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="event_counts", query={"kind": "HogQLQuery", "query": "SELECT 1 AS x"}
+        )
+
+        create = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "paid_orders", "query": query, "types": [["id", "Int64"]]},
+            format="json",
+        )
+        update = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{existing.id}",
+            {"query": query, "types": [["id", "Int64"]]},
+            format="json",
+        )
+
+        for response in (create, update):
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertEqual(response.json()["detail"], CONNECTION_SAVE_REASON)
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="paid_orders").exists())
+        existing.refresh_from_db()
+        self.assertEqual(existing.query, {"kind": "HogQLQuery", "query": "SELECT 1 AS x"})
+        self.assertFalse(Node.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [
+            ("rename", {"name": "occupancy_report"}),
+            ("query_edit", {"query": {"kind": "HogQLQuery", "query": "SELECT 2 AS x FROM hub_occupancy"}}),
+        ]
+    )
+    def test_saving_a_view_that_reads_a_connection_view_names_it(self, _name: str, body: dict) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="hub_occupancy",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS x", "connectionId": str(uuid.uuid4())},
+            columns={"x": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        reader = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="hub_report",
+            query={"kind": "HogQLQuery", "query": "SELECT x FROM hub_occupancy"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{reader.id}", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("This view reads 'hub_occupancy'.", response.json()["detail"])
+        self.assertIn("direct connection", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("not_select", "SHOW SCHEMAS", True, [["x", "Int64"]], "read-only SELECT"),
+            ("flag_off", "SELECT 1 AS x", False, [["x", "Int64"]], "not enabled"),
+            ("no_types", "SELECT 1 AS x", True, [], "Run the query"),
+            ("null_types", "SELECT 1 AS x", True, None, "must be a list"),
+            ("short_pair", "SELECT 1 AS x", True, [["x"]], "must be a list"),
+        ]
+    )
+    def test_create_raw_managed_trino_view_refused(
+        self, _case: str, sql: str, flag_enabled: bool, types: list[list[str]] | None, expected_detail: str
+    ) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "trino_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": sql,
+                        "executionTarget": "managed_trino",
+                        "sendRawQuery": True,
+                    },
+                    "types": types,
+                },
+                format="json",
+            )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(expected_detail, response.json()["detail"])
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="trino_view").exists())
+
+    @parameterized.expand(
+        [
+            (f"{engine}_{action}", query, method, path, body, expected_detail)
+            for engine, query, expected_detail in [
+                (
+                    "raw_trino",
+                    {
+                        "query": 'SELECT * FROM "warehouse_catalog".production.hub_occupancy',
+                        "executionTarget": "managed_trino",
+                        "sendRawQuery": True,
+                    },
+                    "raw Trino SQL cannot be materialized",
+                ),
+                (
+                    "connection",
+                    {"query": "SELECT * FROM hub_occupancy", "connectionId": str(uuid.uuid4())},
+                    "direct connection cannot be materialized",
+                ),
+            ]
+            for action, method, path, body in [
+                ("run", "post", "run/", {}),
+                ("schedule", "patch", "", {"sync_frequency": "24hour"}),
+            ]
+        ]
+    )
+    def test_view_off_posthog_engines_never_reaches_the_dag(
+        self, _case: str, query: dict, method: str, path: str, body: dict, expected_detail: str
+    ) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="off_engine_view", query={"kind": "HogQLQuery", **query}
+        )
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}/{path}", body, format="json"
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(expected_detail, response.json()["detail"])
+        self.assertFalse(Node.objects.filter(saved_query=view).exists())
 
     @parameterized.expand(
         [("ui", {}), ("mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"}), ("api", {"HTTP_USER_AGENT": "test-api-client"})]
@@ -1347,12 +1575,16 @@ class TestSavedQuery(APIBaseTest):
             ("materialized_without_a_target", NodeType.MAT_VIEW, None, ["upstream_view"]),
             # an ephemeral view never runs, so nothing about it speeds up
             ("ephemeral", NodeType.VIEW, timedelta(days=1), []),
+            # a pinned view keeps its own cadence whatever its consumers ask for
+            ("pinned", NodeType.MAT_VIEW, timedelta(days=1), [], True),
         ]
     )
-    def test_an_option_names_the_upstream_views_it_speeds_up(self, _name, upstream_type, upstream_target, expected):
+    def test_an_option_names_the_upstream_views_it_speeds_up(
+        self, _name, upstream_type, upstream_target, expected, upstream_pinned=False
+    ):
         # A finer cadence downstream drags slower upstream views along with it. The picker has to
         # say so before the write, or the upstream cadences change behind the user's back.
-        from products.data_modeling.backend.facade.api import set_declared_target
+        from products.data_modeling.backend.facade.api import apply_saved_query_frequency_target, set_declared_target
 
         upstream = self._create_view_with_a_consumer(consumer_target=timedelta(days=1))
         upstream_node = Node.objects.get(saved_query_id=upstream["id"])
@@ -1360,6 +1592,10 @@ class TestSavedQuery(APIBaseTest):
         upstream_node.save(update_fields=["type"])
         if upstream_target is not None:
             set_declared_target(upstream_node, upstream_target)
+        if upstream_pinned:
+            apply_saved_query_frequency_target(
+                DataWarehouseSavedQuery.objects.get(id=upstream["id"]), None, pinned=True, keep_target=True
+            )
         consumer_id = DataWarehouseSavedQuery.objects.get(team=self.team, name="consumer_view").id
 
         options = {option["cadence"]: option for option in self._read_frequency_bounds(str(consumer_id))["options"]}
@@ -1421,6 +1657,30 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertIsNone(response.json()["sync_frequency"])
         self.assertIsNone(get_declared_target(Node.objects.get(saved_query_id=saved_query["id"])))
+
+    @parameterized.expand([("never", "never"), ("null", None)])
+    def test_pausing_a_connection_view_clears_the_target_it_already_had(self, _name: str, value: str | None) -> None:
+        from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(hours=12))
+        view = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        assert view.query is not None
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(
+            query={**view.query, "connectionId": str(uuid.uuid4())}
+        )
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": value},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        node.refresh_from_db()
+        self.assertIsNone(get_declared_target(node))
 
     @parameterized.expand(
         [("unknown", "every_fortnight"), ("list", []), ("dict", {}), ("number", 5), ("boolean", True)]
@@ -1914,6 +2174,79 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("renamed_column", "select 1 as new_id", ["new_id"], True),
+            ("unchanged_columns", "select 2 as old_id", ["old_id"], False),
+        ]
+    )
+    def test_update_refreshes_the_columns_of_downstream_views(
+        self, _name: str, upstream_sql: str, expected_downstream_columns: list[str], refreshes: bool
+    ) -> None:
+        upstream = self._create_view("upstream_view", "select 1 as old_id")
+        self._create_view("downstream_view", "select * from upstream_view")
+
+        with (
+            patch.object(
+                refresh_downstream_view_columns, "delay", wraps=refresh_downstream_view_columns.delay
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": upstream_sql},
+                    "edited_history_id": upstream["latest_history_id"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        downstream = DataWarehouseSavedQuery.objects.get(team=self.team, name="downstream_view")
+        assert downstream.column_order == expected_downstream_columns
+        assert delay.called == refreshes
+
+    @parameterized.expand([("editor_exists", False), ("editor_deleted_before_refresh", True)])
+    def test_update_skips_downstream_views_the_editor_cannot_read(self, _name: str, delete_editor: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        upstream = self._create_view("upstream_view", "select 1 as old_id")
+        downstream = self._create_view("downstream_view", "select * from upstream_view")
+        editor = self._create_user("editor@example.com")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=downstream["id"],
+            organization_member=OrganizationMembership.objects.get(user=editor, organization=self.organization),
+            access_level="none",
+        )
+        self.client.force_login(editor)
+
+        with self.captureOnCommitCallbacks() as on_commit_callbacks:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select 1 as new_id"},
+                    "edited_history_id": upstream["latest_history_id"],
+                },
+            )
+        if delete_editor:
+            editor.delete()
+        for callback in on_commit_callbacks:
+            callback()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        assert DataWarehouseSavedQuery.objects.get(pk=downstream["id"]).column_order == ["old_id"]
+
+    def _create_view(self, name: str, sql: str) -> dict[str, Any]:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": name, "query": {"kind": "HogQLQuery", "query": sql}},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()
 
     @parameterized.expand(
         [
@@ -2486,9 +2819,18 @@ class TestSavedQuery(APIBaseTest):
                 team=self.team,
                 saved_query=saved_query,
                 status=status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
                 last_run_at=now - timedelta(hours=i),
             )
             runs.append(run)
+
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.RUNNING,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            last_run_at=now + timedelta(hours=1),
+        )
 
         # Test run_history endpoint
         response = self.client.get(
@@ -2791,6 +3133,70 @@ class TestSavedQuery(APIBaseTest):
         assert view.query != new_query
 
 
+class TestViewEngineFromQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "clickhouse_hogql",
+                {},
+                ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL),
+                True,
+            ),
+            (
+                "clickhouse_ignores_raw",
+                {"sendRawQuery": True},
+                ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL),
+                True,
+            ),
+            (
+                "trino_hogql",
+                {"executionTarget": "managed_trino"},
+                ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.HOGQL),
+                True,
+            ),
+            (
+                "trino_raw",
+                {"executionTarget": "managed_trino", "sendRawQuery": True},
+                ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.RAW),
+                False,
+            ),
+            (
+                "trino_string_true",
+                {"executionTarget": "managed_trino", "sendRawQuery": "true"},
+                ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.HOGQL),
+                True,
+            ),
+            (
+                "trino_wins_over_connection",
+                {"executionTarget": "managed_trino", "sendRawQuery": True, "connectionId": "conn-1"},
+                ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.RAW),
+                False,
+            ),
+            (
+                "connection_hogql",
+                {"connectionId": "conn-1"},
+                ViewEngine(target=ViewEngineTarget.CONNECTION, dialect=ViewEngineDialect.HOGQL, connection_id="conn-1"),
+                False,
+            ),
+            (
+                "connection_raw",
+                {"connectionId": "conn-1", "sendRawQuery": True},
+                ViewEngine(target=ViewEngineTarget.CONNECTION, dialect=ViewEngineDialect.RAW, connection_id="conn-1"),
+                False,
+            ),
+        ]
+    )
+    def test_from_query(self, _name: str, keys: dict, expected: ViewEngine, runs_on_posthog: bool) -> None:
+        engine = ViewEngine.from_query({"kind": "HogQLQuery", "query": "SELECT 1", **keys})
+        self.assertEqual(engine, expected)
+        for capability in (engine.can_materialize, engine.has_lineage, engine.referenceable_from_clickhouse):
+            self.assertEqual(capability.available, runs_on_posthog)
+        self.assertEqual(
+            engine.column_source,
+            ViewColumnSource.CLICKHOUSE_PROBE if runs_on_posthog else ViewColumnSource.CLIENT_TYPES,
+        )
+
+
 class TestSavedQueryNameValidation(SimpleTestCase):
     def test_unchanged_legacy_root_name_is_allowed_by_serializer(self) -> None:
         instance = DataWarehouseSavedQuery(name="models", origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE)
@@ -2977,6 +3383,160 @@ class TestSavedQueryRun(APIBaseTest):
         mock_client.start_workflow.assert_called_once()
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
+    @parameterized.expand(
+        [
+            ("completed_run_5_minutes_ago", [(DataModelingJob.Status.COMPLETED, 5)], None, 429),
+            ("running_run_5_minutes_ago", [(DataModelingJob.Status.RUNNING, 5)], None, 429),
+            ("completed_run_20_minutes_ago", [(DataModelingJob.Status.COMPLETED, 20)], None, 200),
+            ("failed_run_5_minutes_ago", [(DataModelingJob.Status.FAILED, 5)], None, 200),
+            ("cancelled_run_5_minutes_ago", [(DataModelingJob.Status.CANCELLED, 5)], None, 200),
+            ("skipped_run_5_minutes_ago", [(DataModelingJob.Status.SKIPPED, 5)], None, 200),
+            (
+                "skipped_run_after_a_completed_run",
+                [(DataModelingJob.Status.SKIPPED, 5), (DataModelingJob.Status.COMPLETED, 10)],
+                None,
+                429,
+            ),
+            (
+                "managed_warehouse_run_5_minutes_ago",
+                [(DataModelingJob.Status.COMPLETED, 5, DataModelingJobEngine.MANAGED_WAREHOUSE)],
+                None,
+                200,
+            ),
+            (
+                "failed_run_after_a_completed_run",
+                [(DataModelingJob.Status.COMPLETED, 10), (DataModelingJob.Status.FAILED, 5)],
+                None,
+                200,
+            ),
+            ("query_edited_after_the_run", [(DataModelingJob.Status.COMPLETED, 5)], 2, 200),
+            ("query_edited_while_the_run_ran", [(DataModelingJob.Status.COMPLETED, 10)], 8, 200),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_is_refused_soon_after_the_last_run(
+        self, _name, runs, query_edited_minutes_ago, expected_status, mock_sync_connect
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        now = timezone.now()
+        saved_query, _dag, _node = self._make_saved_query_with_node("floored_view")
+        if query_edited_minutes_ago is not None:
+            saved_query.query_updated_at = now - timedelta(minutes=query_edited_minutes_ago)
+            saved_query.save(update_fields=["query_updated_at"])
+        for job_status, started_minutes_ago, *engine in runs:
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=engine[0] if engine else DataModelingJobEngine.CLICKHOUSE,
+                last_run_at=now,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=started_minutes_ago))
+
+        with time_machine.travel(now, tick=False):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 429:
+            self.assertEqual(response.headers["Retry-After"], str((15 - runs[-1][1]) * 60))
+            mock_client.start_workflow.assert_not_called()
+        else:
+            mock_client.start_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (
+                "every_built_view_ran_recently",
+                10,
+                DataModelingJob.Status.COMPLETED,
+                NodeType.MAT_VIEW,
+                False,
+                429,
+                "300",
+            ),
+            ("other_view_failed_recently", 3, DataModelingJob.Status.FAILED, NodeType.MAT_VIEW, False, 429, "600"),
+            (
+                "other_view_cancelled_recently",
+                3,
+                DataModelingJob.Status.CANCELLED,
+                NodeType.MAT_VIEW,
+                False,
+                429,
+                "600",
+            ),
+            ("other_view_skipped_recently", 3, DataModelingJob.Status.SKIPPED, NodeType.MAT_VIEW, False, 429, "600"),
+            (
+                "one_built_view_ran_before_the_limit",
+                20,
+                DataModelingJob.Status.COMPLETED,
+                NodeType.MAT_VIEW,
+                False,
+                200,
+                None,
+            ),
+            ("one_built_view_never_ran", None, None, NodeType.MAT_VIEW, False, 200, None),
+            ("plain_view_never_ran", None, None, NodeType.VIEW, False, 429, "600"),
+            ("deleted_view_never_ran", None, None, NodeType.MAT_VIEW, True, 429, "600"),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_with_direction_is_refused_only_when_every_built_view_ran_recently(
+        self,
+        _name,
+        related_started_minutes_ago,
+        related_status,
+        related_type,
+        related_deleted,
+        expected_status,
+        expected_retry_after,
+        mock_sync_connect,
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        now = timezone.now()
+        saved_query, dag, node = self._make_saved_query_with_node("floored_view")
+        node.type = NodeType.MAT_VIEW
+        mark_node_suspended(node, engine="clickhouse", reason="boom", job_id="job-1")
+        node.save()
+        related_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="floored_related",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            deleted=related_deleted,
+        )
+        related_node = Node.objects.create(team=self.team, dag=dag, saved_query=related_saved_query, type=related_type)
+        Edge.objects.create(team=self.team, dag=dag, source=related_node, target=node)
+        runs = [(saved_query, 5, DataModelingJob.Status.COMPLETED)]
+        if related_started_minutes_ago is not None:
+            runs.append((related_saved_query, related_started_minutes_ago, related_status))
+        for run_saved_query, started_minutes_ago, run_status in runs:
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=run_saved_query,
+                status=run_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=started_minutes_ago))
+
+        with time_machine.travel(now, tick=False):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+                {"direction": "upstream"},
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        node.refresh_from_db()
+        if expected_status == 429:
+            self.assertEqual(response.headers["Retry-After"], expected_retry_after)
+            mock_client.start_workflow.assert_not_called()
+            self.assertIn("clickhouse", suspension_state(node))
+        else:
+            mock_client.start_workflow.assert_called_once()
+            self.assertNotIn("clickhouse", suspension_state(node))
+
     @parameterized.expand([("upstream",), ("downstream",)])
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies(self, direction, mock_sync_connect):
@@ -3024,6 +3584,12 @@ class TestSavedQueryRun(APIBaseTest):
         Edge.objects.create(team=self.team, dag=dag, source=related_node, target=node)
         mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
         node.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
         mock_eligible.return_value = True
         mock_client = self._trino_client()
         mock_sync_connect.return_value = mock_client

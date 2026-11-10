@@ -66,6 +66,7 @@ def _object_grant_registry() -> dict[type[Model], str]:
 
     def all_subclasses(cls: type) -> set[type]:
         subs: set[type] = set()
+        sub: type
         for sub in cls.__subclasses__():
             subs.add(sub)
             subs |= all_subclasses(sub)
@@ -109,6 +110,7 @@ def _object_grant_scopes() -> frozenset[str]:
 
     def all_subclasses(cls: type) -> set[type]:
         subs: set[type] = set()
+        sub: type
         for sub in cls.__subclasses__():
             subs.add(sub)
             subs |= all_subclasses(sub)
@@ -640,9 +642,14 @@ class TestSystemTableAccessScope(SimpleTestCase):
         access_scope = _SCOPED_SYSTEM_TABLES[table_name].access_scope
 
         # A pure umbrella is a parent in the inheritance map that is never itself a
-        # `scope_object` — so object grants can only ever live on its children, not on it.
+        # `scope_object`, while a child is — so object grants live on its children, not on it.
+        # A parent whose children store no object grants either (`task` for `inbox`) has none to miss.
         grant_scopes = _object_grant_scopes()
-        pure_umbrellas = {parent for parent in RESOURCE_INHERITANCE_MAP.values() if parent not in grant_scopes}
+        pure_umbrellas = {
+            parent
+            for child, parent in RESOURCE_INHERITANCE_MAP.items()
+            if parent not in grant_scopes and child in grant_scopes
+        }
 
         if access_scope in pure_umbrellas:
             children = sorted(child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == access_scope)

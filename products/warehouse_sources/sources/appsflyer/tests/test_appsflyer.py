@@ -3,6 +3,8 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
@@ -13,6 +15,7 @@ from products.warehouse_sources.sources.appsflyer.appsflyer import (
     RAW_MAX_LOOKBACK_DAYS,
     RAW_MAX_REQUEST_DAYS,
     AppsFlyerCredentialsError,
+    AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
     _normalize_header,
     _parse_csv_rows,
@@ -133,6 +136,13 @@ class TestValidateCredentials:
             ("token secret-token is not allowed", "AppsFlyer said: token [redacted] is not allowed"),
             ("<html><body>Forbidden</body></html>", None),
             ("Forbidden: <!DOCTYPE html><html><body>Denied</body></html>", None),
+            ('{"error": "Authentication error"}', "AppsFlyer said: Authentication error"),
+            ('{"message": "token secret-token\\nis not allowed"}', "AppsFlyer said: token [redacted] is not allowed"),
+            ('{"detail": "App not found"}', "AppsFlyer said: App not found"),
+            ('{"error": {"code": 403}}', None),
+            ('{"status": "denied"}', None),
+            ('["denied"]', None),
+            ("{not json", None),
         ],
     )
     def test_validate_credentials_surfaces_appsflyer_reason(self, body: str, expected_reason: str | None) -> None:
@@ -145,6 +155,18 @@ class TestValidateCredentials:
         else:
             assert message.endswith(expected_reason)
         assert "secret-token" not in message
+        assert "{" not in message
+
+    @pytest.mark.parametrize("status_code", [403, 429])
+    @pytest.mark.parametrize("body", ["Limit reached for daily-report", "  LIMIT REACHED for geo-report\n"])
+    def test_validate_reports_used_up_quota_instead_of_access_denied(self, status_code: int, body: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, body=body.encode()))):
+            with pytest.raises(AppsFlyerCredentialsError) as exc:
+                validate_credentials("token", "id123")
+        message = str(exc.value)
+        assert "used up its daily report API quota" in message
+        assert "denied access" not in message
+        assert "AppsFlyer said" not in message
 
     @pytest.mark.parametrize("api_token", [" token ", "Bearer token", "bearer  token"])
     def test_validate_credentials_sends_a_clean_token_and_ios_app_id(self, api_token: str) -> None:
@@ -252,6 +274,20 @@ class TestGetRows:
         assert headers["Accept"] == "text/csv"
 
 
+class TestUsedUpQuota:
+    @pytest.mark.parametrize("status_code", [403, 429])
+    def test_quota_response_is_retryable(self, status_code: int) -> None:
+        result = _driver().run("daily_report", always(ScriptedResponse(status=status_code, body=b"Limit reached")))
+
+        assert isinstance(result.raised, AppsFlyerRetryableError)
+
+    def test_forbidden_without_quota_body_stays_a_permanent_error(self) -> None:
+        result = _driver().run("daily_report", always(ScriptedResponse(status=403, body=b"Forbidden")))
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "403 Client Error" in str(result.raised)
+
+
 class TestRawAndMasterWindows:
     def test_raw_pull_walks_contiguous_windows_inside_the_lookback_limit(self) -> None:
         # AppsFlyer refuses a raw window starting more than 90 days back, and the windows have to
@@ -282,6 +318,45 @@ class TestRawAndMasterWindows:
         assert windows[-1][1] == today
         for window_start, window_end in windows:
             assert 0 <= (window_end - window_start).days < MASTER_MAX_REQUEST_DAYS
+
+    @pytest.mark.parametrize(
+        "endpoint, incremental, saved_days_ago, expected_first_from_days_ago, expected_requests",
+        [
+            # A raw pull resumes at the saved window, and each window stages the start of the next.
+            ("installs", True, 20, 20, 3),
+            # The saved day is clamped to the lookback limit, which moves forward between attempts.
+            ("installs", True, RAW_MAX_LOOKBACK_DAYS + 5, RAW_MAX_LOOKBACK_DAYS, 13),
+            ("master_report", True, 40, 40, 2),
+            # A single-window report whose window is already written reads nothing.
+            ("daily_report", True, -1, None, 0),
+            # A full refresh appends a replayed window part twice, so it reads from the start.
+            ("installs", False, 20, RAW_MAX_LOOKBACK_DAYS, 13),
+        ],
+    )
+    def test_resumes_at_the_saved_window(
+        self,
+        endpoint: str,
+        incremental: bool,
+        saved_days_ago: int,
+        expected_first_from_days_ago: int | None,
+        expected_requests: int,
+    ) -> None:
+        today = datetime.now(UTC).date()
+        saved = AppsFlyerResumeConfig(next_window_start=(today - timedelta(days=saved_days_ago)).isoformat())
+
+        result = _driver().run(
+            endpoint, always(_csv_response()), resume_state=saved, should_use_incremental_field=incremental
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.supports_resume is incremental
+        assert len(result.requests) == expected_requests
+        if expected_first_from_days_ago is not None:
+            assert result.params("from")[0] == (today - timedelta(days=expected_first_from_days_ago)).isoformat()
+            assert result.final_state == AppsFlyerResumeConfig(
+                next_window_start=(today + timedelta(days=1)).isoformat()
+            )
 
     @pytest.mark.parametrize("endpoint", ["installs", "in_app_events", "ad_revenue"])
     def test_raw_incremental_repulls_a_whole_window_before_the_watermark(self, endpoint: str) -> None:
@@ -371,5 +446,7 @@ class TestRawAndMasterWindows:
 
 class TestAppsFlyerSourceResponse:
     def test_geo_report_key_includes_country(self):
-        response = appsflyer_source("token", "id123", "geo_report", mock.MagicMock())
+        response = appsflyer_source(
+            "token", "id123", "geo_report", mock.MagicMock(), resumable_source_manager=mock.MagicMock()
+        )
         assert "country" in (response.primary_keys or [])

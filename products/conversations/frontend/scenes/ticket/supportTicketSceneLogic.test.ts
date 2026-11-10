@@ -9,6 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -155,13 +156,20 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         submitAiFeedbackMock.mockClear()
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setTicket(makeTicket())
         logic.actions.setMessages([makeAiComment('msg-ai-1')])
     })
 
     afterEach(() => {
         localStorage.removeItem(FEEDBACK_STORAGE_KEY)
+    })
+
+    it('gives the loaded ticket as a People recent', () => {
+        expect(logic.values.todayPeopleRecent).toEqual({
+            type: 'ticket',
+            name: 'Ticket #42',
+            href: urls.supportTicketDetail(42),
+        })
     })
 
     it('selects the latest AI message', async () => {
@@ -331,7 +339,6 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
     })
 
     it('maps AI citation and persist_as fields onto chat messages', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setMessages([
             {
                 ...makeAiComment('msg-ai-1'),
@@ -357,7 +364,6 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
     })
 
     it('selects the latest applicable AI draft', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setMessages([
             { ...makeAiComment('new-draft'), created_at: '2026-01-01T00:02:00Z' },
             { ...makeAiComment('not-a-draft', false), created_at: '2026-01-01T00:01:00Z' },
@@ -368,7 +374,6 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
     })
 
     it('shows automated private notes without treating them as AI drafts', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: false })
         logic.actions.setMessages([
             {
                 ...makeAiComment('pr-update'),
@@ -406,7 +411,6 @@ describe('supportTicketSceneLogic applyAiDraft', () => {
         submitAiHumanOutcomeMock.mockClear()
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setTicket(makeTicket())
     })
 
@@ -471,15 +475,10 @@ describe('supportTicketSceneLogic AI note visibility', () => {
         logic.actions.setTicket(makeTicket())
     })
 
-    test.each<[string, boolean, boolean, string[]]>([
-        ['hides AI private notes without the flag', false, true, ['msg-customer']],
-        ['shows AI private notes with the flag', true, true, ['msg-customer', 'msg-ai']],
-        ['keeps sent AI replies visible without the flag', false, false, ['msg-customer', 'msg-ai']],
-    ])('%s', (_name, flagEnabled, isPrivate, expectedIds) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: flagEnabled })
+    it.each([true, false])('shows AI messages when is_private is %s', (isPrivate) => {
         logic.actions.setMessages([makeCustomerComment('msg-customer'), makeAiComment('msg-ai', isPrivate)])
 
-        expect(logic.values.chatMessages.map((m) => m.id)).toEqual(expectedIds)
+        expect(logic.values.chatMessages.map((m) => m.id)).toEqual(['msg-customer', 'msg-ai'])
     })
 })
 

@@ -17,9 +17,9 @@ from products.feature_flags.backend.models.organization_feature_flags_config imp
 
 FLAG_EVALUATIONS_MODES_HELP = (
     "0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects "
-    "tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is "
-    "available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for "
-    "teams in the ingestion allowlist."
+    "tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way "
+    "as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. "
+    "On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2."
 )
 
 
