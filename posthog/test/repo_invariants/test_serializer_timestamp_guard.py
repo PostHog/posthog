@@ -27,14 +27,13 @@ To close a hole on a field the serializer generates from the model, put it in
 declares needs `read_only=True` on the declaration itself, because DRF ignores
 `read_only_fields` for a declared field.
 
-Two shapes are out of scope, so "every writable timestamp is reviewed" means every
-one this guard can see, not every one the API has:
+A plain `Serializer` with no `Meta.model` is checked the same way. It has no column
+to read, so only the view's own code says whether the value becomes server truth,
+and its reason in `REVIEWED_WRITABLE` has to say which.
 
-- A serializer with no `Meta.model` is skipped, because there is no column to read
-  ownership from. Only the view's own code says whether the value becomes server
-  truth, and this file does not read it.
-- Only top-level fields are compared. A timestamp inside a nested writable
-  serializer is not reached.
+One shape is out of scope, so "every writable timestamp is reviewed" means every
+one this guard can see, not every one the API has: only top-level fields are
+compared. A timestamp inside a nested writable serializer is not reached.
 
 The failure message lists every violation:
 
@@ -53,7 +52,7 @@ from typing import Any, TypeGuard
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
 
-from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_view, inline_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.generics import GenericAPIView
 
@@ -131,6 +130,116 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.end_date": "Client stops the survey by setting this",
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.response_sampling_start_date": "Client sets when response sampling starts",
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.start_date": "Client launches the survey by setting this",
+    # Plain serializers with no Meta.model. "Response shape only" marks a serializer
+    # that a write route names but never validates a request body through.
+    "posthog.api.personal_api_key.PersonalAPIKeyRollSerializer.expires_at": "Client picks the rolled key's new expiry, or null for never; roll() copies it to the key, a past date is rejected",
+    "posthog.api.user_integration.UserGitHubIntegrationItemSerializer.created_at": "TODO: server-owned, response shape only; no write route validates a body through it, only list builds items from rows; make read-only",
+    "posthog.api.user_integration.UserGitHubIntegrationItemSerializer.needs_reauthorization_at": "TODO: server-owned, response shape only; set when GitHub rejects the credentials, no write route reads it; make read-only",
+    "posthog.api.user_push_token.UserPushTokenItemSerializer.created_at": "TODO: server-owned, response shape only; register reads the body through UserPushTokenRegisterRequestSerializer; make read-only",
+    "posthog.api.user_push_token.UserPushTokenItemSerializer.last_seen_at": "TODO: server-owned, response shape only; UserPushToken.register refreshes it, the body is read through the register serializer; make read-only",
+    "products.ai_observability.backend.api.datasets.DatasetItemCreateSerializer.source_timestamp": "Client sends the timestamp of the source trace event; passed to create_dataset_item to find the event-backed trace",
+    "products.ai_observability.backend.api.evaluation_backfills.EvaluationBackfillRequestSerializer.window_end": "Client picks the backfill window end; clamped to now and the retention period, then passed to the backfill workflow",
+    "products.ai_observability.backend.api.evaluation_backfills.EvaluationBackfillRequestSerializer.window_start": "Client picks the backfill window start; clamped to the retention period, then passed to the backfill workflow",
+    "products.ai_observability.backend.api.evaluation_runs.EvaluationRunRequestSerializer.timestamp": "Client sends the target event timestamp; used only as a ClickHouse lookup key (toDate match) for that event",
+    "products.ai_observability.backend.api.offline_experiment_serializers.ExperimentSubmissionSerializer.started_at": "Client reports when the offline experiment run started; stored with the experiment, help text says caller-supplied",
+    "products.ai_observability.backend.presentation.views.TraceExportCreateSerializer.timestamp_hint": "Client hint of when the trace happened; range-checked, passed to create_trace_export to load old traces",
+    "products.alerts_platform.backend.presentation.views.platform_alert.PlatformAlertGroupSnoozeSerializer.snooze_until": "Client picks when the group snooze ends, or null to clear; passed to snooze_group, help text limits it to 30 days ahead",
+    "products.annotations.backend.presentation.serializers.AnnotationSerializer.date_marker": "Client picks when the annotation happened, to place it on charts; to_write() passes it to the facade",
+    "products.batch_exports.backend.presentation.views.batch_export.backfills.BatchExportBackfillSerializer.adjusted_start_at": "TODO: server-owned, response shape only; create reads start_at and end_at from request.data and never validates through this serializer; make read-only",
+    "products.batch_exports.backend.presentation.views.batch_export.backfills.BatchExportBackfillSerializer.end_at": "Client picks the backfill window end; create reads it from request.data and passes it to the facade, this serializer is not used for input",
+    "products.batch_exports.backend.presentation.views.batch_export.backfills.BatchExportBackfillSerializer.finished_at": "TODO: server-owned, response shape only; create reads only start_at and end_at from request.data; make read-only",
+    "products.batch_exports.backend.presentation.views.batch_export.backfills.BatchExportBackfillSerializer.start_at": "Client picks the backfill window start; create reads it from request.data and passes it to the facade, this serializer is not used for input",
+    "products.batch_exports.backend.presentation.views.batch_export.exports.BatchExportSerializer.end_at": "Client sets when the export schedule stops triggering runs; create and update pass it to the facade and the model",
+    "products.batch_exports.backend.presentation.views.batch_export.exports.BatchExportSerializer.last_paused_at": "TODO: server-owned, service.py sets it on pause; a client value is stored by create/update and unpause uses it as the backfill start; make read-only",
+    "products.batch_exports.backend.presentation.views.batch_export.exports.BatchExportSerializer.start_at": "Client sets the time before which the export does not run; create and update pass it to the facade and the model",
+    "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunSerializer.data_interval_end": "TODO: server-owned, response shape only; the run viewset has no create or update, retry and cancel read no body; make read-only",
+    "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunSerializer.data_interval_start": "TODO: server-owned, response shape only; the run viewset has no create or update, retry and cancel read no body; make read-only",
+    "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunSerializer.finished_at": "TODO: server-owned, response shape only; the run viewset has no create or update, retry and cancel read no body; make read-only",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandSerializer.data_interval_end": "Client picks the export window end; validated for order, range and not in the future, then passed to the on-demand export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandSerializer.data_interval_start": "Client picks the export window start; validated for order, range and not in the future, then passed to the on-demand export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadCountRowsRequestSerializer.data_interval_end": "Client picks the window end for the row count; validated, then passed to the count query",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadCountRowsRequestSerializer.data_interval_start": "Client picks the window start for the row count; validated, then passed to the count query",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadEventsRequestSerializer.data_interval_end": "Client picks the events export window end; request input for the on-demand export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadEventsRequestSerializer.data_interval_start": "Client picks the events export window start; request input for the on-demand export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadHogQLRequestSerializer.data_interval_end": "Client picks the window end that fills the HogQL {data_interval_end} placeholder; request input for the export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadHogQLRequestSerializer.data_interval_start": "Client picks the window start that fills the HogQL {data_interval_start} placeholder; request input for the export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadPersonsRequestSerializer.data_interval_end": "Client picks the persons export window end; request input for the on-demand export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadPersonsRequestSerializer.data_interval_start": "Client picks the persons export window start; request input for the on-demand export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadSessionsRequestSerializer.data_interval_end": "Client picks the sessions export window end; request input for the on-demand export",
+    "products.batch_exports.backend.presentation.views.file_download.FileDownloadSessionsRequestSerializer.data_interval_start": "Client picks the sessions export window start; request input for the on-demand export",
+    "products.business_knowledge.backend.api.serializers.PlaygroundChatSerializer.created_at": "TODO: server-owned, response shape only; create takes no body and ask reads SandboxQuestionSerializer; make read-only",
+    "products.business_knowledge.backend.api.serializers.PlaygroundChatSerializer.updated_at": "TODO: server-owned, response shape only; create takes no body and ask reads SandboxQuestionSerializer; make read-only",
+    "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskCreateSerializer.due_at": "Client sets the task deadline; create passes validated data into CreateCustomerTaskInput",
+    "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskUpdateSerializer.due_at": "Client sets or clears the task deadline; update tracks it with due_at_provided and passes it to the facade",
+    "products.customer_analytics.backend.presentation.views.serializers.AccountSerializer.churned_at": "Client records when the account churned, or null; create and update pass it to the facade, update only when sent",
+    "products.customer_analytics.backend.presentation.views.serializers.AccountSerializer.ignored_at": "Client or Track Rules mark when the account was ignored, null means tracked; create and update pass it to the facade",
+    "products.customer_analytics.backend.presentation.views.workflow_customer_tasks.WorkflowCustomerTaskCreateSerializer.due_at": "The workflow action sets the task deadline; the service-token endpoint passes it into CreateCustomerTaskInput",
+    "products.data_catalog.backend.presentation.serializers.MetricApproveRequestSerializer.expected_updated_at": "Optimistic-concurrency echo: the approver sends the updated_at it saw, and the view passes it so a changed metric returns 409",
+    "products.error_tracking.backend.presentation.views.issues.ErrorTrackingIssueReadSerializer.first_seen": "TODO: server-owned, response shape only; update reads the body through ErrorTrackingIssueWriteSerializer, make read-only",
+    "products.error_tracking.backend.presentation.views.recommendations.ErrorTrackingRecommendationSerializer.computed_at": "TODO: server-owned, response shape only; refresh, dismiss and restore take no body, make read-only",
+    "products.error_tracking.backend.presentation.views.recommendations.ErrorTrackingRecommendationSerializer.created_at": "TODO: server-owned, response shape only; refresh, dismiss and restore take no body, make read-only",
+    "products.error_tracking.backend.presentation.views.recommendations.ErrorTrackingRecommendationSerializer.dismissed_at": "TODO: server-owned, response shape only; dismiss and restore take no body and the facade sets it, make read-only",
+    "products.error_tracking.backend.presentation.views.recommendations.ErrorTrackingRecommendationSerializer.updated_at": "TODO: server-owned, response shape only; refresh, dismiss and restore take no body, make read-only",
+    "products.error_tracking.backend.presentation.views.releases.ErrorTrackingReleaseSerializer.created_at": "TODO: server-owned, response shape only; create and update read request.data through their own request serializers, make read-only",
+    "products.error_tracking.backend.presentation.views.stack_frames.ErrorTrackingStackFrameSerializer.created_at": "TODO: server-owned, response shape only; batch_get reads only raw_ids and symbol_set from the body, make read-only",
+    "products.error_tracking.backend.presentation.views.symbol_sets.ErrorTrackingSymbolSetSerializer.created_at": "TODO: server-owned, response shape only; update returns the unchanged row and uploads use other serializers, make read-only",
+    "products.error_tracking.backend.presentation.views.symbol_sets.ErrorTrackingSymbolSetSerializer.last_used": "TODO: server-owned, response shape only; update returns the unchanged row and uploads use other serializers, make read-only",
+    "products.feature_flags.backend.api.feature_flag.FeatureFlagTestEvaluationRequestSerializer.timestamp": "Client picks the point in time to test a flag against; request input for test_evaluation, never stored",
+    "products.logs.backend.presentation.views.explain.ExplainRequestSerializer.timestamp": "Client sends the timestamp of the log entry; used for the log lookup and the cache key, never stored on a model",
+    "products.notifications.backend.presentation.serializers.NotificationEventSerializer.created_at": "TODO: server-owned, response shape only; the mark and archive routes read ids from the body, never this serializer, make read-only",
+    "products.notifications.backend.presentation.serializers.NotificationEventSerializer.read_at": "TODO: server-owned, response shape only; the mark read routes set it server side and never read this serializer, make read-only",
+    "products.replay_vision.backend.api.backfills.BackfillCreateSerializer.window_end": "Client picks the backfill window; clamped to now minus settle time, stored on the backfill and passed to the backfill workflow",
+    "products.replay_vision.backend.api.backfills.BackfillCreateSerializer.window_start": "Client picks the backfill window; stored on the backfill record and passed to the backfill workflow",
+    "products.replay_vision.backend.api.backfills.BackfillWindowSerializer.window_end": "Client picks the window to estimate; clamped to now minus settle time, only used to count sessions, never stored",
+    "products.replay_vision.backend.api.backfills.BackfillWindowSerializer.window_start": "Client picks the window to estimate; only used to count sessions, never stored",
+    "products.replay_vision.backend.api.observation_requests.ObservationRequestSerializer.created_at": "TODO: server-owned, response shape only; create reads the body through CreateObservationRequestSerializer, make read-only",
+    "products.review_hog.backend.presentation.views.reviews.ReviewRecentReviewSerializer.last_run_at": "TODO: server-owned, response shape only; the trigger route reads the body through ReviewTriggerRequestSerializer, make read-only",
+    "products.signals.backend.presentation.onboarding.InboxOnboardingStateSerializer.completed_at": "TODO: server-owned, response shape only; write routes read the body through InboxOnboardingDraftSerializer, make read-only",
+    "products.signals.backend.scout_harness.serializers.CreateReportCheckRequestSerializer.expires_at": "Scout picks when the check stops; validated to be after the first run and within the horizon, then passed to create_report_check",
+    "products.signals.backend.scout_harness.serializers.CreateReportCheckRequestSerializer.next_run_at": "Scout picks when the check first runs; validated as future and within the horizon, then passed to create_report_check",
+    "products.signals.backend.scout_harness.serializers.RememberRequestSerializer.expires_at": "Client sets when a memory expires; a past or unparseable value is dropped, and omitting it clears the expiry",
+    "products.signals.backend.scout_harness.serializers.ScoutNoteCreateRequestSerializer.expires_at": "Client sets when a steering note retires; a past or unparseable value is dropped, passed to leave_note",
+    "products.signals.backend.scout_suggestions_api.ScoutSuggestionSetSerializer.generated_at": "TODO: server-owned, response shape only; refresh takes no body and the planner writes it, make read-only",
+    "products.signals.backend.views.PauseUntilRequestSerializer.timestamp": "Client picks when the grouping pipeline resumes; request input passed to the pause_until workflow call",
+    "products.subscriptions.backend.presentation.views.SubscriptionSerializer.start_date": "Client picks when deliveries start; inherited from SubscriptionWriteSerializer, which the view uses for writes, stored on the subscription",
+    "products.subscriptions.backend.presentation.views.SubscriptionSerializer.until_date": "Client picks when deliveries stop, or null for never; inherited from SubscriptionWriteSerializer, stored on the subscription",
+    "products.subscriptions.backend.presentation.views.SubscriptionWriteSerializer.start_date": "Client picks when deliveries start; to_write passes it to the facade, which stores it and anchors the recurrence",
+    "products.subscriptions.backend.presentation.views.SubscriptionWriteSerializer.until_date": "Client picks when deliveries stop, or null for never; to_write passes it to the facade, which stores it",
+    "products.tasks.backend.presentation.serializers.ChannelFeedMessageSerializer.created_at": "TODO: server-owned, response shape only; create reads the body through ChannelFeedMessageWriteSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.ChannelFeedMessageWriteSerializer.created_at": "Client orders a burst of feed posts; validated to within 10 min of now, then stored as ChannelFeedMessage.created_at",
+    "products.tasks.backend.presentation.serializers.ChannelSerializer.created_at": "TODO: server-owned, response shape only; create and update read the body through ChannelWriteSerializer and ChannelUpdateSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.ClaudeTaskRunCreateSchemaSerializer.scheduled_at": "Client picks the earliest run start (future, within 30 days); schema-only twin, view validates with TaskRunCreateRequestSerializer",
+    "products.tasks.backend.presentation.serializers.CodexTaskRunCreateSchemaSerializer.scheduled_at": "Client picks the earliest run start (future, within 30 days); schema-only twin, view validates with TaskRunCreateRequestSerializer",
+    "products.tasks.backend.presentation.serializers.TaskActivitySerializer.activity_at": "TODO: server-owned, response shape only; the only write route (mark read) uses TaskActivityMarkReadSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskCreateSerializer.scheduled_at": "Client picks the earliest start of the first run; used only when start_run is set, then passed into run creation",
+    "products.tasks.backend.presentation.serializers.TaskRunCreateRequestSerializer.scheduled_at": "Client picks the earliest run start (future, within 30 days); passed to the facade, which creates the run NOT_STARTED until then",
+    "products.tasks.backend.presentation.serializers.TaskRunDetailSerializer.completed_at": "TODO: server-owned, response shape only; run PATCH reads the body through TaskRunUpdateSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskRunDetailSerializer.created_at": "TODO: server-owned, response shape only; run PATCH reads the body through TaskRunUpdateSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskRunDetailSerializer.scheduled_at": "TODO: server-owned, response shape only; run create reads the body through TaskRunCreateRequestSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskRunDetailSerializer.updated_at": "TODO: server-owned, response shape only; run PATCH reads the body through TaskRunUpdateSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskRunResumeRequestSchemaSerializer.scheduled_at": "Client picks the earliest run start (future, within 30 days); schema-only variant, view validates with TaskRunCreateRequestSerializer",
+    "products.tasks.backend.presentation.serializers.TaskSerializer.archived_at": "TODO: server-owned, response shape only; create and update read the body through TaskCreateSerializer and TaskWriteSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskSerializer.created_at": "TODO: server-owned, response shape only; create and update read the body through TaskCreateSerializer and TaskWriteSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskSerializer.last_activity_at": "TODO: server-owned, response shape only; create and update read the body through TaskCreateSerializer and TaskWriteSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskSerializer.last_client_at": "TODO: server-owned, response shape only; create and update read the body through TaskCreateSerializer and TaskWriteSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskSerializer.updated_at": "TODO: server-owned, response shape only; create and update read the body through TaskCreateSerializer and TaskWriteSerializer, make read-only",
+    "products.tasks.backend.presentation.serializers.TaskThreadMessageSerializer.created_at": "TODO: server-owned, response shape only; thread create reads the body through TaskThreadMessageWriteSerializer (content only), make read-only",
+    "products.tasks.backend.presentation.serializers.TaskThreadMessageSerializer.forwarded_to_agent_at": "TODO: server-owned, response shape only; thread create reads the body through TaskThreadMessageWriteSerializer (content only), make read-only",
+    "products.tracing.backend.presentation.views._TracingErrorCountsRequestSerializer.dateFrom": "Client picks the start of the lookup window; request input for the error count query, never stored",
+    "products.tracing.backend.presentation.views._TracingErrorCountsRequestSerializer.dateTo": "Client picks the end of the lookup window; request input for the error count query, never stored",
+    "products.visual_review.backend.presentation.serializers.QuarantineInputSerializer.expires_at": "Client picks when the quarantine lifts itself, or null for no expiry; MCP callers get a capped expiry",
+    "products.visual_review.backend.presentation.serializers.RunSerializer.approved_at": "TODO: server-owned, response shape only; complete and approve read the body through their own input serializers, make read-only",
+    "products.visual_review.backend.presentation.serializers.RunSerializer.completed_at": "TODO: server-owned, response shape only; complete reads the body through CompleteRunInputSerializer, make read-only",
+    "products.visual_review.backend.presentation.serializers.RunSerializer.created_at": "TODO: server-owned, response shape only; no route validates a body through RunSerializer, make read-only",
+    "products.wizard.backend.presentation.scans.serializers.RecordWizardScanRequestSerializer.scanned_at": "Wizard stamps the scan time with its own clock; a value more than a day in the future is rejected, then stored on the scan",
+    "products.wizard.backend.presentation.sessions.serializers.UpsertWizardSessionRequestSerializer.started_at": "Wizard sends its own start time, also encoded in session_id; passed to the upsert and stored on the session",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowActionEmailUpdateSerializer.base_updated_at": "Optimistic-concurrency guard: the client echoes the updated_at it loaded; the view passes it to edit_workflow_content to detect a stale edit",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowGraphUpdateSerializer.base_updated_at": "Optimistic-concurrency guard: the client echoes the updated_at it loaded; the view passes it to edit_workflow_content to detect a stale edit",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowRevisionRestoreRequestSerializer.expected_draft_updated_at": "Optimistic-concurrency guard: the client echoes the draft_updated_at it confirmed; restore_revision returns 409 on a mismatch",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowScheduleSerializer.starts_at": "Client picks when the schedule starts; create_schedule stores it and uses it to compute the next runs from the RRULE",
+    "products.workflows.backend.presentation.views.hog_flow.WorkflowProposalApproveRequestSerializer.expected_draft_updated_at": "Optimistic-concurrency guard: the client echoes the draft_updated_at it confirmed; approve_proposal returns 409 on a mismatch",
+    "products.workflows.backend.presentation.views.push_token_imports.PushTokenImportSerializer.created_at": "TODO: server-owned, response shape only; create reads the body through PushTokenImportCreateSerializer, make read-only",
+    "products.workflows.backend.presentation.views.push_token_imports.PushTokenImportSerializer.finished_at": "TODO: server-owned, response shape only; create reads the body through PushTokenImportCreateSerializer, make read-only",
 }
 
 # Views and serializers the guard cannot read, each with a reason. An entry hides part
@@ -384,8 +493,9 @@ def _serializer_classes(declared: Any) -> set[type]:
     """The serializer classes behind a request-body declaration.
 
     A declaration is not always a class: `inline_serializer` returns an instance,
-    `many=True` wraps the real serializer in a `ListSerializer`, and a media-type
-    mapping holds one declaration per content type.
+    `many=True` wraps the real serializer in a `ListSerializer`, a media-type
+    mapping holds one declaration per content type, and a `PolymorphicProxySerializer`
+    is a schema-only union whose members are the serializers that read the body.
     """
     if isinstance(declared, dict):
         return {entry for value in declared.values() for entry in _serializer_classes(value)}
@@ -393,6 +503,8 @@ def _serializer_classes(declared: Any) -> set[type]:
         return {entry for value in declared for entry in _serializer_classes(value)}
     if isinstance(declared, serializers.ListSerializer):
         return _serializer_classes(declared.child)
+    if isinstance(declared, PolymorphicProxySerializer):
+        return _serializer_classes(declared.serializers)
     if isinstance(declared, serializers.BaseSerializer):
         return {type(declared)}
     if _is_serializer(declared):
@@ -453,8 +565,6 @@ def collect_violations() -> tuple[dict[str, str], dict[str, str]]:
     serializer_classes, problems = _write_exposed_serializers()
     for serializer_class in serializer_classes:
         model = getattr(getattr(serializer_class, "Meta", None), "model", None)
-        if model is None:
-            continue
         try:
             fields = serializer_class().fields
         except Exception as error:
@@ -464,6 +574,9 @@ def collect_violations() -> tuple[dict[str, str], dict[str, str]]:
             if not isinstance(field, serializers.DateTimeField) or field.read_only:
                 continue
             key = f"{_dotted_name(serializer_class)}.{name}"
+            if model is None:
+                writable[key] = "no model"
+                continue
             try:
                 model_field = model._meta.get_field(field.source or name)
             except FieldDoesNotExist:
@@ -630,11 +743,19 @@ def test_request_body_declarations_stay_readable() -> None:
 
 
 def test_request_body_declarations_normalize_to_classes() -> None:
-    # inline_serializer returns an instance, and many=True wraps one in a ListSerializer.
+    # inline_serializer returns an instance, many=True wraps one in a ListSerializer,
+    # and a PolymorphicProxySerializer is a union read through its members.
     class BodySerializer(serializers.Serializer):
+        pass
+
+    class OtherBodySerializer(serializers.Serializer):
         pass
 
     assert _serializer_classes(BodySerializer(many=True)) == {BodySerializer}
     assert _serializer_classes({"application/json": BodySerializer()}) == {BodySerializer}
+    union = PolymorphicProxySerializer(
+        component_name="BodyUnion", serializers=[BodySerializer, OtherBodySerializer], resource_type_field_name=None
+    )
+    assert _serializer_classes(union) == {BodySerializer, OtherBodySerializer}
     inline = inline_serializer("InlineBody", fields={"name": serializers.CharField()})
     assert _serializer_classes(inline) == {type(inline)}
