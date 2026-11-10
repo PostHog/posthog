@@ -6,12 +6,10 @@ import { createHmac } from 'node:crypto'
 import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
-
 import { CyclotronInvocationQueueParametersFetchType } from '@posthog/hog-engine/cdp/schema/cyclotron'
 import { ACCESS_TOKEN_PLACEHOLDER } from '@posthog/node-common/config/constants'
 import { logger } from '@posthog/node-common/utils/logger'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
-
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '@posthog/hog-engine/cdp/services/hog-executor.service'
 import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
@@ -40,8 +38,8 @@ import {
 import { isConnectionLevelError } from '@posthog/hog-engine/cdp/utils/cdp-fetch'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { EXTEND_OBJECT_KEY } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { signIntegrationRef } from '@posthog/hog-engine/cdp/utils/integration-input-refs'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
-
 // Mock before importing fetch
 jest.mock('@posthog/node-common/utils/request', () => {
     const original = jest.requireActual('@posthog/node-common/utils/request')
@@ -54,7 +52,6 @@ jest.mock('@posthog/node-common/utils/request', () => {
 })
 
 import { fetch, SecureRequestError } from '@posthog/node-common/utils/request'
-
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
     return logs.map((log) => {
@@ -409,6 +406,73 @@ describe('Hog Executor', () => {
             expect(result.metrics).toEqual(previousResult.metrics)
             expect(result.capturedPostHogEvents).toEqual(previousResult.capturedPostHogEvents)
             expect(result.execResult).toEqual({ foo: 'bar' })
+        })
+    })
+
+    describe('persisted integration references', () => {
+        // return inputs.twilio.auth_token
+        const RETURN_TWILIO_AUTH_TOKEN = ['_h', 32, 'auth_token', 32, 'twilio', 32, 'inputs', 1, 3, 38]
+
+        it.each([
+            [
+                'resolves a reference from the job queue before the function runs',
+                (teamId: number, integrationId: number) => ({
+                    $integration_ref: integrationId,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, teamId, 'twilio', integrationId),
+                }),
+                'fake-auth-token-value',
+            ],
+            [
+                'runs a job queued with the resolved values before references existed',
+                (_teamId: number, integrationId: number) => ({
+                    $integration_id: integrationId,
+                    auth_token: 'fake-old-job-token',
+                }),
+                'fake-old-job-token',
+            ],
+        ])('%s', async (_name, persistedValue, expected) => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'oauth',
+                config: { account_sid: 'AC-fake' },
+                sensitive_config: { auth_token: hub.encryptedFields.encrypt('fake-auth-token-value') },
+            })
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: RETURN_TWILIO_AUTH_TOKEN,
+                inputs: { twilio: { value: integration.id } },
+                inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
+            })
+            invocation.state.globals.inputs = { twilio: persistedValue(team.id, integration.id) }
+
+            const result = await executor.hogExecutor.execute(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.execResult).toBe(expected)
+            // The resolved secret must not go back into the state that the queue persists.
+            expect(result.invocation.state.globals.inputs.twilio).toEqual(persistedValue(team.id, integration.id))
+        })
+
+        it('fails the invocation when a reference does not resolve', async () => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: RETURN_TWILIO_AUTH_TOKEN,
+                inputs: { twilio: { value: 999999999 } },
+                inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
+            })
+            invocation.state.globals.inputs = {
+                twilio: {
+                    $integration_ref: 999999999,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, team.id, 'twilio', 999999999),
+                },
+            }
+
+            const result = await executor.hogExecutor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.execResult).toBeUndefined()
+            expect(result.error).toContain("The integration for input 'twilio' could not be loaded.")
         })
     })
 

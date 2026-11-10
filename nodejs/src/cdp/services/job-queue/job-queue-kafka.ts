@@ -16,6 +16,7 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-commo
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
+import type { CommonConfig } from '@posthog/node-common/config'
 
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { JobQueue } from './job-queue.interface'
@@ -33,7 +34,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
         private config: Pick<
             CdpConfig,
             'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA' | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >,
+        > &
+            Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
         private consumerBatchSize: number
     ) {
         this.sanitizer = createInvocationSanitizer(config)

@@ -1,9 +1,30 @@
 import supertest from 'supertest'
 
+import { setupCommonRoutes, setupExpressApp } from '@posthog/node-common/api/router'
 import { PluginServerMode } from '@posthog/node-common/config'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import { HealthCheckResultError, HealthCheckResultOk } from '@posthog/node-common/types'
 
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
+
+describe('readiness check', () => {
+    it('fails _ready but not _health when only the readiness check fails', async () => {
+        const app = setupCommonRoutes(setupExpressApp(), [
+            {
+                id: 'draining',
+                healthcheck: () => new HealthCheckResultOk(),
+                readinessCheck: () => new HealthCheckResultError('draining', {}),
+            },
+        ])
+        const listening = app.listen(0, () => {})
+        try {
+            expect((await supertest(app).get('/_health').send()).status).toEqual(200)
+            expect((await supertest(app).get('/_ready').send()).status).toEqual(503)
+        } finally {
+            listening.close()
+        }
+    })
+})
 
 describe('router', () => {
     jest.retryTimes(3, { logErrorsBeforeRetry: true }) // Flakey due to reliance on kafka/clickhouse

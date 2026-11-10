@@ -46,6 +46,6 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 aes-gcm = "0.10"
 base64 = { workspace = true }
-hegeltest = { version = "0.50.1", features = ["static-engine"] }
+hegeltest = { version = "0.51.0", features = ["static-engine"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

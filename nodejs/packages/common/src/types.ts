@@ -78,6 +78,7 @@ export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
     healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
+    readinessCheck?: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 // Each service merges its own settings on top of CommonConfig and extends HubServices with the services only it
