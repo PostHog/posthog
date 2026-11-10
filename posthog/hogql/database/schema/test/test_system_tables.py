@@ -141,7 +141,14 @@ from products.workflows.backend.facade.testing import create_workflow_for_test
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
 # so they have no team_id filter and can't be `SELECT *`-ed directly — skip them here.
-ALL_SYSTEM_TABLE_NAMES = sorted(name for name, node in SystemTables().children.items() if node.table is not None)
+# `integrations` is read through the integrations SDK and inlined as constant rows, so it prints no
+# team_id guard. test_system_integrations.py covers its team scoping.
+SDK_BACKED_SYSTEM_TABLE_NAMES = frozenset({"integrations"})
+ALL_SYSTEM_TABLE_NAMES = sorted(
+    name
+    for name, node in SystemTables().children.items()
+    if node.table is not None and name not in SDK_BACKED_SYSTEM_TABLE_NAMES
+)
 
 # {table_name: "sql_alias.column_name"} for team_id filter assertion
 TEAM_ID_FILTER_PATTERNS = {
