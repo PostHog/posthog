@@ -13,16 +13,12 @@ posthog/api/organization_integration.py 3
 posthog/api/user_integration.py 2
 posthog/github/attribution.py 1
 posthog/github/installations.py 2
-posthog/management/commands/flag_legacy_oauth_integrations.py 3
-posthog/management/commands/migrate_ses_tenants.py 2
-posthog/management/commands/normalize_apns_integrations.py 3
 posthog/models/comment/slack_thread.py 1
 posthog/models/integration_repository_cache.py 2
 posthog/models/user.py 1
 posthog/models/user_integration.py 1
 posthog/session_recordings/models/session_recording_external_reference.py 2
-posthog/tasks/comment_slack_sync.py 3
-posthog/tasks/integrations.py 11
+posthog/tasks/integrations.py 4
 products/batch_exports/backend/models/batch_export.py 1
 products/commands/backend/channels/slack/mentions.py 2
 products/customer_analytics/backend/models/event_stream.py 1
