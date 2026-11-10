@@ -14,6 +14,10 @@ from temporalio.common import MetricCounter, MetricGauge, RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.storage import object_storage
+from posthog.temporal.ai_observability.shared_activities import (
+    TeamAIConsentInput,
+    check_ai_data_processing_consent_activity,
+)
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -266,6 +270,17 @@ class TeamSignalGroupingV2Workflow:
             await self._run_impl(input)
 
     async def _run_impl(self, input: TeamSignalGroupingV2Input) -> None:
+        if workflow.patched("signals-grouping-ai-consent-v1"):
+            ai_approved = await workflow.execute_activity(
+                check_ai_data_processing_consent_activity,
+                TeamAIConsentInput(team_id=input.team_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if not ai_approved:
+                workflow.logger.info("signals_grouping_skipped_ai_consent", extra={"team_id": input.team_id})
+                return
+
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
         self._failed_rounds_by_batch_key.update(input.failed_rounds_by_batch_key)

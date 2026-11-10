@@ -11,6 +11,8 @@ from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.ai_observability.shared_activities import TeamAIConsentInput
+
 from products.signals.backend.temporal.drop_telemetry import CaptureSignalDroppedInput
 from products.signals.backend.temporal.grouping import GenerateEmbeddingInput, GenerateEmbeddingOutput
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
@@ -26,7 +28,7 @@ ROUNDS = 3
 
 
 def _signal(source_id: str) -> EmitSignalInputs:
-    # A source match skips the type-example and query-generation steps, so the embedding is the first activity.
+    # A source match skips the type-example and query-generation steps, so the embedding is the first batch activity.
     return EmitSignalInputs(
         team_id=1,
         source_product="error_tracking",
@@ -45,6 +47,7 @@ BATCHES = {
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ai_approved", [True, False])
 @pytest.mark.parametrize(
     "pending_keys,failed_rounds_by_batch_key",
     [
@@ -53,7 +56,7 @@ BATCHES = {
     ],
 )
 async def test_failed_batch_retries_report_each_attempt(
-    pending_keys: list[str], failed_rounds_by_batch_key: dict[str, int]
+    pending_keys: list[str], failed_rounds_by_batch_key: dict[str, int], ai_approved: bool
 ) -> None:
     expected_drops = sorted(
         (signal.source_id, failed_rounds_by_batch_key.get(key, 0) + round_index + 1)
@@ -63,10 +66,16 @@ async def test_failed_batch_retries_report_each_attempt(
     )
     last_attempt = dict(expected_drops)
     drops: list[tuple[str, int | None]] = []
+    read_keys: list[str] = []
     rounds_done = asyncio.Event()
+
+    @activity.defn(name="check_ai_data_processing_consent_activity")
+    async def fake_consent(_input: TeamAIConsentInput) -> bool:
+        return ai_approved
 
     @activity.defn(name="read_signals_from_s3_activity")
     async def fake_read(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
+        read_keys.append(input.object_key)
         return ReadSignalsFromS3Output(signals=BATCHES[input.object_key])
 
     @activity.defn(name="get_embedding_activity")
@@ -84,7 +93,7 @@ async def test_failed_batch_retries_report_each_attempt(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[TeamSignalGroupingV2Workflow],
-            activities=[fake_read, fake_embedding, fake_capture],
+            activities=[fake_consent, fake_read, fake_embedding, fake_capture],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -96,7 +105,14 @@ async def test_failed_batch_retries_report_each_attempt(
                 ),
                 id=f"grouping-v2-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
+                execution_timeout=timedelta(minutes=15),
             )
+            if not ai_approved:
+                assert await asyncio.wait_for(handle.result(), timeout=10) is None
+                assert read_keys == []
+                assert drops == []
+                return
+
             # The time-skipping server only skips time while the client waits on it, so step the clock
             # past the retry backoff and the batch-collection timeout until the rounds finish.
             for _ in range(60):

@@ -98,6 +98,12 @@ Do these checks in each region.
 
 ## Common operations
 
+**Grouping batches for an organization without AI consent.**
+`team-signal-grouping-v2` checks organization AI data processing consent at the start of each run.
+If consent is disabled or unset, the workflow completes and drops all pending batch keys without reading or processing the batches.
+Existing runs adopt the check after `continue_as_new`.
+After deployment, verify that these runs complete and log `signals_grouping_skipped_ai_consent`.
+
 **Pause the sweep.**
 Run `temporal schedule toggle --schedule-id inbox-ranking-scoring-sweep-schedule --pause --reason "<why>"`.
 Use `--unpause` to resume it.

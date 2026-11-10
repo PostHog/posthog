@@ -1,3 +1,5 @@
+from posthog.temporal.ai_observability.shared_activities import check_ai_data_processing_consent_activity
+
 from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickWorkflow,
     capture_activity_summary_tick_activity,
@@ -179,6 +181,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    check_ai_data_processing_consent_activity,
     poll_monitoring_assessment_activity,
     exhaust_monitoring_assessment_activity,
     update_signal_spend_activity,
