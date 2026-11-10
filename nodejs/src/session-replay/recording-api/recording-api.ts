@@ -534,8 +534,6 @@ export class RecordingApi {
             res.set('Content-Type', 'application/octet-stream')
             res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', REPLAY_BLOCK_CACHE_CONTROL)
-            // The block is attacker-influenced bytes on an app origin, so the browser must never sniff it as HTML.
-            res.set('X-Content-Type-Options', 'nosniff')
             res.send(result.data)
         } catch (error) {
             RecordingApiMetrics.incrementReplayBlockRequest('error')
