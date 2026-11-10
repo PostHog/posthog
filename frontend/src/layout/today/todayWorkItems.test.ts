@@ -15,10 +15,12 @@ import { TodayRecentGrouping, TodayRecentSort, groupRecentItems, sortRecentItems
 import {
     activeCloudRunId,
     analysisRunId,
+    appendRecentTasks,
     buildRecentItems,
     canHandOff,
     chatItem,
     groupByDay,
+    refreshRecentTasks,
     sessionBadges,
     sessionDetails,
     sessionItem,
@@ -91,6 +93,52 @@ describe('todayWorkItems', () => {
         )
 
         expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual(['chat:c-new', 'session:s-old'])
+    })
+
+    it.each<[string, string[], boolean, string[], boolean, string[], boolean]>([
+        [
+            'keeps older pages a refresh did not reach',
+            ['a', 'b', 'c', 'd'],
+            true,
+            ['x', 'b'],
+            true,
+            ['x', 'b', 'c', 'd'],
+            true,
+        ],
+        ['asks for more when nothing older was loaded', ['a', 'b'], false, ['x', 'b'], true, ['x', 'b'], true],
+        [
+            'replaces the list once the first page holds everything',
+            ['a', 'b', 'c', 'd'],
+            true,
+            ['x', 'a'],
+            false,
+            ['x', 'a'],
+            false,
+        ],
+    ])(
+        'a refresh of Recent %s',
+        (_, loadedIds, loadedHasMore, freshIds, freshHasMore, expectedIds, expectedHasMore) => {
+            const times: Record<string, string> = {
+                x: '2026-03-10T12:00:00',
+                a: '2026-03-10T11:00:00',
+                b: '2026-03-10T10:00:00',
+                c: '2026-03-09T10:00:00',
+                d: '2026-03-08T10:00:00',
+            }
+            const tasks = (ids: string[]): TaskListItemApi[] => ids.map((id) => session(id, times[id]))
+
+            const refreshed = refreshRecentTasks(tasks(loadedIds), loadedHasMore, tasks(freshIds), freshHasMore)
+
+            expect(refreshed.tasks.map((task) => task.id)).toEqual(expectedIds)
+            expect(refreshed.hasMore).toBe(expectedHasMore)
+        }
+    )
+
+    it('appends a page of older sessions without repeating a loaded one', () => {
+        const loaded = [session('a', '2026-03-10T11:00:00'), session('b', '2026-03-10T10:00:00')]
+        const page = [session('b', '2026-03-10T10:00:00'), session('c', '2026-03-09T10:00:00')]
+
+        expect(appendRecentTasks(loaded, page).map((task) => task.id)).toEqual(['a', 'b', 'c'])
     })
 
     it.each([

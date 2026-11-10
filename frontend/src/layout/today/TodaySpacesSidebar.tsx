@@ -10,6 +10,7 @@ import { TodayChatRow } from './TodayChatRow'
 import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
+import { TodayRecentLoadMore } from './TodayRecentLoadMore'
 import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
 import { selectionClick } from './todaySessionSelection'
@@ -34,13 +35,22 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentFiltersActive,
         recentLoading,
         recentTasksUnavailable,
+        recentTasksHasMore,
+        recentLoadingMore,
+        recentLoadMoreFailed,
         collapsedSections,
         unreadSessionIds,
         phoneSection,
         pinnedTasksLoading,
     } = useValues(todaySpacesLogic)
-    const { loadRecentTasks, toggleSection, setRecentQuery, clearRecentSearchAndFilters, setPhoneSection } =
-        useActions(todaySpacesLogic)
+    const {
+        loadRecentTasks,
+        loadMoreRecentTasks,
+        toggleSection,
+        setRecentQuery,
+        clearRecentSearchAndFilters,
+        setPhoneSection,
+    } = useActions(todaySpacesLogic)
     const { phoneLayout } = useValues(todayShellLogic)
     const { selectedSessionIds } = useValues(todaySessionSelectionLogic)
     const { toggleSessionSelection, selectSessionRange, clearSelection } = useActions(todaySessionSelectionLogic)
@@ -188,6 +198,13 @@ export function TodaySpacesSidebar(): JSX.Element {
                         )}
                     </Fragment>
                 ))}
+                {recentTasksHasMore && (
+                    <TodayRecentLoadMore
+                        loading={recentLoadingMore}
+                        failed={recentLoadMoreFailed}
+                        onLoadMore={loadMoreRecentTasks}
+                    />
+                )}
             </>
         )
 

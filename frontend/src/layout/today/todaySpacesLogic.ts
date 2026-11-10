@@ -52,7 +52,9 @@ import {
 } from './todayRecentOrder'
 import {
     TodayWorkItem,
+    appendRecentTasks,
     buildRecentItems,
+    refreshRecentTasks,
     sessionItem,
     sessionReadRequest,
     setActivityUnread,
@@ -127,7 +129,10 @@ export interface todaySpacesLogicValues {
     recentQuery: string
     recentSort: TodayRecentSort
     recentSourceOptions: string[]
+    recentLoadingMore: boolean
+    recentLoadMoreFailed: boolean
     recentTasks: TaskListItemApi[]
+    recentTasksHasMore: boolean
     recentTasksLoading: boolean
     recentTasksUnavailable: boolean
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
@@ -208,6 +213,21 @@ export interface todaySpacesLogicActions {
         recentTasks: TaskListItemApi[]
         payload?: void
     }
+    loadMoreRecentTasks: (_: void) => void
+    loadMoreRecentTasksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreRecentTasksSuccess: (
+        recentTasks: TaskListItemApi[],
+        payload?: void
+    ) => {
+        recentTasks: TaskListItemApi[]
+        payload?: void
+    }
     loadSpaces: () => any
     loadSpacesFailure: (
         error: string,
@@ -273,6 +293,9 @@ export interface todaySpacesLogicActions {
     setRecentSort: (sort: TodayRecentSort) => {
         sort: TodayRecentSort
     }
+    setRecentTasksHasMore: (hasMore: boolean) => {
+        hasMore: boolean
+    }
     setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
         heights: Partial<Record<TodayWorkSectionId, number>>
     }
@@ -302,7 +325,8 @@ export interface todaySpacesLogicMeta {
         allRecentItems: (
             recentTasks: TaskListItemApi[],
             conversationHistory: ConversationDetail[],
-            pinnedTasks: TaskListItemApi[]
+            pinnedTasks: TaskListItemApi[],
+            recentTasksHasMore: boolean
         ) => TodayWorkItem[]
         recentFilters: (storedRecentFilters: Partial<TodayRecentFilters>) => TodayRecentFilters
         recentSourceOptions: (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters) => string[]
@@ -368,8 +392,9 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         markSessionReadFailed: (activityIds: string[]) => ({ activityIds }),
         loadPullRequestStates: (sessionIds: string[]) => ({ sessionIds }),
         setPullRequestStates: (states: Record<string, PrStateEnumApi>) => ({ states }),
+        setRecentTasksHasMore: (hasMore: boolean) => ({ hasMore }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         spaces: [
             [] as ChannelDTOApi[],
             {
@@ -416,7 +441,32 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     })
                     // A slower earlier reply must not overwrite what a newer refresh already returned.
                     breakpoint()
-                    return response.results
+                    const refreshed = refreshRecentTasks(
+                        values.recentTasks,
+                        values.recentTasksHasMore,
+                        response.results,
+                        !!response.next
+                    )
+                    actions.setRecentTasksHasMore(refreshed.hasMore)
+                    return refreshed.tasks
+                },
+                loadMoreRecentTasks: async (_: void, breakpoint) => {
+                    if (!values.currentTeamId || !values.user || !values.recentTasksHasMore) {
+                        return values.recentTasks
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        created_by: values.user.id,
+                        exclude_origin_product: TasksListExcludeOriginProduct.SignalsScout,
+                        ordering: '-last_activity_at',
+                        basic: true,
+                        limit: RECENT_SESSION_LIMIT,
+                        offset: values.recentTasks.length,
+                    })
+                    breakpoint()
+                    actions.setRecentTasksHasMore(!!response.next)
+                    actions.loadPullRequestStates(sessionIdsWithPullRequests(response.results))
+                    posthog.capture('today recent more loaded', { offset: values.recentTasks.length })
+                    return appendRecentTasks(values.recentTasks, response.results)
                 },
             },
         ],
@@ -497,6 +547,23 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         ],
         spacesUnavailable: [false, { loadSpaces: () => false, loadSpacesFailure: () => true }],
         recentTasksUnavailable: [false, { loadRecentTasks: () => false, loadRecentTasksFailure: () => true }],
+        recentTasksHasMore: [true, { setRecentTasksHasMore: (_, { hasMore }) => hasMore }],
+        recentLoadingMore: [
+            false,
+            {
+                loadMoreRecentTasks: () => true,
+                loadMoreRecentTasksSuccess: () => false,
+                loadMoreRecentTasksFailure: () => false,
+            },
+        ],
+        recentLoadMoreFailed: [
+            false,
+            {
+                loadMoreRecentTasks: () => false,
+                loadRecentTasksSuccess: () => false,
+                loadMoreRecentTasksFailure: () => true,
+            },
+        ],
         taskActivity: {
             markSessionRead: (state, { activityIds }) => setActivityUnread(state, activityIds, false),
             markSessionReadFailed: (state, { activityIds }) => setActivityUnread(state, activityIds, true),
@@ -510,17 +577,18 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 pinnedTasks.filter((task) => !task.archived).map(sessionItem),
         ],
         allRecentItems: [
-            (s) => [s.recentTasks, s.conversationHistory, s.pinnedTasks],
+            (s) => [s.recentTasks, s.conversationHistory, s.pinnedTasks, s.recentTasksHasMore],
             (
                 recentTasks: TaskListItemApi[],
                 conversationHistory: ConversationDetail[],
-                pinnedTasks: TaskListItemApi[]
+                pinnedTasks: TaskListItemApi[],
+                recentTasksHasMore: boolean
             ): TodayWorkItem[] =>
                 buildRecentItems(
                     recentTasks,
                     conversationHistory,
                     pinnedTasks.map((task) => task.id),
-                    RECENT_ITEM_LIMIT
+                    recentTasksHasMore ? Math.max(RECENT_ITEM_LIMIT, recentTasks.length) : Infinity
                 ),
         ],
         recentFilters: [
