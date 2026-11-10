@@ -1,10 +1,9 @@
 import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
-import { aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
+import { KafkaDebugContext, aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
 
 import { AcceptedBatch, batchAccepted, batchFailed, batchProcessed, batchReleased } from './batch-metrics'
-import { SerializedKafkaMessage } from './types'
 
 const stuckBatches = new Counter({
     name: 'ingestion_api_grpc_stuck_batches_total',
@@ -22,7 +21,8 @@ export interface AdmittedSubBatch {
     consumerId: string
     streamEpoch: string
     assignmentEpoch: string
-    messages: SerializedKafkaMessage[]
+    /** Coordinates only: the pipeline holds the payloads, and a copy here would live until the sub-batch settles. */
+    messages: Pick<KafkaDebugContext, 'topic' | 'partition' | 'offset'>[]
 }
 
 export interface StuckSubBatch {

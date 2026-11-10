@@ -13,15 +13,7 @@ function subBatch(streamId: number, seq: number, offsets: number[] = [seq]): Adm
         consumerId: `consumer-${streamId}`,
         streamEpoch: '1',
         assignmentEpoch: '1',
-        messages: offsets.map((offset) => ({
-            topic: 'events',
-            partition: 0,
-            offset,
-            timestamp: 0,
-            key: 'k',
-            value: '{}',
-            headers: {},
-        })),
+        messages: offsets.map((offset) => ({ topic: 'events', partition: 0, offset })),
     }
 }
 

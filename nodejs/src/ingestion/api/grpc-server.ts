@@ -896,7 +896,7 @@ export class WorkerIngestServer {
                     consumerId: stream.hello.consumerId,
                     streamEpoch: String(stream.hello.streamEpoch),
                     assignmentEpoch: String(subBatch.assignmentEpoch),
-                    messages: serialized,
+                    messages: serialized.map(({ topic, partition, offset }) => ({ topic, partition, offset })),
                 })
                 let feedAccepted = false
                 try {

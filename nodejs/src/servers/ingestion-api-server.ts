@@ -508,28 +508,13 @@ export class IngestionApiServer implements NodeServer {
             {
                 driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
                 feedOrderSentinel: this.feedOrderSentinel,
-                onFatal: (error) => {
-                    // A poisoned pipeline is rebuilt by the supervisor, not
-                    // served: latch unhealthy and shut down once.
-                    if (!this.fatalError) {
-                        this.fatalError = error
-                        void this.stop(error)
-                    }
-                },
+                // A poisoned pipeline is rebuilt by the supervisor, not
+                // served: latch unhealthy and shut down once.
+                onFatal: (error) => this.crash(error),
                 onStuck: (error) => {
                     this.stuckError = error
                 },
-                onStuckDrained: (error) => {
-                    if (this.fatalError) {
-                        return
-                    }
-                    this.fatalError = error
-                    setTimeout(() => {
-                        logger.error('🧊', 'Stuck-batch shutdown cleanup timed out, exiting')
-                        process.exit(1)
-                    }, this.config.INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS)
-                    void this.stop(error)
-                },
+                onStuckDrained: (error) => this.crash(error),
             }
         )
         await this.grpcServer.start()
@@ -560,6 +545,20 @@ export class IngestionApiServer implements NodeServer {
             return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
         }
         return new HealthCheckResultOk()
+    }
+
+    private crash(error: Error): void {
+        if (this.fatalError) {
+            return
+        }
+        this.fatalError = error
+        if (this.stuckError) {
+            setTimeout(() => {
+                logger.error('🧊', 'Stuck-batch shutdown cleanup timed out, exiting')
+                process.exit(1)
+            }, this.config.INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS)
+        }
+        void this.stop(error)
     }
 
     private isReady(): HealthCheckResult {
