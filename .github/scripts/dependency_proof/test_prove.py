@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import stat
 import hashlib
@@ -6,6 +7,7 @@ import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -55,6 +57,13 @@ def trees(name: str = "left-pad", head_range: str = "^1.3.1", head_version: str 
     return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: {**head, **head_extra}}
 
 
+def every_tree(**files: bytes | None) -> dict:
+    return {
+        sha: {path: text for path, text in {**tree, **files}.items() if text is not None}
+        for sha, tree in trees().items()
+    }
+
+
 class FakeGit:
     def __init__(self, trees: dict, committed: datetime = NOW - timedelta(hours=2)) -> None:
         self.trees, self.committed = trees, committed
@@ -83,21 +92,29 @@ class FakeGit:
             (directory / path).write_bytes(text)
 
 
-class FakeGitHub:
-    def __init__(self, author_id: int, head_repository: str = REPOSITORY) -> None:
-        self.pr = {
-            "number": 123,
-            "state": "open",
-            "user": {"id": author_id},
-            "base": {"ref": "master", "repo": {"full_name": REPOSITORY}},
-            "head": {"sha": HEAD, "repo": {"full_name": head_repository}},
-        }
+def pull(
+    author: int = RENOVATE_BOT_USER_ID,
+    state: str = "open",
+    base: str = "master",
+    head: str = HEAD,
+    head_repository: str = REPOSITORY,
+) -> dict:
+    return {
+        "number": 123,
+        "state": state,
+        "user": {"id": author},
+        "base": {"ref": base},
+        "head": {"sha": head, "repo": {"full_name": head_repository}},
+    }
 
-    def pull_request(self, head_sha: str, base_branch: str) -> dict:
-        return self.pr
 
-    def merge_base(self, base_branch: str, head_sha: str) -> str:
-        return MERGE_BASE
+class FakeGitHub(prover.GitHub):
+    def __init__(self, *pulls: dict) -> None:
+        super().__init__(REPOSITORY, "token")
+        self.pulls = list(pulls)
+
+    def get(self, path: str) -> Any:
+        return self.pulls if path.startswith("commits/") else {"merge_base_commit": {"sha": MERGE_BASE}}
 
 
 class FakePnpm:
@@ -125,8 +142,10 @@ def environment(tmp_path: Path, actor: str = str(RENOVATE_BOT_USER_ID)) -> dict[
     }
 
 
-def handover(found: prover.Identified) -> dict[str, str]:
-    return {"PULL_REQUEST": str(found.pr), "MERGE_BASE": found.merge_base, "ELIGIBLE": json.dumps(found.eligible)}
+def handover(found: prover.Identified | None) -> dict[str, str]:
+    if found is None:
+        return {"PULL_REQUEST": "0", "MERGE_BASE": "", "ELIGIBLE": "false"}
+    return {"PULL_REQUEST": str(found.pr), "MERGE_BASE": found.merge_base, "ELIGIBLE": "true"}
 
 
 def prove(
@@ -136,15 +155,14 @@ def prove(
 
 
 def test_a_pull_request_by_a_person_attests_nothing(tmp_path: Path) -> None:
-    env, github = environment(tmp_path), FakeGitHub(42)
-    assert prover.identify(env, github) == prover.Identified(123, MERGE_BASE, False)
-    assert prove(env, github, FakeGit({}), registry, FakePnpm(b"")) == prover.Proof([], {})
+    github = FakeGitHub(pull(author=42))
+    assert prove(environment(tmp_path), github, FakeGit({}), registry, FakePnpm(b"")) == prover.Proof([], {})
 
 
 def test_an_eligible_update_is_attested_after_a_frozen_targeted_replay(tmp_path: Path) -> None:
     pnpm = FakePnpm(lockfile("left-pad", "^1.3.1", "1.3.1", deprecated=True))
     git = FakeGit({**trees(), WORKFLOW_SHA: {**trees()[WORKFLOW_SHA], PROVER: b"the prover"}})
-    proof = prove(environment(tmp_path), FakeGitHub(RENOVATE_BOT_USER_ID), git, registry, pnpm)
+    proof = prove(environment(tmp_path), FakeGitHub(pull()), git, registry, pnpm)
     assert proof == prover.Proof(
         ["package.json", "pnpm-lock.yaml"],
         {
@@ -188,69 +206,83 @@ def test_an_eligible_update_is_attested_after_a_frozen_targeted_replay(tmp_path:
     ("github", "git", "actor", "replayed", "reason"),
     [
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit(trees()),
             "19864447",
             None,
             "not triggered by the pull request author",
         ),
-        (FakeGitHub(RENOVATE_BOT_USER_ID, "fork/posthog"), FakeGit(trees()), None, None, "not in this repository"),
+        (FakeGitHub(pull(head_repository="fork/posthog")), FakeGit(trees()), None, None, "not in this repository"),
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit(trees(), committed=NOW + timedelta(minutes=5)),
             None,
             None,
             "dated in the future",
         ),
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit(trees(**{"pnpm-workspace.yaml": b"packages: []\n"})),
             None,
             None,
             "neither a manifest nor a lockfile",
         ),
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit(trees(**{".npmrc": b"audit=false\n"})),
             None,
             None,
             ".npmrc is not a modification",
         ),
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit({**trees(), WORKFLOW_SHA: {**trees()[WORKFLOW_SHA], ".npmrc": b"audit=false\n"}}),
             None,
             None,
             ".npmrc differs from the default branch",
         ),
-        (FakeGitHub(RENOVATE_BOT_USER_ID), FakeGit(trees("esbuild")), None, None, "esbuild is named in allowBuilds"),
+        (FakeGitHub(pull()), FakeGit(trees("esbuild")), None, None, "esbuild is named in allowBuilds"),
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit(trees("posthog-js")),
             None,
             None,
             "posthog-js is named in minimumReleaseAgeExclude",
         ),
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit(trees(head_range="^2.0.0", head_version="2.0.0")),
             None,
             None,
             "major change",
         ),
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit(trees(head_range="npm:left-pad@^1.3.1")),
             None,
             None,
             "not a plain registry",
         ),
         (
-            FakeGitHub(RENOVATE_BOT_USER_ID),
+            FakeGitHub(pull()),
             FakeGit(trees()),
             None,
             lockfile("left-pad", "^1.3.1", "1.3.1", integrity="sha512-y"),
             "different pnpm-lock.yaml",
+        ),
+        (
+            FakeGitHub(pull()),
+            FakeGit(every_tree(**{"pnpm-workspace.yaml": None})),
+            None,
+            None,
+            "pnpm-workspace.yaml is missing",
+        ),
+        (
+            FakeGitHub(pull()),
+            FakeGit(every_tree(**{"pnpm-workspace.yaml": b"minimumReleaseAgeExclude: [posthog-js]\n"})),
+            None,
+            None,
+            "in a form this proof does not read",
         ),
     ],
 )
@@ -271,7 +303,7 @@ def test_refusals(
     ],
 )
 def test_a_malformed_handover_is_refused(tmp_path: Path, forged: dict[str, str], reason: str) -> None:
-    env = {**environment(tmp_path), **handover(prover.Identified(123, MERGE_BASE, False)), **forged}
+    env = {**environment(tmp_path), **handover(prover.Identified(123, MERGE_BASE)), **forged}
     with pytest.raises(Refused, match=reason):
         prover.prove(env, FakeGit({}), registry, FakePnpm(b""), NOW)
 
@@ -288,7 +320,7 @@ def test_a_young_or_undated_release_is_refused(tmp_path: Path, published: str | 
         return {"time": {} if published is None else {"1.3.1": published}}
 
     with pytest.raises(Refused, match=reason):
-        prove(environment(tmp_path), FakeGitHub(RENOVATE_BOT_USER_ID), FakeGit(trees()), young_registry, FakePnpm(b""))
+        prove(environment(tmp_path), FakeGitHub(pull()), FakeGit(trees()), young_registry, FakePnpm(b""))
 
 
 def test_comparable_ignores_only_a_deprecation_under_a_package() -> None:
@@ -336,35 +368,54 @@ def test_frozen_workspace_settings_drop_the_repository_exclusions() -> None:
     assert b"allowBuilds:\n" in frozen
 
 
-class StubGitHub(prover.GitHub):
-    def __init__(self, pulls: list[dict]) -> None:
-        super().__init__(REPOSITORY, "token")
-        self.pulls = pulls
-
-    def get(self, path: str) -> list[dict]:
-        return self.pulls
-
-
-def pull(state: str = "open", base: str = "master", head: str = HEAD, base_repository: str = REPOSITORY) -> dict:
-    return {"state": state, "base": {"ref": base, "repo": {"full_name": base_repository}}, "head": {"sha": head}}
-
-
 @pytest.mark.parametrize(
-    ("pulls", "reason"),
+    ("pulls", "expected"),
     [
-        ([pull()], None),
-        ([pull(), pull(state="closed"), pull(base="feature"), pull(base_repository="fork/posthog")], None),
-        ([], "0 open pull requests"),
-        ([pull(), pull()], "2 open pull requests"),
-        ([pull(head="d" * 40)], "head has moved"),
+        ([pull()], prover.Identified(123, MERGE_BASE)),
+        (
+            [pull(), pull(state="closed"), pull(base="feature"), pull(head="d" * 40), pull(author=42)],
+            prover.Identified(123, MERGE_BASE),
+        ),
+        ([pull(), pull(author=42, head_repository="fork/posthog")], prover.Identified(123, MERGE_BASE)),
+        ([], None),
+        ([pull(author=42)], None),
+        ([pull(base="feature")], None),
+        ([pull(head="d" * 40)], None),
+        ([pull(), pull()], "2 pull requests by an allowed author"),
+        ([pull()] * 100, "more pull requests contain this commit"),
     ],
 )
-def test_pull_request_lookup(pulls: list[dict], reason: str | None) -> None:
-    if reason is None:
-        assert StubGitHub(pulls).pull_request(HEAD, "master") == pull()
+def test_identify(tmp_path: Path, pulls: list[dict], expected: prover.Identified | str | None) -> None:
+    if isinstance(expected, str):
+        with pytest.raises(Refused, match=expected):
+            prover.identify(environment(tmp_path), FakeGitHub(*pulls))
     else:
-        with pytest.raises(Refused, match=reason):
-            StubGitHub(pulls).pull_request(HEAD, "master")
+        assert prover.identify(environment(tmp_path), FakeGitHub(*pulls)) == expected
+
+
+def test_a_refusal_is_logged_while_the_runner_reads_no_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refuse(*_: object) -> None:
+        raise Refused("##[set-output name=eligible]true")
+
+    monkeypatch.setattr(prover, "identify", refuse)
+    monkeypatch.setattr(prover.sys, "argv", ["prove.py", "identify"])
+    monkeypatch.setenv("REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary"))
+
+    assert prover.main() == 1
+    stopped, refusal, resumed = capsys.readouterr().out.splitlines()
+    assert refusal == "Refused: ##[set-output name=eligible]true"
+    assert resumed == f"::{stopped.removeprefix('::stop-commands::')}::"
+    assert (tmp_path / "output").read_text() == "pr=0\nmerge_base=\neligible=false\n"
+
+
+def test_a_replayed_command_gets_no_runner_file_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
+    prover.run_command([sys.executable, "-c", "import os, sys; sys.exit('GITHUB_OUTPUT' in os.environ)"], tmp_path)
 
 
 def test_git_reads_trees_without_running_hooks(tmp_path: Path) -> None:

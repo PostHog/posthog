@@ -159,8 +159,7 @@ jobs:
                   [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || merge_base=""
                   marker="$(jq -cn --argjson files "$files" --argjson blobs "$blobs" --argjson pr "$pr" \
                       --arg head_sha "$HEAD_SHA" --arg merge_base "$merge_base" --arg workflow_sha "$WORKFLOW_SHA" \
-                      '{files: $files, blobs: $blobs, pr: $pr, head_sha: $head_sha, merge_base: $merge_base, workflow_sha: $workflow_sha}' \
-                      | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin)))')"
+                      '{files: $files, blobs: $blobs, pr: $pr, head_sha: $head_sha, merge_base: $merge_base, workflow_sha: $workflow_sha}')"
                   jq -n --arg head_sha "$HEAD_SHA" --arg conclusion "$conclusion" --arg details_url "$RUN_URL" \
                       --arg title "$title" --arg summary "<!-- stamphog:v1 $marker -->" \
                       '{name: "Dependency proof", head_sha: $head_sha, status: "completed", conclusion: $conclusion,
