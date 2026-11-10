@@ -17,7 +17,7 @@ class ApnsRowChange:
     """What one APNs credential row needs, or why it was left alone."""
 
     team_id: int
-    integration_id: str
+    integration_id: str | None
     new_integration_id: str | None = None
     strips_config: bool = False
     strips_signing_key: bool = False
@@ -45,7 +45,7 @@ def sorted_apns_integrations() -> list[IntegrationRecord]:
 
 
 def normalize_one_apns_integration(
-    integration: IntegrationRecord, occupied: dict[tuple[int, str], int], *, dry_run: bool
+    integration: IntegrationRecord, occupied: dict[tuple[int, str | None], int], *, dry_run: bool
 ) -> ApnsRowChange | None:
     config: dict[str, Any] = dict(integration.config or {})
     team_id_apple = config.get("team_id")

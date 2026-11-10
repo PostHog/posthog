@@ -201,4 +201,6 @@ def refresh_backoff_active(integration: "IntegrationRecord") -> bool:
     if integration.config.get("refresh_terminal"):
         return True
     next_attempt_at = integration.config.get("refresh_next_attempt_at")
-    return bool(next_attempt_at) and time.time() < next_attempt_at
+    if not next_attempt_at:
+        return False
+    return time.time() < next_attempt_at

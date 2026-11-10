@@ -483,7 +483,8 @@ class TestBackendsBehaveTheSame(BaseTest):
 
         stored = self._stored(row_id)
         for record in (updated, stored):
-            assert (record.config, record.sensitive_config) == ({"login": "x"}, "raw")
+            sensitive_config: object = record.sensitive_config
+            assert (record.config, sensitive_config) == ({"login": "x"}, "raw")
 
     @parameterized.expand(
         [
