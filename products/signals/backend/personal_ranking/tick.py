@@ -18,23 +18,8 @@ from typing import Any, Literal
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import (
-    BooleanField,
-    Case,
-    Count,
-    DateTimeField,
-    Exists,
-    F,
-    Min,
-    OuterRef,
-    Q,
-    QuerySet,
-    Subquery,
-    Value,
-    When,
-    Window,
-)
-from django.db.models.functions import Coalesce, RowNumber
+from django.db.models import Count, DateTimeField, Exists, F, Min, OuterRef, Q, QuerySet, Subquery, Value, Window
+from django.db.models.functions import Coalesce, Least, RowNumber
 from django.utils import timezone
 
 import structlog
@@ -402,13 +387,15 @@ def select_pairs(
         return TickSelection(pairs=[])
     tick = config.tick
     stale_before = now - datetime.timedelta(minutes=tick.target_interval_minutes)
-    overdue_q = Q(list_at__isnull=True) | Q(list_at__lt=now - datetime.timedelta(minutes=tick.overdue_after_minutes))
+    overdue_before = now - datetime.timedelta(minutes=tick.overdue_after_minutes)
     eligible = _eligible_pairs(tick, now, team_ids)
     due = eligible.filter(Q(list_at__isnull=True) | Q(list_at__lt=stale_before))
     order = (
-        F("overdue").desc(),
-        # Null for a pair that is not overdue, so only the overdue pairs sort by list age here.
-        Case(When(overdue=True, then=F("list_at"))).asc(nulls_first=True),
+        # Overdue pairs sort by list age, with no list first. Every other pair ties at `overdue_before`.
+        # One key, because each reference to `list_at` runs its subquery again.
+        Least(
+            Coalesce("list_at", Value(datetime.datetime.min.replace(tzinfo=datetime.UTC))), Value(overdue_before)
+        ).asc(),
         F("paying").desc(),
         F("last_activity_at").desc(nulls_last=True),
         F("list_at").asc(nulls_first=True),
@@ -416,16 +403,15 @@ def select_pairs(
         "user_id",
     )
     rows = list(
-        due.annotate(overdue=Case(When(overdue_q, then=Value(True)), default=Value(False), output_field=BooleanField()))
-        .annotate(org_rank=Window(RowNumber(), partition_by=[F("organization_id")], order_by=order))
+        due.annotate(org_rank=Window(RowNumber(), partition_by=[F("organization_id")], order_by=order))
         .filter(org_rank__lte=max(1, int(tick.max_org_share * limit)))
         .order_by(*order)
-        .values("id", "team_id", "user_id", "list_at", "overdue")[:limit]
+        .values("id", "team_id", "user_id", "list_at")[:limit]
     )
     due_stats = due.aggregate(
         pairs=Count("id"),
         without_list=Count("id", filter=Q(list_at__isnull=True)),
-        overdue=Count("id", filter=overdue_q),
+        overdue_with_list=Count("id", filter=Q(list_at__lt=overdue_before)),
         oldest=Min("list_at"),
     )
     eligible_stats = eligible.aggregate(pairs=Count("id"), fresh=Count("id", filter=Q(list_at__gte=stale_before)))
@@ -442,8 +428,8 @@ def select_pairs(
         pairs=[TickPair(team_id=row["team_id"], user_id=row["user_id"]) for row in rows],
         due_pairs=due_stats["pairs"],
         due_without_list=due_stats["without_list"],
-        due_overdue=due_stats["overdue"],
-        picked_overdue=sum(row["overdue"] for row in rows),
+        due_overdue=due_stats["without_list"] + due_stats["overdue_with_list"],
+        picked_overdue=sum(row["list_at"] is None or row["list_at"] < overdue_before for row in rows),
         oldest_due_hours=_hours_since(now, due_stats["oldest"]),
         oldest_due_activity_hours=_hours_since(now, oldest_pair["last_activity_at"]) if oldest_pair else None,
         oldest_due_summary_hours=_hours_since(now, oldest_pair["generated_at"]) if oldest_pair else None,
