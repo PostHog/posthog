@@ -17,6 +17,7 @@ from posthog.management.commands.resave_cohorts import IncompleteResaveError
 from posthog.utils import pluralize
 
 from products.cohorts.backend.facade.api import (
+    MAX_STATIC_COHORT_RESYNCS,
     StaticCohortResyncCandidate,
     StaticCohortResyncSkipReason,
     get_static_cohort_resync_candidates,
@@ -109,8 +110,6 @@ def resave_cohorts(request: HttpRequest, form: forms.Form | None) -> HttpRespons
 
 
 class ResyncStaticCohortsForm(forms.Form):
-    MAX_COHORTS = 100
-
     cohorts = forms.CharField(
         label="Cohort IDs",
         widget=forms.Textarea(attrs={"rows": 4}),
@@ -125,8 +124,8 @@ class ResyncStaticCohortsForm(forms.Form):
         tokens = re.findall(r"[^,\s]+", self.cleaned_data["cohorts"])
         if not tokens:
             raise forms.ValidationError("Enter at least one cohort ID.")
-        if len(tokens) > self.MAX_COHORTS:
-            raise forms.ValidationError(f"Enter {self.MAX_COHORTS} cohort IDs or fewer.")
+        if len(tokens) > MAX_STATIC_COHORT_RESYNCS:
+            raise forms.ValidationError(f"Enter {MAX_STATIC_COHORT_RESYNCS} cohort IDs or fewer.")
         cohort_ids: list[int] = []
         for token in tokens:
             try:

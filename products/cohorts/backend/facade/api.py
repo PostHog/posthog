@@ -67,6 +67,9 @@ def add_person_to_static_cohort(*, team_id: int, cohort_id: int, person_uuid: st
 
 StaticCohortResyncSkipReason = Literal["not_found", "not_static", "no_source_query"]
 
+# One re-sync request covers at most this many cohorts, from the console form or the Django admin action.
+MAX_STATIC_COHORT_RESYNCS = 100
+
 
 @frozen
 class StaticCohortResyncCandidate:

@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.admin.admins.cohort_admin import CohortAdmin
 from posthog.management.commands.resave_cohorts import UnclassifiedCohortsError
 
-from products.cohorts.backend.console import MAX_OUTPUT_LINES, ResyncStaticCohortsForm
+from products.cohorts.backend.console import MAX_OUTPUT_LINES
 from products.cohorts.backend.models.cohort import Cohort
 
 RUN_URL = "/admin/console/tools/resave-cohorts/run/"
@@ -162,7 +162,7 @@ class TestResaveCohortsTool(BaseTest):
         admin = CohortAdmin(Cohort, site)
 
         with (
-            patch.object(ResyncStaticCohortsForm, "MAX_COHORTS", max_cohorts),
+            patch("posthog.admin.admins.cohort_admin.MAX_STATIC_COHORT_RESYNCS", max_cohorts),
             patch.object(admin, "message_user") as message_user,
         ):
             response = admin.resync_static_cohort(

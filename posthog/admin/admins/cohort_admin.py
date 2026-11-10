@@ -5,7 +5,7 @@ from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html
 
-from products.cohorts.backend.console import ResyncStaticCohortsForm
+from products.cohorts.backend.facade.api import MAX_STATIC_COHORT_RESYNCS
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -40,10 +40,10 @@ class CohortAdmin(admin.ModelAdmin):
     @admin.action(description="Re-sync static cohort from source query")
     def resync_static_cohort(self, request, queryset):
         # The confirm step lives in PostHog Admin, which previews the cohorts and asks for a reason.
-        if queryset.count() > ResyncStaticCohortsForm.MAX_COHORTS:
+        if queryset.count() > MAX_STATIC_COHORT_RESYNCS:
             self.message_user(
                 request,
-                f"Pick {ResyncStaticCohortsForm.MAX_COHORTS} cohorts or fewer to re-sync them.",
+                f"Pick {MAX_STATIC_COHORT_RESYNCS} cohorts or fewer to re-sync them.",
                 level=messages.ERROR,
             )
             return None
