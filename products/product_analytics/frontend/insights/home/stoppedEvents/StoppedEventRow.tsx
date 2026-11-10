@@ -13,7 +13,12 @@ import { urls } from 'scenes/urls'
 import { SavedInsightsTabs } from '~/types'
 
 import { stoppedEventsLogic } from './stoppedEventsLogic'
-import { stoppedEventAnnotationText, stoppedEventLastSeen, stoppedEventPayload } from './stoppedEventText'
+import {
+    stoppedEventAnnotationText,
+    stoppedEventLastCapture,
+    stoppedEventLastSeen,
+    stoppedEventPayload,
+} from './stoppedEventText'
 
 export function StoppedEventRow({ issue }: { issue: HealthIssue }): JSX.Element {
     const { postHogAIOpen } = useValues(stoppedEventsLogic)
@@ -21,6 +26,7 @@ export function StoppedEventRow({ issue }: { issue: HealthIssue }): JSX.Element 
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const payload = stoppedEventPayload(issue)
     const annotation = stoppedEventAnnotationText(payload)
+    const lastCapture = stoppedEventLastCapture(payload)
 
     return (
         <li
@@ -41,6 +47,11 @@ export function StoppedEventRow({ issue }: { issue: HealthIssue }): JSX.Element 
                         {pluralize(payload.insight_count, 'insight')}
                     </Link>
                 </Text>
+                {lastCapture && (
+                    <Text size="xs" variant="muted" render={<span />} className="break-all">
+                        {lastCapture}
+                    </Text>
+                )}
                 {annotation && (
                     <Text size="xs" variant="muted" render={<span />}>
                         {annotation}

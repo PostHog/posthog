@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import type { HealthIssue } from 'scenes/health/types'
 
@@ -9,6 +10,9 @@ export interface StoppedEventPayload {
     last_seen_at: string
     insight_count: number
     annotation?: { content: string; marked_at: string }
+    daily_average_before?: number
+    last_lib?: string
+    last_path?: string
 }
 
 export function stoppedEventPayload(issue: HealthIssue): StoppedEventPayload {
@@ -17,7 +21,21 @@ export function stoppedEventPayload(issue: HealthIssue): StoppedEventPayload {
 
 export function stoppedEventLastSeen(payload: StoppedEventPayload, now: dayjs.Dayjs = dayjs()): string {
     const days = Math.max(1, now.diff(dayjs(payload.last_seen_at), 'day'))
-    return `Last seen ${pluralize(days, 'day')} ago`
+    const lastSeen = `Last seen ${pluralize(days, 'day')} ago`
+    return payload.daily_average_before
+        ? `${lastSeen}, down from about ${humanFriendlyLargeNumber(payload.daily_average_before)} a day`
+        : lastSeen
+}
+
+/** Where the last events came from, to help find the code that stopped sending it. */
+export function stoppedEventLastCapture(payload: StoppedEventPayload): string | null {
+    if (payload.last_lib && payload.last_path) {
+        return `Last sent by ${payload.last_lib} on ${payload.last_path}`
+    }
+    if (payload.last_lib) {
+        return `Last sent by ${payload.last_lib}`
+    }
+    return null
 }
 
 export function stoppedEventAnnotationText(payload: StoppedEventPayload): string | null {
@@ -30,6 +48,14 @@ export function stoppedEventAnnotationText(payload: StoppedEventPayload): string
 export function stoppedEventPrompt(payload: StoppedEventPayload): string {
     const lines = [
         `The event "${payload.event}" stopped arriving in this project. It was last seen at ${payload.last_seen_at}, and ${pluralize(payload.insight_count, 'saved insight')} read it.`,
+        ...(payload.daily_average_before
+            ? [`In the week before it stopped, it arrived about ${payload.daily_average_before} times a day.`]
+            : []),
+        ...(payload.last_lib
+            ? [
+                  `The last events came from the ${payload.last_lib} SDK${payload.last_path ? ` on ${payload.last_path}` : ''}.`,
+              ]
+            : []),
         'Find out why it stopped. Check whether a similar event started arriving at the same time, which would mean it was renamed, and which insights still read the old name.',
     ]
     if (payload.annotation) {

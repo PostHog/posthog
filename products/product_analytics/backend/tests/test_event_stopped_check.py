@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -15,12 +15,24 @@ from products.annotations.backend.facade.api import create_project_annotation
 from products.event_definitions.backend.models import EventDefinition
 from products.notifications.backend.facade.api import NotificationType, TargetType
 from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.temporal.health_checks.event_stopped import EventStoppedCheck
+from products.product_analytics.backend.temporal.health_checks.event_stopped import (
+    EventStoppedCheck,
+    daily_average_before,
+)
 
 NOTIFY_PATH = "products.product_analytics.backend.temporal.health_checks.event_stopped.create_notification"
+CLICKHOUSE_PATH = (
+    "products.product_analytics.backend.temporal.health_checks.event_stopped.execute_clickhouse_health_team_query"
+)
 
 
 class TestEventStoppedDetect(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        clickhouse = patch(CLICKHOUSE_PATH, return_value=[])
+        self.clickhouse = clickhouse.start()
+        self.addCleanup(clickhouse.stop)
+
     def _definition(self, name: str, *, last_seen_days_ago: float, created_days_ago: float = 60, **extra: Any):
         now = timezone.now()
         return EventDefinition.objects.create(
@@ -92,6 +104,7 @@ class TestEventStoppedDetect(BaseTest):
         assert result.payload["event_definition_id"] == str(stopped.id)
         assert result.payload["insight_count"] == 1
         assert "annotation" not in result.payload
+        assert "daily_average_before" not in result.payload
         assert result.hash_keys == ["event"]
 
     @parameterized.expand(
@@ -116,6 +129,47 @@ class TestEventStoppedDetect(BaseTest):
         payload = EventStoppedCheck().detect([self.team.id])[self.team.id][0].payload
 
         assert payload.get("annotation", {}).get("content") == expected_content
+
+    @parameterized.expand([("clickhouse_answers", False), ("clickhouse_fails", True)])
+    def test_detect_adds_last_activity_from_clickhouse(self, _name: str, clickhouse_fails: bool) -> None:
+        stopped = self._definition("checkout_completed", last_seen_days_ago=5)
+        self._definition("still_firing", last_seen_days_ago=0)
+        self._insight_reading("checkout_completed")
+        last_day = stopped.last_seen_at.date()
+        daily_rows = [("checkout_completed", last_day - timedelta(days=offset), 700) for offset in range(1, 8)]
+        last_capture_rows = [("checkout_completed", "web", "/checkout/confirm")]
+        if clickhouse_fails:
+            self.clickhouse.side_effect = RuntimeError("clickhouse down")
+        else:
+            self.clickhouse.side_effect = [daily_rows, last_capture_rows]
+
+        payload = EventStoppedCheck().detect([self.team.id])[self.team.id][0].payload
+
+        if clickhouse_fails:
+            assert payload["event"] == "checkout_completed"
+            assert "daily_average_before" not in payload
+            return
+        assert payload["daily_average_before"] == 700
+        assert payload["last_lib"] == "web"
+        assert payload["last_path"] == "/checkout/confirm"
+
+
+class TestDailyAverageBefore(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("steady_week", dict.fromkeys(range(1, 8), 700), 700),
+            ("partial_last_day_is_left_out", {0: 5, **dict.fromkeys(range(1, 8), 700)}, 700),
+            ("quiet_days_count_as_zero", {1: 700}, 100),
+            ("older_than_the_week_is_left_out", {8: 7000}, 0),
+        ]
+    )
+    def test_daily_average_before(self, _name: str, counts_by_days_before: dict[int, int], expected: int) -> None:
+        last_seen_at = datetime(2026, 11, 5, 9, tzinfo=UTC)
+        day_counts: dict[date, int] = {
+            last_seen_at.date() - timedelta(days=offset): count for offset, count in counts_by_days_before.items()
+        }
+
+        assert daily_average_before(day_counts, last_seen_at) == expected
 
 
 class TestEventStoppedNotification(SimpleTestCase):

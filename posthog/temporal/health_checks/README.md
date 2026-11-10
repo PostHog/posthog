@@ -226,6 +226,7 @@ rows = execute_clickhouse_health_team_query(
 | `lookback_days` | `int \| None`               | `None`  | If set, available as `%(lookback_days)s` in SQL. Must be > 0         |
 | `params`        | `Mapping[str, Any] \| None` | `None`  | Extra query params. Cannot override `team_ids` or `lookback_days`    |
 | `settings`      | `Mapping[str, Any] \| None` | `None`  | ClickHouse settings overrides                                        |
+| `workload`      | `Workload \| None`          | `None`  | ClickHouse workload. Unset keeps `sync_execute`'s default            |
 
 Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 

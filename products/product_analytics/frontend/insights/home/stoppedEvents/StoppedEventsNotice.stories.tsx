@@ -46,6 +46,9 @@ export const SeveralEvents: Story = {
                 event_definition_id: 'def-1',
                 last_seen_at: '2026-11-05T09:00:00Z',
                 insight_count: 4,
+                daily_average_before: 1240,
+                last_lib: 'web',
+                last_path: '/checkout/confirm',
                 annotation: { content: 'Released checkout v2', marked_at: '2026-11-05T08:00:00Z' },
             }),
             issue('2', {
