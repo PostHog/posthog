@@ -120,7 +120,9 @@ class TestSyncMCPCatalog(TestCase):
                 "groups:history",
                 "groups:read",
                 "im:history",
+                "im:read",
                 "mpim:history",
+                "mpim:read",
             )
             assert not set(extra_scopes) & set(entry.oauth_scope_allowlist)
             expected_scopes = (*entry.oauth_scope_allowlist, *extra_scopes)

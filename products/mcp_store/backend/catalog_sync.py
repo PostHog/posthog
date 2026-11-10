@@ -212,7 +212,9 @@ _SLACK_DEV_EXTRA_SCOPES = (
     "groups:history",
     "groups:read",
     "im:history",
+    "im:read",
     "mpim:history",
+    "mpim:read",
 )
 
 
