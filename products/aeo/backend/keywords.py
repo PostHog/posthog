@@ -282,14 +282,24 @@ def check_modifiers(prompt_text: str, searches: Iterable[str]) -> dict[str, str]
         for token in tokens:
             if _is_word(token) and token not in vocabulary:
                 found.setdefault(token, search)
-        for first, second in _phrases(tokens):
-            if first not in vocabulary and second not in vocabulary:
-                found.setdefault(f"{first} {second}", search)
+        for phrase in _phrases(tokens):
+            if phrase.first not in vocabulary and phrase.second not in vocabulary:
+                found.setdefault(f"{phrase.first} {phrase.second}", search)
     return found
 
 
-def _phrases(tokens: list[str]) -> list[tuple[str, str]]:
-    return [(first, second) for first, second in zip(tokens, tokens[1:]) if _is_word(first) and _is_word(second)]
+@frozen
+class _Phrase:
+    first: str
+    second: str
+
+
+def _phrases(tokens: list[str]) -> list[_Phrase]:
+    return [
+        _Phrase(first=first, second=second)
+        for first, second in zip(tokens, tokens[1:])
+        if _is_word(first) and _is_word(second)
+    ]
 
 
 def modifier_kind(term: str, competitor_names: frozenset[str]) -> ModifierKind:
