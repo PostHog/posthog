@@ -164,6 +164,8 @@ JavaScript releases work in two modes, as in posthog-cli:
 - `event`, the default, puts the release in the snippet hog adds to each bundle, so every event carries it. Chunk IDs come from the bundle content, so the same build gets the same IDs.
 - `symbol-set` puts the release in the sourcemap, and gives a bundle a new random chunk ID when its release changes.
 
+Release names and versions default to Git or supported CI metadata when omitted. Without that metadata, incomplete coordinates do not stop a build: `hog error-tracking release` returns `null`, and JavaScript and Hermes symbols can upload without a release. Symbol-set uploads warn when they cannot associate the symbols with a release. Pass both `--release-name` and `--release-version` to associate them in a Git-free build. Git read failures needed to complete the coordinates and release API failures still stop the command.
+
 React Native with Hermes takes three steps, because the Hermes build runs between them:
 
 ```bash

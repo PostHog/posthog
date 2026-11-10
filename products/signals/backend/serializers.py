@@ -57,6 +57,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.hybrid_search import SearchMode
 from products.signals.backend.report_check_monitoring_timing import (
     MonitoringCheckTiming,
     MonitoringCheckTimingState as MonitoringCheckTimingPhase,
@@ -79,6 +80,11 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
+from products.signals.backend.report_search import (
+    DEFAULT_LIMIT as REPORT_SEARCH_DEFAULT_LIMIT,
+    MAX_LIMIT as REPORT_SEARCH_MAX_LIMIT,
+    ReportMatchKind,
+)
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.signals.backend.source_issues import source_issues_by_report
@@ -467,6 +473,69 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+# Wider than the stored limits, so a list over them still reads back as a field error instead of a 400.
+_ALERT_PATTERN_PREVIEW_MAX_COUNT = 100
+_ALERT_PATTERN_PREVIEW_MAX_LENGTH = 1000
+
+
+class AlertPatternPreviewOutcome(TextChoices):
+    PASSED = "passed", "passed"
+    BLOCKED = "blocked", "blocked"
+    NOT_ALLOWED = "not_allowed", "not_allowed"
+
+
+class AlertPatternPreviewRequestSerializer(serializers.Serializer):
+    alert_allow_patterns = serializers.ListField(
+        child=serializers.CharField(max_length=_ALERT_PATTERN_PREVIEW_MAX_LENGTH, trim_whitespace=False),
+        max_length=_ALERT_PATTERN_PREVIEW_MAX_COUNT,
+        required=False,
+        default=list,
+        help_text="Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.",
+    )
+    alert_block_patterns = serializers.ListField(
+        child=serializers.CharField(max_length=_ALERT_PATTERN_PREVIEW_MAX_LENGTH, trim_whitespace=False),
+        max_length=_ALERT_PATTERN_PREVIEW_MAX_COUNT,
+        required=False,
+        default=list,
+        help_text="Block patterns to try, as they would be saved in `config.alert_block_patterns`.",
+    )
+
+
+class AlertPatternPreviewAlertSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The alert's id.")
+    name = serializers.CharField(help_text="The alert's name. Empty when the alert has no name.")
+    insight_name = serializers.CharField(
+        allow_null=True, help_text="The insight's name, or its derived name when it has none."
+    )
+    insight_short_id = serializers.CharField(help_text="Short id of the insight the alert watches.")
+    outcome = serializers.ChoiceField(
+        choices=AlertPatternPreviewOutcome.choices,
+        help_text=(
+            "`passed` when the patterns let the alert through, `blocked` when it matches a block pattern, and "
+            "`not_allowed` when allow patterns are set and it matches none of them."
+        ),
+    )
+
+
+class AlertPatternPreviewResponseSerializer(serializers.Serializer):
+    alert_allow_patterns_error = serializers.CharField(
+        allow_null=True,
+        help_text="Why the allow patterns could not be saved, or null when they are valid.",
+    )
+    alert_block_patterns_error = serializers.CharField(
+        allow_null=True,
+        help_text="Why the block patterns could not be saved, or null when they are valid.",
+    )
+    alerts = AlertPatternPreviewAlertSerializer(
+        many=True,
+        help_text=(
+            "The project's enabled alerts on insights you can view, newest first, each with what the patterns do to "
+            "it. Empty while either pattern list has an error."
+        ),
+    )
+    has_more = serializers.BooleanField(help_text="True when the project has more enabled alerts than `alerts` lists.")
+
+
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
 # not use. Bounding it caps the per-write activity-log row (which stores the full before/after map)
 # and the request body a caller can push through this field.
@@ -709,6 +778,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "autostart_enabled",
             "default_autostart_priority",
             "default_slack_notification_channel",
+            "default_slack_notification_min_priority",
             "default_slack_notification_integration",
             "autostart_base_branches",
             "scout_instructions",
@@ -752,7 +822,17 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                     "Null means no team-level default; per-user channels still apply."
                 )
             },
+            "default_slack_notification_min_priority": {
+                "help_text": (
+                    "Minimum report priority for the project's team Slack channel. P0 is highest. "
+                    "Null includes all reports, including reports without a priority. "
+                    "A set threshold excludes reports without a priority. Personal notification settings are separate."
+                )
+            },
         }
+
+    def validate_default_slack_notification_min_priority(self, value: str) -> str | None:
+        return value or None
 
     def validate_default_slack_notification_integration(self, value: IntegrationRecord | None) -> int | None:
         return value.id if value is not None else None
@@ -1604,6 +1684,89 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
             "report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get "
             "the stored list quickly. A new report then joins the list at the next scheduled build."
         ),
+    )
+
+
+class SignalReportSearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        max_length=1000,
+        trim_whitespace=True,
+        help_text=(
+            "What to look for: natural language, such as a description of the issue, or an exact string, such as "
+            "an error message or an entity name."
+        ),
+    )
+    search_mode = serializers.ChoiceField(
+        choices=SearchMode.choices,
+        default=SearchMode.HYBRID,
+        help_text=(
+            "`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 "
+            "when the semantic search fails. `keyword` requires every query word in the title or the summary. "
+            "Words such as `a` or `is` are too short to look up, so the keyword search leaves them out."
+        ),
+    )
+    status = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, "
+            "ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included."
+        ),
+    )
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that authored it "
+            "turned off its `inbox` output destination. Defaults to false."
+        ),
+    )
+    created_after = serializers.DateTimeField(
+        required=False, help_text="ISO 8601 datetime. Keeps reports created at or after this time."
+    )
+    limit = serializers.IntegerField(
+        min_value=1,
+        max_value=REPORT_SEARCH_MAX_LIMIT,
+        default=REPORT_SEARCH_DEFAULT_LIMIT,
+        help_text="The most results to return, best match first.",
+    )
+
+
+class SignalReportSearchHitSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The report id. Pass it to inbox-reports-retrieve for the full report.")
+    title = serializers.CharField(allow_null=True, help_text="The report title.")
+    status = serializers.ChoiceField(choices=SignalReport.Status.choices, help_text="The report status.")
+    priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices, allow_null=True, help_text="The report priority, P0 to P4, or null."
+    )
+    updated_at = serializers.DateTimeField(help_text="When the report last changed.")
+    summary_snippet = serializers.CharField(
+        help_text=(
+            "A short excerpt of the summary, around the first query word it holds, or the summary's opening when "
+            "it holds none."
+        )
+    )
+    dismissal_reason = serializers.CharField(
+        allow_null=True, help_text="The reason code from the latest dismissal of the report, or null."
+    )
+    dismissal_note = serializers.CharField(
+        allow_null=True, help_text="The note a person wrote with the latest dismissal, or null."
+    )
+    match_kinds = serializers.ListField(
+        child=serializers.ChoiceField(choices=ReportMatchKind.choices),
+        help_text="How the report matched: `keyword`, `semantic`, or both.",
+    )
+    score = serializers.FloatField(
+        help_text="The reciprocal rank fusion score. Higher is a better match. Compare it only within one response."
+    )
+
+
+class SignalReportSearchResponseSerializer(serializers.Serializer):
+    results = SignalReportSearchHitSerializer(many=True, help_text="The matching reports, best match first.")
+    semantic_available = serializers.BooleanField(
+        help_text=(
+            "False when the results come from keywords only: a `keyword` search, or a `hybrid` search whose "
+            "semantic search failed."
+        )
     )
 
 

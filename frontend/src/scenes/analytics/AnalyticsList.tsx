@@ -40,9 +40,10 @@ import { urls } from 'scenes/urls'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
-import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
+import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'

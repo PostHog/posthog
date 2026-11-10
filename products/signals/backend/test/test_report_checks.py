@@ -1235,6 +1235,114 @@ class TestReportCheckExecution(APIBaseTest):
             due = collect_due_checks(now, limit=2)
         assert other_check.id in {check.id for check in due}
 
+    @parameterized.expand(
+        [("protected", 2, 1), ("priority", 8, 6), ("spare", 8, 6, 0), ("empty", 3, 0), ("zero", 0, 1), ("single", 1, 1)]
+    )
+    @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
+    def test_interim_capacity_is_separate_from_older_legacy_agents(
+        self, _name: str, limit: int, metric_count: int, legacy_count: int = 8
+    ) -> None:
+        now = timezone.now()
+        metrics = []
+        for index in range(metric_count):
+            report = SignalReport.objects.create(
+                team=self.team,
+                status=SignalReport.Status.MONITORING,
+                monitoring_started_at=now - timedelta(days=1),
+                title=f"Metric fix {index}",
+            )
+            metrics.append(self._monitoring_check(start=now - timedelta(days=1), report=report))
+        legacy_organization = Organization.objects.create(name="Legacy checks")
+        for index in range(legacy_count):
+            team = Team.objects.create(organization=legacy_organization, name=f"Legacy project {index}")
+            report = SignalReport.objects.create(team=team, status=SignalReport.Status.RESOLVED, title="Checkout fix")
+            LLMSkill.objects.create(team=team, name=FALLBACK_CHECK_SKILL_NAME, body="Verify checkout errors.")
+            SignalScoutConfig.objects.for_team(team.id).create(
+                team_id=team.id, skill_name=FALLBACK_CHECK_SKILL_NAME, enabled=False
+            )
+            self._check(
+                team=team,
+                report=report,
+                kind=SignalReportCheck.Kind.AGENT,
+                config={"instructions": "Verify checkout errors stopped."},
+                next_run_at=now - timedelta(days=2),
+            )
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false",
+                side_effect=lambda _flag, organization_id, **_kwargs: organization_id == str(self.organization.id),
+            ),
+            patch(
+                "products.signals.backend.scout_harness.run_gates._read_flag_payload",
+                return_value={"guaranteed_team_ids": list(legacy_organization.teams.values_list("id", flat=True))},
+            ),
+            patch(
+                "products.signals.backend.report_check_monitoring.measure_metric",
+                return_value=MetricMeasurement(value=8, measured_at=now, series=None),
+            ),
+        ):
+            summary = run_due_report_checks(now=now, limit=limit)
+        assert summary.observed == min(metric_count, limit)
+        assert summary.deferred == min(legacy_count, limit - summary.observed)
+        assert summary.dispatched == summary.errored == 0
+        assert SignalReportArtefact.objects.filter(team=self.team, type="check_observation").count() == summary.observed
+        for metric in metrics:
+            metric.refresh_from_db()
+            assert metric.runs_remaining == 1 and metric.last_outcome is None
+
+    @parameterized.expand([("slots", 1, 2), ("time", 1, 2), ("reservation_cap", 6, 6)])
+    @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
+    def test_final_verification_cannot_spend_reserved_interim_capacity(
+        self, exhausted: str, interim_count: int, limit: int
+    ) -> None:
+        now = timezone.now()
+        interim = self._monitoring_check(start=now - timedelta(days=1))
+        for index in range(1, interim_count):
+            report = SignalReport.objects.create(
+                team=self.team,
+                status=SignalReport.Status.MONITORING,
+                monitoring_started_at=now - timedelta(days=1),
+                title=f"Metric fix {index}",
+            )
+            self._monitoring_check(start=now - timedelta(days=1), report=report)
+        finals = []
+        for index in range(2):
+            report = SignalReport.objects.create(
+                team=self.team, status=SignalReport.Status.READY, title=f"Payment fix {index}"
+            )
+            finals.append(self._check(report=report, config=_replacement_config(), soak_minutes=60, next_run_at=now))
+        elapsed = 0.0
+
+        def measure_final(_query: object, _team: Team, *, deadline: float, **_kwargs: object) -> MetricMeasurement:
+            nonlocal elapsed
+            interim.refresh_from_db()
+            assert interim.last_run_at is None
+            if exhausted == "time":
+                elapsed = deadline
+            return MetricMeasurement(value=1, measured_at=now, series=None)
+
+        def measure_interim(_query: object, _team: Team, *, deadline: float, **_kwargs: object) -> MetricMeasurement:
+            assert (
+                SignalReportMonitoringResult.objects.for_team(self.team.id).filter(report_check__in=finals).count() == 1
+            )
+            assert deadline - elapsed >= 40
+            return MetricMeasurement(value=8, measured_at=now, series=None)
+
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch("time.monotonic", side_effect=lambda: elapsed),
+            patch("products.signals.backend.report_check_metric_evaluation.measure_metric", side_effect=measure_final),
+            patch("products.signals.backend.report_check_monitoring.measure_metric", side_effect=measure_interim),
+        ):
+            for final in finals:
+                complete_implementation(
+                    team_id=self.team.id, report_id=final.report_id, monitoring_started_at=now - timedelta(hours=2)
+                )
+            summary = run_due_report_checks(now=now, limit=limit)
+        assert summary.passed == 1
+        assert summary.observed == min(interim_count, limit - 1)
+        assert summary.errored == summary.deferred == 0
+
     def test_a_check_riding_a_report_metric_measures_that_metric(self) -> None:
         self.report.metrics = [
             {

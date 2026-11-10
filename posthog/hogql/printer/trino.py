@@ -1603,6 +1603,14 @@ class TrinoPrinter(PostgresPrinter):
                 table_type = value_type.table_type
                 if isinstance(table_type, ast.CTETableAliasType):
                     table_type = table_type.cte_table_type
+                if isinstance(table_type, ast.SelectViewType) and table_type.select_query_type.has_child(
+                    value_type.name, self.context
+                ):
+                    # An inlined view prints its body. ClickHouse types a comparison or AND there as UInt8, so the
+                    # view's saved columns record an integer, but Trino types the same expression as boolean.
+                    body_type = table_type.select_query_type.resolve_column_constant_type(value_type.name, self.context)
+                    if isinstance(body_type, ast.BooleanType):
+                        return body_type
                 select_type: ast.Type | None = None
                 if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
                     select_type = table_type.select_query_type

@@ -29,10 +29,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.flag_evaluations import (
-    EVENTS_LIST_JOINED_FIELDS,
-    add_events_list_fields_to_flag_evaluations,
-)
+from posthog.hogql.database.schema.flag_evaluations import EVENTS_LIST_JOINED_FIELDS, join_persons_to_flag_evaluations
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
@@ -493,7 +490,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return modifiers is None or modifiers.personsOnEventsMode not in STORED_PERSON_PROPERTIES_MODES
 
     def _query_modifiers(self, table: EventsListTable) -> HogQLQueryModifiers:
-        # add_events_list_fields_to_flag_evaluations makes `person` a persons join. A person filter therefore joins persons.
+        # join_persons_to_flag_evaluations makes `person` a persons join. A person filter therefore joins persons.
         # The pushdown limits that join to the persons that the page's flag calls reach.
         # An explicit personIdPushdown value on the team or the query still wins.
         if self._adds_persons_join(table) and self.modifiers.personIdPushdown is None:
@@ -504,7 +501,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         context = self.build_hogql_context()
         assert context.database is not None
         if self._adds_persons_join(table):
-            add_events_list_fields_to_flag_evaluations(context.database)
+            join_persons_to_flag_evaluations(context.database)
         return context
 
     def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
