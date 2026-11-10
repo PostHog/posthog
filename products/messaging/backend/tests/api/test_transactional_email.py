@@ -1049,7 +1049,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         body = response.json()
         assert (body["type"], body["code"], body["attr"]) == ("invalid_request", code, attr)
-        assert body["why"] and fix in body["fix"]
+        assert body["why"] == pipeline_body.get("reason", body["why"]) and body["why"]
+        assert fix in body["fix"]
 
     @parameterized.expand(
         [
