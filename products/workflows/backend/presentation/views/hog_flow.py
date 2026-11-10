@@ -181,6 +181,7 @@ from products.workflows.backend.facade.blast_radius import (
     get_audience_size,
     is_account_audience,
     parse_account_audience_filters,
+    reject_unsupported_group_conditions_in_audience,
 )
 from products.workflows.backend.facade.broadcast_conversion import (
     BROADCAST_CONVERSION_CANDIDATE_LIMIT,
@@ -649,6 +650,13 @@ def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
+
+
+def _audience_property_types(filters: dict | None) -> list[str]:
+    try:
+        return sorted({prop.type for prop in parse_property_group_data((filters or {}).get("properties")).flat})
+    except (ValueError, exceptions.ValidationError):
+        return []
 
 
 def _validation_error_message(error: exceptions.ValidationError) -> str:
@@ -2094,6 +2102,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         parse_account_audience_filters(filters)
                     else:
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
+                        reject_unsupported_group_conditions_in_audience(
+                            self.context["get_team"](), filters, getattr(self.context.get("request"), "user", None)
+                        )
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
                 # per call, so the trigger has nothing to configure.
@@ -2105,6 +2116,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=False)
+                        reject_unsupported_group_conditions_in_audience(
+                            self.context["get_team"](), filters, getattr(self.context.get("request"), "user", None)
+                        )
             elif data.get("config", {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES:
                 # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
                 # per synced row, filtering only against the row payload. The table_name must match
@@ -6911,6 +6925,7 @@ class HogFlowViewSet(
             )
 
         reject_flag_conditions_in_audience(self.team, filters)
+        reject_unsupported_group_conditions_in_audience(self.team, filters, request.user)
 
         size = get_audience_size(
             team_id=self.team_id,
@@ -7505,7 +7520,14 @@ class HogFlowViewSet(
                 # caller-supplied filters are never what actually runs.
                 filters=hog_flow.trigger_filters,
             )
-            self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
+            self._report_workflow_action(
+                "hog_flow_batch_job_created",
+                hog_flow,
+                {
+                    "batch_job_id": str(batch_job.id),
+                    "audience_property_types": _audience_property_types(hog_flow.trigger_filters),
+                },
+            )
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
             batch_jobs = list_batch_jobs(team_id=self.team_id, hog_flow_id=hog_flow.id)

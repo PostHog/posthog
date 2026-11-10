@@ -54,7 +54,12 @@ import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_an
 import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
-import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
+import {
+    HogFlowEventFilters,
+    HogFlowPropertyFilters,
+    useAccountPropertiesGroupType,
+    WORKFLOW_OPERATOR_ALLOWLIST,
+} from '../filters/HogFlowFilters'
 import {
     PERSON_FREQUENCY_OPTIONS,
     TriggerFrequencyOption,
@@ -739,9 +744,10 @@ function StepTriggerConfigurationBatch({
     }
     const { blastRadius } = useValues(batchTriggerLogic(logicProps))
 
+    const accountGroupTypeIndex = currentTeam?.customer_analytics_config?.account_group_type_index
     const accountAudienceAvailable =
-        !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] &&
-        currentTeam?.customer_analytics_config?.account_group_type_index != null
+        !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && accountGroupTypeIndex != null
+    const accountPropertiesGroupType = useAccountPropertiesGroupType()
     const isAccountAudience = config.filters.audience_type === 'accounts'
 
     return (
@@ -791,6 +797,7 @@ function StepTriggerConfigurationBatch({
                         }
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.PersonProperties,
+                            ...(accountPropertiesGroupType ? [accountPropertiesGroupType] : []),
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Metadata,
                         ]}

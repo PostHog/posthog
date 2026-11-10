@@ -17,7 +17,10 @@ import { ActorsQuery, DataTableNode, NodeKind, ProductKey } from '~/queries/sche
 import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
-import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
+import {
+    useAccountPropertiesGroupType,
+    WORKFLOW_OPERATOR_ALLOWLIST,
+} from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
@@ -164,6 +167,10 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 
 export function BroadcastRecipientsStep(): JSX.Element {
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
+    const accountPropertiesGroupType = useAccountPropertiesGroupType()
+    const filterOptions = accountPropertiesGroupType
+        ? 'person properties, account properties, or cohorts'
+        : 'person properties or cohorts'
     const { audienceProperties, linkAudienceRejected, blastRadius, channel } = useValues(broadcastWizardLogic)
     // A realtime cohort has to be the audience's only condition.
     const realtimeCohortAlone = !!blastRadius?.realtime_cohort || !!blastRadius?.realtime_cohort_with_other_conditions
@@ -180,8 +187,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                     Who should receive this {channel === 'push' ? 'notification' : 'email'}?
                 </h2>
                 <p className="m-0 text-secondary">
-                    Filter by person properties or cohorts, or upload a list. Without filters, the broadcast goes to
-                    everyone.
+                    Filter by {filterOptions}, or upload a list. Without filters, the broadcast goes to everyone.
                 </p>
             </div>
             {linkAudienceRejected && audienceProperties.length === 0 && (
@@ -225,6 +231,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 onChange={(properties) => setAudienceProperties(properties)}
                 taxonomicGroupTypes={[
                     TaxonomicFilterGroupType.PersonProperties,
+                    ...(accountPropertiesGroupType ? [accountPropertiesGroupType] : []),
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Metadata,
                 ]}

@@ -23,7 +23,7 @@ from rest_framework import status
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -31,6 +31,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes import APIScopeObject
 from posthog.test.fixtures import create_app_metric2
 
+from products.access_control.backend.facade.testing import create_property_access_control
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
@@ -63,6 +64,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.contracts import PersonGroupMembership
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import update_workflow
@@ -89,9 +91,13 @@ webhook_template = MOCK_NODE_TEMPLATES[0]
 BACKFILLED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
+READY_ACCOUNT_MEMBERSHIP = PersonGroupMembership(group_type_index=0, ready=True)
+
+
 class _StubAccountAudienceProvider:
-    def __init__(self, group_type: str | None):
+    def __init__(self, group_type: str | None, membership: PersonGroupMembership | None = None):
         self.group_type = group_type
+        self.membership = membership
 
     def count_accounts(self, team, filters) -> int:
         return 0
@@ -101,6 +107,9 @@ class _StubAccountAudienceProvider:
 
     def get_account_group_type_name(self, team) -> str | None:
         return self.group_type
+
+    def get_person_group_membership(self, team) -> PersonGroupMembership | None:
+        return self.membership
 
 
 def _email_function_template() -> dict:
@@ -4590,11 +4599,75 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow = {"name": "Test Batch Flow", "status": status, "actions": [trigger_action]}
         return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
-    def _account_audience_provider(self, group_type: str | None = "account"):
+    def _account_audience_provider(
+        self, group_type: str | None = "account", membership: PersonGroupMembership | None = None
+    ):
         return patch(
             "products.workflows.backend.services.account_audience._provider",
-            _StubAccountAudienceProvider(group_type),
+            _StubAccountAudienceProvider(group_type, membership),
         )
+
+    @parameterized.expand(
+        [
+            # A membership backfill in progress blocks the send, not the edit.
+            ("account_group_type_while_backfilling", PersonGroupMembership(group_type_index=0, ready=False), {}, None),
+            ("other_group_type", READY_ACCOUNT_MEMBERSHIP, {"group_type_index": 1}, "account group type"),
+            ("no_account_group_type", None, {}, "account group type"),
+            # The parser drops a condition it can't build, which would widen the audience.
+            ("invalid_group_type_index", READY_ACCOUNT_MEMBERSHIP, {"group_type_index": 99}, "incomplete or invalid"),
+            ("missing_value", READY_ACCOUNT_MEMBERSHIP, {"value": None}, "incomplete or invalid"),
+        ]
+    )
+    def test_hog_flow_batch_trigger_person_audience_group_property_conditions(
+        self, _name, membership, condition_overrides, expected_error
+    ):
+        condition = {
+            "key": "plan",
+            "type": "group",
+            "group_type_index": 0,
+            "operator": "exact",
+            "value": ["enterprise"],
+            **condition_overrides,
+        }
+        with self._account_audience_provider(membership=membership):
+            response = self._post_batch_flow({"properties": [condition]})
+        if expected_error is None:
+            assert response.status_code == 201, response.json()
+        else:
+            assert response.status_code == 400, response.json()
+            assert expected_error in response.json()["detail"]
+
+    @parameterized.expand([("save",), ("preview",)])
+    def test_hog_flow_batch_trigger_rejects_group_properties_the_member_cannot_read(self, action):
+        self.organization.available_product_features = [{"key": AvailableFeature.PROPERTY_ACCESS_CONTROL}]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="plan", type=PropertyDefinition.Type.GROUP, group_type_index=0
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=definition.id,
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
+        )
+        filters = {
+            "properties": [
+                {"key": "plan", "type": "group", "group_type_index": 0, "operator": "exact", "value": ["enterprise"]}
+            ]
+        }
+
+        with self._account_audience_provider(membership=READY_ACCOUNT_MEMBERSHIP):
+            if action == "save":
+                response = self._post_batch_flow(filters)
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": filters}, format="json"
+                )
+
+        assert response.status_code == 400, response.json()
+        assert 'account property "plan"' in response.json()["detail"]
 
     def test_hog_flow_batch_trigger_accounts_audience_saves(self):
         with self._account_audience_provider():

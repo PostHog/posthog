@@ -22,6 +22,7 @@ from products.workflows.backend.facade.contracts import (
     AccountAudienceCustomPropertyFilter,
     AccountAudienceFilters,
     AccountAudienceProvider,
+    PersonGroupMembership,
 )
 
 ACCOUNT_BATCH_SIZE = 500
@@ -71,6 +72,10 @@ def is_account_audience(filters: dict | None) -> bool:
 
 def get_account_group_type_name(team: Team) -> str | None:
     return _provider.get_account_group_type_name(team) if _provider is not None else None
+
+
+def get_person_group_membership(team: Team) -> PersonGroupMembership | None:
+    return _provider.get_person_group_membership(team) if _provider is not None else None
 
 
 def parse_account_audience_filters(filters: dict) -> AccountAudienceFilters:
