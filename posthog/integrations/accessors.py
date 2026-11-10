@@ -484,6 +484,11 @@ class AuthAccessor(IntegrationReader):
         scope = self._cross_team_scope("update_by_external_id")
         return self._backend.update_by_external_id(scope, external_id=external_id, patch=patch)
 
+    @instrumented("change_external_id")
+    def change_external_id(self, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        """Give the row another external id. Raises `IntegrationConflict` when the team has a row of the kind with that id."""
+        return self._backend.change_external_id(self._scope(), team_id=team_id, id=id, external_id=external_id)
+
     async def acreate(
         self,
         team_id: int,
