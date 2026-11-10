@@ -76,7 +76,6 @@ ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
     "replyTo": None,
     "cc": None,
     "bcc": None,
-    "attachments": None,
     "tracking": {"captureEngagement"},
 }
 WELCOME_DELIVERED = {
@@ -101,11 +100,9 @@ class CapturedEvents:
 
 
 class FakeCdpApi:
-    def __init__(self, *, takes_attachments: bool = False) -> None:
+    def __init__(self) -> None:
+        self.received: list[dict[str, Any]] = []
         self._queued: list[dict[str, Any]] = []
-        self._accepted_keys = {
-            key: allowed for key, allowed in ACCEPTED_SEND_KEYS.items() if takes_attachments or key != "attachments"
-        }
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
@@ -116,6 +113,7 @@ class FakeCdpApi:
 
     def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
         payload = json.loads(request.body or "{}")
+        self.received.append(payload)
         send = payload["send"]
         issues = self._unrecognized_keys(send)
         if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
@@ -132,10 +130,6 @@ class FakeCdpApi:
     def _email(send: dict[str, Any]) -> dict[str, Any]:
         email = {**send["content"], "captureEngagement": send["tracking"]["captureEngagement"]}
         email.update({field: send[field] for field in ("from", "replyTo", "cc", "bcc") if field in send})
-        if "attachments" in send:
-            email["attachments"] = [
-                {**file, "content": base64.b64decode(file["content"], validate=True)} for file in send["attachments"]
-            ]
         return email
 
     def deliver(self) -> list[tuple[str, str]]:
@@ -149,9 +143,9 @@ class FakeCdpApi:
     def _unrecognized_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
         issues = [
             {"code": "unrecognized_keys", "keys": [key], "path": ["send"]}
-            for key in send.keys() - self._accepted_keys.keys()
+            for key in send.keys() - ACCEPTED_SEND_KEYS.keys()
         ]
-        for field, allowed in self._accepted_keys.items():
+        for field, allowed in ACCEPTED_SEND_KEYS.items():
             if allowed is not None and isinstance(send.get(field), dict) and send[field].keys() - allowed:
                 issues.append(
                     {"code": "unrecognized_keys", "keys": sorted(send[field].keys() - allowed), "path": ["send", field]}
@@ -766,24 +760,9 @@ class TestTransactionalEmail(APIBaseTest):
             ),
             ("null_copies_and_attachments", {"cc": None, "bcc": None, "attachments": None}, WELCOME_DELIVERED),
             (
-                "cc_bcc_and_attachments",
-                {
-                    "cc": "copy@example.com",
-                    "bcc": ["audit@example.com", "archive@example.com"],
-                    "attachments": [
-                        {"filename": "a.csv", "content": "YSxi", "content_type": "text/csv", "content_id": "a"},
-                        {"filename": "notes.txt", "content": "aGk="},
-                    ],
-                },
-                {
-                    **WELCOME_DELIVERED,
-                    "cc": ["copy@example.com"],
-                    "bcc": ["audit@example.com", "archive@example.com"],
-                    "attachments": [
-                        {"filename": "a.csv", "content": b"a,b", "contentType": "text/csv", "contentId": "a"},
-                        {"filename": "notes.txt", "content": b"hi"},
-                    ],
-                },
+                "cc_and_bcc",
+                {"cc": "copy@example.com", "bcc": ["audit@example.com", "archive@example.com"]},
+                {**WELCOME_DELIVERED, "cc": ["copy@example.com"], "bcc": ["audit@example.com", "archive@example.com"]},
             ),
         ]
     )
@@ -793,7 +772,7 @@ class TestTransactionalEmail(APIBaseTest):
         )
         TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=newer_default.id)
 
-        with FakeCdpApi(takes_attachments=True).serving(mock_post) as cdp:
+        with FakeCdpApi().serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
                 self.send_email_url, self._code_send(**fields), format="json"
             )
@@ -1049,11 +1028,19 @@ class TestTransactionalEmail(APIBaseTest):
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
         events = CapturedEvents(capture)
 
+        files = [
+            {
+                "filename": "receipt.pdf",
+                "content": "JVBERg==",
+                "content_type": "application/pdf",
+                "content_id": "receipt",
+            },
+            {"filename": "notes.txt", "content": "aGk="},
+        ]
+
         with FakeCdpApi().serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
-                self.send_email_url,
-                self._code_send(attachments=[{"filename": "receipt.pdf", "content": "JVBERg=="}]),
-                format="json",
+                self.send_email_url, self._code_send(attachments=files), format="json"
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -1062,10 +1049,21 @@ class TestTransactionalEmail(APIBaseTest):
         assert "doesn't take the field yet" in body["why"]
         assert "Send the email without this field" in body["fix"]
         assert cdp.emails() == []
+        assert [payload["send"]["attachments"] for payload in cdp.received] == [
+            [
+                {
+                    "filename": "receipt.pdf",
+                    "content": "JVBERg==",
+                    "contentType": "application/pdf",
+                    "contentId": "receipt",
+                },
+                {"filename": "notes.txt", "content": "aGk="},
+            ]
+        ]
         assert [
             (sent["outcome"], sent["error_code"], sent["attachment_count"], sent["attachment_bytes"])
             for sent in events.properties("transactional email api send")
-        ] == [("rejected", "field_not_accepted", 1, 4)]
+        ] == [("rejected", "field_not_accepted", 2, 6)]
 
     @parameterized.expand(
         [
