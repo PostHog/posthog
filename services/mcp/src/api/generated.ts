@@ -58187,6 +58187,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureItem {
+      /** $mcp_error_message with ids and numbers masked; the grouping key within a type. Empty when no message was captured. */
+      cause: string;
       /** Raw $mcp_error_status as a string; empty when the bucket has no HTTP status. */
       error_status: string;
       /** Raw $mcp_error_type bucket ("unknown" when the event carries none) — pass to MCPToolFailureOccurrencesQuery. */
@@ -58197,6 +58199,8 @@ export namespace Schemas {
       /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
       message: string;
       occurrences: number;
+      /** Newest raw error message in this group. */
+      sample_message: string;
     }
 
     export interface MCPToolFailuresQueryResponse {
@@ -58274,6 +58278,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureOccurrencesQuery {
+      /** When set, only events whose masked message equals this failures-table `cause` match; "" selects events without a message. */
+      cause?: string | null;
       dateRange?: DateRange | null;
       /** When set, only events with this HTTP status match; when unset, only events without a status match. */
       errorStatus?: string | null;
@@ -67674,6 +67680,16 @@ export namespace Schemas {
       scraping_status?: CoreMemoryScrapingStatusEnum | BlankEnum | null;
     }
 
+    export type MeasureEnum = typeof MeasureEnum[keyof typeof MeasureEnum];
+
+
+    export const MeasureEnum = {
+      RequestCount: 'request_count',
+      ErrorCount: 'error_count',
+      ErrorRate: 'error_rate',
+      Latency: 'latency',
+    } as const;
+
     /**
      * One attendee of a synced calendar meeting (read-only).
      */
@@ -74327,6 +74343,7 @@ export namespace Schemas {
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
+     * * `traces` - Traces
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -74337,6 +74354,7 @@ export namespace Schemas {
       WarehouseSource: 'warehouse_source',
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
+      Traces: 'traces',
     } as const;
 
     /**
@@ -74430,7 +74448,8 @@ export namespace Schemas {
        * * `insight` - Insight
        * * `warehouse_source` - Warehouse source
        * * `warehouse_destination` - Warehouse destination
-       * * `metrics` - Metrics */
+       * * `metrics` - Metrics
+       * * `traces` - Traces */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -87458,6 +87477,123 @@ export namespace Schemas {
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
      */
+    export type PatchedTracesPlatformAlertConfigurationEditSourceKind = typeof PatchedTracesPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedTracesPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedTracesPlatformAlertConfigurationEditSourceKind = {
+      Traces: 'traces',
+    } as const;
+
+    /**
+     * The requests an alert measures, in the tracing scene's filter shape.
+     */
+    export interface TracesAlertFilters {
+      /** Services whose requests the alert measures. */
+      serviceNames?: string[];
+      /** Span, span attribute and resource attribute filters, as the tracing scene sends. */
+      filterGroup?: PropertyGroupFilter | null;
+    }
+
+    /**
+     * The latency percentile. Required for latency.
+     */
+    export type TracesPlatformAlertConditionPercentile = typeof TracesPlatformAlertConditionPercentile[keyof typeof TracesPlatformAlertConditionPercentile] | null;
+
+
+    export const TracesPlatformAlertConditionPercentile = {
+      Number50: 50,
+      Number90: 90,
+      Number95: 95,
+      Number99: 99,
+    } as const;
+
+    export type TracesAlertThresholdOperator = typeof TracesAlertThresholdOperator[keyof typeof TracesAlertThresholdOperator];
+
+
+    export const TracesAlertThresholdOperator = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface TracesPlatformAlertCondition {
+      /** What the alert measures over requests: their count, the count with an error status, the share with an error status, or a latency percentile. A request is a trace root, server or consumer span. */
+      measure: MeasureEnum;
+      /** The latency percentile. Required for latency. */
+      percentile?: TracesPlatformAlertConditionPercentile;
+      /**
+         * The bound: a count for request_count and error_count, a fraction from 0 to 1 for error_rate, milliseconds for latency.
+         * @minimum 0
+         */
+      threshold: number;
+      /** Whether the alert fires above or below it. */
+      threshold_operator: TracesAlertThresholdOperator;
+      /** Time window in minutes that each check measures. */
+      window_minutes: WindowMinutesEnum;
+    }
+
+    export interface TracesPlatformAlertConfig {
+      /** The requests the alert measures. */
+      filters?: TracesAlertFilters;
+      /** The bound the measure is checked against. */
+      condition: TracesPlatformAlertCondition;
+    }
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedTracesPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedTracesPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedTracesPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedTracesPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a traces alert. The bound the alert is evaluated against is under condition. */
+      source_config?: TracesPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedTracesPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedTracesPlatformAlertConfigurationEditAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
     export type PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind = typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind];
 
 
@@ -87613,7 +87749,7 @@ export namespace Schemas {
       annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedTracesPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -93120,6 +93256,69 @@ export namespace Schemas {
     /**
      * Product whose data the alert evaluates. It cannot change after the create.
      */
+    export type TracesPlatformAlertConfigurationCreateSourceKind = typeof TracesPlatformAlertConfigurationCreateSourceKind[keyof typeof TracesPlatformAlertConfigurationCreateSourceKind];
+
+
+    export const TracesPlatformAlertConfigurationCreateSourceKind = {
+      Traces: 'traces',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type TracesPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type TracesPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface TracesPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: TracesPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a traces alert. The bound the alert is evaluated against is under condition. */
+      source_config: TracesPlatformAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: TracesPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: TracesPlatformAlertConfigurationCreateAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
     export type WarehouseDestinationPlatformAlertConfigurationCreateSourceKind = typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind[keyof typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind];
 
 
@@ -93243,7 +93442,70 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationCreateAnnotations;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | TracesPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type TracesPlatformAlertConfigurationEditSourceKind = typeof TracesPlatformAlertConfigurationEditSourceKind[keyof typeof TracesPlatformAlertConfigurationEditSourceKind];
+
+
+    export const TracesPlatformAlertConfigurationEditSourceKind = {
+      Traces: 'traces',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type TracesPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type TracesPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface TracesPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: TracesPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a traces alert. The bound the alert is evaluated against is under condition. */
+      source_config: TracesPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: TracesPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: TracesPlatformAlertConfigurationEditAnnotations;
+    }
 
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -93371,7 +93633,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | TracesPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * * `slack` - Slack
@@ -101586,6 +101848,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `keyword` - Keyword
+     * * `semantic` - Semantic
+     */
+    export type ReportMatchKindEnum = typeof ReportMatchKindEnum[keyof typeof ReportMatchKindEnum];
+
+
+    export const ReportMatchKindEnum = {
+      Keyword: 'keyword',
+      Semantic: 'semantic',
+    } as const;
+
+    /**
      * One impact measurement shown on a report.
      */
     export interface ReportMetric {
@@ -109464,6 +109738,63 @@ export namespace Schemas {
       status: SignalReportReingestionStatusStatusEnum;
       /** Report being re-ingested. */
       report_id: string;
+    }
+
+    export interface SignalReportSearchHit {
+      /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+      id: string;
+      /**
+         * The report title.
+         * @nullable
+         */
+      title: string | null;
+      /** The report status.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+      /** The report priority, P0 to P4, or null.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority: AutonomyPriorityEnum | null;
+      /** When the report last changed. */
+      updated_at: string;
+      /** A short excerpt of the summary, around the first query word it holds, or the summary's opening when it holds none. */
+      summary_snippet: string;
+      /**
+         * The reason code from the latest dismissal of the report, or null.
+         * @nullable
+         */
+      dismissal_reason: string | null;
+      /**
+         * The note a person wrote with the latest dismissal, or null.
+         * @nullable
+         */
+      dismissal_note: string | null;
+      /** How the report matched: `keyword`, `semantic`, or both. */
+      match_kinds: ReportMatchKindEnum[];
+      /** The reciprocal rank fusion score. Higher is a better match. Compare it only within one response. */
+      score: number;
+    }
+
+    export interface SignalReportSearchResponse {
+      /** The matching reports, best match first. */
+      results: SignalReportSearchHit[];
+      /** False when the results come from keywords only: a `keyword` search, or a `hybrid` search whose semantic search failed. */
+      semantic_available: boolean;
     }
 
     export interface SignalReportSectionCounts {
@@ -137108,6 +137439,52 @@ export namespace Schemas {
      */
     report_ids: string;
     };
+
+    export type SignalsReportsSearchParams = {
+    /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string;
+    /**
+     * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false.
+     */
+    include_unlisted?: boolean;
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number;
+    /**
+     * What to look for: natural language, such as a description of the issue, or an exact string, such as an error message or an entity name.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    query: string;
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the semantic search fails. `keyword` requires every query word in the title or the summary. Words such as `a` or `is` are too short to look up, so the keyword search leaves them out.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsReportsSearchSearchMode;
+    /**
+     * Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included.
+     * @minLength 1
+     */
+    status?: string;
+    };
+
+    export type SignalsReportsSearchSearchMode = typeof SignalsReportsSearchSearchMode[keyof typeof SignalsReportsSearchSearchMode];
+
+
+    export const SignalsReportsSearchSearchMode = {
+      Hybrid: 'hybrid',
+      Semantic: 'semantic',
+      Keyword: 'keyword',
+    } as const;
 
     export type SignalsReportsSectionCountsRetrieveParams = {
     /**

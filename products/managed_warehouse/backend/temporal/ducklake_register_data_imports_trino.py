@@ -52,9 +52,12 @@ _PARTITION_COLUMN_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # add_files compares each file's Parquet type with the type DuckLake writes for the column, and never widens.
 # Each Arrow type here reads back from a Parquet type that the mapped Trino type writes the same way.
+# The view types come only from the Arrow schema that some writers store in the footer. The Parquet column
+# under them is the same byte array as for string and binary, so they map to the same Trino type.
 _TRINO_TYPES: dict[pa.DataType, str] = {
     pa.string(): "VARCHAR",
     pa.large_string(): "VARCHAR",
+    pa.string_view(): "VARCHAR",
     pa.int64(): "BIGINT",
     pa.int32(): "INTEGER",
     pa.int16(): "SMALLINT",
@@ -65,6 +68,7 @@ _TRINO_TYPES: dict[pa.DataType, str] = {
     pa.date32(): "DATE",
     pa.binary(): "VARBINARY",
     pa.large_binary(): "VARBINARY",
+    pa.binary_view(): "VARBINARY",
 }
 _DECIMAL_TYPES = (pa.Decimal32Type, pa.Decimal64Type, pa.Decimal128Type, pa.Decimal256Type)
 _TRINO_MAX_DECIMAL_PRECISION = 38
