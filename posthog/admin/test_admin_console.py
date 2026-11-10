@@ -1098,6 +1098,19 @@ class TestAdminConsoleViews(BaseTest):
                 {"query": {"date_from": "2024-01-01T00:00:00+00:00", "date_to": "-7d"}},
             ),
             (
+                "filters_without_a_date_from_name_the_query_default",
+                "delete-by-filters",
+                {"duration_max": "5", "dry_run": "on"},
+                None,
+                "delete-recordings-with-query",
+                {
+                    "query": {
+                        "date_from": "-3d",
+                        "having_predicates": '[{"type": "recording", "key": "duration", "operator": "lt", "value": 5}]',
+                    }
+                },
+            ),
+            (
                 "filters_with_null_as_the_date",
                 "delete-by-filters",
                 {"date_from": "null", "dry_run": "on"},

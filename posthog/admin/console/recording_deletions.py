@@ -2,6 +2,7 @@ import csv
 import json
 import time
 import uuid
+from dataclasses import replace
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -14,6 +15,8 @@ from django.urls import reverse
 
 import structlog
 from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.schema import RecordingsQuery
 
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.registry import console
@@ -33,6 +36,7 @@ from posthog.temporal.session_replay.delete_recordings.staff import (
 
 logger = structlog.get_logger(__name__)
 
+RECORDINGS_QUERY_DEFAULT_DATE_FROM = RecordingsQuery.model_fields["date_from"].default
 REPLAY = Owner(name="Replay", crest="replay")
 TOOL_KEY = "recording-deletions"
 TOOL_URL = f"/admin/console/tools/{TOOL_KEY}/"
@@ -98,7 +102,13 @@ def _clean_date(value: str) -> str:
 
 
 class FilterDeletionForm(ConfirmTeamIdForm):
-    date_from = forms.CharField(required=False, help_text="Relative, such as -30d, or a date, such as 2024-01-01.")
+    date_from = forms.CharField(
+        required=False,
+        help_text=(
+            "Relative, such as -30d, or a date, such as 2024-01-01. Leave empty for the last 3 days, which is "
+            "what the recordings query uses then."
+        ),
+    )
     date_to = forms.CharField(required=False, help_text="Leave empty for now.")
     duration_min = forms.IntegerField(required=False, min_value=0, label="Min duration (seconds)")
     duration_max = forms.IntegerField(
@@ -126,11 +136,17 @@ class FilterDeletionForm(ConfirmTeamIdForm):
 
     def clean(self) -> dict[str, Any] | None:
         cleaned = super().clean()
-        if not self.errors and self.filters().is_empty():
+        if not self.errors and self._entered_filters().is_empty():
             raise forms.ValidationError("Set at least one filter.")
         return cleaned
 
     def filters(self) -> RecordingFilters:
+        # The recordings query starts at its own default without a date from, so the preview and the certificate
+        # name that start instead of reading as all time.
+        entered = self._entered_filters()
+        return replace(entered, date_from=entered.date_from or RECORDINGS_QUERY_DEFAULT_DATE_FROM)
+
+    def _entered_filters(self) -> RecordingFilters:
         return RecordingFilters(
             date_from=self.cleaned_data.get("date_from", ""),
             date_to=self.cleaned_data.get("date_to", ""),
