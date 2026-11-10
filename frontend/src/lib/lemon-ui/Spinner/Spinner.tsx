@@ -137,10 +137,25 @@ export function SpinnerOverlay({
                         <use href={`#${effectId}-secondary`} className="SpinnerOverlay__trace" />
                         <use
                             href={`#${effectId}-secondary`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--tail-far"
+                        />
+                        <use
+                            href={`#${effectId}-secondary`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--tail-middle"
+                        />
+                        <use
+                            href={`#${effectId}-secondary`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--tail-near"
+                        />
+                        <use
+                            href={`#${effectId}-secondary`}
                             className="SpinnerOverlay__pulse SpinnerOverlay__pulse--glow"
                             filter={`url(#${effectId})`}
                         />
-                        <use href={`#${effectId}-secondary`} className="SpinnerOverlay__pulse" />
+                        <use
+                            href={`#${effectId}-secondary`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--head"
+                        />
                     </svg>
                     <svg
                         className="SpinnerOverlay__ribbon SpinnerOverlay__ribbon--accent"
@@ -156,10 +171,25 @@ export function SpinnerOverlay({
                         <use href={`#${effectId}-accent`} className="SpinnerOverlay__trace" />
                         <use
                             href={`#${effectId}-accent`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--tail-far"
+                        />
+                        <use
+                            href={`#${effectId}-accent`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--tail-middle"
+                        />
+                        <use
+                            href={`#${effectId}-accent`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--tail-near"
+                        />
+                        <use
+                            href={`#${effectId}-accent`}
                             className="SpinnerOverlay__pulse SpinnerOverlay__pulse--glow"
                             filter={`url(#${effectId})`}
                         />
-                        <use href={`#${effectId}-accent`} className="SpinnerOverlay__pulse" />
+                        <use
+                            href={`#${effectId}-accent`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--head"
+                        />
                     </svg>
                 </>
             )}

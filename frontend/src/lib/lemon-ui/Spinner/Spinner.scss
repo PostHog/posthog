@@ -114,19 +114,20 @@
             width: 140%;
             height: 140%;
             fill: none;
-            stroke: hsl(
+            color: hsl(
                 var(--color-brand-secondary-hue),
                 var(--color-brand-secondary-saturation),
                 var(--color-brand-secondary-lightness)
             );
-            opacity: 0.4;
-            mask-image: repeating-linear-gradient(to bottom, #000 0 2px, rgb(0 0 0 / 65%) 2px 4px);
+            stroke: currentColor;
+            opacity: 0.6;
+            mask-image: repeating-linear-gradient(to bottom, #000 0 2px, rgb(0 0 0 / 90%) 2px 4px);
             transform-origin: center;
-            animation: SpinnerOverlay__think 6s ease-in-out infinite alternate;
+            animation: SpinnerOverlay__think 14s ease-in-out infinite alternate;
 
             &--accent {
-                stroke: var(--color-accent);
-                animation-duration: 9s;
+                color: var(--color-accent);
+                animation-duration: 19s;
                 animation-delay: -3s;
                 animation-direction: alternate-reverse;
 
@@ -139,23 +140,52 @@
 
         .SpinnerOverlay__haze {
             stroke-width: 90px;
-            opacity: 0.25;
+            opacity: 0.1;
         }
 
         .SpinnerOverlay__trace {
             stroke-width: 3px;
-            opacity: 0.35;
+            opacity: 0.16;
         }
 
         .SpinnerOverlay__pulse {
-            stroke-width: 7px;
+            stroke-width: 5px;
             stroke-linecap: round;
-            stroke-dasharray: 5 95;
+            stroke-dasharray: 1 99;
             animation: SpinnerOverlay__flow 3s linear -1s infinite;
 
+            &--head {
+                stroke: color-mix(in oklab, currentColor 70%, var(--color-white));
+            }
+
             &--glow {
-                stroke-width: 24px;
-                opacity: 0.6;
+                stroke-width: 18px;
+                stroke-dasharray: 2 98;
+                opacity: 0.75;
+            }
+
+            &--tail-far {
+                --pulse-offset: 22px;
+
+                stroke-width: 2px;
+                stroke-dasharray: 22 78;
+                opacity: 0.12;
+            }
+
+            &--tail-middle {
+                --pulse-offset: 12px;
+
+                stroke-width: 3px;
+                stroke-dasharray: 12 88;
+                opacity: 0.22;
+            }
+
+            &--tail-near {
+                --pulse-offset: 5px;
+
+                stroke-width: 4px;
+                stroke-dasharray: 5 95;
+                opacity: 0.5;
             }
         }
 
@@ -203,18 +233,22 @@
 
 @keyframes SpinnerOverlay__think {
     0% {
-        opacity: 0.4;
+        opacity: 0.6;
         transform: translate(-12%, 8%) rotate(-18deg) scale(1.05, 0.85);
     }
 
     100% {
-        opacity: 0.7;
+        opacity: 0.85;
         transform: translate(12%, -10%) rotate(15deg) scale(1.25, 1.15);
     }
 }
 
 @keyframes SpinnerOverlay__flow {
+    from {
+        stroke-dashoffset: var(--pulse-offset, 0px);
+    }
+
     to {
-        stroke-dashoffset: -100;
+        stroke-dashoffset: calc(var(--pulse-offset, 0px) - 100px);
     }
 }
