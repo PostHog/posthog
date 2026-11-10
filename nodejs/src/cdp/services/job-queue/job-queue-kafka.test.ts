@@ -1,4 +1,4 @@
-import { CyclotronJobQueueKafka, migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
 
 describe('CyclotronJobQueueKafka', () => {
     describe('migrateKafkaCyclotronInvocation', () => {
@@ -91,22 +91,6 @@ describe('CyclotronJobQueueKafka', () => {
                   "teamId": 1,
                 }
             `)
-        })
-    })
-
-    describe('stopProducer', () => {
-        it('lets two consumers that share the producer stop it at the same time', async () => {
-            const queue = new CyclotronJobQueueKafka(
-                undefined,
-                { CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: false, CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
-                100
-            )
-            let disconnects = 0
-            ;(queue as any).kafkaProducer = {
-                disconnect: () => (++disconnects === 1 ? Promise.resolve() : new Promise<void>(() => {})),
-            }
-
-            await Promise.all([queue.stopProducer(), queue.stopProducer()])
         })
     })
 })

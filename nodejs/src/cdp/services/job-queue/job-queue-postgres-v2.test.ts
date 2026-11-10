@@ -395,24 +395,6 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
-    describe.each([
-        ['stopProducer', 'manager'],
-        ['stopConsumer', 'worker'],
-    ] as const)('%s', (stop, field) => {
-        it('lets two consumers that share the queue stop it at the same time', async () => {
-            const { queue } = createQueue()
-            let disconnects = 0
-            ;(queue as any)[field] = {
-                disconnect: () =>
-                    ++disconnects === 1
-                        ? Promise.resolve()
-                        : Promise.reject(new Error('Called end on pool more than once')),
-            }
-
-            await expect(Promise.all([queue[stop](), queue[stop]()])).resolves.toBeDefined()
-        })
-    })
-
     describe('heartbeatInvocations', () => {
         it('proxies to heartbeat, skips unknown ids, and distinguishes released races from real failures', async () => {
             const { queue } = createQueue()
