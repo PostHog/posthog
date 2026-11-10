@@ -338,69 +338,103 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
-.TodayPulseEmpty {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+.TodayEmptyPanel {
+    position: relative;
+    padding: 14px 16px;
+    overflow: hidden;
+    background: color-mix(in oklab, var(--today-soft) 55%, transparent);
+    border-radius: 10px;
 }
 
-.TodayPulse--shadow {
+.TodayEmptyPanel__shapes {
     pointer-events: none;
     user-select: none;
+    mask-image: radial-gradient(ellipse 48% 90% at 50% 50%, transparent 55%, #000 100%);
 
-    .TodayPulse__metric {
-        gap: 9px;
+    @container main-content (max-width: 600px) {
+        mask-image: radial-gradient(ellipse 70% 90% at 50% 50%, transparent 60%, #000 100%);
     }
 }
 
-.TodayPulse__shadowName {
+.TodayEmptyPanel__bar {
     display: block;
-    height: 11px;
-    margin-top: 5px;
-    background: var(--today-line);
+    background: color-mix(in oklab, var(--today-faint) 24%, transparent);
     border-radius: 999px;
 }
 
-.TodayPulse__shadowRow {
+.TodayEmptyPanel__shapes .TodayRow__icons {
+    opacity: 0.4;
+}
+
+.TodayEmptyPanel__message {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+    margin: 0;
+}
+
+.TodayEmptyPanel__pill {
+    max-width: 64ch;
+    font-size: 13px;
+    color: var(--today-muted);
+    text-align: center;
+    text-wrap: balance;
+
+    @container main-content (max-width: 600px) {
+        max-width: 32ch;
+    }
+}
+
+.TodayPulseEmpty__tile {
+    gap: 9px;
+
+    @container main-content (max-width: 600px) {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 0;
+        background: none;
+        border: 0;
+
+        &:nth-child(n + 3) {
+            display: none;
+        }
+    }
+}
+
+.TodayPulseEmpty__name {
+    height: 11px;
+    margin-top: 5px;
+}
+
+.TodayPulseEmpty__row {
     display: flex;
     gap: 8px;
     align-items: flex-end;
 }
 
-.TodayPulse__shadowValue {
-    display: block;
+.TodayPulseEmpty__value {
     height: 18px;
-    background: var(--today-line);
     border-radius: 5px;
 }
 
-.TodayPulse__shadowChange {
-    display: block;
+.TodayPulseEmpty__change {
     width: 28px;
     height: 10px;
     margin-bottom: 2px;
-    background: var(--today-line);
-    border-radius: 999px;
     opacity: 0.6;
 }
 
-.TodayPulse__shadowChart {
-    width: 100%;
-    height: 100%;
-    overflow: visible;
+.TodayGhostRow__title {
+    height: 10px;
+    margin: 6px 0 10px;
+}
 
-    polyline {
-        fill: none;
-        stroke: var(--today-line);
-        stroke-linejoin: round;
-        stroke-linecap: round;
-        stroke-width: 1.5;
-        vector-effect: non-scaling-stroke;
-    }
-
-    circle {
-        fill: var(--today-line);
-    }
+.TodayGhostRow__meta {
+    height: 8px;
+    opacity: 0.6;
 }
 
 .TodayStarterSuggestions {
@@ -408,26 +442,10 @@ html[data-today-transition]::view-transition-new(root) {
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 10px;
-}
 
-.TodayRows--ghost {
-    pointer-events: none;
-    user-select: none;
-    opacity: 0.55;
-}
-
-.TodayGhostRow__line {
-    display: block;
-    height: 10px;
-    margin: 6px 0 10px;
-    background: var(--today-line);
-    border-radius: 4px;
-}
-
-.TodayGhostRow__line--meta {
-    height: 8px;
-    margin: 0 0 4px;
-    background: var(--today-soft);
+    button {
+        color: var(--today-ink);
+    }
 }
 
 .TodaySetupRow__open {

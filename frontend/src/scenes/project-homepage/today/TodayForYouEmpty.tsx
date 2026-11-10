@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { noEventsBannerLogic } from '~/layout/navigation/noEventsBannerLogic'
 
+import { TodayEmptyPanel } from './TodayEmptyPanel'
 import { todayGetStartedLogic } from './todayGetStartedLogic'
 import { TodaySetupRow } from './TodaySetupRow'
 
@@ -33,22 +34,24 @@ export function TodayForYouEmpty(): JSX.Element {
             <>
                 <FirstEventWatcher />
                 {showGuide ? <TodaySetupRow /> : null}
-                <ol className="TodayRows TodayRows--ghost" aria-hidden>
-                    {GHOST_ROWS.map((row) => (
-                        <li key={row.width} className="TodayRow">
-                            <IconStack className="TodayRow__icons">
-                                <IconStackItem>{row.glyph}</IconStackItem>
-                            </IconStack>
-                            <div>
-                                <span className={`TodayGhostRow__line ${row.width}`} />
-                                <span className="TodayGhostRow__line TodayGhostRow__line--meta w-1/4" />
-                            </div>
-                        </li>
-                    ))}
-                </ol>
-                <Text size="xs" variant="muted" render={<p />} className="m-0">
-                    Alerts, experiments, flags and other changes that need you show up here.
-                </Text>
+                <TodayEmptyPanel
+                    message="Alerts, experiments and other changes that need you show up here."
+                    dataAttr="today-for-you-example"
+                >
+                    <ol className="TodayRows">
+                        {GHOST_ROWS.map((row) => (
+                            <li key={row.width} className="TodayRow">
+                                <IconStack className="TodayRow__icons">
+                                    <IconStackItem>{row.glyph}</IconStackItem>
+                                </IconStack>
+                                <div>
+                                    <span className={`TodayEmptyPanel__bar TodayGhostRow__title ${row.width}`} />
+                                    <span className="TodayEmptyPanel__bar TodayGhostRow__meta w-1/4" />
+                                </div>
+                            </li>
+                        ))}
+                    </ol>
+                </TodayEmptyPanel>
             </>
         )
     }

@@ -97,7 +97,7 @@ export function TodayGetStarted(): JSX.Element {
                 <Item
                     key={step.key}
                     size="sm"
-                    variant={step.key === nextKey ? 'outline' : 'default'}
+                    variant={step.key === nextKey ? 'outline' : step.done ? 'muted' : 'default'}
                     data-attr={`today-get-started-step-${step.key}`}
                 >
                     <ItemMedia>
