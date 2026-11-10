@@ -510,8 +510,8 @@ def _pending_attestation_wait(pending: list[Attestation]) -> dict:
         "verdict": "WAIT",
         "reasoning": (
             f"The {pending_check_names(pending)} check has not finished for this commit, so stamphog "
-            "cannot tell yet whether the change it covers is safe. The review runs again on the next "
-            "push, or you can re-request it once the check reports."
+            "cannot tell yet whether the change it covers is safe. Stamphog reviews again when the "
+            "check reports, or on the next push."
         ),
         "risk": "unknown",
         "issues": [],
