@@ -9,7 +9,7 @@ import { z } from 'zod'
 
 import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { CONTEXT_MILL_URL, extractContextMill } from '@/resources/internals'
-import { PRODUCT_SKILL_ARCHIVE_URL, SkillCatalog } from '@/skills/skill-catalog'
+import { PRODUCT_SKILL_ARCHIVE_URL, SkillCatalog, withinExtractionLimits } from '@/skills/skill-catalog'
 import { ExecLearnCatalog, SkillsUnavailableError } from '@/tools/exec-learn'
 
 import type {
@@ -44,7 +44,8 @@ function assetUrl(name: SkillAssetName): string {
 const CacheRecord = z.object({
     url: z.string(),
     etag: z.string().optional(),
-    sha256: z.string(),
+    // The digest names the cached copy's file, so it must not carry path separators.
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
     fetchedAt: z.string(),
 })
 
@@ -101,7 +102,7 @@ async function writeAtomically(file: string, contents: Uint8Array | string): Pro
 
 // The release counts as valid when its manifest loads. The omnibus skills are read only for `learn`.
 function parseContextMill(bytes: Uint8Array): InstallableSkills {
-    const archive = unzipSync(bytes)
+    const archive = unzipSync(bytes, { filter: withinExtractionLimits('The release exceeds the extraction limit') })
     return { archive, entries: extractContextMill(archive, false).entries }
 }
 
@@ -152,6 +153,15 @@ class AssetCache {
         }
     }
 
+    async confirm(record: CacheRecord, fetchedAt: string): Promise<void> {
+        // A run that cached a newer copy deleted this record's copy, so writing it back would leave
+        // the record without its copy.
+        const current = await this.record()
+        if (current?.url === record.url && current.sha256 === record.sha256) {
+            await this.write({ ...record, fetchedAt })
+        }
+    }
+
     // A cache that can't be written only costs the next offline run its fallback.
     async write(record: CacheRecord, bytes?: Uint8Array, previous?: CacheRecord): Promise<void> {
         const [bytesFile, recordFile] = [this.bytesFile(record), this.file('.json')]
@@ -174,6 +184,27 @@ class AssetCache {
     }
 }
 
+async function readLimited(response: Response): Promise<Uint8Array> {
+    const reader = response.body?.getReader()
+    const chunks: Uint8Array[] = []
+    let size = 0
+    for (let chunk = await reader?.read(); chunk && !chunk.done; chunk = await reader?.read()) {
+        size += chunk.value.byteLength
+        if (size > MAX_ASSET_BYTES) {
+            await reader?.cancel().catch(() => undefined)
+            throw new DownloadError(`The asset is over the ${MAX_ASSET_BYTES} byte limit`)
+        }
+        chunks.push(chunk.value)
+    }
+    const bytes = new Uint8Array(size)
+    let offset = 0
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.byteLength
+    }
+    return bytes
+}
+
 /** The asset's bytes and ETag, or undefined when the server answered 304 to `etag`. */
 async function download(
     settings: Settings,
@@ -188,8 +219,9 @@ async function download(
     }
     const { responseTimeoutMs, downloadTimeoutMs } = settings
     let timer = abortAfter(responseTimeoutMs, `No response within ${responseTimeoutMs / 1000} seconds`)
+    let response: Response | undefined
     try {
-        const response = await settings.fetch(url, {
+        response = await settings.fetch(url, {
             headers: etag ? { 'If-None-Match': etag } : {},
             signal: controller.signal,
         })
@@ -205,13 +237,15 @@ async function download(
         if (Number.isFinite(length) && length > MAX_ASSET_BYTES) {
             throw new DownloadError(`The asset is ${length} bytes, over the ${MAX_ASSET_BYTES} byte limit`)
         }
-        const bytes = new Uint8Array(await response.arrayBuffer())
-        if (bytes.length === 0 || bytes.length > MAX_ASSET_BYTES) {
-            throw new DownloadError(`The asset is ${bytes.length} bytes`)
+        const bytes = await readLimited(response)
+        if (bytes.length === 0) {
+            throw new DownloadError('The asset is 0 bytes')
         }
         // GitHub redirects release assets to storage, and the final response carries the asset's own ETag.
         return { bytes, etag: response.headers.get('etag') ?? undefined }
     } catch (error) {
+        // A body left unread keeps its connection open after the download has failed.
+        await response?.body?.cancel().catch(() => undefined)
         throw controller.signal.reason instanceof DownloadError ? controller.signal.reason : error
     } finally {
         clearTimeout(timer)
@@ -241,7 +275,7 @@ async function loadAsset<T>(
         if (!fresh && cached) {
             const parsed = await readCached()
             if (parsed) {
-                await cache.write({ ...cached, fetchedAt })
+                await cache.confirm(cached, fetchedAt)
                 return { status: { name, url, origin: 'network', fetchedAt }, parsed }
             }
             // The record's copy is gone, so the 304 can't be served. Ask again for the whole asset.
@@ -281,14 +315,14 @@ function offline(assets: SkillAssetStatus[]): SkillsError {
 const LEARN_COMMAND = /(?<=^|[\s`"(])learn(?=`| (?:skills(?=[`"]|$)|-s\b|-d\b|--lines\b|posthog:|project:|<))/gm
 
 export function rewriteLearnCommands(text: string, learnCommand: string): string {
-    if (learnCommand === 'learn') {
-        return text
-    }
     // A `learn` that already follows the caller's prefix, as in `hog learn`, is in the caller's syntax.
     const prefix = learnCommand.endsWith('learn') ? learnCommand.slice(0, -'learn'.length) : undefined
-    const rewritten = text.replace(LEARN_COMMAND, (match, offset: number) =>
-        prefix && text.slice(Math.max(0, offset - prefix.length), offset) === prefix ? match : learnCommand
-    )
+    const rewritten =
+        learnCommand === 'learn'
+            ? text
+            : text.replace(LEARN_COMMAND, (match, offset: number) =>
+                  prefix && text.slice(Math.max(0, offset - prefix.length), offset) === prefix ? match : learnCommand
+              )
     // The regex also rewrites the command inside an exec tool call, which then becomes the bare command.
     return replaceExecInvocations(rewritten, (command) =>
         command === 'learn' ? learnCommand : command.startsWith(`${learnCommand} `) ? command : undefined
