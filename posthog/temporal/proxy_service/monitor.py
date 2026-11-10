@@ -60,6 +60,14 @@ PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
 # The `error` code capture v1 returns for a request with no Authorization header.
 CAPTURE_V1_MISSING_AUTHORIZATION = "missing_authorization"
 
+# Capture v1 routes the mobile SDK majors send to, each with the reason a missing route matters.
+# `captureAi` has its own route, served by a separate capture deployment, so a proxy can forward
+# one and not the other.
+CAPTURE_V1_ROUTES = (
+    ("/i/v1/analytics/events", "mobile SDKs send events there"),
+    ("/i/v1/ai/events", "mobile SDKs send AI events there"),
+)
+
 # Every way a resolver reports "no answer". One left uncaught fails the run instead of
 # recording the DNS problem.
 DNS_LOOKUP_FAILURES = (
@@ -79,7 +87,7 @@ CLOUDFLARE_IPS_TIMEOUT_S = 3.0
 # Each check must outlast the network calls it makes, or Temporal kills it first and the run
 # reports an opaque timeout instead of the problem the check found. Worst cases:
 #   check_dns                 two lookups plus the Cloudflare address list = 13s
-#   check_proxy_is_live       two POSTs plus the socket connect and TLS handshake = 15s
+#   check_proxy_is_live       three POSTs plus the socket connect and TLS handshake = 20s
 #   check_certificate_status  one Cloudflare API call, or one call to the legacy provisioner = 8s
 CHECK_START_TO_CLOSE = dt.timedelta(seconds=30)
 
@@ -369,9 +377,10 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
 
         # A missing v1 route doesn't stop the certificate check below, so an expiring certificate
         # is still reported alongside it.
-        v1_error = _check_capture_v1_route(probe_base)
-        if v1_error is not None:
-            errors.append(v1_error)
+        for path, consequence in CAPTURE_V1_ROUTES:
+            v1_error = _check_capture_v1_route(probe_base, path, consequence)
+            if v1_error is not None:
+                errors.append(v1_error)
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem.
         # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
@@ -457,11 +466,11 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
     )
 
 
-def _check_capture_v1_route(probe_base: str) -> str | None:
-    """Return an error if the proxy doesn't forward capture v1, or None if it does.
+def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str | None:
+    """Return an error if the proxy doesn't forward this capture v1 route, or None if it does.
 
     Mobile SDK majors (posthog-ios 4, posthog-android 4, posthog-flutter 6) send every event to
-    /i/v1/analytics/events with no fallback, so a proxy that forwards /i/v0 but not /i/v1 drops
+    /i/v1/analytics/events (and `captureAi` to /i/v1/ai/events) with no fallback, so a proxy that forwards /i/v0 but not /i/v1 drops
     all of their data. The probe carries no Authorization header, and capture checks that header
     before anything else (rust/capture/src/v1/context.rs), so it answers 401 with a JSON body whose
     `error` is `missing_authorization` and ingests nothing. Requiring that code proves the request
@@ -469,21 +478,21 @@ def _check_capture_v1_route(probe_base: str) -> str | None:
     """
     try:
         response = requests.post(
-            f"{probe_base}/i/v1/analytics/events",
+            f"{probe_base}{path}",
             headers={"Content-Type": "application/json"},
             data="{}",
             timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
             allow_redirects=False,
         )
     except requests.exceptions.RequestException as e:
-        return f"Proxy does not forward /i/v1/analytics/events ({e.__class__.__name__}); mobile SDKs send events there"
+        return f"Proxy does not forward {path} ({e.__class__.__name__}); {consequence}"
     try:
         body = response.json()
     except ValueError:
         body = None
     if isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_AUTHORIZATION:
         return None
-    return f"Proxy does not forward /i/v1/analytics/events (got {response.status_code}); mobile SDKs send events there"
+    return f"Proxy does not forward {path} (got {response.status_code}); {consequence}"
 
 
 @dataclass

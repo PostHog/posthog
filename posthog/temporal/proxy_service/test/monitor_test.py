@@ -82,7 +82,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
-        mock_post.side_effect = [mock_response, _capture_v1_rejection()]
+        mock_post.side_effect = [mock_response, _capture_v1_rejection(), _capture_v1_rejection()]
 
         # Mock the raw socket the cert fetch opens so no real network connection is made
         mock_create_connection.return_value = MagicMock()
@@ -121,6 +121,13 @@ class TestCheckProxyIsLive(TestCase):
                     timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
                     allow_redirects=False,
                 ),
+                call(
+                    f"https://{self.proxy_record.domain}/i/v1/ai/events",
+                    headers={"Content-Type": "application/json"},
+                    data="{}",
+                    timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+                    allow_redirects=False,
+                ),
             ],
         )
 
@@ -150,6 +157,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_post.side_effect = [
             Mock(status_code=200, raise_for_status=Mock(return_value=None)),
             v1_response,
+            _capture_v1_rejection(),
         ]
         mock_create_connection.return_value = MagicMock()
         _serve_cert(mock_ssl_context, not_after="Jan 25 10:00:00 2024 GMT")
@@ -162,6 +170,31 @@ class TestCheckProxyIsLive(TestCase):
                 f"Proxy does not forward /i/v1/analytics/events ({reason}); mobile SDKs send events there",
                 "Live proxy certificate is expiring soon",
             ],
+        )
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2024-01-16 10:00:00", tick=False)
+    @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_reports_unrouted_v1_ai_capture(
+        self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
+    ):
+        mock_get_record.return_value = self.proxy_record
+        mock_post.side_effect = [
+            Mock(status_code=200, raise_for_status=Mock(return_value=None)),
+            _capture_v1_rejection(),
+            _non_capture_response(404),
+        ]
+        mock_create_connection.return_value = MagicMock()
+        _serve_cert(mock_ssl_context, not_after="Feb  5 10:00:00 2024 GMT")
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(
+            result.errors,
+            ["Proxy does not forward /i/v1/ai/events (got 404); mobile SDKs send AI events there"],
         )
 
     @parameterized.expand(
@@ -241,6 +274,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_post.side_effect = [
             Mock(status_code=200, raise_for_status=Mock(return_value=None)),
             _capture_v1_rejection(),
+            _capture_v1_rejection(),
         ]
         mock_validate.return_value = PinnedUrlVerdict(
             allowed=True, reason=None, pinned_ips={ipaddress.ip_address("203.0.113.7")}
@@ -275,6 +309,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_get_record.return_value = self.proxy_record
         mock_post.side_effect = [
             Mock(status_code=200, raise_for_status=Mock(return_value=None)),
+            _capture_v1_rejection(),
             _capture_v1_rejection(),
         ]
         mock_validate.return_value = PinnedUrlVerdict(allowed=False, reason="private address", pinned_ips=set())
@@ -336,7 +371,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
-        mock_post.side_effect = [mock_response, _capture_v1_rejection()]
+        mock_post.side_effect = [mock_response, _capture_v1_rejection(), _capture_v1_rejection()]
 
         # Mock the raw socket the cert fetch opens so no real network connection is made
         mock_create_connection.return_value = MagicMock()
