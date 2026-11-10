@@ -75,7 +75,7 @@ def delta_reviews_low_risk_follow_ups(repository: str, pr_number: int) -> bool:
 
 
 def devex_lens_on(repository: str, pr_number: int) -> bool:
-    """Whether this PR's Standard turns add the devex lens session when the PR changes CI or repo-tooling files."""
+    """Whether this PR's Standard turns add the devex lens session when the PR changes files the devex team owns."""
     return _pull_request_flag_on(DEVEX_LENS_FLAG, repository, pr_number)
 
 

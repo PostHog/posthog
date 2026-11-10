@@ -15,7 +15,6 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
-    devex_lens_files,
     generate_chunking_prompt,
     plan_deterministic_chunks,
     plan_lens_chunks,
@@ -173,30 +172,6 @@ class TestPlanDeterministicChunks:
 
         assert planned is not None
         assert planned.chunks == []
-
-
-class TestDevexLensFiles:
-    @pytest.mark.parametrize(
-        "filenames,expected",
-        [
-            pytest.param(["products/a/backend/api.py", "frontend/src/a.tsx"], [], id="application_code_only"),
-            pytest.param(
-                [".github/workflows/ci-backend.yml", ".github/actions/setup/action.yml", ".depot/workflows/ci.yml"],
-                [".github/workflows/ci-backend.yml", ".github/actions/setup/action.yml", ".depot/workflows/ci.yml"],
-                id="workflows_actions_and_depot",
-            ),
-            pytest.param(["tach.toml", "hogli.yaml", "posthog/api.py"], ["tach.toml", "hogli.yaml"], id="root_tooling"),
-            pytest.param(
-                [".github/CODEOWNERS", "products/a/tach.toml", "docs/.github/workflows/x.yml", "tools/hogli.yaml"],
-                [],
-                id="same_names_outside_the_routed_paths",
-            ),
-        ],
-    )
-    def test_only_ci_and_repo_tooling_files_route_to_the_devex_lens(
-        self, filenames: list[str], expected: list[str]
-    ) -> None:
-        assert devex_lens_files([_file(name, 1) for name in filenames]) == expected
 
 
 class TestPlanLensChunks:

@@ -306,12 +306,13 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
-- **The devex lens session** (`DEVEX_LENS`, `lens_devex.md`) reviews CI and repo-tooling changes.
+- **The devex lens session** (`DEVEX_LENS`, `lens_devex.md`) reviews the changed files that the devex team owns.
   It is not in `FLASH_LENSES`.
-  It runs only when the PR changes a file that `devex_lens_files` matches (`.github/workflows/`, `.github/actions/`, `.depot/`, `tach.toml`, `hogli.yaml`) and the per-PR flag `reviewhog-devex-lens` is on.
+  It runs only when the repository's `owners.yaml` files give a changed file to `DEVEX_OWNER_TEAM` and the per-PR flag `reviewhog-devex-lens` is on.
+  `_devex_lens_files` reads ownership from the default branch through `posthog/ownership`, so a repository without `owners.yaml` never runs the lens.
   The fetch activity records the answer on `ReviewMeta.devex_lens`.
-  The session is one more lens unit of `lens_review_activity` under pass 2003: its diff holds only the matched files, and its findings go through the same dedup, ranking, and cap as the other lens findings.
-  Its prompt holds the review method only. The session reads the repository's CI rules from the checkout (`.agents/ci.md` and the CI skills), so a rule lives in one place.
+  The session is one more lens unit of `lens_review_activity` under pass 2003: its diff holds only the owned files, and its findings go through the same dedup, ranking, and cap as the other lens findings.
+  Its prompt holds the review method only. The session reads the repository's rules from the checkout (the `AGENTS.md` files above the changed paths, and the CI guides for a CI file), so a rule lives in one place.
   A coordinated turn and a delta turn run without it.
   Only a turn that runs it hashes `lens_devex.md` into its fingerprint, so every other turn keeps its cohort.
 

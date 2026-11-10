@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
+
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     CONTROL_ARM_SET,
@@ -166,12 +168,15 @@ class TestFetchDecidesTheTier(BaseTest):
 
     @parameterized.expand(
         [
-            ("workflow_file_with_flag", ".github/workflows/ci.yml", True, False, True),
-            ("flag_off", ".github/workflows/ci.yml", False, False, False),
-            ("application_file", "posthog/api.py", True, False, False),
-            ("coordinated_turn", ".github/workflows/ci.yml", True, True, False),
+            ("devex_owned_file_with_flag", "team-devex", True, False, True),
+            ("flag_off", "team-devex", False, False, False),
+            ("file_of_another_team", "team-surveys", True, False, False),
+            ("ownership_not_readable", UNOWNED_TEAM, True, False, False),
+            ("coordinated_turn", "team-devex", True, True, False),
         ]
     )
+    @patch(f"{_MODULE}.fetcher_for_team")
+    @patch(f"{_MODULE}.resolve_path_owners")
     @patch(f"{_MODULE}.devex_lens_on")
     @patch(f"{_MODULE}.standard_coordinator_on")
     @patch(f"{_MODULE}.flash_pipeline_kill_switch_on", return_value=False)
@@ -180,7 +185,7 @@ class TestFetchDecidesTheTier(BaseTest):
     def test_fetch_adds_the_devex_lens_only_to_a_routed_pr_on_separate_sessions(
         self,
         _name: str,
-        filename: str,
+        owner: str,
         flag_on: bool,
         coordinator_on: bool,
         expected: bool,
@@ -189,13 +194,18 @@ class TestFetchDecidesTheTier(BaseTest):
         _kill_switch: MagicMock,
         coordinator_flag: MagicMock,
         devex_flag: MagicMock,
+        path_owners: MagicMock,
+        _fetcher: MagicMock,
     ) -> None:
         devex_flag.return_value = flag_on
+        path_owners.return_value = PathOwnership(
+            team_by_path={"ci.yml": owner}, registry={}, resolved=owner != UNOWNED_TEAM
+        )
         coordinator_flag.return_value = coordinator_on
         mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
             pr_metadata=_pr_metadata(),
             pr_comments=[],
-            pr_files=[PRFile(filename=filename, status="modified", additions=5, deletions=0)],
+            pr_files=[PRFile(filename="ci.yml", status="modified", additions=5, deletions=0)],
             diff="",
         )
         meta = _fetch_and_persist(

@@ -1,8 +1,8 @@
-# PLAN: devex lens for CI and repo-tooling changes
+# PLAN: devex lens for changes to devex-owned files
 
 Status: planned. No run yet. The lens ships behind `reviewhog-devex-lens`, which stays off until this experiment has a result.
 
-**Question:** on a PR that changes CI or repo tooling, does a Standard review with the devex lens session find problems that Standard alone misses, without adding noise?
+**Question:** on a PR that changes a file the devex team owns, does a Standard review with the devex lens session find problems that Standard alone misses, without adding noise?
 
 The unit tests prove routing, cohort separation, and fan-out. They say nothing about review quality.
 
@@ -13,7 +13,7 @@ If it finds 70% or more of the labelled issues, stop: the lens has nothing to ad
 
 ## Case set
 
-Merged PostHog/posthog PRs from the 60 days before the first run that change a file `devex_lens_files` matches.
+Merged PostHog/posthog PRs from the 60 days before the first run that change a file `hogli owners:resolve` gives to `team-devex`.
 Each case is the PR at its frozen head, reviewed through `manage.py run_review` without `--publish`.
 
 - **Defect cases, about 25.** A later fix or revert PR traces back to the case, or a human review thread on the case led to a code change.

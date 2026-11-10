@@ -83,7 +83,7 @@ rules:
       owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
       owners: team-product-analytics
-    - match: '/.claude/'
+    - match: ['/.claude/', '/.depot/']
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
       owners: team-ingestion

@@ -198,21 +198,22 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
-### 🧪 BUILT 2026-11-10 — devex lens: a path-routed Standard session for CI changes (flag off, not measured)
+### 🧪 BUILT 2026-11-10 — devex lens: a Standard session routed by `owners.yaml` (flag off, not measured)
 
-- **What.** A Standard turn adds one lens session, `DEVEX_LENS` (`lens_devex.md`, pass 2003), when the PR changes a CI or repo-tooling file and `reviewhog-devex-lens` is on for the PR.
-  `devex_lens_files` (`tools/split_pr_into_chunks.py`) is the router: a path match with no model call.
+- **What.** A Standard turn adds one lens session, `DEVEX_LENS` (`lens_devex.md`, pass 2003), when the PR changes a file the devex team owns and `reviewhog-devex-lens` is on for the PR.
+  `_devex_lens_files` (`temporal/activities.py`) is the router: it asks `posthog/ownership` which changed files `owners.yaml` on the default branch gives to `team-devex`, with no model call.
+  The repository already keeps this map for review requests, so the lens has no path list of its own.
 - **Why a routed session and not text in every prompt.** The 2026-10 prompt experiments showed that text added to a running session moves what it finds without finding more, and loses established hits.
   A separate session leaves the main session and the two lenses byte-identical.
 - **Cohorts.** The lens is outside `FLASH_LENSES`, because that table feeds every single-agent fingerprint.
   A turn hashes `lens_devex.md` only when it runs the lens.
-  This amends "No team slot" in the 2026-10-06 entry: there is one slot, it is DevEx-owned, and it is routed by path.
-- **Where the rules live.** The prompt holds the review method: identify the execution engine, read the repository's CI guides, trace five areas, and the evidence a finding needs.
-  The rules stay in `.agents/ci.md` and the CI skills, and the session reads them from the checkout.
+  This amends "No team slot" in the 2026-10-06 entry: there is one slot, it is DevEx-owned, and it is routed by ownership.
+- **Where the rules live.** The prompt holds the review method: read the `AGENTS.md` files above the changed paths, and for a CI file identify the execution engine, read the CI guides, and trace five areas.
+  The rules stay in those guides, and the session reads them from the checkout.
   A guide that the PR edits is read at the merge base.
 - **Left out.** Coordinated turns (the coordinator has no sub-agent slot for it), delta turns (the session has no part of a delta), and the Deep pipeline.
 - **Before the flag goes on.** Run `eval/experiments/2026-11-devex-lens/PLAN.md`. Its first step measures Standard alone, and the experiment stops there if Standard already finds the labelled issues.
-- **A second routed lens** needs the same shape (path route, own fingerprint key, off by default) and its own measured result.
+- **A second routed lens** needs the same shape (ownership route, own fingerprint key, off by default) and its own measured result.
   If several teams ask, test one session that receives the guides of every matched area before adding a session per team.
 
 ### ✅ BUILT 2026-11-02 — push gate: the four shadow rules are gone

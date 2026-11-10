@@ -234,8 +234,9 @@ FLASH_LENSES: dict[str, FlashLens] = {
 }
 
 DEVEX_LENS_NAME = "devex"
+DEVEX_OWNER_TEAM = "team-devex"
 # Not in FLASH_LENSES, because that table feeds the fingerprint of every single-agent turn. This lens runs
-# only on a turn whose PR changes a CI or repo-tooling file, and only that turn's fingerprint carries it.
+# only on a turn whose PR changes a file DEVEX_OWNER_TEAM owns, and only that turn's fingerprint carries it.
 DEVEX_LENS = FlashLens(pass_number=2003, prompt_file="lens_devex.md", source="flash-lens-devex")
 
 # One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents

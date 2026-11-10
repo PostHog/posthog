@@ -33,6 +33,8 @@ from posthog.event_usage import groups
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
+from posthog.ownership.github_files import fetcher_for_team
+from posthog.ownership.paths import resolve_path_owners
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -58,6 +60,7 @@ from products.review_hog.backend.reviewer.constants import (
     COORDINATOR_MAX_SUBAGENTS,
     DEVEX_LENS,
     DEVEX_LENS_NAME,
+    DEVEX_OWNER_TEAM,
     FLASH_LENSES,
     FLASH_WHOLE_PR_TURNS,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
@@ -227,7 +230,6 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import (
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
     count_reviewable_additions,
-    devex_lens_files,
     generate_chunking_prompt,
     plan_deterministic_chunks,
     plan_lens_chunks,
@@ -831,6 +833,19 @@ def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
     return github
 
 
+def _devex_lens_files(team_id: int, repository: str, pr_files: list[PRFile]) -> list[str]:
+    """The changed files that the repository's `owners.yaml` files give to the devex team.
+
+    Ownership comes from the default branch, so a pull request cannot move itself out of the lens.
+    Empty when the repository declares no ownership or its files could not be read.
+    """
+    paths = [pr_file.filename for pr_file in pr_files]
+    ownership = resolve_path_owners(
+        repository, paths, files=fetcher_for_team(team_id, repository, priority=Priority.BATCH)
+    )
+    return [path for path in paths if ownership.team_by_path[path] == DEVEX_OWNER_TEAM]
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -992,8 +1007,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         # The coordinator has no sub-agent slot for it, so a coordinated PR runs without the devex lens.
         devex_lens=separate_sessions
         and pr_number is not None
-        and bool(devex_lens_files(fetched.pr_files))
-        and devex_lens_on(input.repository, pr_number),
+        and devex_lens_on(input.repository, pr_number)
+        and bool(_devex_lens_files(input.team_id, input.repository, fetched.pr_files)),
         zero_change_skip=pr_number is not None and skips_zero_change_follow_ups(input.repository, pr_number),
         # The delta review only exists for separate sessions, so a coordinated PR stays in the control arm.
         delta_band=separate_sessions
@@ -1573,7 +1588,9 @@ def _prepare_single_agent_prompt(
     # The workflow starts one session per lens on a delta turn, so a delta turn whose baseline is gone reviews the whole
     # PR in that session instead of one lens part.
     if devex_lens:
-        scope_files = devex_lens_files(snapshot.pr_files)
+        scope_files = _devex_lens_files(input.team_id, input.repository, snapshot.pr_files)
+        if not scope_files:
+            raise ApplicationError("Could not read which files the devex team owns for the devex lens")
     elif for_lens and input.delta_since_head_sha is None:
         chunks = plan_lens_chunks(snapshot.pr_files).chunks
         if not 1 <= chunk_id <= len(chunks):
