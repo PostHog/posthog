@@ -329,15 +329,24 @@ describe('readSandboxAuthorization', () => {
             }
         })
 
-        it('reports authorization as unavailable when connecting fails', async () => {
-            const unreachable = new PostgresRouter({
-                ...defaultConfig,
-                DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1:1/posthog',
-            })
+        it.each([
+            [
+                'the database refuses connections',
+                { DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1:1/posthog' },
+                false,
+            ],
+            ['the router has been ended', {}, true],
+        ])('reports authorization as unavailable when %s', async (_case, config, endFirst) => {
+            const unreachable = new PostgresRouter({ ...defaultConfig, ...config })
             try {
+                if (endFirst) {
+                    await unreachable.end()
+                }
                 expect(await readThrough(unreachable)).toEqual(unavailable)
             } finally {
-                await unreachable.end()
+                if (!endFirst) {
+                    await unreachable.end()
+                }
             }
         })
     })
