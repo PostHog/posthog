@@ -1982,6 +1982,8 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
         self.assertEqual(self._expr("sha1(event)"), "lower(hex(SHA1(events.event)))")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
+        self.assertEqual(self._expr("greatest(1, 2, 3)"), "greatest(1, 2, 3)")
+        self.assertEqual(self._expr("least(1, 2, 3)"), "least(1, 2, 3)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
         self.assertEqual(self._expr("toFloat('1.3')", context), "accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)")
         self.assertEqual(
