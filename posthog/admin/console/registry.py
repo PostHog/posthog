@@ -143,8 +143,8 @@ class ConsoleRegistry:
             if module.name.endswith(CONTRIBUTION_SUFFIXES):
                 importlib.import_module(f"{__package__}.{module.name}")
         autodiscover_modules("console")
-        # Set only after the imports succeed, so a failed import raises again on the next request instead of
-        # leaving the console with some panels missing.
+        # Set only after every import succeeds, so the next call imports a failed module again. Until then console
+        # pages raise its error, and the moved URL routes log it and serve nothing, while the rest of the app works.
         self._discovered = True
 
 
