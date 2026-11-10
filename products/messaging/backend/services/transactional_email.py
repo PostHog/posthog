@@ -528,6 +528,7 @@ def send_code_email(
     to: str,
     distinct_id: str | None,
     idempotency_key: str | None = None,
+    categories_enabled: bool = False,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
@@ -535,7 +536,10 @@ def send_code_email(
         category: SendCategory | None = None
         if template is not None:
             hog_flow_id = _transactional_workflow_id(team.id, template)
-            category = template_send_category(template_category(team.id, template.message_category_id), email.category)
+            if categories_enabled:
+                category = template_send_category(
+                    template_category(team.id, template.message_category_id), email.category
+                )
             kind = "transactional" if category is None else category.type
         else:
             kind = requested_kind(email.category)

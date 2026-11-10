@@ -11,8 +11,6 @@ from posthog.uuidt import UUIDT
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.workflows.backend.facade.models import HogFlow
 
-# The schemas the CDP API parses a send with, in nodejs/src/cdp/services/hogflows/transactional-email.ts.
-# A field that Django sends and the CDP does not know is refused here, as the CDP's strict schema refuses it.
 _CATEGORY = {"id": None, "type": None}
 _SEND = {
     "content": {"subject": None, "html": None, "text": None},
@@ -36,11 +34,12 @@ _ROUTE = re.compile(
     r"/api/projects/(?P<team_id>\d+)/hog_flows/(?P<hog_flow_id>[^/]+)/transactional_email(?P<code>/send)?$"
 )
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
-# JavaScript's \s, which the CDP's patterns use. Python's \s also matches characters such as U+0085.
-_JS_SPACE = "[\t\n\v\f\r    -     　﻿]"
-_CODE_SEND_UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{_JS_SPACE}*unsubscribe_url{_JS_SPACE}*\}}\}}")
+_JAVASCRIPT_WHITESPACE = "[\t\n\v\f\r    -     　﻿]"
+_CODE_SEND_UNSUBSCRIBE_PLACEHOLDER = re.compile(
+    rf"\{{\{{{_JAVASCRIPT_WHITESPACE}*unsubscribe_url{_JAVASCRIPT_WHITESPACE}*\}}\}}"
+)
 _LIQUID_UNSUBSCRIBE_LINK = re.compile(
-    rf"\{{\{{-?{_JS_SPACE}*unsubscribe_url(_one_click)?{_JS_SPACE}*-?\}}\}}|\{{%-?{_JS_SPACE}*unsubscribe_url{_JS_SPACE}*-?%\}}"
+    rf"\{{\{{-?{_JAVASCRIPT_WHITESPACE}*unsubscribe_url(_one_click)?{_JAVASCRIPT_WHITESPACE}*-?\}}\}}|\{{%-?{_JAVASCRIPT_WHITESPACE}*unsubscribe_url{_JAVASCRIPT_WHITESPACE}*-?%\}}"
 )
 
 
