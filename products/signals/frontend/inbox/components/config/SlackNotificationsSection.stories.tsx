@@ -2,9 +2,16 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
+import type { SignalReportPriority } from '../../types'
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
-const WORKSPACE = { id: 1, kind: 'slack', display_name: 'PostHog', config: {}, created_at: '2026-01-01T00:00:00Z' }
+const WORKSPACE = {
+    id: 1,
+    kind: 'slack',
+    display_name: 'PostHog',
+    config: { scope: 'chat:write,channels:read,users:read' },
+    created_at: '2026-01-01T00:00:00Z',
+}
 
 const CHANNELS = [
     { id: 'C0123ABC456', name: 'self-driving', is_private: false, is_member: true, is_ext_shared: false },
@@ -13,35 +20,52 @@ const CHANNELS = [
 
 interface CardsState {
     connected?: boolean
+    /** A workspace installed before PostHog asked for the scope a direct message needs. */
+    cannotLookUpMembers?: boolean
     teamChannel?: string | null
+    teamMinPriority?: SignalReportPriority | null
     /** The personal reviewer ping target: the person's own account (`U…|@name`) or a channel. */
     myTarget?: string | null
+    myMinPriority?: SignalReportPriority | null
     /** Personal notifications turned on with no target chosen yet. */
     awaitingTarget?: boolean
 }
 
 function Cards({
     connected = true,
+    cannotLookUpMembers = false,
     teamChannel = null,
+    teamMinPriority = null,
     myTarget = null,
+    myMinPriority = null,
     awaitingTarget = false,
 }: CardsState): JSX.Element {
+    const workspace = cannotLookUpMembers ? { ...WORKSPACE, config: { scope: 'chat:write,channels:read' } } : WORKSPACE
+    let teamConfig = {
+        id: 'cfg-1',
+        default_slack_notification_channel: teamChannel,
+        default_slack_notification_min_priority: teamMinPriority,
+        default_autostart_priority: 'P2',
+        autostart_base_branches: {},
+    }
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/integrations/': { results: connected ? [WORKSPACE] : [] },
+            '/api/projects/:team_id/integrations/': { results: connected ? [workspace] : [] },
             '/api/environments/:team_id/integrations/:id/channels': { channels: CHANNELS, has_more: false },
-            '/api/projects/:team_id/signals/config/': {
-                id: 'cfg-1',
-                default_slack_notification_channel: teamChannel,
-                default_autostart_priority: 'P2',
-                autostart_base_branches: {},
-            },
+            '/api/projects/:team_id/signals/config/': () => teamConfig,
             '/api/users/@me/signal_autonomy/': {
                 id: 'auto-1',
                 autostart_priority: null,
                 slack_notification_integration_id: myTarget || awaitingTarget ? WORKSPACE.id : null,
                 slack_notification_channel: myTarget,
-                slack_notification_min_priority: null,
+                slack_notification_min_priority: myMinPriority,
+            },
+        },
+        post: {
+            '/api/projects/:team_id/signals/config/': async ({ request }) => {
+                const patch = (await request.json()) as Partial<typeof teamConfig>
+                teamConfig = { ...teamConfig, ...patch }
+                return teamConfig
             },
         },
     })
@@ -82,6 +106,17 @@ export const DirectMessageToMe: Story = {
     render: () => <Cards myTarget="U0123ABC456|@sam" />,
 }
 
+export const DirectMessageUnavailable: Story = {
+    render: () => <Cards cannotLookUpMembers awaitingTarget />,
+}
+
 export const PersonalChannel: Story = {
-    render: () => <Cards teamChannel="C0456DEF789|#engineering" myTarget="C0123ABC456|#self-driving" />,
+    render: () => (
+        <Cards
+            teamChannel="C0456DEF789|#engineering"
+            teamMinPriority="P2"
+            myTarget="C0123ABC456|#self-driving"
+            myMinPriority="P1"
+        />
+    ),
 }

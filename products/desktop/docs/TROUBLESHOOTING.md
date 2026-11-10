@@ -240,7 +240,7 @@ You might see something like this every time you run `pnpm install`:
 Packages: -198
 ```
 
-This is cosmetic noise — nothing is broken. It's caused by `node-linker=hoisted` in `.npmrc`, which gives us a flat `node_modules` layout (required for Electron). With hoisted mode, pnpm reorganizes the flat layout on each install and reports the churn as packages added/removed. The packages aren't actually disappearing. Safe to ignore.
+This is cosmetic noise — nothing is broken. It's caused by `nodeLinker: hoisted` in `pnpm-workspace.yaml`, which gives us a flat `node_modules` layout (required for Electron). With hoisted mode, pnpm reorganizes the flat layout on each install and reports the churn as packages added/removed. The packages aren't actually disappearing. Safe to ignore.
 
 ## Commit signing fails with Secretive ("private key not available")
 

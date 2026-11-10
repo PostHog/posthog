@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from temporalio import activity
 
@@ -51,7 +52,17 @@ async def support_build_context_activity(input: SupportReplyInput) -> BuildConte
 
 
 def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int = 0) -> BuildContextOutput:
-    ticket = Ticket.objects.select_related("team").get(id=ticket_id, team_id=team_id)
+    try:
+        UUID(str(ticket_id))
+    except (ValueError, TypeError, AttributeError):
+        raise Ticket.DoesNotExist from None
+    ticket = Ticket.objects.select_related("team").filter(id=ticket_id, team_id=team_id).first()
+    if ticket is None:
+        # A soft-deleted ticket is hidden from the live manager. Stop the workflow
+        # instead of retrying a lookup that will never succeed.
+        if Ticket.all_objects.filter(id=ticket_id, team_id=team_id, deleted_at__isnull=False).exists():
+            return BuildContextOutput(ticket_context="", ticket_title="", ticket_gone=True)
+        raise Ticket.DoesNotExist
     team = ticket.team
     comments = list(
         Comment.objects.filter(

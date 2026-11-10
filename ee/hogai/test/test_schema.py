@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from pydantic import ValidationError
 
 from posthog.schema import AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery
 
 
-class TestSchema(BaseTest):
+class TestSchema(SimpleTestCase):
     def test_schema_series_properties_do_not_accept_arbitrary_strings(self):
         """If this test fails, check the schema of `series.properties[].type`. It must be an enum."""
 

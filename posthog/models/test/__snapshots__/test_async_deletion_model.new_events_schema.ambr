@@ -3,20 +3,20 @@
   '''
   
   SELECT DISTINCT team_id,
-                  $group_0
+                  properties.`$group_0`
   FROM events_json
   WHERE (team_id = 99999
-         AND $group_0 = 'foo')
+         AND properties.`$group_0` = 'foo')
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_groups_when_not_done[new_events_schema]
   '''
   
   SELECT DISTINCT team_id,
-                  $group_0
+                  properties.`$group_0`
   FROM events_json
   WHERE (team_id = 99999
-         AND $group_0 = 'foo')
+         AND properties.`$group_0` = 'foo')
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_person[new_events_schema]

@@ -7,7 +7,7 @@ import { BindLogic } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -29,17 +29,14 @@ const cachedResults: HogQLQueryResponse = {
     ],
 }
 
-function renderTableDisplay(
-    key: string,
-    featureFlags: Record<string, string | boolean> = {}
-): () => DataVisualizationNode {
+function renderTableDisplay(key: string, featureFlags: Record<string, string | boolean> = {}): () => VisualizationNode {
     initKeaTests()
 
     const flags = featureFlagLogic()
     flags.mount()
     flags.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
 
-    let query: DataVisualizationNode = {
+    let query: VisualizationNode = {
         kind: NodeKind.DataVisualizationNode,
         source: { kind: NodeKind.HogQLQuery, query: 'select * from summaries' },
         display: ChartDisplayType.ActionsTable,

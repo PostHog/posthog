@@ -8,7 +8,7 @@ from products.signals.backend.emission._prompts import FEEDBACK_ACTIONABILITY_PR
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
-CANNY_FIELDS = ("id", "title", "details", "status", "tags", "score", "voteCount", "url", "created")
+CANNY_FIELDS = ("id", "title", "details", "status", "tags", "score", "vote_count", "url", "created")
 
 CANNY_CONFIG = SignalSourceTableConfig(
     source_product="canny",
@@ -19,7 +19,7 @@ CANNY_CONFIG = SignalSourceTableConfig(
         id_field="id",
         title_field="title",
         body_field="details",
-        extra_fields=("status", "tags", "score", "voteCount", "url", "created"),
+        extra_fields=("status", "tags", "score", "vote_count", "url", "created"),
         json_list_fields=("tags",),
     ),
     record_fetcher=data_warehouse_record_fetcher,

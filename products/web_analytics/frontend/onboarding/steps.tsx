@@ -1,13 +1,12 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { OnboardingProductConfiguration } from 'scenes/onboarding/legacy/OnboardingProductConfiguration'
-import { type ProductConfigOption } from 'scenes/onboarding/legacy/onboardingProductConfigurationLogic'
-import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
-import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/web-analytics/WebAnalyticsSDKInstructions'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
-import { OnboardingWebAnalyticsAuthorizedDomainsStep } from 'scenes/onboarding/legacy/web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
-import { OnboardingWebAnalyticsPathCleaningStep } from 'scenes/onboarding/legacy/web-analytics/OnboardingWebAnalyticsPathCleaningStep'
-import { urls } from 'scenes/urls'
+import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
+import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
+import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
+import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
+import { OnboardingWebAnalyticsAuthorizedDomainsStep } from 'scenes/onboarding/web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
+import { OnboardingWebAnalyticsPathCleaningStep } from 'scenes/onboarding/web-analytics/OnboardingWebAnalyticsPathCleaningStep'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
@@ -126,5 +125,4 @@ export const webAnalyticsOnboarding: ProductOnboardingProvider = {
             },
         ]
     },
-    completeRedirectUrl: () => urls.webAnalytics(),
 }

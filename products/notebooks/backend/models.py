@@ -7,6 +7,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
 from posthog.models.utils import (
     RootTeamMixin,
@@ -19,10 +20,13 @@ from posthog.utils import generate_short_id
 from posthog.uuidt import uuid7
 
 
-class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"
         DEFAULT = "default", "default"
+        # Hidden like INTERNAL until someone opens it in the app, then DEFAULT.
+        UNLISTED = "unlisted", "unlisted"
 
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -67,7 +71,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             name=self.title or "Untitled",
             href=f"/notebooks/{self.short_id}",
             meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
-            should_delete=self.deleted or self.visibility == self.Visibility.INTERNAL,
+            should_delete=self.deleted or self.visibility != self.Visibility.DEFAULT,
         )
 
 
@@ -342,7 +346,7 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Which kernel this run was dispatched to, so the callback can file the run's frame
     # snapshot against the right KernelRuntime. A plain id rather than an FK: runtime rows
     # are transient (starting/stopped/discarded/error) and run history must not be coupled
-    # to their churn — see sql_v2_result_delivery.md, "Related model notes".
+    # to their churn.
     kernel_runtime_id = models.UUIDField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

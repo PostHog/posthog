@@ -1,9 +1,9 @@
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 
 
-class TestQueriesUtil(TestCase):
+class TestQueriesUtil(SimpleTestCase):
     def test_correct_resullt_for_sampling(self):
         res = correct_result_for_sampling(1, 0.1, None)
         self.assertEqual(res, 10)

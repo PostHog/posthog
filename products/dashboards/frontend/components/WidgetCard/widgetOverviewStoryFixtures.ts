@@ -3,6 +3,7 @@ import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
 import type { ConversationsWidgetTicket } from '../../widgets/conversations/conversationsWidgetUtils'
 import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
+import { metricsTableWidgetSampleResult } from '../../widgets/metrics/metricsTableWidgetSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -536,6 +537,15 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     totalCountCapped: true,
                 },
             }
+        case 'metrics_table':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig, groupBy: 'http.route' },
+                loading: false,
+                result: metricsTableWidgetSampleResult,
+            }
         case 'conversations_recent_tickets':
             return {
                 title: defaultTitle,
@@ -548,6 +558,17 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     hasMore: true,
                     totalCount: 12,
                 },
+            }
+        case 'canvas_app':
+            // A live canvas needs a signed artifact from the canvas origin, which a story cannot serve, so
+            // the overview shows the tile's unconfigured state.
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: defaultConfig,
+                loading: false,
+                result: { canvas: null, needsConfiguration: true },
             }
         default: {
             const exhaustiveCheck: never = catalogKey

@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.feature_flags.backend.facade.config import served_string_values
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -25,7 +26,8 @@ class FlagValueResponseSerializer(serializers.Serializer):
 class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
     API endpoint for getting possible values for feature flags.
-    Returns true/false for boolean flags and variant keys for multivariate flags.
+    Returns true/false for every flag, plus the variant keys of a multivariate flag or the
+    string values of a config version 2 string flag.
     """
 
     permission_classes = [IsAuthenticated]
@@ -70,14 +72,7 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Otherwise a caller bypasses a flag's per-flag "none" access by naming its ID directly.
         self.check_object_permissions(request, flag)
 
-        # Always include true and false for any flag
-        values = [{"name": True}, {"name": False}]
-
-        # Add variant keys if this is a multivariate flag
-        if flag.filters.get("multivariate") and flag.filters["multivariate"].get("variants"):
-            for variant in flag.filters["multivariate"]["variants"]:
-                variant_key = variant.get("key")
-                if variant_key:
-                    values.append({"name": variant_key})
+        # Always include true and false for any flag; a flag dependency on true matches any enabled value
+        values = [{"name": value} for value in [True, False, *served_string_values(flag.filters)]]
 
         return response.Response({"results": values, "refreshing": False})

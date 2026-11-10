@@ -1,0 +1,185 @@
+import { combineUrl } from 'kea-router'
+
+import { IconArrowRight } from '@posthog/icons'
+
+import { SearchItem } from 'lib/components/Search/searchItems'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+
+import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
+import { fileSystemTypes } from '~/products'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { OrganizationMemberType, UserType } from '~/types'
+
+import { FilterOptions, ResolvedQuery, ValueOption, listSearchText } from './commandKQuery'
+import type { ViewAll } from './commandKSections'
+
+/** Short words people type for a type, on top of its name and key. */
+const TYPE_ALIASES: Record<string, string[]> = {
+    feature_flag: ['flag', 'flags'],
+    session_recording_playlist: ['playlist', 'replay', 'recording'],
+    early_access_feature: ['eaf', 'beta'],
+    workflows: ['workflow'],
+    notebook: ['doc'],
+    alert: ['alerts'],
+    ticket: ['tickets', 'support'],
+    endpoints: ['endpoint'],
+    'hog_function/destination': ['destinations'],
+    'hog_function/transformation': ['transformations'],
+}
+
+interface FileSystemTypeDefinition {
+    name?: string
+    iconType?: string
+    listHref?: () => string
+    listSearchParam?: 'search'
+    fileSystemTypes?: string[]
+}
+
+const EXTRA_TYPES: Record<string, FileSystemTypeDefinition> = {
+    alert: {
+        name: 'Insight alert',
+        iconType: 'inbox',
+        listHref: () => combineUrl(urls.alerts(), { alert_type: 'insights' }).url,
+    },
+    ticket: { name: 'Ticket', iconType: 'conversations', listHref: () => urls.supportTickets() },
+    'hog_function/destination': {
+        name: 'Destination',
+        iconType: 'data_destination',
+        listHref: () => urls.destinations(),
+        fileSystemTypes: ['hog_function/destination', 'hog_function/site_destination'],
+    },
+    'hog_function/transformation': {
+        name: 'Transformation',
+        iconType: 'data_transformation',
+        listHref: () => urls.transformations(),
+    },
+}
+
+const COMMAND_K_TYPES: Record<string, FileSystemTypeDefinition> = {
+    ...(fileSystemTypes as Record<string, FileSystemTypeDefinition>),
+    ...EXTRA_TYPES,
+}
+
+const typeDefinition = (type: string): FileSystemTypeDefinition | undefined =>
+    Object.hasOwn(COMMAND_K_TYPES, type) ? COMMAND_K_TYPES[type] : undefined
+
+export const fileSystemTypesFor = (type: string): string[] => typeDefinition(type)?.fileSystemTypes ?? [type]
+
+// Some manifest names are already plural, such as "Tasks".
+export const pluralTypeName = (label: string): string => {
+    const name = label.toLowerCase()
+    return name.endsWith('s') ? name : `${name}s`
+}
+
+let cachedTypeOptions: ValueOption[] | null = null
+
+/** Every type from the product manifests plus the extra types, alphabetized. The manifests never change at runtime. */
+const typeOptions = (): ValueOption[] => {
+    if (cachedTypeOptions === null) {
+        cachedTypeOptions = Object.entries(COMMAND_K_TYPES)
+            .flatMap(([type, definition]) =>
+                definition.name
+                    ? [
+                          {
+                              value: type,
+                              label: definition.name,
+                              aliases: [
+                                  type,
+                                  definition.name.toLowerCase().replace(/\s+/g, '-'),
+                                  ...(TYPE_ALIASES[type] ?? []),
+                              ],
+                              iconType: definition.iconType ?? type,
+                          },
+                      ]
+                    : []
+            )
+            .sort((a, b) => a.label.localeCompare(b.label))
+    }
+    return cachedTypeOptions
+}
+
+const memberOption = (member: OrganizationMemberType): ValueOption => {
+    const { first_name, last_name, email } = member.user
+    return {
+        value: email,
+        label: [first_name, last_name].filter(Boolean).join(' ') || email,
+        aliases: [first_name, last_name, email].filter((alias): alias is string => !!alias),
+    }
+}
+
+/** `me` first, then everyone else in the organization. */
+const userOptions = (members: OrganizationMemberType[], user: UserType | null): ValueOption[] => [
+    { value: 'me', label: 'Me', aliases: user ? [user.first_name, user.email].filter(Boolean) : [] },
+    ...members.filter((member) => member.user.uuid !== user?.uuid).map(memberOption),
+]
+
+export function buildFilterOptions(
+    members: OrganizationMemberType[],
+    user: UserType | null,
+    folders: FileSystemEntry[] | null
+): FilterOptions {
+    return {
+        is: typeOptions().filter((option) =>
+            isFileSystemEntryTypeEnabled(
+                { type: option.value },
+                featureFlagLogic.findMounted()?.values.featureFlags ?? {}
+            )
+        ),
+        createdBy: userOptions(members, user),
+        in: (folders ?? []).map((folder) => ({ value: folder.path, label: folder.path })),
+        name: [],
+    }
+}
+
+interface ListPage {
+    href: string
+    searchParam?: 'search'
+}
+
+/** List pages for types whose manifest registers no `listHref`. A manifest `listHref` also makes Library redirect the type to that page. */
+const LIST_PAGE_FALLBACKS: Record<string, ListPage> = {
+    dashboard: { href: '/dashboard', searchParam: 'search' },
+    notebook: { href: '/notebooks' },
+    endpoints: { href: urls.endpoints() },
+}
+
+function listPageFor(type: string): ListPage | null {
+    const definition = typeDefinition(type)
+    if (definition?.listHref) {
+        return { href: definition.listHref(), searchParam: definition.listSearchParam }
+    }
+    return LIST_PAGE_FALLBACKS[type] ?? null
+}
+
+function listHrefFor({ href, searchParam }: ListPage, resolved: ResolvedQuery): string {
+    if (!searchParam) {
+        return href
+    }
+    const search = listSearchText(resolved)
+    return search ? combineUrl(href, { [searchParam]: search }).url : href
+}
+
+// With only filters the list page is the likely target; once there is search text, the matches matter more.
+export function viewAllFor(resolved: ResolvedQuery): ViewAll | null {
+    const chip = resolved.filters.find((candidate) => candidate.key === 'is' && !candidate.negated)
+    if (!chip) {
+        return null
+    }
+    const listPage = listPageFor(chip.value)
+    if (!listPage) {
+        return null
+    }
+    const href = listHrefFor(listPage, resolved)
+    const name = `View all ${pluralTypeName(chip.label)}`
+    const item: SearchItem = {
+        id: `view-all-${chip.value}`,
+        name,
+        displayName: name,
+        category: 'results',
+        href,
+        icon: <IconArrowRight className="size-4 shrink-0 text-muted-foreground" />,
+        record: { type: chip.value },
+    }
+    return { item, placement: resolved.freeText.trim() ? 'trail' : 'lead' }
+}

@@ -2,15 +2,74 @@
 
 use std::sync::Arc;
 
+use crate::utils::test_utils::unparseable_flag_json;
 use crate::{
     api::errors::{simplify_serde_error, FlagError},
     flags::{
+        config_format::decode_filters,
+        config_v2::{Predicate, Subject},
         feature_flag_list::PreparedFlags,
-        flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
+        flag_group_type_mapping::GroupTypeIndex,
+        flag_models::{FeatureFlagList, FlagFilters, HypercacheFlagsWrapper},
     },
 };
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
+
+pub fn v2_filters_referencing(
+    subjects: &[Subject],
+    aggregation: Option<GroupTypeIndex>,
+) -> FlagFilters {
+    let mut filters = decode_filters(serde_json::json!({
+        "version": 2, "return_type": "boolean", "default_value": false,
+        "rules": [{"id": "00000000-0000-4000-8000-000000000001", "rule_type": "targeted_release",
+            "targeting": {"properties": [{"key": "email", "type": "person", "value": "person@example.com"}]},
+            "value": true}]
+    }))
+    .unwrap();
+    let non_v1 = Arc::make_mut(filters.non_v1.as_mut().unwrap());
+    let config = non_v1.parsed_v2.as_mut().unwrap().as_mut().unwrap();
+    config.aggregation_group_type_index = aggregation;
+    let person = config.rules[0].targeting[0].clone();
+    config.rules[0]
+        .targeting
+        .extend(subjects.iter().map(|&subject| Predicate {
+            subject,
+            ..person.clone()
+        }));
+    filters
+}
+
+/// A hypercache payload in which only flag 2 fails to deserialize. Flag 3 depends on flag 2.
+/// Flag 1 starts in `flags_with_missing_deps` so that a test sees whether a kept flag stays marked.
+pub fn payload_with_unparseable_flag(team_id: TeamId) -> serde_json::Value {
+    serde_json::json!({
+        "flags": [
+            {
+                "id": 1,
+                "key": "healthy_flag",
+                "team_id": team_id,
+                "active": true,
+                "deleted": false,
+                "filters": { "groups": [] }
+            },
+            unparseable_flag_json(2, "malformed_flag", team_id),
+            {
+                "id": 3,
+                "key": "dependent_flag",
+                "team_id": team_id,
+                "active": true,
+                "deleted": false,
+                "filters": { "groups": [] }
+            }
+        ],
+        "evaluation_metadata": {
+            "dependency_stages": [[1, 2], [3]],
+            "flags_with_missing_deps": [1, 2],
+            "transitive_deps": { "1": [], "2": [], "3": [2] }
+        }
+    })
+}
 
 /// Generate the Django-compatible hypercache key for tests
 /// Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json

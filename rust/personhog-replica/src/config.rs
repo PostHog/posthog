@@ -1,4 +1,5 @@
 use envconfig::Envconfig;
+use personhog_common::h2_window::{Http2Windows, WindowSize};
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -34,6 +35,13 @@ pub struct Config {
 
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
+
+    /// Statement timeout (ms) for the INSERT in UpsertHashKeyOverrides. Keep it
+    /// below the shortest caller deadline, with room for pool acquire and round
+    /// trips. The feature-flags service gives this write 2.5 s by default
+    /// (PERSONS_DB_DEADLINE_MS).
+    #[envconfig(default = "2000")]
+    pub hash_key_override_statement_timeout_ms: u64,
 
     /// Max connections for the bulk pool (large batch reads, deletes).
     /// Kept small so bulk queries can't starve the fast pool.
@@ -86,6 +94,12 @@ pub struct Config {
     /// Timeout for a keepalive ping ack before considering the connection dead
     #[envconfig(default = "10")]
     pub grpc_keepalive_timeout_secs: u64,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_connection_window_bytes: WindowSize,
 
     /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
     #[envconfig(default = "134217728")]
@@ -182,6 +196,13 @@ impl Config {
         } else {
             Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
         }
+    }
+
+    pub fn grpc_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.grpc_initial_stream_window_bytes,
+            self.grpc_initial_connection_window_bytes,
+        )
     }
 
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {

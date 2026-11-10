@@ -1,8 +1,8 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.request import Request
@@ -25,6 +25,7 @@ from posthog.session_recordings.session_recording_api import (
     SharingTokenReplayThrottle,
     SnapshotsBurstRateThrottle,
     SnapshotsSustainedRateThrottle,
+    SnapshotsUserBurstRateThrottle,
     get_cached_org_tier,
     listing_rates,
     snapshot_rates,
@@ -211,7 +212,7 @@ class TestSnapshotRatesFromSettings(BaseTest):
         assert rates["free"]["snapshots_burst"] == "999/minute"
 
 
-class TestListingRatesConfig(BaseTest):
+class TestListingRatesConfig(SimpleTestCase):
     @parameterized.expand(
         [
             ("free_burst", "free", "listing_burst", "12/minute"),
@@ -237,7 +238,13 @@ class TestListingRatesConfig(BaseTest):
         assert throttle.rate == expected_rate
 
 
-class TestTierAwareListingThrottle(BaseTest):
+class TestTierAwareListingThrottle(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        rate_limit_patcher = patch("posthog.rate_limit.is_rate_limit_enabled", return_value=False)
+        rate_limit_patcher.start()
+        self.addCleanup(rate_limit_patcher.stop)
+
     @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", side_effect=Exception("db gone"))
     def test_tier_lookup_error_falls_back_to_default_rates(self, _mock_tier: object) -> None:
         throttle = ListingBurstRateThrottle()
@@ -288,7 +295,7 @@ class TestTierAwareListingThrottle(BaseTest):
         assert throttle.rate == "200/minute"
 
 
-class TestListingRatesFromSettings(BaseTest):
+class TestListingRatesFromSettings(SimpleTestCase):
     @override_settings(LISTING_RATE_FREE_BURST="999/minute")
     def test_listing_rates_reads_from_settings(self) -> None:
         rates = listing_rates()
@@ -320,7 +327,7 @@ def _fake_sharing_token_request(token: str, auth_cls: type = SharingAccessTokenA
     return type("FakeRequest", (), {"META": {}, "auth": None, "successful_authenticator": auth})()
 
 
-class TestSharingTokenReplayThrottle(BaseTest):
+class TestSharingTokenReplayThrottle(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -413,9 +420,16 @@ class TestSharingTokenReplayThrottle(BaseTest):
         before = _counter_value("replay_sharing_token", "sharing_token")
 
         # Burn the bucket then attempt one more — only the rejected one bumps the counter.
-        for _ in range(2):
+        with (
+            patch(
+                "posthog.session_recordings.session_recording_api.team_is_allowed_to_bypass_throttle",
+                return_value=False,
+            ),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+        ):
+            for _ in range(2):
+                throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
             throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
-        throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
 
         after = _counter_value("replay_sharing_token", "sharing_token")
         assert after - before == 1
@@ -427,7 +441,7 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         viewset.action = action
         request = Request(APIRequestFactory().get("/"))
         request._authenticator = authenticator  # type: ignore[attr-defined]  # backs read-only @property
-        viewset.request = request  # ty: ignore[invalid-assignment]
+        viewset.request = request
         return viewset
 
     @parameterized.expand(
@@ -463,3 +477,16 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         throttles = viewset.get_throttles()
 
         assert not any(isinstance(t, SharingTokenReplayThrottle) for t in throttles)
+
+
+class TestSnapshotUserRateThrottle(SimpleTestCase):
+    @patch("posthog.session_recordings.session_recording_api.capture_exception")
+    @patch("posthog.session_recordings.session_recording_api.team_is_allowed_to_bypass_throttle", return_value=False)
+    @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
+    def test_allows_the_fetch_when_the_cache_errors(self, _enabled, _bypass, mock_capture) -> None:
+        throttle = SnapshotsUserBurstRateThrottle()
+        throttle.cache = MagicMock(get=MagicMock(side_effect=ConnectionError("cache unavailable")))
+        request = type("FakeRequest", (), {"user": type("FakeUser", (), {"is_authenticated": True, "pk": 1})()})()
+
+        assert throttle.allow_request(request, type("FakeView", (), {"team_id": 1})()) is True
+        mock_capture.assert_called_once()

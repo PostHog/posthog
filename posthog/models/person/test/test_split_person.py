@@ -3,9 +3,12 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import Person
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.util import get_person_by_distinct_id, get_person_by_id
+from posthog.models.utils import UUIDT
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
 from posthog.test.persons import add_distinct_id, create_person
 
@@ -172,30 +175,38 @@ class TestSplitPerson(BaseTest):
         for call in mock_create_person.call_args_list:
             assert call.kwargs["team_id"] == self.team.id
 
-    def test_split_pre_existing_person_keeps_created_at_and_bumps_version(self, mock_create_pdi, mock_create_person):
-        # A pre-existing split target (e.g. from a previous partial run) keeps
-        # its original created_at but gets the new version; the Kafka message
-        # must carry both so ClickHouse converges on the Postgres state.
+    @parameterized.expand([("live_person", False), ("tombstone", True)])
+    def test_split_target_at_the_derived_uuid(self, mock_create_pdi, mock_create_person, _name, is_deleted):
         original_created_at = datetime(2020, 1, 2, 3, 4, 5, tzinfo=UTC)
 
         with fake_personhog_client() as fake:
             person = self._setup_person(fake, ["id1", "id2"], mock_create_pdi, mock_create_person, version=5)
-            pre_existing_uuid = str(uuidFromDistinctId(self.team.id, "id2"))
+            derived_uuid = str(uuidFromDistinctId(self.team.id, "id2"))
             fake.add_person(
                 team_id=self.team.id,
                 person_id=999_999,
-                uuid=pre_existing_uuid,
+                uuid=derived_uuid,
+                version=500,
+                is_deleted=is_deleted,
                 created_at=int(original_created_at.timestamp() * 1000),
             )
 
             person.split_person(main_distinct_id="id1")
 
-            assert fake._persons_by_uuid[(self.team.id, pre_existing_uuid)].version == 5 + 101
+            at_derived = fake._persons_by_uuid[(self.team.id, derived_uuid)]
+            assert at_derived.is_deleted is False
 
         assert mock_create_person.call_count == 1
-        assert mock_create_person.call_args.kwargs["uuid"] == pre_existing_uuid
-        assert mock_create_person.call_args.kwargs["version"] == 5 + 101
-        assert mock_create_person.call_args.kwargs["created_at"] == original_created_at
+        published = mock_create_person.call_args.kwargs
+        if is_deleted:
+            assert published["uuid"] == derived_uuid
+            assert published["version"] == 501
+            assert published["created_at"] == original_created_at
+            assert at_derived.version == 501
+        else:
+            assert published["uuid"] not in (derived_uuid, str(person.uuid))
+            assert published["version"] == 5 + 101
+            assert at_derived.version == 500
 
     def test_partial_split_moves_only_specified_distinct_ids(self, mock_create_pdi, mock_create_person):
         with fake_personhog_client() as fake:
@@ -230,6 +241,31 @@ class TestSplitPerson(BaseTest):
             with self.assertRaises(KeyError):
                 person.split_person(main_distinct_id=None, distinct_ids_to_split=["id1", "not_on_this_person"])
 
+        mock_create_pdi.assert_not_called()
+        mock_create_person.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("every_id", {"main_distinct_id": None, "distinct_ids_to_split": ["id2", "id1", "id1"]}),
+            ("unknown_main_id", {"main_distinct_id": "not_on_this_person"}),
+            ("main_id_of_another_person", {"main_distinct_id": "other_persons_id"}),
+        ]
+    )
+    def test_split_rejects_leaving_the_person_with_no_distinct_id(
+        self, mock_create_pdi, mock_create_person, _name: str, split_kwargs: dict
+    ):
+        with fake_personhog_client() as fake:
+            person = self._setup_person(fake, ["id1", "id2"], mock_create_pdi, mock_create_person)
+            fake.add_person(
+                team_id=self.team.id, person_id=person.id + 1, uuid=str(UUIDT()), distinct_ids=["other_persons_id"]
+            )
+
+            with self.assertRaises(ValueError):
+                person.split_person(**split_kwargs)
+
+            fake.assert_not_called("split_person")
+            assert fake._persons_by_distinct_id[(self.team.id, "id1")].id == person.id
+            assert fake._persons_by_distinct_id[(self.team.id, "id2")].id == person.id
         mock_create_pdi.assert_not_called()
         mock_create_person.assert_not_called()
 

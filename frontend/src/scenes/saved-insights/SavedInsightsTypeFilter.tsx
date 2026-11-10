@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/insightTypesMetadata'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 export function SavedInsightsTypeFilter({

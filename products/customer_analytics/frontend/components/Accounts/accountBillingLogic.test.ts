@@ -2,12 +2,13 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, type InsightModel } from '~/types'
+import { ChartDisplayType, type InsightModel, type InsightShortId } from '~/types'
 
 import {
     AccountBillingKind,
@@ -58,6 +59,59 @@ describe('accountBillingLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it('keeps duplicate tile configuration independent', async () => {
+        const firstConfigChanged = jest.fn()
+        const secondConfigChanged = jest.fn()
+        const first = accountBillingLogic({
+            accountId: 'acc-1',
+            externalId: 'org-uuid',
+            kind: 'usage',
+            instanceId: 'tile-a',
+            initialConfig: {
+                dateRange: { date_from: '-7d', date_to: null },
+                usageInterval: 'week',
+            },
+            onConfigChange: firstConfigChanged,
+        })
+        const second = accountBillingLogic({
+            accountId: 'acc-1',
+            externalId: 'org-uuid',
+            kind: 'usage',
+            instanceId: 'tile-b',
+            initialConfig: {
+                dateRange: { date_from: '-90d', date_to: null },
+                usageInterval: 'month',
+            },
+            onConfigChange: secondConfigChanged,
+        })
+        first.mount()
+        second.mount()
+
+        try {
+            await expectLogic(first).toFinishAllListeners()
+            await expectLogic(second).toFinishAllListeners()
+
+            expect(first.values.dateRange).toEqual({ date_from: '-7d', date_to: null })
+            expect(first.values.usageInterval).toBe('week')
+            expect(second.values.dateRange).toEqual({ date_from: '-90d', date_to: null })
+            expect(second.values.usageInterval).toBe('month')
+
+            first.actions.setDateRange('2024-01-01', '2024-01-31')
+
+            expect(first.values.dateRange).toEqual({ date_from: '2024-01-01', date_to: '2024-01-31' })
+            expect(second.values.dateRange).toEqual({ date_from: '-90d', date_to: null })
+            expect(firstConfigChanged).toHaveBeenLastCalledWith({
+                dateRange: { date_from: '2024-01-01', date_to: '2024-01-31' },
+                usageInterval: 'week',
+                hiddenSeriesKeysByShortId: {},
+            })
+            expect(secondConfigChanged).not.toHaveBeenCalled()
+        } finally {
+            first.unmount()
+            second.unmount()
+        }
     })
 
     describe.each<AccountBillingKind>(['usage', 'spend'])('kind: %s', (kind) => {
@@ -122,6 +176,24 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).not.toEqual(initialQueryKey)
             expect(nextQueryKey).toContain('2024-01-01')
             expect(nextQueryKey).toContain('2024-01-31')
+        })
+
+        it('gives the fallback chart an insight key that does not fetch a saved insight', async () => {
+            mountForKind()
+            await expectLogic(logic).toFinishAllListeners()
+
+            for (const shortId of BILLING_INSIGHT_SHORT_IDS[kind]) {
+                const queryKey = logic.values.queryKeyFor(shortId)
+                const fallbackInsightLogic = insightLogic({
+                    dashboardItemId: queryKey as InsightShortId,
+                    dataNodeCollectionId: queryKey,
+                })
+                fallbackInsightLogic.mount()
+                await expectLogic(fallbackInsightLogic).toFinishAllListeners()
+                fallbackInsightLogic.unmount()
+            }
+
+            expect(insightsApi.getByShortId).toHaveBeenCalledTimes(BILLING_INSIGHT_SHORT_IDS[kind].length)
         })
 
         it('replaces stale preloads when the date range changes', async () => {

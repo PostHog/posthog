@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -14,9 +14,21 @@ if TYPE_CHECKING:
 import pydantic
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from posthog.schema_enums import AlertCalculationInterval, AlertState
+
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+
+
+@frozen
+class AlertLimitRefusal:
+    """A plan limit a write would break, and the request field the API reports it on."""
+
+    field: str
+    message: str
+
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
@@ -24,6 +36,12 @@ ALERT_STATE_CHOICES = [
     (AlertState.ERRORED, AlertState.ERRORED),
     (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
+
+# Matches insights whose (bare or one-level-wrapped) query is a MetricsQuery — the shapes the
+# product persists today. Used to hide metric alert data from tokens lacking the metrics scope.
+METRICS_INSIGHT_QUERY_FILTER = models.Q(insight__query__kind="MetricsQuery") | models.Q(
+    insight__query__source__kind="MetricsQuery"
+)
 
 
 class InvestigationStatus(models.TextChoices):
@@ -124,6 +142,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # insight specific config for the alert
     config = models.JSONField(default=dict, null=True, blank=True)
+    evaluation_delay_intervals = models.PositiveSmallIntegerField(default=0, db_default=0)
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
@@ -137,7 +156,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     calculation_interval = models.CharField(
         max_length=20,
         choices=CALCULATION_INTERVAL_CHOICES,
-        default=AlertCalculationInterval.DAILY,
+        default=AlertCalculationInterval.DAILY.value,
         null=True,
         blank=True,
     )
@@ -149,7 +168,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     # Detector-based anomaly detection configuration (alternative to threshold)
     detector_config = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING.value)
     enabled = models.BooleanField(default=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
@@ -192,11 +211,50 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         default="notify",
     )
 
+    # Which stack evaluates and delivers this alert. The platform's copy records the same owner,
+    # and only the cutover and rollback commands write the two. After a cutover the insight stack
+    # keeps evaluating the alert for a shadow window from `owner_changed_at`, and sends nothing.
+    owner = models.CharField(
+        max_length=16,
+        choices=PlatformAlertOwner.choices,
+        default=PlatformAlertOwner.SOURCE.value,
+        db_default=PlatformAlertOwner.SOURCE.value,
+    )
+    owner_changed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_alertconfiguration"
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
+
+    def internal_event_properties(self, *, state: str, last_checked_at: datetime | None) -> dict[str, Any]:
+        """The properties every `$insight_alert_firing` carries, from the insight stack or the platform."""
+        return {
+            "alert_id": str(self.id),
+            "alert_name": self.name,
+            "project_name": self.team.name,
+            "insight_name": self.insight.name,
+            "insight_id": self.insight.short_id,
+            "state": state,
+            "last_checked_at": last_checked_at.isoformat() if last_checked_at else None,
+            **derive_detector_event_fields(self.detector_config),
+        }
+
+    @property
+    def platform_owned(self) -> bool:
+        """The platform evaluates and delivers this alert. The insight stack may still evaluate it to
+        compare, but it sends nothing for it."""
+        return self.owner == PlatformAlertOwner.PLATFORM
+
+    @property
+    def platform_owned_since(self) -> datetime | None:
+        """When the platform took this alert over, or None while the insight stack owns it.
+
+        The alert's own checks before then are its history. Its own checks after then are the shadow's,
+        which sent nothing, so the platform's checks replace them.
+        """
+        return self.owner_changed_at if self.platform_owned else None
 
     @property
     def is_high_frequency_interval(self) -> bool:
@@ -270,6 +328,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "config_type": alert_config.get("type"),
             "trends_series_index": alert_config.get("series_index"),
             "trends_check_ongoing_interval": alert_config.get("check_ongoing_interval"),
+            "evaluation_delay_intervals": self.evaluation_delay_intervals,
             "hogql_evaluation": (alert_config.get("evaluation") or "last_row") if is_hogql_config else None,
             "hogql_has_explicit_column": bool(alert_config.get("column")) if is_hogql_config else None,
             "hogql_has_label_column": bool(alert_config.get("label_column")) if is_hogql_config else None,
@@ -294,19 +353,70 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
         """Return an error message if the team has reached its alert limit, else None."""
         alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
-        existing_count = cls.objects.filter(team_id=team_id).count()
 
         if alerts_feature:
             allowed = alerts_feature.get("limit")
             # If allowed is None then the user is allowed unlimited alerts
-            if allowed is not None and existing_count >= allowed:
+            if allowed is not None and cls._counted(team_id) >= allowed:
                 return f"Your team has reached the limit of {allowed} alerts on your plan."
         else:
             # If the org doesn't have alerts feature, limit to that on free tier
-            if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
+            if cls._counted(team_id) >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
                 return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
 
         return None
+
+    @classmethod
+    def team_alert_count(cls, team_id: int) -> int:
+        """Every insight alert of a team, as the limits count them."""
+        return cls._counted(team_id)
+
+    @classmethod
+    def create_limit_error(
+        cls,
+        *,
+        team_id: int,
+        organization: Organization,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+    ) -> AlertLimitRefusal | None:
+        """The plan limit a new alert would break, or None. Call it inside the create's transaction:
+        it holds the team's insight alert lock until the transaction ends, the lock the platform's own
+        creates take, so two creates cannot both pass the count."""
+        # Deferred for the same reason as in `_counted`.
+        from products.alerts_platform.backend.facade.api import hold_cap_lock  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
+        if message := cls.check_alert_limit(team_id, organization):
+            return AlertLimitRefusal(field="alert", message=message)
+        if message := cls.real_time_alert_validation_error(
+            team_id=team_id, organization=organization, calculation_interval=calculation_interval, enabled=enabled
+        ):
+            return AlertLimitRefusal(field="calculation_interval", message=message)
+        return None
+
+    @classmethod
+    def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
+        """The team's insight alerts: each insight row, and each platform alert with no insight row."""
+        # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
+        from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
+
+        rows = cls.objects.filter(team_id=team_id)
+        if active_real_time:
+            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
+        if exclude_id:
+            rows = rows.exclude(pk=exclude_id)
+        native = count_configurations(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            native_only=True,
+            enabled_only=active_real_time,
+            check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+        )
+        return rows.count() + native
 
     @classmethod
     def supports_high_frequency_intervals(cls, organization: Organization) -> bool:
@@ -372,10 +482,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         if allowed is None:
             return None
 
-        qs = cls.objects.filter(team_id=team_id, calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
-        if exclude_id:
-            qs = qs.exclude(pk=exclude_id)
-        existing_count = qs.count()
+        existing_count = cls._counted(team_id, active_real_time=True, exclude_id=exclude_id)
         if existing_count >= allowed:
             return f"Your team has reached the limit of {allowed} real-time alerts on your plan."
         return None
@@ -398,18 +505,58 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         active real-time count — an alert that already was an enabled real_time alert
         doesn't re-count against it.
         """
-        if calculation_interval != AlertCalculationInterval.REAL_TIME:
-            return None
-        if not enabled:
-            return None
-        already_active_real_time = (
-            existing is not None
-            and existing.calculation_interval == AlertCalculationInterval.REAL_TIME
-            and existing.enabled
-        )
-        if already_active_real_time:
+        if not cls._adds_active_real_time(
+            calculation_interval=calculation_interval, enabled=enabled, existing=existing
+        ):
             return None
         return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk) if existing else None)
+
+    @classmethod
+    def update_limit_error(
+        cls,
+        *,
+        team_id: int,
+        organization: Organization,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+        existing: AlertConfiguration,
+    ) -> str | None:
+        """The real-time limit an update would break, or None. `existing` is the alert as it was before
+        the update.
+
+        Call it inside the update's transaction, after the update has written the alert and its platform
+        copy: the platform takes a copy's row lock before this lock, so taking this one first could
+        deadlock with it. An update that adds an active real-time alert holds the team's insight alert
+        lock until the transaction ends, so two updates cannot both pass the count. Any other update
+        takes no lock."""
+        if not cls._adds_active_real_time(
+            calculation_interval=calculation_interval, enabled=enabled, existing=existing
+        ):
+            return None
+        # Deferred for the same reason as in `_counted`.
+        from products.alerts_platform.backend.facade.api import hold_cap_lock  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
+        return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk))
+
+    @staticmethod
+    def _adds_active_real_time(
+        *,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+        existing: AlertConfiguration | None,
+    ) -> bool:
+        # An alert that already was an enabled real-time alert doesn't count against the limit again.
+        return (
+            calculation_interval == AlertCalculationInterval.REAL_TIME
+            and enabled
+            and not (
+                existing is not None
+                and existing.calculation_interval == AlertCalculationInterval.REAL_TIME
+                and existing.enabled
+            )
+        )
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
@@ -443,7 +590,7 @@ class AlertCheck(UUIDTModel):
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING.value)
 
     # Detector-based anomaly detection results
     anomaly_scores = models.JSONField(null=True, blank=True)  # Scores for each data point
@@ -492,9 +639,10 @@ class AlertCheck(UUIDTModel):
         the "destinations" key); legacy rows only carry configured recipients."""
         return "destinations" in (self.targets_notified or {})
 
+    RETENTION = timedelta(days=14)
+
     @classmethod
     def clean_up_old_checks(cls) -> int:
-        retention_days = 14
-        oldest_allowed_date = datetime.now(UTC) - timedelta(days=retention_days)
+        oldest_allowed_date = datetime.now(UTC) - cls.RETENTION
         rows_count, _ = cls.objects.filter(created_at__lt=oldest_allowed_date).delete()
         return rows_count

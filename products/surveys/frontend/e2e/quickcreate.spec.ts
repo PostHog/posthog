@@ -15,7 +15,7 @@ const saveFeatureFlag = async (page: Page): Promise<void> => {
     // Saving redirects to the flag's own detail page (featureFlagLogic.saveFeatureFlagSuccess).
     // Waiting for that confirms the flag was created and committed before clickCreateSurvey
     // navigates to the list to find it.
-    await page.waitForURL(/\/feature_flags\/\d+/)
+    await page.waitForURL(/\/feature-flags\/\d+/)
 }
 
 const expectFlagEnabled = async (page: Page, name: string): Promise<void> => {
@@ -255,7 +255,9 @@ test.describe('Quick create survey from feature flag', () => {
         await responsePromise
         await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
         await expect(page.locator('[data-attr="scene-name"]').first()).toContainText(name)
-        await expect(page.locator('[data-attr="launch-survey"]').getByText('Launch', { exact: true })).toBeVisible()
+        await expect(
+            page.locator('[data-attr="launch-survey"]').getByText('Launch survey', { exact: true })
+        ).toBeVisible()
     })
 
     test('warning shown when surveys are disabled', async ({ page }) => {

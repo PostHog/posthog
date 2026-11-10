@@ -188,7 +188,7 @@ class TestAnthropicMessagesEndpoint:
         }
 
     def test_unauthenticated_request_returns_401(self, client: TestClient, valid_request_body: dict) -> None:
-        response = client.post("/v1/messages", json=valid_request_body)
+        response = client.post("/django/v1/messages", json=valid_request_body)
         assert response.status_code == 401
 
     @pytest.mark.parametrize(
@@ -205,7 +205,7 @@ class TestAnthropicMessagesEndpoint:
         expected_field: str,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=invalid_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -226,7 +226,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=provider_request_body,
             headers=provider_request_headers,
         )
@@ -249,7 +249,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-opus-4-8",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -274,7 +274,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-opus-4-8",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -312,7 +312,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.side_effect = error
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=provider_request_body,
             headers=provider_request_headers,
         )
@@ -343,7 +343,7 @@ class TestAnthropicMessagesEndpoint:
 
         body_with_injection = {**provider_request_body, param_name: param_value}
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=body_with_injection,
             headers=provider_request_headers,
         )
@@ -381,7 +381,7 @@ class TestAnthropicMessagesEndpoint:
             ],
         }
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=body_with_model_list,
             headers=provider_request_headers,
         )
@@ -415,7 +415,7 @@ class TestAnthropicMessagesEndpoint:
             },
         }
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=body_with_nested_injection,
             headers=provider_request_headers,
         )
@@ -442,7 +442,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/ci/v1/messages",
+            "/django/v1/messages",
             json=provider_request_body,
             headers=provider_request_headers,
         )
@@ -464,7 +464,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/ci/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-opus-5",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -476,6 +476,31 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 200
         assert mock_anthropic.call_args.kwargs["thinking"] == {"type": "adaptive"}
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_sonnet_5_5_disabled_thinking_becomes_between_tools(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/django/v1/messages",
+            json={
+                "model": "claude-sonnet-5-5",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "thinking": {"type": "disabled"},
+            },
+            headers=provider_request_headers,
+        )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["thinking"] == {"type": "between_tools"}
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_retired_wizard_route_answers_the_upgrade_path(
@@ -503,8 +528,8 @@ class TestAnthropicMessagesEndpoint:
     @pytest.mark.parametrize(
         "product",
         [
-            pytest.param("llm_gateway", id="llm_gateway_product"),
-            pytest.param("ci", id="ci_product"),
+            pytest.param("django", id="django_product"),
+            pytest.param("growth", id="growth_product"),
         ],
     )
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
@@ -533,6 +558,8 @@ class TestAnthropicMessagesEndpoint:
         "product",
         [
             pytest.param("invalid", id="invalid_product"),
+            pytest.param("llm_gateway", id="retired_llm_gateway_product"),
+            pytest.param("ci", id="retired_ci_product"),
             pytest.param("max", id="max_product"),
             pytest.param("claude-code", id="claude_code_product"),
         ],
@@ -552,6 +579,26 @@ class TestAnthropicMessagesEndpoint:
         assert response.status_code == 400
         assert "Invalid product" in response.json()["detail"]
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/v1/messages",
+            "/v1/messages/count_tokens",
+            "/v1/chat/completions",
+            "/v1/responses",
+            "/responses",
+            "/v1/audio/transcriptions",
+        ],
+    )
+    def test_slugless_inference_returns_400(self, client: TestClient, path: str) -> None:
+        response = client.post(path, json={})
+
+        assert response.status_code == 400
+        error = response.json()["error"]
+        assert error["type"] == "invalid_request_error"
+        assert "A product is required" in error["message"]
+        assert "https://ai-gateway.us.posthog.com" in error["message"]
+
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_gateway_fields_stripped_from_request_data(
         self,
@@ -564,7 +611,7 @@ class TestAnthropicMessagesEndpoint:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -601,7 +648,7 @@ class TestAnthropicMessagesEndpoint:
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
-                    "/v1/messages",
+                    "/django/v1/messages",
                     json={
                         "model": "@cf/moonshotai/kimi-k2.6",
                         "messages": [{"role": "user", "content": "Hello"}],
@@ -637,7 +684,7 @@ class TestAnthropicMessagesEndpoint:
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
-                    "/v1/messages",
+                    "/django/v1/messages",
                     json={
                         "model": "@cf/zai-org/glm-5.2",
                         "messages": [{"role": "user", "content": "find issues"}],
@@ -688,7 +735,7 @@ class TestAnthropicMessagesEndpoint:
             ):
                 with authenticated_client.stream(
                     "POST",
-                    "/v1/messages",
+                    "/django/v1/messages",
                     json={
                         "model": "@cf/moonshotai/kimi-k2.6",
                         "messages": [{"role": "user", "content": "Hello"}],
@@ -715,7 +762,7 @@ class TestAnthropicMessagesEndpoint:
         with patch("llm_gateway.inference_routing.ensure_cloudflare_configured") as mock_ensure_configured:
             with patch("llm_gateway.inference_routing.make_cloudflare_anthropic_call") as mock_make_call:
                 response = authenticated_client.post(
-                    "/v1/messages",
+                    "/django/v1/messages",
                     json={
                         "model": "@cf/meta/llama-3.3-70b-instruct",
                         "messages": [{"role": "user", "content": "Hello"}],
@@ -740,7 +787,7 @@ class TestAnthropicMessagesEndpoint:
         valid_request_body: dict,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "vertex"},
         )
@@ -755,7 +802,7 @@ class TestAnthropicMessagesEndpoint:
         valid_request_body: dict,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Use-Bedrock-Fallback": "1"},
         )
@@ -1150,7 +1197,7 @@ class TestAnthropicCountTokensEndpoint:
         )
 
     def test_unauthenticated_request_returns_401(self, client: TestClient, valid_request_body: dict) -> None:
-        response = client.post("/v1/messages/count_tokens", json=valid_request_body)
+        response = client.post("/django/v1/messages/count_tokens", json=valid_request_body)
         assert response.status_code == 401
 
     @pytest.mark.parametrize(
@@ -1167,7 +1214,7 @@ class TestAnthropicCountTokensEndpoint:
         expected_field: str,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=invalid_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1196,7 +1243,7 @@ class TestAnthropicCountTokensEndpoint:
         mock_httpx_client_cls.return_value = mock_client
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1209,6 +1256,39 @@ class TestAnthropicCountTokensEndpoint:
         call_kwargs = mock_client.post.call_args
         assert call_kwargs[0][0] == "https://api.anthropic.com/v1/messages/count_tokens"
         assert call_kwargs[1]["headers"]["x-api-key"] == "test-anthropic-key"
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_sonnet_5_5_disabled_thinking_counts_as_between_tools(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        mock_count_tokens_response: httpx.Response,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_count_tokens_response)
+        mock_httpx_client_cls.return_value = mock_client
+
+        response = authenticated_client.post(
+            "/django/v1/messages/count_tokens",
+            json={
+                "model": "claude-sonnet-5-5",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "thinking": {"type": "disabled"},
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert mock_client.post.call_args[1]["json"]["thinking"] == {"type": "between_tools"}
 
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
@@ -1256,7 +1336,7 @@ class TestAnthropicCountTokensEndpoint:
         }
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=body_with_extras,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1286,7 +1366,7 @@ class TestAnthropicCountTokensEndpoint:
         mock_get_settings.return_value = mock_settings
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1332,7 +1412,7 @@ class TestAnthropicCountTokensEndpoint:
         mock_httpx_client_cls.return_value = mock_client
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1361,7 +1441,7 @@ class TestAnthropicCountTokensEndpoint:
         mock_httpx_client_cls.return_value = mock_client
 
         response = authenticated_client.post(
-            "/ci/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1373,6 +1453,8 @@ class TestAnthropicCountTokensEndpoint:
         "product",
         [
             pytest.param("invalid", id="invalid_product"),
+            pytest.param("llm_gateway", id="retired_llm_gateway_product"),
+            pytest.param("ci", id="retired_ci_product"),
             pytest.param("claude-code", id="claude_code_product"),
         ],
     )
@@ -1414,7 +1496,7 @@ class TestAnthropicCountTokensEndpoint:
 
         with patch("llm_gateway.api.anthropic.litellm.anthropic_messages") as mock_litellm:
             response = authenticated_client.post(
-                "/v1/messages/count_tokens",
+                "/django/v1/messages/count_tokens",
                 json=valid_request_body,
                 headers={"Authorization": "Bearer phx_test_key"},
             )
@@ -1443,7 +1525,7 @@ class TestAnthropicCountTokensEndpoint:
         mock_httpx_client_cls.return_value = mock_client
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json={
                 "model": "claude-3-5-sonnet-20241022",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -1465,7 +1547,7 @@ class TestAnthropicCountTokensEndpoint:
         valid_request_body: dict,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "vertex"},
         )
@@ -1479,7 +1561,7 @@ class TestAnthropicCountTokensEndpoint:
         authenticated_client: TestClient,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json={
                 "model": "@cf/moonshotai/kimi-k2.6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -1502,7 +1584,7 @@ class TestAnthropicCountTokensEndpoint:
         # @cf/... id to the real Anthropic count_tokens API (which would 404).
         with patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count:
             response = authenticated_client.post(
-                "/v1/messages/count_tokens",
+                "/django/v1/messages/count_tokens",
                 json={
                     "model": "@cf/zai-org/glm-5.2",
                     "messages": [{"role": "user", "content": "Hello"}],
@@ -1525,7 +1607,7 @@ class TestAnthropicCountTokensEndpoint:
             patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),  # entitle the gated model
         ):
             response = authenticated_client.post(
-                "/v1/messages/count_tokens",
+                "/django/v1/messages/count_tokens",
                 json={
                     "model": "moonshotai/kimi-k3",
                     "messages": [{"role": "user", "content": "Hello"}],
@@ -1543,7 +1625,7 @@ class TestAnthropicCountTokensEndpoint:
         authenticated_client: TestClient,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json={
                 "model": "@cf/meta/llama-3.3-70b-instruct",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -1561,7 +1643,7 @@ class TestAnthropicCountTokensEndpoint:
         valid_request_body: dict,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Use-Bedrock-Fallback": "1"},
         )
@@ -1629,7 +1711,7 @@ class TestAnthropicCircuitBreakerIntegration:
             return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
         ):
             response = authenticated_client.post(
-                "/v1/messages",
+                "/django/v1/messages",
                 json=request_body,
                 headers={
                     "Authorization": "Bearer phx_test_key",
@@ -1661,7 +1743,7 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1687,7 +1769,7 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=request_body,
             headers={
                 "Authorization": "Bearer phx_test_key",
@@ -1716,7 +1798,7 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic.side_effect = error
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1740,7 +1822,7 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic.side_effect = error
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1764,7 +1846,7 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic.side_effect = error
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1796,7 +1878,7 @@ class TestAnthropicCircuitBreakerIntegration:
             return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
         ):
             response = authenticated_client.post(
-                "/v1/messages",
+                "/django/v1/messages",
                 json=request_body,
                 headers={
                     "Authorization": "Bearer phx_test_key",
@@ -1841,7 +1923,7 @@ class TestAnthropicCircuitBreakerIntegration:
             return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
         ):
             response = authenticated_client.post(
-                "/v1/messages",
+                "/django/v1/messages",
                 json=request_body,
                 headers={
                     "Authorization": "Bearer phx_test_key",
@@ -1882,7 +1964,7 @@ class TestAnthropicCircuitBreakerIntegration:
             return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
         ):
             response = authenticated_client.post(
-                "/v1/messages",
+                "/django/v1/messages",
                 json=request_body,
                 headers={
                     "Authorization": "Bearer phx_test_key",
@@ -1913,7 +1995,7 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic.side_effect = error
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -1935,7 +2017,7 @@ class TestAnthropicCircuitBreakerIntegration:
         request_body = {"model": "gemini/credit balance is too low", "messages": [{"role": "user", "content": "Hi"}]}
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=request_body,
             headers={
                 "Authorization": "Bearer phx_test_key",
@@ -1965,7 +2047,7 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic.side_effect = error
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json=request_body,
             headers={
                 "Authorization": "Bearer phx_test_key",

@@ -3,12 +3,15 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db import connections, router, transaction
-from django.db.models import Max, OuterRef, QuerySet, Subquery
+from django.db import transaction
+from django.db.models import Case, Count, OuterRef, Q, QuerySet, Subquery, TextField, Value, When
+from django.db.models.fields.json import KT
+from django.db.models.functions import Coalesce, Greatest
 from django.utils.timezone import now
 
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
+from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedTrendsInsight
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
@@ -61,29 +64,34 @@ def _record_insight_views(
 ) -> None:
     if not last_viewed_at_by_insight_id:
         return
-    database = router.db_for_write(InsightViewed)
-    connection = connections[database]
-    table = connection.ops.quote_name(InsightViewed._meta.db_table)
     rows = sorted(last_viewed_at_by_insight_id.items())
-    params = [value for insight_id, viewed_at in rows for value in (team_id, user_id, insight_id, viewed_at)]
-    values = ", ".join(["(%s::integer, %s::integer, %s::bigint, %s::timestamptz)"] * len(rows))
-    # Untargeted conflict handling works before and after the context-uniqueness migration.
-    # The second statement sees a concurrent winning insert after ON CONFLICT waits for it.
-    with transaction.atomic(using=database), connection.cursor() as cursor:
-        cursor.execute(
-            f"INSERT INTO {table} (team_id, user_id, insight_id, last_viewed_at) VALUES {values} ON CONFLICT DO NOTHING",
-            params,
+    # Skip existing rows, including concurrent inserts, then update their timestamps below.
+    # TODO: Consider a single upsert once the uniqueness migration is fully deployed:
+    # https://github.com/PostHog/posthog/pull/106556. It must still preserve the newest timestamp.
+    with transaction.atomic():
+        InsightViewed.objects.bulk_create(
+            [
+                InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=viewed_at)
+                for insight_id, viewed_at in rows
+            ],
+            ignore_conflicts=True,
         )
-        cursor.execute(
-            f"""UPDATE {table} AS existing
-                SET last_viewed_at = GREATEST(existing.last_viewed_at, incoming.last_viewed_at)
-                FROM (VALUES {values}) AS incoming(team_id, user_id, insight_id, last_viewed_at)
-                WHERE existing.team_id IS NOT DISTINCT FROM incoming.team_id
-                  AND existing.user_id IS NOT DISTINCT FROM incoming.user_id
-                  AND existing.insight_id = incoming.insight_id
-                  AND existing.source = '' AND existing.dashboard_id IS NULL""",
-            params,
-        )
+        # Shared timestamps need no CASE; bound CASE size for per-insight timestamps.
+        batch_size = len(rows) if len(set(last_viewed_at_by_insight_id.values())) == 1 else 100
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start : start + batch_size]
+            timestamp = (
+                Value(batch[0][1])
+                if all(viewed_at == batch[0][1] for _, viewed_at in batch)
+                else Case(*[When(insight_id=insight_id, then=viewed_at) for insight_id, viewed_at in batch])
+            )
+            InsightViewed.objects.filter(
+                Q(team_id__isnull=True) if team_id is None else Q(team_id=team_id),
+                Q(user_id__isnull=True) if user_id is None else Q(user_id=user_id),
+                insight_id__in=[insight_id for insight_id, _ in batch],
+                source="",
+                dashboard_id__isnull=True,
+            ).update(last_viewed_at=Greatest("last_viewed_at", timestamp))
 
 
 def with_last_viewed_at(insights: QuerySet) -> QuerySet:
@@ -94,16 +102,90 @@ def with_last_viewed_at(insights: QuerySet) -> QuerySet:
 
 
 def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[Insight]:
-    return list(
-        Insight.objects.filter(insightviewed__team_id=team_id, insightviewed__user_id=user_id)
-        .exclude(deleted=True)
-        .annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
-        .order_by("-last_viewed_at", "-pk")[:limit]
+    views = (
+        InsightViewed.objects.filter(team_id=team_id, user_id=user_id)
+        .select_related("insight")
+        .exclude(insight__deleted=True)
+        .only("insight", "last_viewed_at")
+        .order_by("-last_viewed_at", "-insight_id", "-pk")
     )
+    recent: list[Insight] = []
+    seen: set[int] = set()
+    while len(recent) < limit:
+        # Skip collected insights so repeated contexts cannot fill every page.
+        page = list(views.exclude(insight_id__in=seen)[:50])
+        if not page:
+            break
+        for view in page:
+            if view.insight_id not in seen:
+                seen.add(view.insight_id)
+                insight = view.insight
+                insight.last_viewed_at = view.last_viewed_at
+                recent.append(insight)
+                if len(recent) == limit:
+                    return recent
+    return recent
 
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
     return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
+
+
+def saved_trends_insights(
+    *,
+    team_ids: Collection[int],
+    insight_ids: Collection[int],
+    intervals: Collection[str],
+    excluded_displays: Collection[str],
+) -> list[SavedTrendsInsight]:
+    if not team_ids or not insight_ids:
+        return []
+    rows = (
+        # Every row stays inside `team_ids`, which the caller resolved; the ids only narrow that set.
+        # nosemgrep: idor-lookup-without-team
+        Insight.objects.filter(team_id__in=team_ids, id__in=insight_ids, saved=True)
+        .annotate(
+            # A wrapper node holds the trends query in `source`.
+            trends_kind=Coalesce(KT("query__source__kind"), KT("query__kind")),
+            trends_interval=Coalesce(
+                KT("query__source__interval"), KT("query__interval"), Value("day"), output_field=TextField()
+            ),
+            trends_display=Coalesce(
+                KT("query__source__trendsFilter__display"),
+                KT("query__trendsFilter__display"),
+                Value(""),
+                output_field=TextField(),
+            ),
+        )
+        .filter(trends_kind="TrendsQuery", trends_interval__in=intervals)
+        .exclude(trends_display__in=excluded_displays)
+        .order_by("team_id", "id")
+        .values_list("team_id", "id", "trends_interval")
+    )
+    return [
+        SavedTrendsInsight(team_id=team_id, insight_id=insight_id, interval=interval)
+        for team_id, insight_id, interval in rows
+    ]
+
+
+def insight_ids_viewed_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    if not team_ids:
+        return set()
+    return set(
+        InsightViewed.objects.filter(team_id__in=team_ids, last_viewed_at__gte=since, user__isnull=False)
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )
+
+
+def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    if not team_ids:
+        return set()
+    return set(
+        Insight.objects.filter(team_id__in=team_ids, saved=True, last_modified_at__gte=since).values_list(
+            "id", flat=True
+        )
+    )
 
 
 def recent_viewers_by_insight(
@@ -130,6 +212,22 @@ def recent_viewers_by_insight(
         if len(bucket) < max_per_insight:
             bucket.append(view.user)
     return viewers_by_insight
+
+
+def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], since: datetime) -> dict[int, int]:
+    # InsightViewed holds one row per team, user and insight, so counting rows counts viewers.
+    rows = (
+        InsightViewed.objects.filter(
+            team_id=team_id,
+            insight_id__in=insight_ids,
+            last_viewed_at__gte=since,
+            user__isnull=False,
+        )
+        .values("insight_id")
+        .annotate(viewers=Count("id"))
+        .values_list("insight_id", "viewers")
+    )
+    return dict(rows)
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
@@ -192,13 +290,47 @@ def get_or_create_saved_insight(
     description: str | None,
     query: dict[str, object] | None,
     revive_deleted: bool = True,
+    saved: bool = True,
 ) -> tuple[int, bool]:
     insight, created = Insight.objects_including_soft_deleted.get_or_create(
         team_id=team_id,
         short_id=short_id,
-        defaults={"created_by_id": user_id, "name": name, "description": description, "query": query, "saved": True},
+        defaults={"created_by_id": user_id, "name": name, "description": description, "query": query, "saved": saved},
     )
     if insight.deleted and revive_deleted:
         insight.deleted = False
         insight.save(update_fields=["deleted"])
     return insight.id, created
+
+
+def create_insight_explanation(
+    *, team_id: int, insight_id: int, user_id: int, data: dict[str, Any]
+) -> InsightExplanation:
+    return InsightExplanation.objects.for_team(team_id).create(
+        team_id=team_id, insight_id=insight_id, created_by_id=user_id, data=data
+    )
+
+
+def update_insight_explanation(
+    *, team_id: int, insight_id: int, explanation_id: UUID, user_id: int, data: dict[str, Any]
+) -> InsightExplanation | None:
+    explanation = (
+        InsightExplanation.objects.for_team(team_id)
+        .select_related("created_by")
+        .filter(insight_id=insight_id, id=explanation_id, created_by_id=user_id)
+        .first()
+    )
+    if explanation is None:
+        return None
+    explanation.data = data
+    explanation.save(update_fields=["data"])
+    return explanation
+
+
+def insight_explanation(*, team_id: int, insight_id: int, explanation_id: UUID) -> InsightExplanation | None:
+    return (
+        InsightExplanation.objects.for_team(team_id)
+        .select_related("created_by")
+        .filter(insight_id=insight_id, id=explanation_id)
+        .first()
+    )

@@ -5,6 +5,7 @@ import type {
 import {
   isNotification,
   POSTHOG_NOTIFICATIONS,
+  type ProcessKilledParams,
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
@@ -12,6 +13,7 @@ import { isSessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
 import {
   type AcpMessage,
   type AgentConversationEvent,
+  agentConversationEventToSessionUpdate,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
@@ -451,49 +453,13 @@ export function processAgentConversationEvent(
     return;
   }
 
-  if (event.type === "assistant_message_chunk") {
+  const sessionUpdate = agentConversationEventToSessionUpdate(event);
+  if (sessionUpdate) {
     processSessionUpdate(
       b,
-      { sessionUpdate: "agent_message_chunk", content: event.content },
+      sessionUpdate as ConversationSessionUpdate,
       event.timestamp,
     );
-    return;
-  }
-
-  if (event.type === "assistant_thought_chunk") {
-    processSessionUpdate(
-      b,
-      { sessionUpdate: "agent_thought_chunk", content: event.content },
-      event.timestamp,
-    );
-    return;
-  }
-
-  if (event.type === "tool_call_started") {
-    const { id, parentId, ...toolCall } = event.toolCall;
-    const update: ConversationSessionUpdate = {
-      sessionUpdate: "tool_call",
-      toolCallId: id,
-      ...toolCall,
-      ...(parentId
-        ? { _meta: { claudeCode: { parentToolCallId: parentId } } }
-        : {}),
-    };
-    processSessionUpdate(b, update, event.timestamp);
-    return;
-  }
-
-  if (event.type === "tool_call_updated") {
-    const { id, parentId, ...toolCall } = event.toolCall;
-    const update: ConversationSessionUpdate = {
-      sessionUpdate: "tool_call_update",
-      toolCallId: id,
-      ...toolCall,
-      ...(parentId
-        ? { _meta: { claudeCode: { parentToolCallId: parentId } } }
-        : {}),
-    };
-    processSessionUpdate(b, update, event.timestamp);
     return;
   }
 
@@ -750,6 +716,8 @@ function completePromptTurn(
   const wasCancelled = turn.stopReason === "cancelled";
   turn.context.turnCancelled = wasCancelled;
 
+  if (b.isCompacting) markRuntimeStatusComplete(b, "compacting");
+
   if (turn.gitAction.isGitAction && turn.gitAction.actionType) {
     b.items.push({
       type: "git_action_result",
@@ -770,6 +738,29 @@ function completePromptTurn(
   if (turn.promptId !== -1) {
     b.pendingPrompts.delete(turn.promptId);
   }
+}
+
+const BYTES_PER_GIB = 1024 ** 3;
+
+function formatGib(bytes: number): string {
+  return `${(bytes / BYTES_PER_GIB).toFixed(1)} GiB`;
+}
+
+export function formatProcessKilledNotice(params: unknown): string | null {
+  const { comm, treeRssBytes, memoryLimitBytes } = (params ?? {}) as Partial<
+    Record<keyof ProcessKilledParams, unknown>
+  >;
+  if (
+    typeof comm !== "string" ||
+    !comm ||
+    typeof treeRssBytes !== "number" ||
+    !Number.isFinite(treeRssBytes) ||
+    typeof memoryLimitBytes !== "number" ||
+    !Number.isFinite(memoryLimitBytes)
+  ) {
+    return null;
+  }
+  return `The sandbox stopped ${comm} because it was using ${formatGib(treeRssBytes)} of the ${formatGib(memoryLimitBytes)} available. The agent is still running.`;
 }
 
 function handleNotification(
@@ -849,6 +840,14 @@ function handleNotification(
       stopReason: params?.stopReason,
       traceId: params?.traceId,
     });
+    return;
+  }
+
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.PROCESS_KILLED)) {
+    const message = formatProcessKilledNotice(msg.params);
+    if (!message) return;
+    ensureImplicitTurn(b, ts);
+    pushItem(b, { sessionUpdate: "status", status: "process_killed", message });
     return;
   }
 
@@ -961,6 +960,7 @@ function handleRuntimeStatus(
       markRuntimeStatusComplete(b, "compacting");
       return;
     }
+    if (b.isCompacting) return;
     b.isCompacting = true;
   } else if (status.status === "compacting_failed") {
     markRuntimeStatusComplete(b, "compacting");

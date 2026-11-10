@@ -502,5 +502,6 @@
         }
     ],
     "abort_action": null,
-    "variables": []
+    "variables": [],
+    "tags": ["onboarding", "email"]
 }

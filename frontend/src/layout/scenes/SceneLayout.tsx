@@ -6,11 +6,11 @@ import { createPortal } from 'react-dom'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
-import { ShortcutMenu } from 'lib/components/Shortcuts/ShortcutMenu'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
 
+import { SceneMenuBarSlotProvider } from './components/SceneMenuBarSlotProvider'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 type SceneLayoutProps = {
@@ -77,11 +77,5 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
         }
     }, [sceneConfig, setSceneLayoutConfig])
 
-    return (
-        <>
-            {children}
-
-            <ShortcutMenu />
-        </>
-    )
+    return <SceneMenuBarSlotProvider>{children}</SceneMenuBarSlotProvider>
 }

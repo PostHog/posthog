@@ -33,3 +33,10 @@ rules:
               '/utils/utils.py',
           ]
       owners: team-product-analytics
+    - match:
+          - '/legacy_compatibility/test/test_*.py'
+          - '/utils/test/test_*.py'
+          - '/validation/test_*.py'
+      owners: team-product-analytics
+    - match: '/sql_freshness/test/test_*.py'
+      owners: team-data-stack

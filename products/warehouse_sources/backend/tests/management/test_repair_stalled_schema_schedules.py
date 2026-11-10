@@ -87,28 +87,16 @@ class TestRepairStalledSchemaSchedules(BaseTest):
         mock_repair.assert_not_called()
         assert "unstick_external_data_jobs" in output
 
-    def test_include_buffered_does_not_override_an_admin_paused_schema(self) -> None:
-        # --include-buffered only overrides the buffered-CDC exclusion. A schema still carrying
-        # admin_unpause_schedule_after_run is deferred to whatever cleared it, not to this flag.
+    def test_an_admin_paused_schema_is_listed_but_not_repaired(self) -> None:
+        # A schema still carrying admin_unpause_schedule_after_run is deferred to whatever clears it.
         schema = self._stalled_schema(sync_type_config={"admin_unpause_schedule_after_run": True})
 
         with patch(f"{_CMD}.repair_stalled_schema") as mock_repair:
-            output = self._run(live_run=True, include_buffered=True)
+            output = self._run(live_run=True)
 
         mock_repair.assert_not_called()
         assert str(schema.id) in output
         assert "admin-triggered run" in output
-
-    def test_a_streaming_cdc_schema_is_excluded_before_it_reaches_the_command(self) -> None:
-        # A paused per-schema schedule is a streaming CDC schema's steady state, so it is
-        # excluded at the predicate rather than surfaced here for --include-buffered to bypass.
-        self._stalled_schema(sync_type=ExternalDataSchema.SyncType.CDC, sync_type_config={"cdc_mode": "streaming"})
-
-        with patch(f"{_CMD}.repair_stalled_schema") as mock_repair:
-            output = self._run(live_run=True, include_buffered=True)
-
-        mock_repair.assert_not_called()
-        assert "No stalled schemas match" in output
 
     def test_the_cap_stops_an_unexpectedly_wide_repair(self) -> None:
         for name in ("users", "events", "orgs"):

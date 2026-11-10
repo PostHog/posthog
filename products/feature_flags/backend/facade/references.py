@@ -1,28 +1,82 @@
 """The cohorts and flags a feature flag's stored config references.
 
-The SDK definitions payload and the Rust service cache both need two reads of a
-``filters`` document: which cohorts its release conditions reference, and which
-properties make it depend on other flags. Both are config version 1 knowledge
-(``groups[*].properties`` with ``type == "cohort"`` or ``type == "flag"``), so this
-module owns them behind the format check. A document in any other format raises
-``ConfigFormatError`` before a v1 key is read; it is never read as a flag with no
-references, because a producer that silently dropped the references would publish an
-unsupported document into a feed built for v1 readers.
+``references`` reads a decoded config of either format and returns identities only: cohort
+ids and flag ids, never the stored dicts. Config version 1 holds cohort and flag references
+as ``groups[*].properties`` with ``type == "cohort"`` or ``type == "flag"``. Config version 2
+holds the same property shapes in each rule's targeting. An unsupported document raises
+``ConfigFormatError``; it is never read as a flag with no references.
 
-Consumers keep their own meaning of a reference: the definitions payload rewrites flag
-references from ids to keys and annotates them with a dependency chain, the service
-cache parses them as integer ids, and the model resolves cohort ids against the
-database. ``flag_dependency_properties`` therefore returns the caller's own property
-dicts so those in-place rewrites keep working.
+``referenced_cohort_ids`` and ``flag_dependency_properties`` serve the SDK definitions
+payload, which carries v1 documents only. It rewrites flag references from ids to keys and
+annotates them with a dependency chain, so ``flag_dependency_properties`` returns the
+caller's own property dicts and those in-place rewrites keep working. Both raise
+``ConfigFormatError`` for any other format, because a producer that silently dropped the
+references would publish an unsupported document into a feed built for v1 readers.
 
 Deliberately free of Django/DRF imports (same reason as ``facade.filters``).
 """
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Iterable, Mapping
+from typing import Any, Literal
 
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
+from posthog.dataclasses import frozen
+
+from products.feature_flags.backend.facade.config import (
+    ConfigFormatError,
+    ConfigV1,
+    DecodedConfig,
+    UnsupportedConfig,
+    decode_config,
+    require_v1_config,
+)
 from products.feature_flags.backend.types import FlagProperty, PropertyFilterType
+
+# "skip" drops a reference whose id is not an integer; "raise" lets int()'s error out.
+InvalidIds = Literal["skip", "raise"]
+
+
+@frozen
+class FlagReferences:
+    cohort_ids: tuple[int, ...] = ()  # first-seen order
+    flag_ids: tuple[int, ...] = ()  # first-seen order
+
+
+def references(
+    config: DecodedConfig, *, invalid_cohort_ids: InvalidIds = "skip", invalid_flag_ids: InvalidIds = "skip"
+) -> FlagReferences:
+    """The cohorts and flags a decoded config names.
+
+    A v1 document whose groups or properties are not lists of objects raises AttributeError or
+    TypeError, as the v1 readers always did; the caller decides whether that skips the row or
+    fails.
+    """
+    if isinstance(config, UnsupportedConfig):
+        raise ConfigFormatError(config.config_format)
+    if isinstance(config, ConfigV1):
+        groups = config.filters.get("groups") or []
+        predicates = [prop for group in groups for prop in group.get("properties") or []]
+    else:
+        predicates = [prop for rule in config.rules for prop in rule.reference_predicates]
+    return FlagReferences(
+        cohort_ids=_ids(predicates, PropertyFilterType.COHORT, "value", invalid_cohort_ids),
+        flag_ids=_ids(predicates, PropertyFilterType.FLAG, "key", invalid_flag_ids),
+    )
+
+
+def _ids(
+    predicates: Iterable[Mapping[str, Any]], property_type: PropertyFilterType, field: str, invalid_ids: InvalidIds
+) -> tuple[int, ...]:
+    ids: dict[int, None] = {}
+    for prop in predicates:
+        if prop.get("type") != property_type:
+            continue
+        value: Any = prop.get(field)
+        try:
+            ids[int(value)] = None
+        except (TypeError, ValueError, OverflowError):
+            if invalid_ids == "raise":
+                raise
+    return tuple(ids)
 
 
 def referenced_cohort_ids(filters: Mapping[str, Any] | None) -> set[int]:
@@ -32,16 +86,8 @@ def referenced_cohort_ids(filters: Mapping[str, Any] | None) -> set[int]:
     integer is skipped, the same tolerance every producer already applied; a consumer
     that needs strictness resolves the ids itself.
     """
-    cohort_ids: set[int] = set()
-    for prop in _v1_properties(filters, PropertyFilterType.COHORT):
-        value = prop.get("value")
-        if value is None:
-            continue
-        try:
-            cohort_ids.add(int(value))
-        except (TypeError, ValueError):
-            continue
-    return cohort_ids
+    require_v1_config(filters)
+    return set(references(decode_config(filters)).cohort_ids)
 
 
 def flag_dependency_properties(filters: Mapping[str, Any] | None) -> list[FlagProperty]:
@@ -55,9 +101,7 @@ def flag_dependency_properties(filters: Mapping[str, Any] | None) -> list[FlagPr
 
 
 def _v1_properties(filters: Mapping[str, Any] | None, property_type: PropertyFilterType) -> list[FlagProperty]:
-    config_format = detect_config_format(filters)
-    if config_format.kind != "v1":
-        raise ConfigFormatError(config_format)
+    require_v1_config(filters)
     # Only ``groups`` can hold cohort or flag properties: ``feature_enrollment`` is a
     # boolean gate evaluated against ``$feature_enrollment/*`` person properties, and
     # ``holdout`` carries no property filters. Explicit nulls occur in stored v1 data

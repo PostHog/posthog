@@ -12,6 +12,9 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models import User
+from posthog.test.authentication_checks import covers_authentication
+
+from products.security.backend.presentation.hub_api import SecurityHubAuthentication
 
 SECRET = "in-us"
 SETTINGS = {"SECURITY_HUB_REGION": "us", "SECURITY_HUB_INBOUND_JWT_SECRETS": [SECRET]}
@@ -44,6 +47,7 @@ class TestHubApi(BaseTest):
         headers: dict[str, Any] = {"HTTP_AUTHORIZATION": f"Bearer {token(op, **claims)}"} if op else {}
         return self.client.post(f"/api/security/{path}/", body, format="json", **headers)
 
+    @covers_authentication(SecurityHubAuthentication)
     def test_resolve(self) -> None:
         user = User.objects.create_and_join(self.organization, "farm.bot+1@example.com", "password1234")
         response = self.post("resolve", {"query": "farm.bot+1@example.com"}, "subject:resolve")

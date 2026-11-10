@@ -1,9 +1,51 @@
 # Finding failing traces — queries
 
 Concrete queries for each strategy in Step 2. Property names (`$ai_is_error`, `$ai_input_tokens`, …) are
-the standard AI event properties; confirm the exact ones for this project with `read-data-schema`, and
-see `exploring-llm-traces/references/events-and-properties.md` for the full schema and the `events` vs
-`ai_events` split (heavy content like `$ai_input` / `$ai_output_choices` lives on `ai_events`).
+the standard AI event properties; confirm the exact ones for this project with `read-data-schema`.
+
+## Contents
+
+- [Where heavy content lives: `events` vs `ai_events`](#where-heavy-content-lives-events-vs-ai_events)
+- [Discover the trace taxonomy](#discover-the-trace-taxonomy)
+- [Code errors](#code-errors)
+- [Metric outliers](#metric-outliers)
+- [Manual review of a stratified batch](#manual-review-of-a-stratified-batch)
+- [Existing-eval spikes](#existing-eval-spikes)
+- [Counting failure modes](#counting-failure-modes)
+
+## Where heavy content lives: `events` vs `ai_events`
+
+The `events` table keeps only lightweight metadata: token counts, costs, model, provider,
+`$ai_trace_id`, latency, and error flags. All queries below use it. The heavy content is **not on
+`events`**. It lives as native columns on a separate table, `posthog.ai_events`:
+
+| Heavy content  | `events` property    | `ai_events` column |
+| -------------- | -------------------- | ------------------ |
+| Input messages | `$ai_input`          | `input`            |
+| Output         | `$ai_output`         | `output`           |
+| Output choices | `$ai_output_choices` | `output_choices`   |
+| Input state    | `$ai_input_state`    | `input_state`      |
+| Output state   | `$ai_output_state`   | `output_state`     |
+| Tools          | `$ai_tools`          | `tools`            |
+
+`query-llm-trace` and `query-llm-traces-list` read `posthog.ai_events` for you, so use them to read
+traces. Use SQL on `posthog.ai_events` only for batch analysis. `trace_id` is its access path, not
+`timestamp`, so filter `events` first to get trace IDs, then fetch the content by `trace_id`:
+
+```sql
+WITH matching_traces AS (
+    SELECT DISTINCT properties.$ai_trace_id AS trace_id
+    FROM events
+    WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
+)
+SELECT a.trace_id, a.span_id, a.model, a.input, a.output_choices
+FROM posthog.ai_events AS a
+WHERE a.trace_id IN (SELECT trace_id FROM matching_traces)
+ORDER BY a.trace_id, a.timestamp
+```
+
+`posthog.ai_events` drops rows after the retention period (30 days by default), so older traces have
+no content.
 
 ## Discover the trace taxonomy
 
@@ -87,9 +129,14 @@ posthog:llma-evaluation-list { "enabled": true }
 SELECT toDate(timestamp) AS day, count() AS fails
 FROM events
 WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<uuid>'
-    AND properties.$ai_evaluation_result = false AND timestamp >= now() - INTERVAL 30 DAY
+    AND (<fail predicate>) AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')
+    AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')
+    AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY day ORDER BY day
 ```
+
+Build `<fail predicate>` from the eval's output type and config, as in the fail predicate table in
+`exploring-llm-evaluations`. `$ai_evaluation_result = 'false'` only fits a pass/fail eval that is not a detector.
 
 `exploring-llm-evaluations` covers reading eval results in depth.
 

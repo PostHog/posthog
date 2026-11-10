@@ -24,7 +24,8 @@ from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import list_actions
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.event_definitions.backend.models.property_definition import (
     PropertyDefinition,
     PropertyType,
@@ -202,7 +203,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )
@@ -342,8 +344,8 @@ class TaxonomyAgentToolkit:
         """
         try:
             response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
-        except Action.DoesNotExist:
-            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
+        except ActionNotFound:
+            project_actions = list_actions(project_id=self._team.project_id)
             if not project_actions:
                 return "No actions exist in the project."
             return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
@@ -427,9 +429,9 @@ class TaxonomyAgentToolkit:
         virtual_definition = get_virtual_property_definition("event_properties", property_name)
         property_definition: PropertyDefinitionOrVirtual
         try:
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
-            )
+            property_definition = PropertyDefinition.objects.alias(
+                effective_project_id=effective_project_id_expr()
+            ).get(effective_project_id=self._team.project_id, name=property_name, type=PropertyDefinition.Type.EVENT)
         except PropertyDefinition.DoesNotExist:
             if virtual_definition is None:
                 return f"The property {property_name} does not exist in the taxonomy."
@@ -513,8 +515,10 @@ class TaxonomyAgentToolkit:
             else:
                 prop_type = PropertyDefinition.Type.PERSON
                 group_type_index = None
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team,
+            property_definition = PropertyDefinition.objects.alias(
+                effective_project_id=effective_project_id_expr()
+            ).get(
+                effective_project_id=self._team.project_id,
                 name=property_name,
                 type=prop_type,
                 group_type_index=group_type_index,

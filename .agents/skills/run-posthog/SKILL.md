@@ -13,7 +13,7 @@ All paths below are relative to the repo root.
 
 ## Prerequisites
 
-- **flox** 1.16+ provisions the toolchain — `curl -L https://downloads.flox.dev/by-env/stable/install.sh | sudo bash`
+- **flox** 1.16+ provisions the toolchain — `curl -fsSL https://get.flox.dev | sh`
 - **Docker** — OrbStack preferred on macOS (`brew install --cask orbstack`)
 - **1Password CLI** (optional) — `brew install 1password-cli`, only if `.env.local` contains `op://` refs
 
@@ -79,7 +79,7 @@ The full browser-MCP recipe:
    const r = await fetch('/api/setup_test/organization_with_team/', {
      method: 'POST',
      headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({ data: { skip_onboarding: true } }),
+     body: JSON.stringify({ skip_onboarding: true, use_current_time: true }),
    })
    const { result } = await r.json()
    // result: { user_email, team_id, personal_api_key, organization_id, ... }

@@ -3,9 +3,11 @@ from __future__ import annotations
 import uuid
 import functools
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connections, transaction
 from django.db.models import Field, Manager, Prefetch
 from django.http import Http404
@@ -16,14 +18,17 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
 from prometheus_client import Counter
-from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
+from rest_framework.permissions import SAFE_METHODS
 from rest_framework.settings import api_settings
 
+from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
-from posthog.api.pagination import PrecountedLimitOffsetPagination
+from posthog.api.object_media_preview import visible_previews, with_preview_media
+from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.statement_timeout import statement_timeout
@@ -43,20 +48,33 @@ from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
+from posthog.models import ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.permissions import is_scout_sandbox_request, is_service_auth
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
     DefinitionListTimedOut,
     definition_read_db_alias,
 )
-from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.definition_search import (
+    LARGE_PROJECT_COUNT_CAP,
+    NAME_ORDER_MIN_DEFINITIONS,
+    PROJECT_SCAN_MAX_DEFINITIONS,
+    bounded_count_sql,
+    project_definition_scale,
+)
+from posthog.taxonomy.scout_writes import check_scout_event_definition_write
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.event_definitions.backend.models import EventDefinition
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
@@ -64,6 +82,20 @@ EVENT_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
     "event_definitions_list_timed_out_total",
     "Event definition list requests cancelled by the statement timeout.",
 )
+
+EVENT_DEFINITION_ORDERING_FIELDS = ("name", "last_seen_at", "last_seen_at::date", "created_at", "created_at::date")
+
+# The members the list SQL implements. Nothing here reads the actions table, so `all` and
+# `action_event` would return plain event definitions under a name that promises otherwise.
+EVENT_DEFINITION_LIST_EVENT_TYPES = (
+    EventDefinitionType.EVENT,
+    EventDefinitionType.EVENT_CUSTOM,
+    EventDefinitionType.EVENT_POSTHOG,
+)
+
+# `name` is NOT NULL, so a NULLS clause on it changes no row order but stops the planner from matching
+# the unique index's default order (ASC NULLS LAST): the whole project then sorts before the page is cut.
+_NOT_NULL_ORDER_EXPRESSIONS = frozenset({"name", "length(name)"})
 
 
 class EventDefinitionsTimedOut(DefinitionListTimedOut):
@@ -126,13 +158,19 @@ def create_event_definitions_count_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
+    bounded: bool = False,
 ) -> str:
     """Counts the rows `create_event_definitions_sql` pages over.
 
     Selecting no column lets Postgres drop the enterprise join whenever `conditions` reads only
-    base-table columns, so the common count is an index-only scan.
+    base-table columns, so the common count is an index-only scan. A bounded count stops at
+    %(count_cap)s rows, because an exact count over millions of definitions walks the project's whole
+    index range on every page load.
     """
-    return f"SELECT count(*) {_event_definitions_source_sql(event_type, is_enterprise, conditions)}"
+    source_sql = _event_definitions_source_sql(event_type, is_enterprise, conditions)
+    if bounded:
+        return bounded_count_sql(source_sql, "posthog_eventdefinition.name")
+    return f"SELECT count(*) {source_sql}"
 
 
 def create_event_definitions_sql(
@@ -144,8 +182,9 @@ def create_event_definitions_sql(
     if order_expressions is None:
         order_expressions = []
 
+    # Qualified by table, so a column name both joined tables carry stays unambiguous.
     event_definition_fields = {
-        f'"{f.column}"'
+        f'{f.model._meta.db_table}."{f.column}"'
         for f in event_definition_model(is_enterprise)._meta.get_fields()
         if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
     }
@@ -158,7 +197,11 @@ def create_event_definitions_sql(
 
     additional_ordering = []
     for order_expression, order_direction in order_expressions:
-        if order_expression:
+        if not order_expression:
+            continue
+        if order_expression in _NOT_NULL_ORDER_EXPRESSIONS:
+            additional_ordering.append(f"{order_expression} {order_direction}")
+        else:
             additional_ordering.append(
                 f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
             )
@@ -391,65 +434,87 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
-    pagination_class = PrecountedLimitOffsetPagination
+    pagination_class = CappedCountLimitOffsetPagination
     queryset = EventDefinition.objects.all()
 
     search_fields = ["name"]
     ordering_fields = ["name", "last_seen_at", "created_at"]
 
     def dangerously_get_queryset(self):
-        # `type` = 'all' | 'event' | 'action_event'
-        # Allows this endpoint to return lists of event definitions, actions, or both.
-        event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
+        # Only `event_custom` and `event_posthog` change the rows, in `_event_definitions_source_sql`.
+        event_type = self._requested_event_type()
 
         event_definition_object_manager: Manager = event_definition_model(EE_AVAILABLE).objects
 
         search = self.request.GET.get("search", None)
         has_search_terms = bool(search and search.strip())
-        plan = (
-            search_plan("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
-            if has_search_terms
+        fuzzy_search = self.request.GET.get("fuzzy_search", "false").lower() == "true"
+        exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
+        verified_param = self.request.GET.get("verified") if EE_AVAILABLE else None
+        names = [name for value in self.request.query_params.getlist("names") for name in value.split(",") if name]
+        tags_list = self._tags_filter_from_request()
+
+        # A filter that matches few rows makes `ORDER BY name LIMIT` walk most of the project in name order,
+        # probing each row, before it fills a page or reaches the count cap. The recency sort and the exact
+        # count read the project once with a parallel scan instead. So only the filters that leave most
+        # rows matching take the name-ordered, bounded path on a large project.
+        sparse_filter = (
+            has_search_terms
+            or exclude_stale
+            or verified_param is not None
+            or bool(names)
+            or bool(tags_list)
+            or event_type == EventDefinitionType.EVENT_POSTHOG
+        )
+        # The project's size picks the search index and the bounded path, so a request that neither searches
+        # nor can take that path skips the size check and its cache round trip.
+        scale = (
+            project_definition_scale("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
+            if has_search_terms or not sparse_filter
             else None
         )
+        large_project = scale is not None and scale.large
+        # A small project is cheaper to search through its own index than through the global trigram index.
         search_query, search_kwargs = term_search_filter_sql(
-            self.search_fields, search, avoid_trigram_index=plan == "project_scan"
+            self.search_fields, search, avoid_trigram_index=not large_project
         )
 
-        params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
-        order_expressions = self._ordering_params_from_request()
-        has_explicit_ordering = "ordering" in self.request.GET
-
-        if has_search_terms and not has_explicit_ordering:
-            order_expressions = [("length(name)", "ASC"), *order_expressions]
+        params = {
+            "project_id": self.project_id,
+            "is_posthog_event": "$%",
+            "count_cap": LARGE_PROJECT_COUNT_CAP,
+            **search_kwargs,
+        }
+        filter_query = ""
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
-            search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
+            filter_query += (
+                " AND (ee_enterpriseeventdefinition.hidden IS NULL OR ee_enterpriseeventdefinition.hidden = false)"
+            )
 
-        exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
         if exclude_stale:
             # `last_seen_at` is not indexed: the predicate runs after the project-scoped
             # pre-filter in `create_event_definitions_sql` has already narrowed the row
             # set per tenant, and the response is paginated. Worth re-checking with
             # EXPLAIN if the largest tenants start showing this in slow-query logs.
-            search_query = (
-                search_query
-                + " AND (posthog_eventdefinition.last_seen_at IS NULL"
+            filter_query += (
+                " AND (posthog_eventdefinition.last_seen_at IS NULL"
                 + " OR posthog_eventdefinition.last_seen_at > NOW() - %(stale_interval)s::interval)"
             )
             params["stale_interval"] = f"{STALE_EVENT_DAYS} days"
 
-        verified_param = self.request.GET.get("verified")
-        if verified_param is not None and EE_AVAILABLE:
+        if verified_param is not None:
             if verified_param.lower() == "true":
-                search_query = (
-                    search_query + " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                filter_query += (
+                    " AND (ee_enterpriseeventdefinition.verified = true"
+                    " OR posthog_eventdefinition.name = ANY(%(core_events)s))"
                 )
                 params["core_events"] = CORE_EVENTS
             else:
-                search_query = (
-                    search_query
-                    + " AND (verified IS NULL OR verified = false) AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
+                filter_query += (
+                    " AND (ee_enterpriseeventdefinition.verified IS NULL OR ee_enterpriseeventdefinition.verified = false)"
+                    " AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
                 )
                 params["core_events"] = CORE_EVENTS
 
@@ -457,21 +522,18 @@ class EventDefinitionViewSet(
 
         if excluded_properties:
             excluded_list = list(set(orjson.loads(excluded_properties)))
-            search_query = search_query + " AND NOT name = ANY(%(excluded_list)s)"
+            filter_query += " AND NOT name = ANY(%(excluded_list)s)"
             params["excluded_list"] = excluded_list
 
-        names = [name for value in self.request.query_params.getlist("names") for name in value.split(",") if name]
         if names:
-            search_query = search_query + " AND posthog_eventdefinition.name = ANY(%(names)s)"
+            filter_query += " AND posthog_eventdefinition.name = ANY(%(names)s)"
             params["names"] = list(set(names))
 
-        tags_list = self._tags_filter_from_request()
         if tags_list:
             # EXISTS, not a join: it keeps one row per definition, so the page stays a page and
             # the count stays a count, with no DISTINCT over the whole result set.
-            search_query = (
-                search_query
-                + " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
+            filter_query += (
+                " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
                 + " JOIN posthog_tag ON posthog_tag.id = posthog_taggeditem.tag_id"
                 + " WHERE posthog_taggeditem.content_type_id = %(tagged_content_type_id)s"
                 + " AND posthog_taggeditem.object_uuid = posthog_eventdefinition.id"
@@ -480,30 +542,66 @@ class EventDefinitionViewSet(
             params["tags"] = tags_list
             params["tagged_content_type_id"] = content_type_for(EventDefinition).id
 
-        sql = create_event_definitions_sql(
-            event_type,
-            is_enterprise=EE_AVAILABLE,
-            conditions=search_query,
-            order_expressions=order_expressions,
-        )
+        bounded = large_project and not sparse_filter
 
-        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        # Only a field the endpoint can order by counts as an explicit ordering. The events table sends
+        # `ordering=event`, which nothing serves, and it must still get the large-project default.
+        requested_ordering = self._requested_ordering()
+        order_expressions: list[tuple[str, Literal["ASC", "DESC"]]]
+        if bounded and scale is not None and scale.orders_by_name and not requested_ordering:
+            # Nothing indexes `last_seen_at`, so the default recency order sorts every definition the
+            # project has for each page. Name order pages straight from the unique index instead.
+            order_expressions = [("name", "ASC")]
+        else:
+            order_expressions = self._stable_ordering(requested_ordering)
+
+        # Any `ordering` parameter, served or not, keeps search results out of the shortest-name-first order.
+        # The events table sends `ordering=event` with every search and expects its usual order.
+        if has_search_terms and "ordering" not in self.request.GET:
+            order_expressions = [("length(name)", "ASC"), *order_expressions]
+
+        paginator = cast(CappedCountLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
-        params["limit"] = query.validated_data["limit"]
+        # The paginator builds `next` from its capped limit, so the SQL page has to use the same cap.
+        params["limit"] = min(query.validated_data["limit"], paginator.max_limit)
         params["offset"] = query.validated_data["offset"]
 
-        count_sql = create_event_definitions_count_sql(
-            event_type,
-            is_enterprise=EE_AVAILABLE,
-            conditions=search_query,
-        )
+        conditions = search_query + filter_query
         # The count has to run on the connection the page fetch will use, or it describes a
         # different row set than the one it bounds.
         with connections[read_db_alias()].cursor() as cursor:
+            count_sql = create_event_definitions_count_sql(
+                event_type, is_enterprise=EE_AVAILABLE, conditions=conditions, bounded=bounded
+            )
             cursor.execute(count_sql, params)
-            paginator.set_count(cursor.fetchone()[0])
+            definition_count = cursor.fetchone()[0]
+            fuzzy_term = search.replace("\x00", "").strip() if search else ""
+            if fuzzy_search and definition_count == 0 and 3 <= len(fuzzy_term) <= 200:
+                params["fuzzy_search"] = fuzzy_term
+                # `%` can use the global trigram index; the function form keeps a small project on its own index.
+                fuzzy_predicate = (
+                    "posthog_eventdefinition.name %% %(fuzzy_search)s"
+                    if large_project
+                    else "similarity(posthog_eventdefinition.name, %(fuzzy_search)s) >= show_limit()"
+                )
+                conditions = f" AND {fuzzy_predicate}" + filter_query
+                count_sql = create_event_definitions_count_sql(
+                    event_type, is_enterprise=EE_AVAILABLE, conditions=conditions
+                )
+                cursor.execute(count_sql, params)
+                definition_count = cursor.fetchone()[0]
+                if "ordering" not in self.request.GET:
+                    order_expressions = [("similarity(name, %(fuzzy_search)s)", "DESC"), *order_expressions]
+            # Only a count that reached the cap is a lower bound; a filtered large project can be under it.
+            paginator.set_count(definition_count, is_capped=bounded and definition_count >= LARGE_PROJECT_COUNT_CAP)
 
+        sql = create_event_definitions_sql(
+            event_type,
+            is_enterprise=EE_AVAILABLE,
+            conditions=conditions,
+            order_expressions=order_expressions,
+        )
         return event_definition_object_manager.raw(sql, params=params)
 
     def _tags_filter_from_request(self) -> list[str]:
@@ -520,24 +618,31 @@ class EventDefinitionViewSet(
             return []
         return [tag for tag in decoded if isinstance(tag, str)]
 
-    def _ordering_params_from_request(
-        self,
-    ) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+    def _requested_event_type(self) -> EventDefinitionType:
+        """The `?event_type=` filter. An unknown value raises out of the enum, which reads as a 500."""
+        try:
+            event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
+        except ValueError:
+            raise serializers.ValidationError(
+                {"event_type": f"Not a valid event type. Use one of: {', '.join(EVENT_DEFINITION_LIST_EVENT_TYPES)}."}
+            )
+        # Neither ever returned actions, so both resolve to the rows they already gave.
+        if event_type in (EventDefinitionType.ALL, EventDefinitionType.ACTION_EVENT):
+            return EventDefinitionType.EVENT
+        return event_type
+
+    def _requested_ordering(self) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+        """The `?ordering=` fields this endpoint can serve, in request order. Unknown fields are dropped."""
         order_direction: Literal["ASC", "DESC"]
 
-        results = []
+        results: list[tuple[str, Literal["ASC", "DESC"]]] = []
 
-        # API client can send more than one ordering
-        orderings = self.request.GET.getlist("ordering")
+        # A client can send more than one ordering as repeated parameters or as one comma-joined value, which is
+        # how the generated client serializes `ordering: string[]`.
+        orderings = [value for raw in self.request.GET.getlist("ordering") for value in raw.split(",")]
 
         for ordering in orderings:
-            if ordering and ordering.replace("-", "") in [
-                "name",
-                "last_seen_at",
-                "last_seen_at::date",
-                "created_at",
-                "created_at::date",
-            ]:
+            if ordering and ordering.replace("-", "") in EVENT_DEFINITION_ORDERING_FIELDS:
                 order = ordering.replace("-", "")
                 if "-" in ordering:
                     order_direction = "DESC"
@@ -546,19 +651,89 @@ class EventDefinitionViewSet(
 
                 results.append((order, order_direction))
 
-        if not results:
-            results = [("last_seen_at::date", "DESC"), ("name", "ASC")]
+        return results
+
+    @staticmethod
+    def _stable_ordering(
+        order_expressions: list[tuple[str, Literal["ASC", "DESC"]]],
+    ) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+        if not order_expressions:
+            order_expressions = [("last_seen_at::date", "DESC"), ("name", "ASC")]
 
         # `name` is unique per project, so it is the tiebreaker that keeps SQL LIMIT/OFFSET paging
         # stable. An explicit `?ordering=` without it can order tied rows differently per page, so a
         # row is paged twice or skipped.
-        if not any(expression == "name" for expression, _ in results):
-            results.append(("name", "ASC"))
+        if not any(expression == "name" for expression, _ in order_expressions):
+            order_expressions = [*order_expressions, ("name", "ASC")]
 
-        return results
+        return order_expressions
 
     @extend_schema(
+        description=(
+            "List the event definitions of a project. On projects with more than "
+            f"{PROJECT_SCAN_MAX_DEFINITIONS} event definitions, `count` stops at {LARGE_PROJECT_COUNT_CAP} and "
+            "`count_is_capped` is true, unless the request sets `search`, `exclude_stale`, `verified`, `names`, "
+            f"`tags` or `event_type=event_posthog`. Projects with more than {NAME_ORDER_MIN_DEFINITIONS} event "
+            "definitions also default to ordering by name under the same condition."
+        ),
         parameters=[
+            EventDefinitionQuerySerializer,
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive match on the event name. Every whitespace-separated term has to match.",
+            ),
+            OpenApiParameter(
+                "fuzzy_search",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, find similar event names only if the filtered search has no matches.",
+            ),
+            OpenApiParameter(
+                "event_type",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[event_type.value for event_type in EVENT_DEFINITION_LIST_EVENT_TYPES],
+                description=(
+                    "`event_custom` keeps only names without a `$` prefix and `event_posthog` only names with one. "
+                    "Default `event`."
+                ),
+            ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                enum=[*EVENT_DEFINITION_ORDERING_FIELDS, *(f"-{field}" for field in EVENT_DEFINITION_ORDERING_FIELDS)],
+                description=(
+                    "Sort keys, prefixed with `-` for descending. Default `-last_seen_at::date` then `name`. "
+                    f"Projects with more than {NAME_ORDER_MIN_DEFINITIONS} event definitions default to `name`, "
+                    "unless the request sets `search`, `exclude_stale`, `verified`, `names`, `tags` or "
+                    "`event_type=event_posthog`."
+                ),
+            ),
+            OpenApiParameter(
+                "verified",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, keep only verified events and core PostHog events. When false, keep the rest "
+                    "(Enterprise only)."
+                ),
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names. Keeps events that carry any of them.",
+            ),
             OpenApiParameter(
                 "exclude_stale",
                 OpenApiTypes.BOOL,
@@ -586,6 +761,16 @@ class EventDefinitionViewSet(
                 many=True,
                 description="Return exact matches for these event names. Pass names as repeated or comma-separated values.",
             ),
+            OpenApiParameter(
+                "excluded_properties",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "JSON-encoded list of event names to omit. The name matches the property definitions "
+                    "endpoint that shares it."
+                ),
+            ),
         ],
         extensions={"x-product": "event_definitions"},
     )
@@ -604,12 +789,10 @@ class EventDefinitionViewSet(
             event_ids = [obj.id for obj in objects]
             media_map: dict[str, list[str]] = defaultdict(list)
             if event_ids:
-                previews = (
+                previews = with_preview_media(
                     ObjectMediaPreview.objects.filter(event_definition_id__in=event_ids)
-                    .select_related("uploaded_media", "exported_asset")
-                    .order_by("-updated_at")
-                )
-                for p in previews:
+                ).order_by("-updated_at")
+                for p in visible_previews(previews, self):
                     if p.media_url:
                         media_map[str(p.event_definition_id)].append(p.media_url)
 
@@ -634,11 +817,17 @@ class EventDefinitionViewSet(
         if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            enterprise_event = EnterpriseEventDefinition.objects.filter(**filters).first()
+            enterprise_event = (
+                EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+                .filter(**filters)
+                .first()
+            )
             if enterprise_event:
                 return enterprise_event
 
-            non_enterprise_event = EventDefinition.objects.get(**filters)
+            non_enterprise_event = EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).get(
+                **filters
+            )
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )
@@ -655,7 +844,12 @@ class EventDefinitionViewSet(
                 return existing
             return new_enterprise_event
 
-        return EventDefinition.objects.get(**filters)
+        return EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).get(**filters)
+
+    def check_permissions(self, request: request.Request) -> None:
+        super().check_permissions(request)
+        if request.method not in SAFE_METHODS:
+            check_scout_event_definition_write(is_scout_sandbox_request(request), action=self.action, data=request.data)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
@@ -788,6 +982,7 @@ class EventDefinitionViewSet(
                     enterprise.verified_by = user
                     enterprise.verified_at = now
                     enterprise.hidden = False  # an event cannot be both hidden and verified
+                    enterprise.scheduled_deletion_at = None  # a scheduled delete only applies to hidden events
                 else:
                     enterprise.verified_by = None
                     enterprise.verified_at = None
@@ -813,6 +1008,96 @@ class EventDefinitionViewSet(
                 updated.append({"id": enterprise.id, "verified": verified})
 
         return response.Response({"updated": updated, "skipped": skipped})
+
+    @extend_schema(request=None, responses={200: EventDefinitionSerializer})
+    @action(
+        methods=["POST"],
+        detail=True,
+        request=None,
+        required_scopes=["event_definition:write", "event_filter:write"],
+    )
+    def stop_ingesting(self, request, *args, **kwargs) -> response.Response:
+        """Drop new events with this name at ingestion, then hide the definition and schedule its delete.
+
+        Adds an exact event name condition to the live event filter of each environment in the
+        project, because the definition is shared by all of them. This never makes a team's own
+        filter conditions live: if a filter is in dry run or turned off, or can't take one more
+        condition, the request fails and nothing changes. Dropped events can't be recovered.
+        """
+        # `hidden` and `verified` live on the enterprise extension, as in bulk_update_verified.
+        if not EE_AVAILABLE:
+            raise serializers.ValidationError("Stopping ingestion of an event requires an enterprise license.")
+
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        # EE_AVAILABLE is checked above, so get_object returns an EnterpriseEventDefinition.
+        instance = cast(EnterpriseEventDefinition, self.get_object())
+        if instance.name.startswith("$"):
+            raise serializers.ValidationError("PostHog events can't be dropped from here.")
+
+        user = cast(User, request.user)
+        teams = list(Team.objects.filter(project_id=self.project_id))
+        self._check_event_filter_write_access(request, teams)
+        try:
+            # This commits before the hide, so ingestion loads the condition as early as possible.
+            add_event_name_drop(teams, instance.name, user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(" ".join(error.messages))
+
+        from posthog.tasks.event_definitions import SCHEDULED_DELETION_DELAY
+
+        before = {"hidden": bool(instance.hidden), "verified": bool(instance.verified)}
+        # An event can't be both hidden and verified.
+        instance.hidden = True
+        instance.verified = False
+        instance.verified_by = None
+        instance.verified_at = None
+        instance.updated_by = user
+        # A periodic task deletes the definition after this, if nothing recreates it meanwhile.
+        instance.ingestion_stopped_at = timezone.now()
+        instance.scheduled_deletion_at = instance.ingestion_stopped_at + SCHEDULED_DELETION_DELAY
+        instance.save()
+
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(instance.id),
+            scope="EventDefinition",
+            # Its own activity, so the log tells this apart from a manual hide.
+            activity="stopped_ingesting",
+            was_impersonated=is_impersonated(request),
+            detail=Detail(
+                name=str(instance.name),
+                changes=dict_changes_between(
+                    "EventDefinition", before, {"hidden": True, "verified": False}, use_field_exclusions=True
+                ),
+            ),
+        )
+        report_user_action(
+            user, "event definition ingestion stopped", {"name": instance.name}, team=self.team, request=request
+        )
+        return response.Response(self.get_serializer(instance).data)
+
+    def _check_event_filter_write_access(self, request: request.Request, teams: Sequence[Team]) -> None:
+        """Check the caller may write the event filter of each environment, as the event filter endpoint would.
+
+        The permission classes only check the environment in the URL, but stop_ingesting writes them all.
+        """
+        denied = exceptions.PermissionDenied("You can't change the event filter of every environment in this project.")
+        try:
+            AccessibleTeams.for_request(request, [team.id for team in teams])
+        except CredentialScopeDenied:
+            raise denied
+        # Service credentials skip resource access control, as in AccessControlPermission.
+        if is_service_auth(request):
+            return
+        user = cast(User, request.user)
+        for team in teams:
+            if not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+                "event_filter", required_level="editor"
+            ):
+                raise denied
 
     def perform_create(self, serializer):
         """Handle context and side effects for event definition creation."""
@@ -975,7 +1260,7 @@ class EventDefinitionViewSet(
             )
 
         try:
-            event_def = self._get_event_definition(name=event_name, team__project_id=self.project_id)
+            event_def = self._get_event_definition(name=event_name, effective_project_id=self.project_id)
         except EventDefinition.DoesNotExist:
             event_def = None
 
@@ -1013,10 +1298,11 @@ class EventDefinitionViewSet(
         EventDefinition. Callers should fall back to the core taxonomy defaults client-side
         for names not present in the response.
         """
-        queryset = EventDefinition.objects.filter(
-            team__project_id=self.project_id,
-            primary_property__isnull=False,
-        ).exclude(primary_property="")
+        queryset = (
+            EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self.project_id, primary_property__isnull=False)
+            .exclude(primary_property="")
+        )
 
         names = [name for name in request.query_params.getlist("names") if name]
         if names:

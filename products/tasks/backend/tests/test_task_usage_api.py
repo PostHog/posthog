@@ -15,13 +15,18 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
+from posthog.test.authentication_checks import covers_authentication
+
 from products.tasks.backend.logic.services.task_usage import (
     TASK_USAGE_INTERNAL_PATH,
     TASK_USAGE_SIGNATURE_HEADER,
     TASK_USAGE_TIMESTAMP_HEADER,
     sign_task_usage_request,
 )
-from products.tasks.backend.presentation.views.task_usage_api import InternalTaskUsageViewSet
+from products.tasks.backend.presentation.views.task_usage_api import (
+    InternalTaskUsageViewSet,
+    TaskUsageCrossRegionAuthentication,
+)
 
 CROSS_REGION_SECRET = "test-cross-region-secret"
 
@@ -115,6 +120,7 @@ class TestInternalTaskUsageAuthentication(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         self.get_token_cost.assert_not_called()
 
+    @covers_authentication(TaskUsageCrossRegionAuthentication)
     def test_signed_request_authenticates_and_returns_the_token_cost(self) -> None:
         response = self._post(self._signed_headers())
 

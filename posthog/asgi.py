@@ -4,8 +4,10 @@ import time
 import asyncio
 
 # Django Imports
+import django
 from django.conf import settings
-from django.core.asgi import get_asgi_application
+from django.core.handlers.asgi import ASGIHandler
+from django.http import HttpRequest, HttpResponseBase
 
 # Structlog Import
 import structlog
@@ -86,7 +88,7 @@ def _ensure_post_fork_init():
     from posthog.web_memory_sampler import start_web_memory_sampler
 
     start_continuous_profiling()
-    initialize_otel()
+    initialize_otel(instrument_outbound_calls=True)
     prewarm_query_cache_cluster_in_background()
     # Production runs ASGI, so the sampler — previously only started from wsgi.py — never
     # ran in prod, leaving posthog_web_worker_rss_mb empty. Start it here, post-fork.
@@ -151,6 +153,27 @@ def self_capture_wrapper(func):
         return await func(scope, receive, send)
 
     return inner
+
+
+class PostHogASGIHandler(ASGIHandler):
+    """Run each request's middleware chain and view in a child task, like Django 5.2 did.
+
+    Django 6.0 awaits run_get_response() in the handler's own task. When the client
+    disconnects, asgiref cancels the sync view and copies the context of the still-running
+    view thread back into the caller. That copy can carry asgiref's per-call executor, so
+    request_finished stops waiting for the view thread. ThreadSensitiveContext then joins
+    that thread on the event loop. If the view calls async_to_sync() again, the thread
+    waits for the blocked loop and the worker deadlocks. A child task keeps the copied
+    context out of the handler.
+    """
+
+    async def run_get_response(self, request: HttpRequest) -> HttpResponseBase:
+        return await asyncio.create_task(super().run_get_response(request))
+
+
+def get_asgi_application() -> PostHogASGIHandler:
+    django.setup(set_prefix=False)
+    return PostHogASGIHandler()
 
 
 def task_run_event_ingest_wrapper(func):

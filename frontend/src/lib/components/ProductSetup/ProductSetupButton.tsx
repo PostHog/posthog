@@ -1,18 +1,12 @@
-import { useActions, useValues } from 'kea'
 import { forwardRef } from 'react'
 
 import { IconTarget } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
-import { organizationLogic } from 'scenes/organizationLogic'
 
-import { globalSetupLogic } from './globalSetupLogic'
-import { productSetupLogic } from './productSetupLogic'
 import { ProductSetupPopover } from './ProductSetupPopover'
+import { useProductSetupButton } from './useProductSetupButton'
 
 /**
  * ProductSetupButton - A button that appears in the scene title section
@@ -21,38 +15,18 @@ import { ProductSetupPopover } from './ProductSetupPopover'
  * handled by SceneContent when a productKey is provided.
  */
 export function ProductSetupButton(): JSX.Element | null {
-    const { selectedProduct, isGlobalModalOpen, sceneHasNoSetup } = useValues(globalSetupLogic)
-    const { openGlobalSetup, closeGlobalSetup, setSelectedProduct } = useActions(globalSetupLogic)
-    const { isCurrentOrganizationNew } = useValues(organizationLogic)
-    const showPulseIndicator = useFeatureFlag('QUICK_START_PULSE_INDICATOR', 'test')
-
-    // Get the setup state for the selected product
-    const logic = productSetupLogic({ productKey: selectedProduct })
-    const { remainingCount, shouldShowSetup, isDismissed } = useValues(logic)
-    const { undismissSetup } = useActions(logic)
-
-    // Show button if there are remaining tasks OR if the modal is currently open (to show completion)
-    const shouldShowButton = isCurrentOrganizationNew && !sceneHasNoSetup && (remainingCount > 0 || isGlobalModalOpen)
-
-    const handleToggle = (): void => {
-        if (isGlobalModalOpen) {
-            closeGlobalSetup()
-        } else {
-            if (isDismissed) {
-                undismissSetup()
-            }
-            openGlobalSetup()
-        }
-    }
-
-    useShortcut({
-        name: 'QuickStartGlobal',
-        keybind: [keyBinds.quickStart],
-        intent: 'Open quick start guide',
-        interaction: 'function',
-        callback: handleToggle,
-        disabled: !shouldShowButton,
-    })
+    const {
+        shouldShowButton,
+        selectedProduct,
+        isOpen,
+        isDismissed,
+        remainingCount,
+        shouldShowSetup,
+        showPulse,
+        toggle,
+        close,
+        setSelectedProduct,
+    } = useProductSetupButton()
 
     if (!shouldShowButton) {
         return null
@@ -60,20 +34,20 @@ export function ProductSetupButton(): JSX.Element | null {
 
     return (
         <ProductSetupPopover
-            visible={isGlobalModalOpen}
-            onClickOutside={closeGlobalSetup}
+            visible={isOpen}
+            onClickOutside={close}
             selectedProduct={selectedProduct}
             onSelectProduct={setSelectedProduct}
         >
-            {isDismissed && !isGlobalModalOpen ? (
-                <MinimizedButton remainingCount={remainingCount} isActive={isGlobalModalOpen} onClick={handleToggle} />
+            {isDismissed && !isOpen ? (
+                <MinimizedButton remainingCount={remainingCount} isActive={isOpen} onClick={toggle} />
             ) : (
                 <ExpandedButton
                     remainingCount={remainingCount}
                     showBadge={shouldShowSetup}
-                    isActive={isGlobalModalOpen}
-                    onClick={handleToggle}
-                    showPulse={showPulseIndicator}
+                    isActive={isOpen}
+                    onClick={toggle}
+                    showPulse={showPulse}
                 />
             )}
         </ProductSetupPopover>

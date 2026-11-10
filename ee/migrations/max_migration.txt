@@ -1,1 +1,1 @@
-0064_split_identity_provider_config_scopes
+0070_squash_2026_11_02_schema_addons

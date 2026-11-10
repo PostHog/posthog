@@ -1,27 +1,34 @@
 from __future__ import annotations
 
+import re
 import math
 import uuid
 import base64
+import datetime
 import contextlib
 import collections
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 import certifi
 import structlog
-from bson import Binary, DatetimeMS, ObjectId
+from bson import Binary, DatetimeMS, Decimal128, ObjectId, Timestamp, json_util
+from bson.binary import UuidRepresentation
+from bson.code import Code
 from bson.codec_options import DatetimeConversion
-from pymongo import ASCENDING, MongoClient
+from bson.dbref import DBRef
+from bson.json_util import JSONMode, JSONOptions
+from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -38,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     _is_host_safe,
     log_connection_open,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
@@ -47,6 +55,27 @@ from products.warehouse_sources.backend.types import IncrementalFieldType, Parti
 # Schema inference settings
 SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
 SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
+
+# Server-side limits (`maxTimeMS`) on the metadata commands that run before the first document is
+# read. The count runs the whole pipeline of a view, or scans a collection that has no index for
+# the filter, and each attempt of the import runs it again. Its result is only a progress estimate.
+ROW_COUNT_TIMEOUT_MS = 60_000
+COLLECTION_STATS_TIMEOUT_MS = 30_000
+
+# Client-side limits of each connection. pymongo has no socket timeout by default, so a server that
+# stops answering holds a `find` or a `getMore` for as long as the socket stays open.
+SERVER_SELECTION_TIMEOUT_MS = 10_000
+CONNECT_TIMEOUT_MS = 10_000
+# The wait for one answer from the server: the first batch of a cursor, or one `getMore`. A read
+# that keeps returning batches starts a new wait with each one, so this is not a limit on the read.
+# The data cursor gets no `maxTimeMS`, because the server counts that limit over the cursor as a
+# whole and it would end a long read that is in good health.
+SOCKET_TIMEOUT_MS = 10 * 60 * 1000
+# A limit that the connection string sets itself is kept.
+_CONNECTION_TIMEOUT_DEFAULTS: dict[str, int] = {
+    "connectTimeoutMS": CONNECT_TIMEOUT_MS,
+    "socketTimeoutMS": SOCKET_TIMEOUT_MS,
+}
 
 # Mongo yields whole documents (the full doc rides along under `data`), so a collection of large
 # documents can OOM the worker when a chunk is materialised into a PyArrow table — before any Delta
@@ -158,44 +187,60 @@ def _process_nested_value(value: Any) -> Any:
         return value
 
 
-def get_indexes(collection: Collection) -> list[str]:
-    """Get all indexes for a MongoDB collection."""
-    try:
-        index_cursor = collection.list_indexes()
-        return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception:
-        return []
+@frozen
+class CollectionIndexKeys:
+    """A collection's index keys, split by whether the key leads its index.
+
+    `WHERE field >= last_max` queries are only accelerated by an index whose leading key is
+    `field`; a non-leading position in a compound index doesn't support that access pattern.
+    """
+
+    covered: frozenset[str]
+    leading: frozenset[str]
 
 
-def get_leading_index_keys(collection: Collection) -> set[str] | None:
-    """Return the set of fields that are the first key of any index.
+def get_index_keys(collection: Collection) -> CollectionIndexKeys | None:
+    """Read a collection's index keys in one round trip.
 
-    `WHERE field >= last_max` queries are only accelerated by indexes whose
-    leading key is `field`; non-leading positions in compound indexes don't
-    support this access pattern. Returns None when index discovery fails so
-    the caller can default to no warning.
+    Returns None when index discovery fails, so the caller can tell "this collection has no
+    matching index" apart from "we don't know what this collection is indexed on".
     """
     try:
-        index_cursor = collection.list_indexes()
-        result: set[str] = set()
-        for index in index_cursor:
+        covered: set[str] = set()
+        leading: set[str] = set()
+        for index in collection.list_indexes():
             keys = index.get("key")
             if not keys:
                 continue
-            leading = next(iter(keys.keys()), None)
-            if leading is not None:
-                result.add(leading)
-        return result
+            covered.update(keys.keys())
+            first_key = next(iter(keys.keys()), None)
+            if first_key is not None:
+                leading.add(first_key)
+        return CollectionIndexKeys(covered=frozenset(covered), leading=frozenset(leading))
     except Exception as e:
-        structlog.get_logger().warning("Failed to detect leading index keys for MongoDB collection", exc_info=e)
+        structlog.get_logger().warning("Failed to read index keys for MongoDB collection", exc_info=e)
         return None
 
 
+def get_index_keys_by_collection(db: Database, collection_names: list[str]) -> dict[str, CollectionIndexKeys | None]:
+    """Read index keys for several collections at once.
+
+    Schema discovery answers a blocking HTTP request, so one round trip per collection in series
+    runs a database with many collections past that request's gateway deadline. Bounded the same
+    way as the schema-inference pool above.
+    """
+    if not collection_names:
+        return {}
+
+    with ThreadPoolExecutor(max_workers=min(len(collection_names), 4)) as executor:
+        results = executor.map(get_index_keys, [db[name] for name in collection_names])
+        return dict(zip(collection_names, results))
+
+
 def filter_mongo_incremental_fields(
-    columns: list[tuple[str, str]], collection: Collection
+    columns: list[tuple[str, str]], indexed_fields: frozenset[str]
 ) -> list[tuple[str, IncrementalFieldType]]:
     results: list[tuple[str, IncrementalFieldType]] = []
-    indexed_fields = get_indexes(collection)
 
     for column_name, type in columns:
         # Only include fields that have indexes
@@ -220,6 +265,7 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    upper_bound: Optional[Any] = None,
 ) -> dict[str, Any]:
     query: dict[str, Any] = {}
 
@@ -236,6 +282,9 @@ def _build_query(
         query = {incremental_field: {"$gt": _coerce_object_id_cursor(db_incremental_field_last_value), "$exists": True}}
     else:
         query = {incremental_field: {"$gt": db_incremental_field_last_value, "$exists": True}}
+
+    if upper_bound is not None:
+        query[incremental_field]["$lte"] = upper_bound
 
     return query
 
@@ -287,14 +336,56 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
     return selector
 
 
+def _options(connection_string: str) -> list[str]:
+    return re.split(r"[&;]", connection_string.partition("?")[2])
+
+
+def _option_key(option: str) -> str:
+    return option.partition("=")[0].lower()
+
+
+def connection_timeouts(connection_string: str) -> dict[str, int]:
+    """The connect and socket timeouts to pass to `MongoClient`, less those the connection string sets."""
+    option_keys = {_option_key(option) for option in _options(connection_string)}
+    return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
+
+
+# pymongo opens these paths on our host while it parses the string, so a path from the customer's
+# machine never works there. The CA bundle always comes from the `tlsCAFile` keyword, so that option
+# is dropped (AWS's DocumentDB string names `global-bundle.pem`). A revocation list or a client
+# certificate has no replacement, so the client refuses those rather than connect without them.
+_CA_FILE_OPTION = "tlscafile"
+_UNSUPPORTED_FILE_OPTIONS = frozenset({"tlscertificatekeyfile", "tlscrlfile"})
+UNSUPPORTED_FILE_OPTION_ERROR = "Connection string names a certificate file PostHog cannot read"
+
+
+class UnsupportedConnectionOptionError(ValueError):
+    pass
+
+
+def _checked_connection_string(connection_string: str) -> str:
+    """The string without `tlsCAFile`. Raises when it names a file that has no replacement."""
+    options = _options(connection_string)
+    if any(_option_key(option) in _UNSUPPORTED_FILE_OPTIONS for option in options):
+        raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
+    kept = [option for option in options if _option_key(option) != _CA_FILE_OPTION]
+    if len(kept) == len(options):
+        return connection_string
+    base = connection_string.partition("?")[0]
+    return f"{base}?{'&'.join(kept)}" if kept else base
+
+
 @contextlib.contextmanager
-def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
+def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> Iterator[MongoClient]:
+    """Open a client for one source. `tls_ca_file` replaces the public CA bundle, for a server whose
+    certificate a private CA signs (AWS DocumentDB)."""
     # rpartition strips credentials; multiple hosts stay comma-joined as-is.
     log_connection_open(db_host=urlparse(connection_string).netloc.rpartition("@")[2], team_id=team_id)
     kwargs: dict[str, Any] = {
-        "serverSelectionTimeoutMS": 10000,
+        "serverSelectionTimeoutMS": SERVER_SELECTION_TIMEOUT_MS,
+        **connection_timeouts(connection_string),
         "tls": True,
-        "tlsCAFile": certifi.where(),
+        "tlsCAFile": tls_ca_file or certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),
         # Decode BSON Binary subtype 4 as native uuid.UUID instead of bson.Binary,
         # so UUID primary keys don't leak as Python bytes repr downstream.
@@ -308,14 +399,14 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
         # to None in _process_nested_value so a single bad row doesn't fail the sync.
         "datetime_conversion": DatetimeConversion.DATETIME_AUTO,
     }
-    client: MongoClient = MongoClient(connection_string, **kwargs)
+    client: MongoClient = MongoClient(_checked_connection_string(connection_string), **kwargs)
     try:
         yield client
     finally:
         client.close()
 
 
-def get_server_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
+def get_server_metadata(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> dict[str, Any]:
     """Probe the cluster for the MongoDB version it reports, and for its wire version.
 
     The driver refuses any server below its own wire-version floor, and that floor rises across
@@ -324,7 +415,7 @@ def get_server_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
     upgrade ships. AWS DocumentDB and Azure Cosmos DB's Mongo API report the MongoDB version they
     emulate, and that emulated version is what the driver gates on.
     """
-    with mongo_client(connection_string, team_id) as client:
+    with mongo_client(connection_string, team_id, tls_ca_file) as client:
         # buildInfo is answered by every server version we accept and by the DocumentDB and Cosmos
         # DB Mongo APIs, whereas `hello` was added in MongoDB 5.0 and is missing from the older
         # emulation levels this probe most needs to identify. Asking for it also completes the
@@ -358,7 +449,7 @@ def _get_partition_settings(
     """Get partition settings for given MongoDB collection."""
     try:
         # Get collection stats
-        stats = collection.database.command("collStats", collection_name)
+        stats = collection.database.command("collStats", collection_name, maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
 
         collection_size = stats.get("size", 0)  # size in bytes
         row_count = stats.get("count", 0)
@@ -541,13 +632,13 @@ def _list_importable_collection_names(db: Database) -> list[str]:
 
 
 def get_schemas(
-    config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None
+    config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None, tls_ca_file: str | None = None
 ) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
     connection_params = _parse_connection_string(config.connection_string, config.database_name)
 
-    with mongo_client(config.connection_string, team_id=team_id) as client:
+    with mongo_client(config.connection_string, team_id=team_id, tls_ca_file=tls_ca_file) as client:
         if not connection_params["database"]:
             raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
 
@@ -574,9 +665,9 @@ def get_schemas(
     return schema_list
 
 
-def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]:
+def get_collection_names(config: MongoDBSourceConfig, team_id: int, tls_ca_file: str | None = None) -> list[str]:
     connection_params = _parse_connection_string(config.connection_string, config.database_name)
-    with mongo_client(config.connection_string, team_id=team_id) as client:
+    with mongo_client(config.connection_string, team_id=team_id, tls_ca_file=tls_ca_file) as client:
         if not connection_params["database"]:
             raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
         db = client[connection_params["database"]]
@@ -595,7 +686,7 @@ def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger)
     default chunk size. Never raises: chunk sizing is best-effort tuning, not correctness.
     """
     try:
-        stats = collection.database.command("collStats", collection.name)
+        stats = collection.database.command("collStats", collection.name, maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
         avg_obj_size = stats.get("avgObjSize")
         return int(avg_obj_size) if avg_obj_size else None
     except _UNREACHABLE_CLUSTER_ERRORS:
@@ -605,13 +696,88 @@ def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger)
         return None
 
 
+def _estimate_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
+    """Row estimate for a collection whose exact count ran past `ROW_COUNT_TIMEOUT_MS`.
+
+    The collection metadata holds a document count that costs no scan, but it counts the whole
+    collection, so it stands in only for an unfiltered read. A filtered read, and a view, which has
+    no such metadata, report 0. That is what a failed count reports too.
+    """
+    if not query:
+        try:
+            estimate = collection.estimated_document_count(maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
+            logger.debug(f"_get_rows_to_sync: count timed out, using estimate rows_to_sync={estimate}")
+            return estimate
+        except _UNREACHABLE_CLUSTER_ERRORS:
+            raise
+        except PyMongoError as e:
+            logger.debug(f"_get_rows_to_sync: count timed out and no estimate is available ({e})")
+    logger.warning(f"_get_rows_to_sync: the count did not finish in {ROW_COUNT_TIMEOUT_MS} ms. Using 0 as rows to sync")
+    return 0
+
+
+def _serves_range_and_sort(spec: dict[str, Any], incremental_field: str) -> bool:
+    """Whether the planner can serve `field > x` ordered by `field` from this index.
+
+    A hashed, text or geo index serves neither the range nor the sort, a partial index serves them
+    only for a query that implies its filter, which the cap query does not, and the planner ignores
+    a hidden index entirely. The field has to come first: a compound index that only holds it later
+    cannot order by it on its own.
+    """
+    field, direction = spec["key"][0]
+    return (
+        field == incremental_field
+        and direction in (ASCENDING, DESCENDING)
+        and "partialFilterExpression" not in spec
+        and not spec.get("hidden")
+    )
+
+
+def _read_upper_bound(
+    collection: Collection, query: dict[str, Any], incremental_field: str, logger: FilteringBoundLogger
+) -> Any | None:
+    """The newest incremental value when the read starts, or None to leave the read uncapped.
+
+    The read is in `_id` order, and the watermark it stores is the newest value it read anywhere.
+    An update to a document the cursor already passed can get a value below that watermark, and no
+    later run reads it. With the read capped here, such an update lands above the cap and the
+    watermark, so the next run reads it.
+    """
+    try:
+        indexed = any(
+            _serves_range_and_sort(spec, incremental_field) for spec in collection.index_information().values()
+        )
+        if not indexed:
+            # Without a usable index the lookup scans the whole collection a second time.
+            logger.debug(f"MongoDB: no usable index on {incremental_field}, so the read is not capped")
+            return None
+        newest = collection.find_one(
+            query,
+            {incremental_field: 1},
+            sort=[(incremental_field, DESCENDING)],
+            max_time_ms=COLLECTION_STATS_TIMEOUT_MS,
+        )
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
+    except PyMongoError as e:
+        logger.warning(f"MongoDB: could not read the newest {incremental_field} ({e}), so the read is not capped")
+        return None
+    if newest is None:
+        # Nothing matches yet. Capping at the lower bound reads nothing, so a document written during
+        # the read waits for the next run, as it does when the read is capped.
+        return query[incremental_field]["$gt"]
+    return newest.get(incremental_field)
+
+
 def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
     try:
-        rows_to_sync = collection.count_documents(query)
+        rows_to_sync = collection.count_documents(query, maxTimeMS=ROW_COUNT_TIMEOUT_MS)
         logger.debug(f"_get_rows_to_sync: rows_to_sync={rows_to_sync}")
         return rows_to_sync
     except _UNREACHABLE_CLUSTER_ERRORS:
         raise
+    except ExecutionTimeout:
+        return _estimate_rows_to_sync(collection, query, logger)
     except PyMongoError as e:
         # rows_to_sync is only a progress estimate, so a failed count degrades to 0
         # rather than failing the sync. Connectivity/auth failures here are expected
@@ -677,6 +843,123 @@ MONGO_KEYS_UNAVAILABLE_ERROR = (
 _EXECUTION_TIMEOUT_ERROR_CODE = 50
 
 
+@frozen
+class MongoResumeConfig:
+    """Checkpoint of a read: the `_id` of the last document handed to the pipeline, and the cap of
+    an incremental read, so every attempt of the run reads with the same filter.
+
+    The values are canonical MongoDB Extended JSON. Plain JSON has no ObjectId, UUID, date or
+    Decimal128, and the resume manager writes `str()` of a value it cannot encode, which no later
+    attempt can parse. Extended JSON gives back the same BSON type and value, so `$gt` compares it
+    the way the server compared the original.
+    """
+
+    last_id: str
+    upper_bound: str | None = None
+
+
+# UNSPECIFIED keeps every binary `_id` a `Binary` of its own subtype on decode. A representation
+# that turns subtype 3 into `uuid.UUID` would re-encode it as subtype 4, and MongoDB orders binary
+# values by subtype, so the seek would skip every remaining subtype 3 `_id`.
+_RESUME_ID_JSON_OPTIONS = JSONOptions(
+    json_mode=JSONMode.CANONICAL,
+    uuid_representation=UuidRepresentation.UNSPECIFIED,
+    datetime_conversion=DatetimeConversion.DATETIME_AUTO,
+    tz_aware=False,
+)
+
+# MongoDB orders values of different BSON types by type bracket first, in this order, and a `$gt`
+# only matches values in the bracket of its operand. A seek past a checkpoint therefore also matches
+# every bracket that sorts after it, or a collection with mixed `_id` types loses those documents.
+_ID_TYPE_BRACKETS: tuple[tuple[str, ...], ...] = (
+    ("int", "long", "double", "decimal"),
+    ("string", "symbol"),
+    ("object",),
+    ("binData",),
+    ("objectId",),
+    ("bool",),
+    ("date",),
+    ("timestamp",),
+    ("regex", "dbPointer", "javascript", "javascriptWithScope", "maxKey"),
+)
+
+
+def _id_type_bracket(value: Any) -> int | None:
+    """Index into `_ID_TYPE_BRACKETS` for a decoded `_id`, or None when no seek can start from it."""
+    # bool subclasses int, so it must be checked before the numbers.
+    if isinstance(value, bool):
+        return 5
+    if isinstance(value, float):
+        # NaN sorts below every number, but `$gt: NaN` matches none of them.
+        return None if math.isnan(value) else 0
+    if isinstance(value, Decimal128):
+        return None if value.to_decimal().is_nan() else 0
+    if isinstance(value, int):
+        return 0
+    # Code subclasses str, but JavaScript values do not have a safe same-bracket seek.
+    if isinstance(value, Code):
+        return None
+    if isinstance(value, str):
+        return 1
+    if isinstance(value, Mapping | DBRef):
+        return 2
+    # Binary subclasses bytes. The client decodes subtype 4 to uuid.UUID.
+    if isinstance(value, bytes | uuid.UUID):
+        return 3
+    if isinstance(value, ObjectId):
+        return 4
+    if isinstance(value, datetime.datetime | DatetimeMS):
+        return 6
+    if isinstance(value, Timestamp):
+        return 7
+    # null, MinKey, MaxKey and the code types. The first three hold at most one document each
+    # because `_id` is unique, and nothing is lost when a run cannot resume from them.
+    return None
+
+
+def _to_exact_bson(value: Any) -> Any:
+    # The read client decodes subtype 4 to uuid.UUID. Turn it back into the stored bytes so the
+    # checkpoint does not depend on a UUID representation.
+    if isinstance(value, uuid.UUID):
+        return Binary.from_uuid(value)
+    if isinstance(value, Mapping):
+        return {key: _to_exact_bson(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_exact_bson(item) for item in value]
+    return value
+
+
+def _encode_bson_value(value: Any) -> str | None:
+    try:
+        return json_util.dumps(_to_exact_bson(value), json_options=_RESUME_ID_JSON_OPTIONS)
+    except (TypeError, ValueError):
+        return None
+
+
+def encode_resume_id(value: Any) -> str | None:
+    """Extended JSON for a document `_id`, or None when a resumed read cannot seek past it."""
+    if _id_type_bracket(value) is None:
+        return None
+    return _encode_bson_value(value)
+
+
+def _decode_bson_value(encoded: str) -> Any:
+    return json_util.loads(encoded, json_options=_RESUME_ID_JSON_OPTIONS)
+
+
+def decode_resume_id(encoded: str) -> Any:
+    return _decode_bson_value(encoded)
+
+
+def _id_seek_filter(last_id: Any) -> dict[str, Any]:
+    """Match every document whose `_id` sorts after `last_id` in MongoDB's cross-type order."""
+    bracket = _id_type_bracket(last_id)
+    if bracket is None:
+        raise ValueError(f"Cannot seek past an _id of type {type(last_id).__name__}")
+    later_types = [alias for aliases in _ID_TYPE_BRACKETS[bracket + 1 :] for alias in aliases]
+    return {"$or": [{"_id": {"$gt": last_id}}, {"_id": {"$type": later_types}}]}
+
+
 def mongo_source(
     connection_string: str,
     collection_name: str,
@@ -687,14 +970,23 @@ def mongo_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     database_name: Optional[str] = None,
+    resumable_source_manager: ResumableSourceManager[MongoResumeConfig] | None = None,
+    tls_ca_file: str | None = None,
 ) -> SourceResponse:
     connection_params = _parse_connection_string(connection_string, database_name)
+
+    # The read is sorted by `_id`, so every document before the checkpoint was already handed on as
+    # long as the filter is the same on every attempt. A full refresh has no filter. A first
+    # incremental or append sync filters on the initial watermark, which no attempt moves. A later
+    # incremental read restarts from its stored watermark instead.
+    resumes_by_id = not should_use_incremental_field or db_incremental_field_last_value is None
+    resume_manager = resumable_source_manager if resumes_by_id else None
 
     if not connection_params["database"]:
         raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
 
     # Create MongoDB client
-    with mongo_client(connection_string, team_id=team_id) as client:
+    with mongo_client(connection_string, team_id=team_id, tls_ca_file=tls_ca_file) as client:
         db = client[connection_params["database"]]
         collection = db[collection_name]
 
@@ -720,7 +1012,7 @@ def mongo_source(
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
-        with mongo_client(connection_string, team_id=team_id) as read_client:
+        with mongo_client(connection_string, team_id=team_id, tls_ca_file=tls_ca_file) as read_client:
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 
@@ -731,6 +1023,46 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
+            state = resume_manager.load_state() if resume_manager is not None and resume_manager.can_resume() else None
+            seek: dict[str, Any] | None = None
+            upper_bound: Any = None
+            encoded_bound: str | None = None
+            if resume_manager is not None and state is not None:
+                try:
+                    resume_after = decode_resume_id(state.last_id)
+                    seek = _id_seek_filter(resume_after)
+                    # A new bound would change the filter, and the documents before the checkpoint
+                    # were read with the old one.
+                    encoded_bound = state.upper_bound
+                    upper_bound = None if encoded_bound is None else _decode_bson_value(encoded_bound)
+                except Exception:
+                    # This attempt already counts as a resume, so it cannot fall back to a
+                    # fresh read. Clearing the state lets the next attempt start one.
+                    resume_manager.clear_state()
+                    raise
+                logger.debug(
+                    f"MongoDB: resuming collection={collection_name} after _id type={type(resume_after).__name__}"
+                )
+            elif should_use_incremental_field and incremental_field is not None:
+                upper_bound = _read_upper_bound(read_collection, query, incremental_field, logger)
+                encoded_bound = None if upper_bound is None else _encode_bson_value(upper_bound)
+                if encoded_bound is None:
+                    upper_bound = None
+
+            if upper_bound is not None:
+                query = _build_query(
+                    should_use_incremental_field,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                    upper_bound,
+                )
+            if seek is not None:
+                query = {"$and": [query, seek]} if query else seek
+
+            # Set when the resume state was cleared for an `_id` that cannot be a checkpoint, so a
+            # run of such documents costs one Redis delete and not one per document.
+            resume_state_cleared = False
             last_id: Any = None
 
             def open_resumable_cursor() -> Cursor[Any]:
@@ -786,6 +1118,21 @@ def mongo_source(
 
                             result["data"] = processed_doc
 
+                            if resume_manager is not None:
+                                # Staged before the yield, so the pipeline commits this `_id` only
+                                # after it writes the batch that holds this document.
+                                encoded_id = encode_resume_id(last_id)
+                                if encoded_id is not None:
+                                    resume_manager.save_state(
+                                        MongoResumeConfig(last_id=encoded_id, upper_bound=encoded_bound)
+                                    )
+                                    resume_state_cleared = False
+                                elif not resume_state_cleared:
+                                    # An older checkpoint would re-read the rows written since it,
+                                    # so a retry restarts from the first document instead.
+                                    resume_manager.clear_state()
+                                    resume_state_cleared = True
+
                             yield result
                         return
                     except CursorNotFound:
@@ -795,7 +1142,8 @@ def mongo_source(
                         if rows_since_cursor_opened == 0:
                             raise
                         logger.debug(
-                            f"MongoDB: cursor killed for collection={collection_name}; resuming after _id={last_id}"
+                            f"MongoDB: cursor killed for collection={collection_name}; "
+                            f"resuming after _id type={type(last_id).__name__}"
                         )
                         cursor.close()
                         cursor = open_resumable_cursor()
@@ -808,7 +1156,7 @@ def mongo_source(
                                 raise
                             logger.debug(
                                 f"MongoDB: operation exceeded time limit for collection={collection_name}; "
-                                f"resuming after _id={last_id}"
+                                f"resuming after _id type={type(last_id).__name__}"
                             )
                             cursor.close()
                             cursor = open_resumable_cursor()
@@ -841,4 +1189,9 @@ def mongo_source(
         rows_to_sync=rows_to_sync,
         chunk_size=chunk_size,
         chunk_size_bytes=MONGO_CHUNK_SIZE_BYTES,
+        supports_resume=resume_manager is not None,
+        on_complete=resume_manager.clear_state if resume_manager is not None else None,
+        # The read is in `_id` order, because the cursor reopens after the last `_id`. A row with a
+        # lower incremental value can thus follow a higher one.
+        sort_mode=None,
     )

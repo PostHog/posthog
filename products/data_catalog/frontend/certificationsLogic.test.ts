@@ -1,10 +1,12 @@
+import { router } from 'kea-router'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { certificationsLogic } from './certificationsLogic'
+import { CERTIFICATIONS_TABLE_ID, DEFAULT_CERTIFICATIONS_FILTERS, certificationsLogic } from './certificationsLogic'
 import type { CertificationsFilters, NewCertificationForm } from './certificationsLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
@@ -162,6 +164,33 @@ describe('certificationsLogic', () => {
 
         expect(lemonToast.error).toHaveBeenCalledWith('Could not create the proposal. Try again.')
         expect(logic.values.isCreatingCertification).toBe(false)
+    })
+
+    it('refreshes the shared schema after a suggestion is accepted so trust badges update', () => {
+        mockLoadDatabase.mockClear()
+
+        logic.actions.suggestionAccepted()
+
+        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
+    })
+
+    it('opens the page that holds a highlighted certification once it loads, with the filters and sort cleared', () => {
+        logic.actions.setFilters({ status: 'proposed', search: 'stripe' })
+        router.actions.replace(router.values.location.pathname, {
+            [`${CERTIFICATIONS_TABLE_ID}_order`]: '-target_name',
+            table: 'stripe',
+        })
+
+        logic.actions.highlightCertification('cert-25')
+        logic.actions.loadCertificationsSuccess(
+            Array.from({ length: 30 }, (_, index) => buildCertification({ id: `cert-${index + 1}` }))
+        )
+
+        expect(logic.values.filters).toEqual(DEFAULT_CERTIFICATIONS_FILTERS)
+        expect(logic.values.highlightedCertificationId).toEqual('cert-25')
+        expect(router.values.searchParams[`${CERTIFICATIONS_TABLE_ID}_page`]).toEqual(2)
+        expect(router.values.searchParams[`${CERTIFICATIONS_TABLE_ID}_order`]).toBeUndefined()
+        expect(router.values.searchParams.table).toBeUndefined()
     })
 
     it('removes the row when revoking', async () => {

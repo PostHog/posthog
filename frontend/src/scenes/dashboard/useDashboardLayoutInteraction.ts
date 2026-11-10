@@ -3,16 +3,15 @@ import type { MutableRefObject } from 'react'
 import { cloneLayoutItem } from 'react-grid-layout'
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 
+import type { DashboardLayoutSize } from '~/types'
+
+import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
 import {
     getResizeNeighbors,
     resizeNeighborToFitRow,
     restoreUnmovedItemPositions,
-} from 'scenes/dashboard/dashboardResizeCompactor'
-import type { ResizeNeighbors } from 'scenes/dashboard/dashboardResizeCompactor'
-
-import type { DashboardLayoutSize } from '~/types'
-
-import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
+} from 'products/dashboards/frontend/dashboardResizeCompactor'
+import type { ResizeNeighbors } from 'products/dashboards/frontend/dashboardResizeCompactor'
 
 type InteractionKind = 'drag' | 'resize'
 
@@ -55,12 +54,24 @@ export function useDashboardLayoutInteraction({
                     return compactor.compact(layout, cols)
                 }
 
-                const restoredLayout = restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
+                const restoredLayout = restoreUnmovedItemPositions(
+                    layout,
+                    baseline,
+                    activeTileId,
+                    baselineById.current,
+                    layoutCompaction === DashboardGridCompaction.Stable && interactionKind.current === 'drag'
+                )
                 const resizedLayout =
                     interactionKind.current === 'resize'
                         ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId, resizeNeighbors.current)
                         : restoredLayout
-                return compactor.compactInteraction(cols, activeTileId, restoredLayout, resizedLayout)
+                return compactor.compactInteraction(
+                    cols,
+                    activeTileId,
+                    restoredLayout,
+                    resizedLayout,
+                    interactionKind.current === 'drag'
+                )
             },
         }
     }, [layoutCompaction])

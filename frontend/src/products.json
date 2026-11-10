@@ -1,13 +1,6 @@
 {
     "products": [
         {
-            "path": "AI gateway",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "ai_gateway",
-            "intents": ["ai_gateway"]
-        },
-        {
             "path": "LLM analytics",
             "category": "AI engineering",
             "iconType": null,
@@ -29,18 +22,11 @@
             "intents": ["llm_clusters"]
         },
         {
-            "path": "Datasets",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_datasets",
-            "intents": ["llm_datasets"]
-        },
-        {
             "path": "Evaluations",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_evaluations",
-            "intents": ["llm_evaluations"]
+            "intents": ["llm_evaluations", "llm_datasets"]
         },
         {
             "path": "Taggers",
@@ -56,12 +42,34 @@
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
         },
+        { "path": "Platform alerts", "category": "Unreleased", "iconType": "inbox", "type": null, "intents": [] },
+        {
+            "path": "Application observability",
+            "category": "Monitoring",
+            "iconType": null,
+            "type": null,
+            "intents": ["tracing"]
+        },
+        {
+            "path": "Autoresearch",
+            "category": "Tools",
+            "iconType": "experiment",
+            "type": "autoresearch",
+            "intents": ["autoresearch"]
+        },
+        {
+            "path": "Business intelligence",
+            "category": "Data",
+            "iconType": "business_intelligence",
+            "type": null,
+            "intents": []
+        },
         {
             "path": "Business knowledge",
             "category": "Data",
             "iconType": "business_knowledge",
             "type": null,
-            "intents": ["conversations"]
+            "intents": ["business_knowledge"]
         },
         {
             "path": "Web scripts",
@@ -162,14 +170,6 @@
             "intents": ["marketing_analytics"]
         },
         { "path": "Inbox", "category": "Tools", "iconType": null, "type": null, "intents": [] },
-        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
-        {
-            "path": "Live Debugger",
-            "category": "Unreleased",
-            "iconType": "live_debugger",
-            "type": "live_debugger",
-            "intents": ["live_debugger"]
-        },
         { "path": "Logs", "category": "Monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",
@@ -250,11 +250,11 @@
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Monitoring", "iconType": "tracing", "type": null, "intents": ["tracing"] },
         {
-            "path": "User research",
+            "path": "Uptime monitoring",
             "category": "Unreleased",
-            "iconType": "user_interview",
-            "type": "user_interview",
-            "intents": ["user_interviews"]
+            "iconType": "uptime_monitoring",
+            "type": null,
+            "intents": ["uptime_monitoring"]
         },
         {
             "path": "Visual review",
@@ -290,6 +290,13 @@
             "category": "Messaging",
             "iconType": "broadcasts",
             "type": "broadcasts",
+            "intents": ["workflows"]
+        },
+        {
+            "path": "Transactional",
+            "category": "Messaging",
+            "iconType": "transactional",
+            "type": "transactional",
             "intents": ["workflows"]
         }
     ],

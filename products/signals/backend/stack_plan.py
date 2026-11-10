@@ -20,17 +20,21 @@ import structlog
 from asgiref.sync import async_to_sync
 from pydantic import ValidationError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models.github_integration_base import GitHubIntegrationBase
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
     ReportLink,
+    ReviewerProposal,
+    ReviewerState,
     StatusArtefactContent,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.billing import system_billing_exempt_reason
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import ReportLayer
@@ -61,6 +65,8 @@ _STACKABLE_PR_STATES = (
 
 
 def _layer_summary(*, parent: SignalReport, layer: ReportLayer, index: int, total: int) -> str:
+    # The inbox hides this section behind its plan block by matching the sentence, so keep it in sync
+    # with `isGeneratedPlanSection` in products/signals/frontend/inbox/utils/reportSummary.ts.
     return f"{layer.scope}\n\n## Plan\n\nThis is layer {index + 1} of {total} of the plan '{parent.title}'."
 
 
@@ -114,14 +120,17 @@ def create_layer_reports(
     for index, layer in enumerate(layers):
         child = SignalReport.objects.create(
             team_id=team_id,
+            triggering_signal_id=parent.triggering_signal_id,
             status=SignalReport.Status.READY,
             title=layer.title,
             summary=_layer_summary(parent=parent, layer=layer, index=index, total=len(layers)),
-            promoted_at=now,
             # Born directly in a visible status without `transition_to`, which stamps this for
-            # pipeline reports, so the daily report limit counts the layer from creation.
+            # pipeline reports, so the daily report limit counts the layer from creation. No
+            # `promoted_at`: a layer runs no research, so it never fires `signal_report_started`,
+            # and lifecycle monitoring expects that event from every promoted report.
             first_visible_at=now,
             billing_exempt_reason=billing_exempt_reason,
+            tags=list(parent.tags),
         )
         child_id = str(child.id)
         for judgment in judgments:
@@ -131,6 +140,10 @@ def create_layer_reports(
                 content=judgment,
                 attribution=attribution,
                 reevaluate_autostart=False,
+                # The layer is new, so its reviewer state is empty.
+                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="stack_plan")
+                if isinstance(judgment, SuggestedReviewers)
+                else None,
             )
         SignalReportArtefact.add_log(
             team_id=team_id,
@@ -141,6 +154,7 @@ def create_layer_reports(
                 reason=f"Layer {index + 1} of {len(layers)} of the research plan.",
             ),
             attribution=attribution,
+            write_path=ReportLinkWritePath.PIPELINE,
         )
         if layer.depends_on is not None:
             SignalReportArtefact.add_log(
@@ -152,6 +166,7 @@ def create_layer_reports(
                     reason=f"Layer {index + 1} stacks on layer {layer.depends_on + 1}.",
                 ),
                 attribution=attribution,
+                write_path=ReportLinkWritePath.PIPELINE,
             )
         child_ids.append(child_id)
     logger.info("signals.stack_plan.layers_created", report_id=str(parent.id), team_id=team_id, layers=len(child_ids))
@@ -209,7 +224,12 @@ def _dependencies_have_pull_requests(*, team_id: int, report_id: str) -> bool:
     return set(dependency_ids) <= has_open_or_merged_pull_request(team_id=team_id, report_ids=dependency_ids)
 
 
-def start_unblocked_layers(*, team_id: int, report_ids: list[str]) -> list[str]:
+def start_unblocked_layers(
+    *,
+    team_id: int,
+    report_ids: list[str],
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> list[str]:
     """Run auto-start for each layer whose dependencies all have a pull request. Returns those ids.
 
     A layer that is still blocked is not evaluated, so waiting writes no `autostart_skip` row on
@@ -238,7 +258,7 @@ def start_unblocked_layers(*, team_id: int, report_ids: list[str]) -> list[str]:
             continue
         evaluated.append(report_id)
         try:
-            async_to_sync(maybe_autostart_from_report_artefacts)(team_id=team_id, report_id=report_id)
+            async_to_sync(maybe_autostart_from_report_artefacts)(team_id=team_id, report_id=report_id, ch_user=ch_user)
         except Exception:
             # One layer that fails to start must not hold back its siblings.
             logger.exception("signals.stack_plan.layer_autostart_failed", report_id=report_id, team_id=team_id)
@@ -250,13 +270,18 @@ def start_unblocked_layers(*, team_id: int, report_ids: list[str]) -> list[str]:
     return evaluated
 
 
-def start_unblocked_layers_of_plan(*, team_id: int, parent_report_id: str) -> list[str]:
+def start_unblocked_layers_of_plan(
+    *,
+    team_id: int,
+    parent_report_id: str,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> list[str]:
     """Start the layers of a plan that can start now. A report with no layers starts nothing."""
     child_ids = [
         edge.source_id
         for edge in incoming_links(team_id=team_id, report_id=parent_report_id, kinds=(ReportLinkKind.PART_OF,))
     ]
-    return start_unblocked_layers(team_id=team_id, report_ids=child_ids)
+    return start_unblocked_layers(ch_user=ch_user, team_id=team_id, report_ids=child_ids)
 
 
 def start_dependent_layers(*, team_id: int, report_id: str) -> list[str]:
@@ -265,7 +290,7 @@ def start_dependent_layers(*, team_id: int, report_id: str) -> list[str]:
         edge.source_id
         for edge in incoming_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.DEPENDS_ON,))
     ]
-    return start_unblocked_layers(team_id=team_id, report_ids=dependent_ids)
+    return start_unblocked_layers(team_id=team_id, report_ids=dependent_ids, ch_user=ClickHouseUser.SIGNALS)
 
 
 def schedule_dependent_layers(*, team_id: int, report_ids: list[str]) -> None:

@@ -21,8 +21,8 @@ from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.uploaded_media import sniff_image_content_type
 from posthog.models import User
+from posthog.models.uploaded_media import sniff_image_content_type
 
 from products.surveys.backend.facade.api import (
     DesktopFeedbackUnavailable,

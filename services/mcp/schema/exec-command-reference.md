@@ -5,12 +5,13 @@
 In [CLI mode](/docs/model-context-protocol/faq#choosing-a-tool-mode), the default for most clients, the MCP server registers a single `exec` tool instead of one tool per endpoint. Agents pass it CLI-style command strings to list, search, inspect, and call the tools above on demand, which keeps context usage small.
 
 ```text
+help [command] — list commands or show usage for one command
 learn <topic...> - load one or more learning topics
 tools — list available tool names
-search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
+search <words or regex_pattern> — find tools by name, title, or description
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns JSON instead of optimized output in supported tools. Informational responses remain tagged and escaped in both MCP and the agent CLI. --confirm is required by the CLI for destructive tools.)
+call [--json] [--confirm] <tool_name> [json_input] — call a tool with JSON input (--json returns JSON instead of optimized output in supported tools. Informational responses remain tagged and escaped in both MCP and the agent CLI. --confirm is required by the CLI for destructive tools.)
 ```
 
 **One command per request.** `exec` has no batch syntax. A request that stacks several commands on separate lines is rejected before any of them run. To run several commands, send several `exec` calls. You can issue them in parallel.

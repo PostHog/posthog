@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -21,7 +22,6 @@ from products.customer_analytics.backend.facade.contracts import (
     AnnouncementValidationError,
     AnnouncementView,
 )
-from products.customer_analytics.backend.presentation.views.views import _FacadePaginationMixin
 
 # Duplicated from the model TextChoices so this module imports no product models;
 # ENUM_NAME_OVERRIDES matches the generated enums against these by value.
@@ -31,6 +31,11 @@ _ANNOUNCEMENT_STATUS_CHOICES = [
     ("sent", "Sent"),
     ("partially_failed", "Partially failed"),
     ("failed", "Failed"),
+]
+
+_ANNOUNCEMENT_SEND_AS_CHOICES = [
+    ("bot", "SupportHog"),
+    ("user", "The person who created it"),
 ]
 
 _DELIVERY_STATUS_CHOICES = [
@@ -88,6 +93,16 @@ class AnnouncementSerializer(DataclassSerializer):
         choices=_ANNOUNCEMENT_STATUS_CHOICES,
         help_text="Overall status: pending, sending, sent, partially_failed, or failed.",
     )
+    send_as = serializers.ChoiceField(
+        choices=_ANNOUNCEMENT_SEND_AS_CHOICES,
+        default="bot",
+        help_text="Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the "
+        "Slack name and avatar of the person sending it (matched by their PostHog email).",
+    )
+    sender_display_name = serializers.CharField(
+        read_only=True,
+        help_text="Slack display name the message was posted under when send_as is 'user'; empty otherwise.",
+    )
     total_channels = serializers.IntegerField(read_only=True, help_text="Number of channels this announcement targets.")
     sent_count = serializers.IntegerField(
         read_only=True, help_text="Number of channels the message was successfully delivered to."
@@ -118,6 +133,8 @@ class AnnouncementSerializer(DataclassSerializer):
             "short_id",
             "message",
             "status",
+            "send_as",
+            "sender_display_name",
             "total_channels",
             "sent_count",
             "failed_count",
@@ -146,7 +163,6 @@ class AnnouncementSerializer(DataclassSerializer):
 
 class AnnouncementViewSet(
     TeamAndOrgViewSetMixin,
-    _FacadePaginationMixin,
     mixins.CreateModelMixin,
     viewsets.ReadOnlyModelViewSet,
 ):
@@ -154,12 +170,13 @@ class AnnouncementViewSet(
     serializer_class = AnnouncementSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
     lookup_field = "short_id"
+    pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_announcements(self.team_id, offset=offset, limit=limit),
-            AnnouncementSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_announcements(self.team_id, page=page),
+            serializer_class=AnnouncementSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -178,13 +195,18 @@ class AnnouncementViewSet(
                 user=cast(User, request.user),
                 message=data.message,
                 channels=data.channels,
+                send_as=data.send_as,
             )
         except AnnouncementValidationError as e:
             raise serializers.ValidationError(e.detail)
         report_user_action(
             request.user,
             "customer analytics announcement created",
-            {"id": str(announcement.id), "channel_count": announcement.total_channels},
+            {
+                "id": str(announcement.id),
+                "channel_count": announcement.total_channels,
+                "send_as": announcement.send_as,
+            },
             team=self.team,
             request=request,
         )

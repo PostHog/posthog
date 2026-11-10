@@ -92,6 +92,11 @@ export interface SurveyAppearanceSchema {
     position?: SurveyPosition
     tabPosition?: SurveyTabPosition
     whiteLabel?: boolean
+    displayIntroScreen?: boolean
+    introScreenHeader?: string
+    introScreenDescription?: string
+    introScreenDescriptionContentType?: SurveyQuestionDescriptionContentType
+    introScreenButtonText?: string
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType

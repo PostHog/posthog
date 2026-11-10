@@ -23,7 +23,11 @@ function TimestampForm(props: PlayerShareLogicProps): JSX.Element {
         <Form logic={playerShareLogic} props={props} formKey="privateLinkForm">
             <div className="flex gap-2 items-center">
                 <LemonField name="includeTime">
-                    <LemonCheckbox label="Start at" checked={privateLinkForm.includeTime} />
+                    <LemonCheckbox
+                        data-attr="player-share-start-at"
+                        label="Start at"
+                        checked={privateLinkForm.includeTime}
+                    />
                 </LemonField>
                 <LemonField name="time" inline>
                     <LemonInput
@@ -75,6 +79,7 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
                 <div>Make sure the person you share it with has access to this PostHog project.</div>
             </div>
             <LemonButton
+                data-attr="player-share-copy-link"
                 type="secondary"
                 fullWidth
                 center

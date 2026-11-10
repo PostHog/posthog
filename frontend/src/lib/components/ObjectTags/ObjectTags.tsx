@@ -6,6 +6,8 @@ import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonTag, LemonTagType, Popover } from '@posthog/lemon-ui'
 
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
+import { LoadTags } from 'lib/components/tagSelectLogic'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { colorForString } from 'lib/utils/colors'
 
 interface ObjectTagsPropsBase {
@@ -36,6 +38,8 @@ interface ObjectTagsPropsBase {
      * room surrounding table columns get.
      */
     wrap?: boolean
+    compact?: boolean
+    editorFullWidth?: boolean
 }
 
 export type ObjectTagsProps =
@@ -45,14 +49,16 @@ export type ObjectTagsProps =
           onChange?: never
           onBlur?: never
           tagsAvailable?: never
+          loadTags?: never
       })
     | (ObjectTagsPropsBase & {
           /** Tags CAN be added or removed.*/
           staticOnly?: false
           onChange?: (tags: string[]) => void
           onBlur?: () => void
-          /** List of all tags that already exist. */
-          tagsAvailable?: string[] /** Whether this field should be gated behind a "paywall". */
+          /** Fixed suggestions. Leave out to suggest the project's tags, loaded a page at a time. */
+          tagsAvailable?: string[]
+          loadTags?: LoadTags
       })
 
 const COLOR_OVERRIDES: Record<string, LemonTagType> = {
@@ -69,6 +75,7 @@ export function ObjectTags({
     onBlur,
     saving, // Required unless `staticOnly`
     tagsAvailable,
+    loadTags,
     style = {},
     staticOnly = false,
     className,
@@ -81,6 +88,8 @@ export function ObjectTags({
     maxVisibleTags,
     showOverflowLabel = false,
     wrap = false,
+    compact = false,
+    editorFullWidth = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -103,26 +112,51 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center', wrap && 'min-w-0 max-w-full')}
+            className={clsx(
+                className,
+                'inline-flex gap-0.5 items-center',
+                compact ? 'flex-nowrap min-w-0' : 'flex-wrap',
+                wrap && 'min-w-0 max-w-full',
+                editingTags && editorFullWidth && 'w-full min-w-0'
+            )}
             data-attr={dataAttr}
         >
             {editingTags ? (
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
-                    value={tags}
-                    options={tagsAvailable?.map((t) => ({ key: t, label: t }))}
-                    onChange={setTags}
-                    onBlur={() => {
-                        setEditingTags(false)
-                        onBlur?.()
-                    }}
-                    loading={saving}
-                    data-attr="new-tag-input"
-                    placeholder={inputPlaceholder}
-                    autoFocus
-                    popoverClassName="click-outside-block"
-                />
+                tagsAvailable ? (
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={tags}
+                        options={tagsAvailable.map((t) => ({ key: t, label: t }))}
+                        onChange={setTags}
+                        onBlur={() => {
+                            setEditingTags(false)
+                            onBlur?.()
+                        }}
+                        loading={saving}
+                        data-attr="new-tag-input"
+                        placeholder={inputPlaceholder}
+                        autoFocus
+                        fullWidth={editorFullWidth}
+                        popoverClassName="click-outside-block"
+                    />
+                ) : (
+                    <TagsInputSelect
+                        value={tags}
+                        onChange={setTags}
+                        onBlur={() => {
+                            setEditingTags(false)
+                            onBlur?.()
+                        }}
+                        saving={saving}
+                        loadTags={loadTags}
+                        data-attr="new-tag-input"
+                        placeholder={inputPlaceholder}
+                        autoFocus
+                        fullWidth={editorFullWidth}
+                        popoverClassName="click-outside-block"
+                    />
+                )
             ) : (
                 <>
                     {showPlaceholder
@@ -133,10 +167,17 @@ export function ObjectTags({
                                       key={index}
                                       type={COLOR_OVERRIDES[tag] || colorForString(tag)}
                                       onClick={onTagClick ? () => onTagClick(tag) : undefined}
-                                      className={wrap ? 'max-w-full' : undefined}
+                                      size={compact ? 'small' : 'medium'}
+                                      className={compact ? 'min-w-0' : wrap ? 'max-w-full' : undefined}
                                       wrap={wrap}
                                   >
-                                      {tag}
+                                      {compact ? (
+                                          <span className="truncate" title={tag}>
+                                              {tag}
+                                          </span>
+                                      ) : (
+                                          tag
+                                      )}
                                   </LemonTag>
                               )
                           })}

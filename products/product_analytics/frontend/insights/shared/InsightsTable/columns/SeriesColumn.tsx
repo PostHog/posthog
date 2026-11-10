@@ -4,6 +4,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import { TrendResult } from '~/types'
 
@@ -11,7 +12,8 @@ import { IndexedTrendResult } from 'products/product_analytics/frontend/insights
 
 type SeriesColumnItemProps = {
     item: IndexedTrendResult
-    indexedResults: IndexedTrendResult[]
+    series: ResultSeries
+    showCountedByTag: boolean
     canEditSeriesNameInline: boolean
     seriesNameTooltip?: string
     handleEditClick: (item: IndexedTrendResult) => void
@@ -22,7 +24,8 @@ type SeriesColumnItemProps = {
 
 export function SeriesColumnItem({
     item,
-    indexedResults,
+    series,
+    showCountedByTag,
     canEditSeriesNameInline,
     seriesNameTooltip,
     handleEditClick,
@@ -30,13 +33,11 @@ export function SeriesColumnItem({
     hasBreakdown,
     hideCompare,
 }: SeriesColumnItemProps): JSX.Element {
-    const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
-
     return (
         <Tooltip title={seriesNameTooltip}>
             <div className="series-name-wrapper-col deprecated-space-x-1">
                 <InsightLabel
-                    action={item.action}
+                    series={series}
                     fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                     hasMultipleSeries={hasMultipleSeries}
                     showEventName

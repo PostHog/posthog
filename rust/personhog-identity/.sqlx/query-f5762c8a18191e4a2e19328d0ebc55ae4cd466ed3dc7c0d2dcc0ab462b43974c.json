@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_complete_with_pointer' */ \n        WITH done AS (\n            UPDATE lifecycle_op\n            SET step = $3, outcome = $4, completed_at = now(), lease_expires_at = NULL\n            WHERE op_id = $1 AND step = $2\n            RETURNING op_id, team_id, op_type\n        ), queued AS (\n            INSERT INTO person_publish_outbox (team_id, kind, op_id)\n            SELECT team_id, op_type || '_op', op_id FROM done\n        )\n        SELECT count(*) AS \"advanced!\" FROM done\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "advanced!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f5762c8a18191e4a2e19328d0ebc55ae4cd466ed3dc7c0d2dcc0ab462b43974c"
+}

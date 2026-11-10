@@ -20,6 +20,7 @@ export interface MetricLinkParams {
     aggregation?: string
     dateFrom?: string | null
     dateTo?: string | null
+    interval?: string | null
     groupBy?: string[]
     filterGroup?: UniversalFiltersGroup
 }
@@ -59,6 +60,9 @@ export const metricUrl = (params: MetricLinkParams): string => {
     }
     if (params.dateTo) {
         searchParams.dateTo = params.dateTo
+    }
+    if (params.interval) {
+        searchParams.interval = params.interval
     }
     if (params.groupBy?.length) {
         searchParams.groupBy = params.groupBy

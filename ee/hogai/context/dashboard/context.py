@@ -8,6 +8,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.utils.helpers import build_dashboard_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyPydanticModelQuery
@@ -26,6 +27,7 @@ class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
     filters_override: dict | None = None
     variables_override: dict | None = None
     layout: dict | None = None
+    saved_query: dict | None = None
 
 
 class DashboardContext:
@@ -166,6 +168,7 @@ class DashboardContext:
     def _create_insight_context(self, data: DashboardInsightContext) -> InsightContext:
         """Create an InsightContext from DashboardInsightContext model."""
         return InsightContext(
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
             team=self.team,
             query=data.query,
             user=self.user,
@@ -177,4 +180,5 @@ class DashboardContext:
             dashboard_filters=self.dashboard_filters,
             filters_override=data.filters_override,
             variables_override=data.variables_override,
+            saved_query=data.saved_query,
         )

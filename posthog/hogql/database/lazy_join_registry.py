@@ -10,6 +10,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 )
 from posthog.hogql.database.schema.groups import join_with_group_n_table
 from posthog.hogql.database.schema.groups_revenue_analytics import join_with_groups_revenue_analytics_table
+from posthog.hogql.database.schema.metrics import join_metrics_with_metric_series_table
 from posthog.hogql.database.schema.person_distinct_id_overrides import join_with_person_distinct_id_overrides_table
 from posthog.hogql.database.schema.person_distinct_ids import join_with_person_distinct_ids_table
 from posthog.hogql.database.schema.persons import join_with_persons_table
@@ -25,7 +26,12 @@ from posthog.hogql.database.schema.session_replay_events import (
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table
 from posthog.hogql.database.schema.sessions_v2 import join_events_table_to_sessions_table_v2
 from posthog.hogql.database.schema.sessions_v3 import join_events_table_to_sessions_table_v3
-from posthog.hogql.database.schema.system import ticket_assignment_join, ticket_tags_join
+from posthog.hogql.database.schema.system import (
+    definition_tags_join,
+    endpoint_current_version_join,
+    ticket_assignment_join,
+    ticket_tags_join,
+)
 from posthog.hogql.database.warehouse_join_resolvers import (
     resolve_data_warehouse_experiments_join,
     resolve_data_warehouse_join,
@@ -71,6 +77,7 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.PERSON_DISTINCT_ID_OVERRIDES: join_with_person_distinct_id_overrides_table,
     tags.GROUP_N: join_with_group_n_table,
     tags.GROUPS_REVENUE_ANALYTICS: join_with_groups_revenue_analytics_table,
+    tags.METRICS_TO_METRIC_SERIES: join_metrics_with_metric_series_table,
     tags.PERSONS_REVENUE_ANALYTICS: join_with_persons_revenue_analytics_table,
     tags.EVENTS_TO_SESSIONS_V1: join_events_table_to_sessions_table,
     tags.EVENTS_TO_SESSIONS_V2: join_events_table_to_sessions_table_v2,
@@ -83,7 +90,9 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES: join_with_error_tracking_issue_fingerprint_overrides_table,
     tags.ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: join_with_error_tracking_fingerprint_issue_state_table,
     tags.TICKET_TAGS: ticket_tags_join,
+    tags.DEFINITION_TAGS: definition_tags_join,
     tags.TICKET_ASSIGNMENT: ticket_assignment_join,
+    tags.ENDPOINT_CURRENT_VERSION: endpoint_current_version_join,
     tags.ACCOUNT_TAGS: account_tags_join,
     tags.ACCOUNT_NOTEBOOKS: account_notebooks_join,
     tags.ACCOUNT_CUSTOM_PROPERTIES: account_custom_properties_join,

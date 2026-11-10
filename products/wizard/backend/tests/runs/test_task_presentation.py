@@ -4,6 +4,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -128,6 +129,14 @@ class TestWizardRunTasks(APIBaseTest):
         )
         assert response.status_code == 200
         assert response.json()["status"] == "completed"
+
+    @override_settings(SERVER_GATEWAY_INTERFACE="WSGI")
+    def test_run_stream_under_wsgi_returns_204(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/wizard/runs/{self.wizard_run.id}/stream/",
+            HTTP_ACCEPT="text/event-stream",
+        )
+        assert response.status_code == 204
 
     def test_run_stream_honors_killswitch(self) -> None:
         with patch(

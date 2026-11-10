@@ -42,7 +42,7 @@ and wrong for a few. Ask what the number is being counted *for*:
   ``NOT is_merge_queue``. A gate branch's head SHA is a rebase the queue made, so counting it reports
   activity nobody performed, once per merge attempt.
 
-Only ``runs_by_pr`` (``_curated``) and the push-history scan (``pull_request_list``) are in the second
+Only ``push_rows_select`` (``_curated``) and the push-activity query (``pull_request_list``) are in the second
 group today. Getting this wrong is silent: the numbers stay plausible and just drift up.
 
 ``commit_pr_number`` is the complementary key: it is how a push run gets PR attribution at all,
@@ -84,6 +84,8 @@ Every query module embeds this ``SELECT`` as a subquery (see ``_curated``);
 nothing registers it as a global HogQL view.
 """
 
+from collections.abc import Sequence
+
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_number_expr
 
 # The source PR of a merge-queue gate branch, corroborated against the run's actor so a
@@ -105,6 +107,9 @@ _OWN_REPO_PR = """arrayFirst(
                         AND JSONExtractInt(p, 'base', 'repo', 'id') = ifNull(JSONExtractInt(repository, 'id'), 0),
                     JSONExtractArrayRaw(ifNull(pull_requests, '[]'))
                 )"""
+# The PR number of that association, read off raw runs columns. A merge-queue gate run's association
+# is the gate PR the queue opened, not the PR it lands, which ``pr_number`` names instead.
+ASSOCIATION_PR_NUMBER = f"JSONExtractInt({_OWN_REPO_PR}, 'number')"
 
 # The squash-merge PR number off the head commit's subject: the fallback when the merge-commit
 # join can't resolve the run (see module docstring). Anchored to a line end ((?m), the squash
@@ -134,7 +139,15 @@ def _merged_pr_index(pull_requests_table: str) -> str:
     """
 
 
-def build_query(table_name: str, *, pull_requests_table: str | None = None, started_floor: bool = False) -> str:
+def build_query(
+    table_name: str,
+    *,
+    pull_requests_table: str | None = None,
+    started_floor: bool = False,
+    passthrough: Sequence[str] = (),
+) -> str:
+    """``passthrough`` names columns of ``table_name`` that the result carries unchanged."""
+    extra_columns = "".join(f", {column}" for column in passthrough)
     # The raw floor must live in its OWN innermost SELECT, not the parsing SELECT below: that SELECT
     # aliases parseDateTimeBestEffort(run_started_at) AS run_started_at, and ClickHouse alias resolution
     # would make a WHERE there compare the parsed DateTime against the string. Keep it on the raw column.
@@ -169,17 +182,23 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
             {STOPPED_REPORTING_SQL} AS stopped_reporting,
             arrayElement(repo_parts, 1) AS repo_owner,
-            arrayElement(repo_parts, 2) AS repo_name
+            arrayElement(repo_parts, 2) AS repo_name,
+            ci_engine, native_run_id, native_workflow_run_id,
+            workflow_id,
+            event{extra_columns}
         FROM (
             SELECT
                 id,
                 name AS workflow_name,
+                ci_engine, native_run_id, native_workflow_run_id,
+                workflow_id,
+                event{extra_columns},
                 head_sha,
                 head_branch,
                 status,
                 conclusion,
                 run_attempt,
-                JSONExtractInt({_OWN_REPO_PR}, 'number') AS association_pr_number,
+                {ASSOCIATION_PR_NUMBER} AS association_pr_number,
                 -- ``actor`` is read inline, not via an alias: an alias defined later in this same
                 -- SELECT is not reliably resolvable as another expression's input (see the two-layer
                 -- note above). It is the account GitHub recorded as triggering the run, which whoever

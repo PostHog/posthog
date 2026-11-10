@@ -1,0 +1,148 @@
+import { useActions, useValues, type BuiltLogic } from 'kea'
+import { combineUrl, router } from 'kea-router'
+
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
+
+import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
+import { offlineOverviewTrendLogic, type OfflineOverviewTrendLogicProps } from './offlineOverviewTrendLogic'
+import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
+import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
+import { getOfflineHistoryCoverage } from './offlineScoreTrends'
+
+export function OfflineOverviewTrend(
+    props: OfflineOverviewTrendLogicProps & {
+        timezone: string
+        colorOffset?: number
+        xDomain?: [number, number]
+        overviewLogic?: BuiltLogic<offlineExperimentsLogicType>
+    }
+): JSX.Element {
+    const { overviewLogic, ...trendProps } = props
+    const logic = offlineOverviewTrendLogic(trendProps)
+    const { trend, trendLoading, trendError, points, versionSummaries, periodSummary } = useValues(logic)
+    const { loadOfflineOverviewTrend, selectVersion } = useActions(logic)
+    const versionIndex = versionSummaries.findIndex((summary) => summary.scorer.id === periodSummary?.scorer.id)
+    const hasPartialHistory = !!trend && trend.page.count > trend.page.results.length
+    const scoredItemCount = periodSummary
+        ? periodSummary.pass_count != null && periodSummary.fail_count != null
+            ? periodSummary.pass_count + periodSummary.fail_count
+            : periodSummary.status_counts.ok
+        : 0
+
+    return (
+        <LemonCard hoverEffect={false} className="min-w-0 flex flex-col gap-3">
+            {trendLoading ? (
+                <LemonSkeleton className="h-64" />
+            ) : trendError ? (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: loadOfflineOverviewTrend }}>
+                    This score could not be loaded. Check your access or choose another score.
+                </LemonBanner>
+            ) : trend ? (
+                <>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="mb-0 min-w-0 break-words">
+                            <Link
+                                to={
+                                    combineUrl(urls.aiObservabilityOfflineScorerHistory(props.scorerId), {
+                                        ...props.filters,
+                                        version: periodSummary?.scorer.id,
+                                        date_from: props.dateFrom || 'all',
+                                        date_to: props.dateTo,
+                                    }).url
+                                }
+                                data-attr="offline-score-view-history"
+                            >
+                                {trend.definition.short_name || trend.definition.name}
+                            </Link>
+                        </h3>
+                        <LemonTag type="muted">{trend.definition.kind}</LemonTag>
+                        {periodSummary && (
+                            <div className="flex items-center gap-1 ml-auto">
+                                {versionSummaries.length > 1 && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        icon={<IconChevronLeft />}
+                                        aria-label="Older scorer version"
+                                        tooltip="Show summary for older version"
+                                        disabledReason={
+                                            versionIndex === versionSummaries.length - 1
+                                                ? 'Oldest version in this period'
+                                                : undefined
+                                        }
+                                        onClick={() => selectVersion(versionSummaries[versionIndex + 1].scorer.id)}
+                                        data-attr="offline-score-older-version"
+                                    />
+                                )}
+                                <span
+                                    className="text-xs text-muted tabular-nums"
+                                    data-attr="offline-score-summary-version"
+                                >
+                                    {`v${periodSummary.scorer.version}`}
+                                </span>
+                                {versionSummaries.length > 1 && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        icon={<IconChevronRight />}
+                                        aria-label="Newer scorer version"
+                                        tooltip="Show summary for newer version"
+                                        disabledReason={
+                                            versionIndex === 0 ? 'Newest version in this period' : undefined
+                                        }
+                                        onClick={() => selectVersion(versionSummaries[versionIndex - 1].scorer.id)}
+                                        data-attr="offline-score-newer-version"
+                                    />
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    {periodSummary && (
+                        <div className="flex flex-col gap-1">
+                            <OfflineScoreSummaryDisplay summary={periodSummary} />
+                            <div className="text-muted text-xs">{`${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'} (${scoredItemCount} ${scoredItemCount === 1 ? 'item' : 'items'})`}</div>
+                        </div>
+                    )}
+                    {hasPartialHistory && (
+                        <div className="text-xs text-muted">
+                            <p className="mb-1">{getOfflineHistoryCoverage(trend.page, props.timezone)}</p>
+                            <p className="mb-0">Earlier experiments and scorer versions may not be shown.</p>
+                        </div>
+                    )}
+                    {points.length ? (
+                        <OfflineScoreTrendChart
+                            heightClassName="h-36"
+                            showHeading={false}
+                            combineVersions
+                            hoverLogic={overviewLogic}
+                            xDomain={props.xDomain}
+                            colorOffset={props.colorOffset}
+                            timezone={props.timezone}
+                            periods={[
+                                {
+                                    key: 'overview',
+                                    label: 'Experiments',
+                                    points,
+                                    dateFrom: props.dateFrom,
+                                    dateTo: props.dateTo,
+                                },
+                            ]}
+                            onPointClick={(point) =>
+                                router.actions.push(
+                                    combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(point.experiment.id), {
+                                        scorer_version_id: point.summary.scorer.id,
+                                    }).url
+                                )
+                            }
+                        />
+                    ) : (
+                        <p className="text-muted my-4">No experiments with this score match these filters.</p>
+                    )}
+                </>
+            ) : null}
+        </LemonCard>
+    )
+}

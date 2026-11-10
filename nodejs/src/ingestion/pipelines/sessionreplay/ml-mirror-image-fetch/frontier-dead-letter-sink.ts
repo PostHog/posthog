@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducer } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { MAX_RECORD_BYTES, UrlDropReason } from './collected-urls-record'
@@ -15,7 +15,7 @@ export interface FrontierDeadLetterSink {
 
 export class KafkaFrontierDeadLetterSink implements FrontierDeadLetterSink {
     constructor(
-        private readonly producer: KafkaProducerWrapper,
+        private readonly producer: KafkaProducer,
         private readonly topic: string,
         blockedDestinations: readonly string[]
     ) {

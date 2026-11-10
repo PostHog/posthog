@@ -12,10 +12,32 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.dataclasses import frozen
+from posthog.models import OrganizationMembership, Team, User
+
+from products.access_control.backend.facade.api import access_rules
+from products.access_control.backend.facade.testing import create_access_control
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY,
+    ExternalDataSchema,
+    SelfManagedTableRef,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
+from products.warehouse_sources.backend.self_managed_access import MIGRATION_MARKER_KEY, AdoptionAccessError
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING, LEGACY_HISTORY_NAMING
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HistoryTableNameTakenError,
+    history_naming,
+)
+from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import (
+    PENDING_COPY_KEY,
+    registered_history_table,
+    request_access_rules_copy,
+    run_pending_access_rules_copy,
+)
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
@@ -26,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _refresh_cumulative_row_count,
     merge_columns,
     register_cdc_companion_table,
+    relink_orphan_table,
     update_last_synced_at,
     validate_schema_and_update_table,
 )
@@ -42,6 +65,7 @@ from products.warehouse_sources.backend.types import (
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _TABLE_MODULE = "products.warehouse_sources.backend.models.table"
+_SELF_MANAGED_URL = "https://exports.s3.us-east-1.amazonaws.com/orders/*.csv"
 
 
 class TestResolveTableAndFolderNames:
@@ -106,13 +130,21 @@ class TestResolveTableAndFolderNames:
 
 
 class TestRefreshCumulativeRowCount:
-    def test_updates_row_count_on_success(self) -> None:
+    @parameterized.expand(
+        [
+            ("counts_the_files_without_a_log_count", None, 42, True),
+            ("uses_the_log_count", 40_000_000, 40_000_000, False),
+            ("uses_a_log_count_of_zero", 0, 0, False),
+        ]
+    )
+    def test_updates_row_count(self, _name: str, live_row_count: int | None, expected: int, counts_files: bool) -> None:
         table = MagicMock(row_count=1)
         table.get_count.return_value = 42
 
-        _refresh_cumulative_row_count(table, MagicMock(), "orders (schema-1)")
+        _refresh_cumulative_row_count(table, MagicMock(), "orders (schema-1)", live_row_count)
 
-        assert table.row_count == 42
+        assert table.row_count == expected
+        assert table.get_count.called is counts_files
 
     def test_keeps_previous_row_count_when_get_count_fails(self) -> None:
         # get_count() raises when both the chdb and ClickHouse-cluster reads of the S3 dataset
@@ -323,6 +355,92 @@ class TestRegisterCDCCompanionTable(BaseTest):
         assert companions.count() == 0
 
 
+_HISTORY_ACCESS_RULES_MODULE = "products.warehouse_sources.backend.temporal.data_imports.history_access_rules"
+
+
+@frozen
+class _WaitingCopy:
+    source: ExternalDataSource
+    schema: ExternalDataSchema
+    job: ExternalDataJob
+
+
+@frozen
+class _SeenFromOutside:
+    schema_locked: bool
+    table_visible: bool
+
+
+def _schema_waiting_for_a_history_copy(team: Team, mode: str, request: bool = True) -> _WaitingCopy:
+    source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+    )
+    table = DataWarehouseTable.objects.create(
+        team=team, name="postgres_orders", format="DeltaS3Wrapper", url_pattern="s3://b/o", external_data_source=source
+    )
+    schema = ExternalDataSchema.objects.create(
+        name="orders",
+        team=team,
+        source=source,
+        table=table,
+        sync_type=ExternalDataSchema.SyncType.CDC,
+        sync_type_config={"cdc_table_mode": mode},
+    )
+    create_access_control(team_id=team.pk, resource="warehouse_table", resource_id=str(table.id), access_level="none")
+    if request:
+        organization_admin = User.objects.create_and_join(
+            team.organization, "admin@example.com", "testtest", level=OrganizationMembership.Level.ADMIN
+        )
+        request_access_rules_copy(schema, organization_admin)
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+    )
+    return _WaitingCopy(source=source, schema=schema, job=job)
+
+
+def _register_history_table(team: Team, schema: ExternalDataSchema, job: ExternalDataJob, mode: str) -> None:
+    with (
+        patch.object(DataWarehouseTable, "get_columns", return_value={}),
+        patch.object(DataWarehouseTable, "get_count", return_value=100),
+    ):
+        async_to_sync(register_cdc_companion_table)(
+            run_id=str(job.id),
+            team_id=team.pk,
+            schema_id=schema.id,
+            resource_name="orders_history",
+            row_count=100,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            queryable_folder="orders_history__query_a",
+            table_schema_dict={
+                "id": "Int64",
+                HISTORY_NAMING.valid_from: "DateTime",
+                HISTORY_NAMING.valid_to: "DateTime",
+            },
+            set_as_schema_table=mode == "cdc_only",
+        )
+
+
+def _seen_from_another_connection(schema_id: uuid.UUID, table_id: uuid.UUID) -> _SeenFromOutside:
+    """Whether another connection finds the schema row locked, and whether it can see the table."""
+    other = connections.create_connection("default")
+    try:
+        with other.cursor() as cursor:
+            try:
+                cursor.execute(
+                    f"SELECT id FROM {ExternalDataSchema._meta.db_table} WHERE id = %s FOR UPDATE NOWAIT",
+                    [str(schema_id)],
+                )
+                locked = False
+            except OperationalError:
+                locked = True
+        with other.cursor() as cursor:
+            cursor.execute(f"SELECT count(*) FROM {DataWarehouseTable._meta.db_table} WHERE id = %s", [str(table_id)])
+            visible = cursor.fetchone()[0] > 0
+        return _SeenFromOutside(schema_locked=locked, table_visible=visible)
+    finally:
+        other.close()
+
+
 # transaction=True: the real async function (not the sync mirror above) writes from the async thread
 # pool (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
 @pytest.mark.django_db(transaction=True)
@@ -357,6 +475,199 @@ class TestRegisterCdcCompanionTableStamp:
         assert history is not None
         assert history.active == "orders_cdc__query_a"
         assert history.active_job_id == str(job.id)
+
+    @pytest.mark.parametrize(
+        ("resource_name", "validity", "expected"),
+        [
+            pytest.param("orders_history", HISTORY_NAMING, HISTORY_NAMING, id="new_table"),
+            pytest.param("orders_cdc", LEGACY_HISTORY_NAMING, LEGACY_HISTORY_NAMING, id="legacy_table"),
+        ],
+    )
+    def test_the_next_run_reads_the_naming_the_table_was_created_with(self, team, resource_name, validity, expected):
+        # Without the stamp, the next run would take its own `_history` table for another table's.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=100),
+        ):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name=resource_name,
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder=f"{resource_name}__query_a",
+                table_schema_dict={"id": "Int64", validity.valid_from: "DateTime", validity.valid_to: "DateTime"},
+            )
+
+        assert history_naming(ExternalDataSchema.objects.get(id=schema.id)) == expected
+
+    @pytest.mark.parametrize("mode", ["both", "cdc_only"])
+    def test_registering_the_history_table_runs_a_copy_of_access_rules_that_waits(self, team, mode):
+        waiting = _schema_waiting_for_a_history_copy(team, mode)
+
+        _register_history_table(team, waiting.schema, waiting.job, mode)
+
+        history = DataWarehouseTable.objects.get(team=team, name=build_table_name(waiting.source, "orders_history"))
+        history_rules = {
+            (rule.access_level, rule.organization_member_id)
+            for rule in access_rules(team_id=team.pk, resources=["warehouse_table"])
+            if rule.resource_id == str(history.id)
+        }
+        assert history_rules == {("none", None)}
+        assert PENDING_COPY_KEY not in (ExternalDataSchema.objects.get(id=waiting.schema.id).sync_type_config or {})
+
+    def test_a_new_history_table_commits_with_its_access_rules(self, team):
+        waiting = _schema_waiting_for_a_history_copy(team, "both")
+        seen_from_outside: list[_SeenFromOutside] = []
+
+        def copy_while_watching(schema_id, team_id, history_table):
+            seen_from_outside.append(_seen_from_another_connection(schema_id, history_table.id))
+            run_pending_access_rules_copy(schema_id, team_id, history_table)
+
+        with patch(f"{_PIPELINE_SYNC_MODULE}.run_pending_access_rules_copy", side_effect=copy_while_watching):
+            _register_history_table(team, waiting.schema, waiting.job, "both")
+
+        assert seen_from_outside == [_SeenFromOutside(schema_locked=True, table_visible=False)]
+
+    def test_a_new_history_table_is_not_kept_when_its_access_rules_cannot_be_written(self, team):
+        waiting = _schema_waiting_for_a_history_copy(team, "both")
+
+        with (
+            patch(f"{_HISTORY_ACCESS_RULES_MODULE}.copy_object_access_rules", side_effect=OperationalError("down")),
+            patch(f"{_HISTORY_ACCESS_RULES_MODULE}.replace_object_access_rules", side_effect=OperationalError("down")),
+            pytest.raises(OperationalError),
+        ):
+            _register_history_table(team, waiting.schema, waiting.job, "both")
+
+        history_name = build_table_name(waiting.source, "orders_history")
+        assert not DataWarehouseTable.objects.filter(team=team, name=history_name).exists()
+
+    def test_a_new_history_table_is_denied_when_its_original_table_is_gone(self, team):
+        waiting = _schema_waiting_for_a_history_copy(team, "both")
+        assert waiting.schema.table_id is not None
+        DataWarehouseTable.objects.filter(id=waiting.schema.table_id).update(deleted=True)
+
+        _register_history_table(team, waiting.schema, waiting.job, "both")
+
+        history = DataWarehouseTable.objects.get(team=team, name=build_table_name(waiting.source, "orders_history"))
+        history_rules = {
+            (rule.access_level, rule.organization_member_id)
+            for rule in access_rules(team_id=team.pk, resources=["warehouse_table"])
+            if rule.resource_id == str(history.id)
+        }
+        assert history_rules == {("none", None)}
+        assert PENDING_COPY_KEY not in (ExternalDataSchema.objects.get(id=waiting.schema.id).sync_type_config or {})
+
+    def test_an_overlapping_first_registration_reuses_the_history_table(self, team):
+        waiting = _schema_waiting_for_a_history_copy(team, "both")
+        history_name = build_table_name(waiting.source, "orders_history")
+        real_filter = DataWarehouseTable.objects.filter
+        lookups = 0
+
+        def first_lookup_misses(*args, **kwargs):
+            # The registration's first lookup runs before another registration commits the table.
+            nonlocal lookups
+            if kwargs.get("name") == history_name:
+                lookups += 1
+                if lookups == 1:
+                    return real_filter(*args, **kwargs).none()
+            return real_filter(*args, **kwargs)
+
+        _register_history_table(team, waiting.schema, waiting.job, "both")
+        with patch.object(DataWarehouseTable.objects, "filter", side_effect=first_lookup_misses):
+            _register_history_table(team, waiting.schema, waiting.job, "both")
+
+        assert DataWarehouseTable.objects.filter(team=team, name=history_name, deleted=False).count() == 1
+
+    def test_a_copy_request_holds_the_schema_lock_while_it_checks_for_the_history_table(self, team):
+        organization_admin = User.objects.create_and_join(
+            team.organization, "requester@example.com", "testtest", level=OrganizationMembership.Level.ADMIN
+        )
+        schema = _schema_waiting_for_a_history_copy(team, "both", request=False).schema
+        locked_during_check: list[bool] = []
+
+        def check_while_watching(table):
+            locked_during_check.append(_seen_from_another_connection(schema.id, table.id).schema_locked)
+            return registered_history_table(table)
+
+        with patch(f"{_HISTORY_ACCESS_RULES_MODULE}.registered_history_table", side_effect=check_while_watching):
+            request_access_rules_copy(schema, organization_admin)
+
+        assert locked_during_check == [True]
+
+    def test_does_not_take_the_record_of_a_source_table_with_the_history_name(self, team):
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        sibling_table = DataWarehouseTable.objects.create(
+            team=team,
+            name=build_table_name(source, "orders_cdc"),
+            format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/orders_cdc__query_a",
+            external_data_source=source,
+        )
+        ExternalDataSchema.objects.create(name="orders_cdc", team=team, source=source, table=sibling_table)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with pytest.raises(HistoryTableNameTakenError):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name="orders_cdc",
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_b",
+            )
+
+        sibling_table.refresh_from_db()
+        assert (sibling_table.url_pattern, sibling_table.is_history_table) == ("s3://bucket/orders_cdc__query_a", False)
+
+    def test_records_the_companion_size_on_the_companion_table(self, team):
+        # In `both` mode the schema's table is the snapshot table. The companion size must land on
+        # the companion's own record, for a new record and for an existing one.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        for live_size_mib in (3.0, 5.0):
+            with (
+                patch.object(DataWarehouseTable, "get_columns", return_value={}),
+                patch.object(DataWarehouseTable, "get_count", return_value=100),
+            ):
+                async_to_sync(register_cdc_companion_table)(
+                    run_id=str(job.id),
+                    team_id=team.pk,
+                    schema_id=schema.id,
+                    resource_name="orders_cdc",
+                    row_count=100,
+                    table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                    queryable_folder="orders_cdc__query_a",
+                    live_size_mib=live_size_mib,
+                )
+
+        companion = DataWarehouseTable.objects.get(team_id=team.pk, external_data_source_id=source.pk, deleted=False)
+        job.refresh_from_db()
+        assert companion.size_in_s3_mib == 5.0
+        assert job.storage_delta_mib == 5.0
+        # The catalog reads this marker to hide the capture columns.
+        assert companion.options[HISTORY_TABLE_OPTION] is True
 
 
 # transaction=True: validate_schema_and_update_table writes to the DB from the async thread pool
@@ -407,10 +718,18 @@ class TestValidateSchemaAndUpdateTable:
         assert not table.columns
         assert table.created_via == DataWarehouseTableCreatedVia.SOURCE
 
-    def _linked_table(self, team, schema, job, *, queryable_folder: str) -> DataWarehouseTable:
+    def _linked_table(
+        self,
+        team: Team,
+        schema: ExternalDataSchema,
+        job: ExternalDataJob,
+        *,
+        queryable_folder: str,
+        storage_name: str | None = None,
+    ) -> DataWarehouseTable:
         names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
         table = DataWarehouseTable.objects.create(
-            name=build_table_name(job.pipeline, names.table_storage_name),
+            name=build_table_name(job.pipeline, storage_name or names.table_storage_name),
             format=DataWarehouseTableFormat.DeltaS3Wrapper,
             url_pattern="s3://bucket/orders_v1/*.parquet",
             team=team,
@@ -447,6 +766,362 @@ class TestValidateSchemaAndUpdateTable:
         assert table.queryable_folder == "s3://bucket/orders_v2"
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
+
+    @pytest.mark.parametrize(
+        "table_exists,sync_type,live_row_count,expected_row_count,counts_files",
+        [
+            pytest.param(
+                False, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, False, id="first_sync_full_refresh"
+            ),
+            pytest.param(
+                False, ExternalDataSchema.SyncType.INCREMENTAL, 1_200, 1_200, False, id="first_sync_incremental"
+            ),
+            pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, False, id="later_full_refresh"),
+            pytest.param(
+                True,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                200,
+                False,
+                id="full_refresh_falls_back_to_run_count",
+            ),
+            pytest.param(
+                True,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                5_000,
+                True,
+                id="incremental_falls_back_to_file_count",
+            ),
+        ],
+    )
+    def test_stores_the_delta_log_count_and_never_counts_the_files_of_a_full_refresh(
+        self, team, table_exists, sync_type, live_row_count, expected_row_count, counts_files
+    ):
+        schema, job = self._schema_and_job(team)
+        schema.sync_type = sync_type
+        schema.save()
+        if table_exists:
+            self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=5_000) as get_count,
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=200,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+                live_row_count=live_row_count,
+            )
+
+        assert get_count.called is counts_files
+        schema.refresh_from_db()
+        assert schema.table is not None
+        assert schema.table.row_count == expected_row_count
+
+    @pytest.mark.parametrize(
+        "previous_size_mib,live_size_mib,expected_size_mib,expected_delta_mib",
+        [
+            pytest.param("no_table", 12.5, 12.5, 12.5, id="new_table"),
+            pytest.param(None, 12.5, 12.5, 12.5, id="table_without_a_size"),
+            pytest.param(10.0, 12.5, 12.5, 2.5, id="growth"),
+            pytest.param(10.0, 4.0, 4.0, -6.0, id="smaller_after_compaction_or_full_refresh"),
+            pytest.param(10.0, 0.0, 0.0, -10.0, id="emptied_table"),
+            pytest.param(10.0, None, 10.0, 0, id="no_size_from_the_log_keeps_the_recorded_size"),
+        ],
+    )
+    def test_records_the_published_size_and_the_storage_change_of_the_job(
+        self, team, previous_size_mib, live_size_mib, expected_size_mib, expected_delta_mib
+    ):
+        # Billing and the s3Cluster threshold read size_in_s3_mib. A missing size must not become 0,
+        # and a second registration for the same job (a redelivered final batch) must not erase the
+        # storage change that the first one recorded.
+        schema, job = self._schema_and_job(team)
+        if previous_size_mib != "no_table":
+            table = self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+            DataWarehouseTable.objects.filter(id=table.id).update(size_in_s3_mib=previous_size_mib)
+
+        for _ in range(2):
+            with (
+                patch.object(DataWarehouseTable, "get_columns", return_value={}),
+                patch.object(DataWarehouseTable, "get_count", return_value=150),
+            ):
+                async_to_sync(validate_schema_and_update_table)(
+                    run_id=str(job.id),
+                    team_id=team.pk,
+                    schema_id=schema.id,
+                    row_count=10,
+                    table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                    queryable_folder="s3://bucket/orders_v2",
+                    live_size_mib=live_size_mib,
+                )
+
+        schema.refresh_from_db()
+        job.refresh_from_db()
+        assert schema.table is not None
+        assert schema.table.size_in_s3_mib == expected_size_mib
+        assert job.storage_delta_mib == expected_delta_mib
+
+    def _self_managed_table(self, team: Team, schema: ExternalDataSchema, **fields: object) -> DataWarehouseTable:
+        credential = DataWarehouseCredential.objects.create(access_key="AKIAEXAMPLE", access_secret="secret", team=team)
+        table = DataWarehouseTable.objects.create(
+            name="Raw_Orders",
+            format=DataWarehouseTableFormat.CSVWithNames,
+            url_pattern=_SELF_MANAGED_URL,
+            team=team,
+            credential=credential,
+            options={"csv_allow_double_quotes": False, "kept": 1},
+            columns={"Order ID": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}},
+        )
+        ref = SelfManagedTableRef(table_id=str(table.id), url_pattern=table.url_pattern, format=table.format)
+        schema.sync_type_config = {"schema_metadata": {SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY: ref.to_metadata()}}
+        schema.save()
+        if fields:
+            DataWarehouseTable.raw_objects.filter(pk=table.pk).update(**fields)
+            table.refresh_from_db()
+        return table
+
+    def _publish(self, team: Team, schema: ExternalDataSchema, job: ExternalDataJob, row_count: int = 10) -> None:
+        async_to_sync(validate_schema_and_update_table)(
+            run_id=str(job.id),
+            team_id=team.pk,
+            schema_id=schema.id,
+            row_count=row_count,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            queryable_folder="raw_orders__query_a",
+            live_size_mib=3.0,
+        )
+
+    @pytest.mark.parametrize("row_count", [10, 0])
+    def test_the_first_publish_adopts_the_self_managed_table_the_schema_names(self, team: Team, row_count: int) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._self_managed_table(team, schema)
+        credential_seen_by_introspection: list[object] = []
+
+        def get_columns(table_self: DataWarehouseTable, safe_expose_ch_error: bool = True) -> dict:
+            credential_seen_by_introspection.append(table_self.credential_id)
+            return {"Order ID": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", get_columns),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._publish(team, schema, job, row_count=row_count)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
+        assert schema.table_id == table.id
+        assert (table.name, table.external_data_source_id, table.credential_id) == ("Raw_Orders", job.pipeline_id, None)
+        assert (table.format, table.queryable_folder, table.size_in_s3_mib) == (
+            DataWarehouseTableFormat.DeltaS3Wrapper,
+            "raw_orders__query_a",
+            3.0,
+        )
+        names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+        assert table.url_pattern == job.url_pattern_by_schema(names.folder_name)
+        assert table.options == {"kept": 1}
+        # The customer's key can't read PostHog's bucket, so introspection must see the adopted row.
+        assert credential_seen_by_introspection == [None]
+        job.refresh_from_db()
+        assert job.storage_delta_mib == 3.0
+
+    @pytest.mark.parametrize("rule_added", [False, True])
+    def test_a_migration_source_adopts_the_table_only_while_its_access_rules_still_fit(
+        self, team: Team, rule_added: bool
+    ) -> None:
+        schema, job = self._schema_and_job(team)
+        ExternalDataSource.objects.filter(pk=job.pipeline_id).update(
+            connection_metadata={MIGRATION_MARKER_KEY: {"group_key": "s3/us-east-1/exports"}}
+        )
+        job.refresh_from_db()
+        table = self._self_managed_table(team, schema)
+        if rule_added:
+            # Added after the migration linked the table, so the source has no rule that matches it.
+            create_access_control(
+                team_id=team.pk, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+            )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            if rule_added:
+                with pytest.raises(AdoptionAccessError, match="The table still reads its own files"):
+                    self._publish(team, schema, job)
+            else:
+                self._publish(team, schema, job)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        if rule_added:
+            assert (table.external_data_source_id, schema.table_id) == (None, None)
+            assert table.credential_id is not None
+        else:
+            assert (table.external_data_source_id, schema.table_id) == (job.pipeline_id, table.id)
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"url_pattern": "https://exports.s3.us-east-1.amazonaws.com/other/*.csv"},
+            {"format": DataWarehouseTableFormat.Parquet},
+            {"deleted": True},
+        ],
+    )
+    def test_a_self_managed_table_that_changed_is_not_replaced(self, team: Team, change: dict) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._self_managed_table(team, schema, **change)
+        before = (table.url_pattern, table.format, table.credential_id, table.deleted)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._publish(team, schema, job)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        assert (table.url_pattern, table.format, table.credential_id, table.deleted) == before
+        assert table.external_data_source_id is None
+        assert schema.table is not None and schema.table_id != table.id
+        assert schema.table.name == build_table_name(job.pipeline, "orders")
+
+    def test_a_table_of_another_team_is_not_replaced(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        other_team = Team.objects.create(organization=team.organization, name="Other team")
+        table = self._self_managed_table(team, schema, team_id=other_team.pk)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._publish(team, schema, job)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        assert table.external_data_source_id is None
+        assert schema.table_id is not None and schema.table_id != table.id
+
+    def test_an_adopted_table_left_unlinked_is_linked_by_the_next_publish(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._self_managed_table(team, schema)
+        no_files_yet = ServerException("No files in log segment", code=742)
+
+        with patch.object(DataWarehouseTable, "get_columns", side_effect=no_files_yet):
+            self._publish(team, schema, job)
+        schema.refresh_from_db()
+        table.refresh_from_db()
+        assert (schema.table_id, table.external_data_source_id) == (None, job.pipeline_id)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._publish(team, schema, job)
+
+        schema.refresh_from_db()
+        assert schema.table_id == table.id
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
+
+    def test_an_adopted_table_left_unlinked_is_relinked_before_the_next_extraction(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._self_managed_table(team, schema)
+        no_files_yet = ServerException("No files in log segment", code=742)
+        with patch.object(DataWarehouseTable, "get_columns", side_effect=no_files_yet):
+            self._publish(team, schema, job)
+        schema.refresh_from_db()
+        assert schema.table_id is None
+
+        relinked = relink_orphan_table(schema, job.pipeline, MagicMock())
+
+        schema.refresh_from_db()
+        assert relinked is not None and relinked.id == table.id
+        assert schema.table_id == table.id
+
+    def test_a_self_managed_table_not_adopted_yet_is_not_relinked(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        self._self_managed_table(team, schema)
+
+        assert relink_orphan_table(schema, job.pipeline, MagicMock()) is None
+
+        schema.refresh_from_db()
+        assert schema.table_id is None
+
+    def test_a_synced_table_keeps_its_options(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        DataWarehouseTable.objects.filter(id=table.id).update(options={"csv_allow_double_quotes": True})
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_b",
+            )
+
+        table.refresh_from_db()
+        assert table.options == {"csv_allow_double_quotes": True}
+
+    def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        companion = self._linked_table(
+            team, schema, job, queryable_folder="orders_cdc__query_a", storage_name="orders_cdc"
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_a",
+            )
+
+        schema.refresh_from_db()
+        companion.refresh_from_db()
+        assert schema.table is not None
+        assert (schema.table.name, schema.table.queryable_folder) == (
+            build_table_name(job.pipeline, "orders"),
+            "orders__query_a",
+        )
+        assert companion.queryable_folder == "orders_cdc__query_a"
+
+    def test_a_schema_whose_own_table_has_the_companion_name_keeps_it(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        schema.s3_folder_name = "orders_cdc"
+        schema.save()
+        own_table = self._linked_table(team, schema, job, queryable_folder="orders_cdc__query_a")
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_b",
+            )
+
+        schema.refresh_from_db()
+        assert schema.table_id == own_table.id
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
 
     @pytest.mark.parametrize(
         ("recorded_active", "expect_restart"),
@@ -575,6 +1250,25 @@ class TestValidateSchemaAndUpdateTable:
         assert table.columns["id"]["clickhouse"] == "Int64"
         schema.refresh_from_db()
         assert schema.sync_type_config[REGISTERED_SCHEMA_FINGERPRINT_KEY]
+
+    def test_records_the_introspected_column_order(self, team):
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        introspected = {
+            "customer_name": {"clickhouse": "String", "hogql": "x"},
+            "id": {"clickhouse": "Int64", "hogql": "x"},
+            "total": {"clickhouse": "Float64", "hogql": "x"},
+        }
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value=introspected),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._register(team, schema, job, queryable_folder="orders__query_a", delta_schema_json="{}")
+
+        table.refresh_from_db()
+        assert table.column_order == ["customer_name", "id", "total"]
+        assert [name for name, _ in table.hogql_definition().fields.items()][:3] == ["customer_name", "id", "total"]
 
     def test_a_failed_introspection_leaves_no_fingerprint_behind(self, team):
         # get_columns() can fail on a table with no committed files (tolerated, see above). The next
@@ -792,7 +1486,6 @@ class TestSetInitialSyncComplete(BaseTest):
             sync_type="cdc",
             config={"cdc_mode": "snapshot", "cdc_snapshot_lane": "buffer"},
             initial_sync_complete=False,
-            job_inputs={"cdc_ingest_mode": "buffered"},
         )
 
         with patch(
@@ -822,7 +1515,6 @@ class TestSnapshotHandoverHoldsTheRowLock(NonAtomicBaseTest):
             connection_id=str(uuid.uuid4()),
             status="Completed",
             source_type="Postgres",
-            job_inputs={"cdc_ingest_mode": "buffered"},
         )
         schema = ExternalDataSchema.objects.create(
             team_id=self.team.pk,

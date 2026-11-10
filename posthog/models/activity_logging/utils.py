@@ -1,6 +1,6 @@
 import traceback
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, cast, get_args
 
 from django.db import models
 from django.db.models import Q, QuerySet
@@ -12,7 +12,6 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
-    from posthog.models.oauth import OAuthAccessToken
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -32,27 +31,47 @@ ACTIVITY_LOG_CLIENT_MAX_LENGTH = 256
 ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH = 32
 # Set by `OAuthAccessTokenAuthentication` from the scout run bound to a sandbox token.
 SCOUT_CLIENT_PREFIX = "scout:"
+# Set by `WorkloadAccessTokenAuthentication` from the subject name the workload token's OIDC claims named.
+WORKLOAD_CLIENT_PREFIX = "workload:"
 # Prefixes only the server may write. The activity log tells a reader that a tag carrying one of
 # them comes from the authenticated request rather than from the client, so the two kinds of tag
 # must not share a name.
-SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX,)
+SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX, WORKLOAD_CLIENT_PREFIX)
 
 
-CredentialType = Literal[
+DeclaredCredentialType = Literal[
     "session",
     "personal_api_key",
     "oauth",
     "project_secret_key",
     "team_secret_token",
     "id_jag",
+    "oidc_workload",
     "internal_jwt",
     "service_jwt",
     "internal_api_secret",
     "scim",
     "vercel",
     "partner",
-    "unattributed",
+    "sharing_access_token",
+    "sharing_password",
+    "widget_token",
+    "billing_service",
+    "gateway_agent",
+    "export_renderer",
+    "webhook",
+    "cross_region_signature",
 ]
+# `log_activity` writes `unattributed` for a row in a request where no authentication class recorded
+# a credential, so no class may declare it.
+CredentialType = Literal[DeclaredCredentialType, "unattributed"]
+CREDENTIAL_TYPE_CHOICES: tuple[CredentialType, ...] = get_args(CredentialType)
+# The credential types whose `credential_id` customers can read. Each id names a login session or a
+# key that the customer can look up and revoke through the PostHog API. Never add `service_jwt`: its
+# id is the audience of an internal PostHog service.
+CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES: frozenset[CredentialType] = frozenset(
+    {"session", "personal_api_key", "project_secret_key"}
+)
 # Sized for an ID-JAG `client_id`, the longest value: the identity provider config accepts client
 # ids up to 256 characters. Key ids, OAuth application UUIDs and session public ids are much shorter.
 ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH = 256
@@ -67,10 +86,8 @@ class ActivityCredential:
     """
 
     type: CredentialType
-    # The personal or project secret key id, the OAuth application UUID, the ID-JAG client id, the
-    # SCIM identity provider config id, the service JWT audience, the Vercel installation id, the
-    # partner application UUID, or `session_public_id` for a session. None when the credential has
-    # no id of its own.
+    # None when the credential has no id of its own. The table under "Credential attribution" in
+    # docs/internal/activity-logging.md lists the id that each credential type records.
     id: str | None = None
     impersonated_by_id: int | None = None
 
@@ -254,6 +271,27 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "trigger"):
             delattr(self._local, "trigger")
 
+    def set_verified_trigger_resolver(self, resolver: Callable[[], Optional["Trigger"]]) -> None:
+        """Hand over a trigger the authenticated credential proves, such as the CI job behind a CI
+        access token, to build when a row first needs it. Unlike `set_trigger`, it applies to every row."""
+        self._local.verified_trigger_resolver = resolver
+
+    def get_verified_trigger(self) -> Optional["Trigger"]:
+        resolver = getattr(self._local, "verified_trigger_resolver", None)
+        if resolver is not None:
+            delattr(self._local, "verified_trigger_resolver")
+            try:
+                self._local.verified_trigger = resolver()
+            except Exception:
+                logger.warning("activity_log.verified_trigger_resolver_failed", exc_info=True)
+                self._local.verified_trigger = None
+        return getattr(self._local, "verified_trigger", None)
+
+    def clear_verified_trigger(self) -> None:
+        for name in ("verified_trigger_resolver", "verified_trigger"):
+            if hasattr(self._local, name):
+                delattr(self._local, name)
+
     def clear_all(self) -> None:
         self.clear_request_scoped()
         self.clear_user()
@@ -264,34 +302,50 @@ class ActivityLoggingStorage:
         self.clear_ip_address()
         self.clear_credential()
         self.clear_trigger()
+        self.clear_verified_trigger()
 
 
 activity_storage = ActivityLoggingStorage()
 
 
-def record_activity_actor(user: "User | None", credential: ActivityCredential) -> None:
-    """Attribute the request's activity rows to the credential an authentication class verified,
-    and to its user.
+class ActivityCredentialMixin:
+    """Declares the credential type of an authentication class, and records that credential on the
+    request's activity rows.
 
-    ActivityLoggingMiddleware runs before DRF authentication, so it can already hold a user, an
-    impersonation flag and a session credential from a cookie on the same request. Replace all
-    three, so that a row never pairs this credential with the session's user or flag. Pass
-    `user=None` for a credential that has no user. Only write when the middleware owns cleanup:
-    outside a request cycle (e.g. authenticate() called directly) the thread-local would leak.
+    `posthog/test/repo_invariants/test_authentication_credential_types.py` fails when a PostHog
+    authentication class does not declare a type.
     """
-    if not activity_storage.is_request_scoped():
-        return
-    activity_storage.set_user(user)
-    activity_storage.set_was_impersonated(credential.impersonated_by_id is not None)
-    activity_storage.set_credential(credential)
 
+    activity_credential_type: ClassVar[DeclaredCredentialType]
 
-def oauth_activity_credential(access_token: "OAuthAccessToken") -> ActivityCredential:
-    return ActivityCredential(
-        type="oauth",
-        id=str(access_token.application_id),
-        impersonated_by_id=access_token.impersonated_by_id,
-    )
+    @classmethod
+    def record_activity_actor(
+        cls,
+        user: "User | None",
+        credential_id: str | None = None,
+        *,
+        impersonated_by_id: int | None = None,
+    ) -> None:
+        """Attribute the request's activity rows to the credential this class verified, and to its
+        user. Call it only after every check of the credential passed.
+
+        ActivityLoggingMiddleware runs before DRF authentication, so it can already hold a user, an
+        impersonation flag and a session credential from a cookie on the same request. Replace all
+        three, so that a row never pairs this credential with the session's user or flag. Pass
+        `user=None` for a credential that has no user. Only write when the middleware owns cleanup:
+        outside a request cycle (e.g. authenticate() called directly) the thread-local would leak.
+        """
+        if not activity_storage.is_request_scoped():
+            return
+        activity_storage.set_user(user)
+        activity_storage.set_was_impersonated(impersonated_by_id is not None)
+        activity_storage.set_credential(
+            ActivityCredential(
+                type=cls.activity_credential_type,
+                id=credential_id[:ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH] if credential_id else None,
+                impersonated_by_id=impersonated_by_id,
+            )
+        )
 
 
 class ActivityLogVisibilityManager:
@@ -367,6 +421,18 @@ class ActivityLogVisibilityManager:
 activity_visibility_manager = ActivityLogVisibilityManager()
 
 
+def is_uncached_reverse_one_to_one(field: Any, *instances: models.Model | None) -> bool:
+    """True for a reverse one-to-one that no instance holds in its cache.
+
+    Each side then reads the same related row with its own query, so the two values cannot differ.
+    """
+    return (
+        field.one_to_one
+        and not field.concrete
+        and not any(instance is not None and field.is_cached(instance) for instance in instances)
+    )
+
+
 def get_changed_fields_local(before_update: models.Model, after_update: models.Model) -> list[str]:
     """
     Get the fields that have changed on a model.
@@ -396,6 +462,9 @@ def get_changed_fields_local(before_update: models.Model, after_update: models.M
 
         # Skip deferred fields to avoid triggering DB refresh which would lose pending changes
         if field.name in before_deferred or field.name in after_deferred:
+            continue
+
+        if is_uncached_reverse_one_to_one(field, before_update, after_update):
             continue
 
         if hasattr(before_update, field.name) and hasattr(after_update, field.name):

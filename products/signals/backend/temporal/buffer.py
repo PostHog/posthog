@@ -2,7 +2,7 @@ import json
 import uuid
 import random
 import asyncio
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 
 from django.conf import settings
@@ -16,15 +16,11 @@ from temporalio.common import MetricCounter, RetryPolicy
 from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
-from posthog.models import Team
 from posthog.storage import object_storage
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
@@ -80,39 +76,14 @@ class CheckSignalsQuotaInput:
     team_id: int
     # Defaults so activity inputs recorded before the field existed still decode on replay.
     signal_count: int = 0
+    signals: list[EmitSignalInputs] = field(default_factory=list)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) -> bool:
-    """Whether the batch must be dropped: the team is over its Signals credits quota, or over its
-    daily report limit. Owns the drop logging and metric so the reason label names the exact limit
-    that fired; the workflow only acts on the boolean.
-    """
-    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    quota_limited = await sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
-    daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
-    # Captured whenever the daily gate binds — even when the quota drop below wins the
-    # single-reason drop metric — so the daily-limit event stream stays complete on co-bound days.
-    if daily_gate.limited:
-        capture_signal_report_daily_limit_paused(team, report_id=None, stage="ingestion", gate=daily_gate)
-    if quota_limited:
-        logger.info(
-            "signals_buffer.dropped_batch_quota_limited",
-            team_id=input.team_id,
-            signal_count=input.signal_count,
-        )
-        metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=input.signal_count)
-        return True
-    if daily_gate.limited:
-        logger.info(
-            "signals_buffer.dropped_batch_daily_limit",
-            team_id=input.team_id,
-            signal_count=input.signal_count,
-        )
-        metrics.increment_dropped(stage="ingestion", reason="daily_report_limit", count=input.signal_count)
-        return True
+    """Recorded histories still call this activity; accepted signals must continue."""
     return False
 
 
@@ -236,13 +207,11 @@ class BufferSignalsWorkflow:
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
 
-            # Drop the batch when the team is over its Signals credits quota or its daily report
-            # limit, before any downstream work. The activity logs the drop and owns the dropped
-            # metric, attributed to the exact limit that fired.
+            # Preserve the recorded command; admission already checked the limits.
             if workflow.patched(_PATCH_QUOTA_INGESTION_GATE):
                 over_limit = await workflow.execute_activity(
                     check_signals_quota_limited_activity,
-                    CheckSignalsQuotaInput(team_id=input.team_id, signal_count=len(batch)),
+                    CheckSignalsQuotaInput(team_id=input.team_id, signal_count=len(batch), signals=batch),
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
@@ -265,6 +234,7 @@ class BufferSignalsWorkflow:
                         workflow.execute_activity(
                             safety_filter_activity,
                             SafetyFilterInput(
+                                signal_id=s.signal_id,
                                 team_id=s.team_id,
                                 description=s.description,
                                 source_product=s.source_product,
@@ -277,7 +247,8 @@ class BufferSignalsWorkflow:
                             retry_policy=RetryPolicy(maximum_attempts=3),
                         )
                         for s in batch
-                    ]
+                    ],
+                    return_exceptions=workflow.patched("signals-retry-failed-safety-only"),
                 )
             except ActivityError:
                 self._signal_buffer[:0] = batch
@@ -289,8 +260,13 @@ class BufferSignalsWorkflow:
                 await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
                 continue
             safe_signals: list[EmitSignalInputs] = []
+            failed_signals: list[EmitSignalInputs] = []
             for signal, result in zip(batch, safety_results):
-                if result.safe:
+                if isinstance(result, ActivityError):
+                    failed_signals.append(signal)
+                elif isinstance(result, BaseException):
+                    raise result
+                elif result.safe:
                     safe_signals.append(signal)
                 else:
                     logger.warning(
@@ -301,6 +277,9 @@ class BufferSignalsWorkflow:
                         source_type=signal.source_type,
                         source_id=signal.source_id,
                     )
+            if failed_signals:
+                self._signal_buffer[:0] = failed_signals
+                await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
             batch = safe_signals
 
             if not batch:

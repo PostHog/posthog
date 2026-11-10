@@ -53,6 +53,19 @@ export const MultiSeries: Story = {
     name: 'Multi-series',
 }
 
+const HOURS = Array.from({ length: 9 }, (_, index) => {
+    const hour = (20 + index) % 24
+    return `2025-05-${hour >= 20 ? '26' : '27'} ${String(hour).padStart(2, '0')}:00:00`
+})
+
+export const Hourly: Story = {
+    render: () =>
+        renderTrends({ ...trendsQuery('ActionsLineGraph'), interval: 'hour' }, [
+            { label: 'Pageviews', data: [42, 38, 51, 30, 12, 8, 6, 9, 15], days: HOURS },
+        ]),
+    name: 'Hourly',
+}
+
 export const AreaChart: Story = {
     render: () =>
         renderTrends(trendsQuery('ActionsAreaGraph'), [
@@ -94,4 +107,59 @@ export const BarValueManyBreakdowns: Story = {
             { label: 'India', aggregated_value: 1640 },
         ]),
     name: 'Bar value — many breakdowns',
+}
+
+const BROWSER_TOTALS: TrendsResult = [
+    { label: 'Chrome', aggregated_value: 8421 },
+    { label: 'Firefox', aggregated_value: 3204 },
+    { label: 'Safari', aggregated_value: 2817 },
+    { label: 'Edge', aggregated_value: 1236 },
+]
+
+export const Pie: Story = {
+    render: () => renderTrends(trendsQuery('ActionsPie'), BROWSER_TOTALS),
+    name: 'Pie',
+}
+
+export const PiePercentages: Story = {
+    render: () =>
+        renderTrends(
+            {
+                kind: 'TrendsQuery',
+                trendsFilter: { display: 'ActionsPie', showValuesOnSeries: true, showPercentStackView: true },
+            },
+            BROWSER_TOTALS
+        ),
+    name: 'Pie — values and percentages',
+}
+
+export const Donut: Story = {
+    render: () => renderTrends(trendsQuery('ActionsDonut'), BROWSER_TOTALS),
+    name: 'Donut',
+}
+
+export const ProportionBar: Story = {
+    render: () =>
+        renderTrends(trendsQuery('ActionsProportionBar'), [
+            { label: 'Chrome', aggregated_value: 8421 },
+            { label: 'Firefox', aggregated_value: 3204 },
+            { label: 'Safari', aggregated_value: 2817 },
+        ]),
+    name: 'Proportion bar',
+}
+
+export const ProportionBarDuration: Story = {
+    render: () =>
+        renderTrends(
+            {
+                kind: 'TrendsQuery',
+                trendsFilter: { display: 'ActionsProportionBar', aggregationAxisFormat: 'duration' },
+            },
+            [
+                { label: 'Onboarding', aggregated_value: 412 },
+                { label: 'Checkout', aggregated_value: 95 },
+                { label: 'Settings', aggregated_value: 38 },
+            ]
+        ),
+    name: 'Proportion bar — duration format',
 }

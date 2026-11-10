@@ -8,7 +8,6 @@ from posthog.utils import str_to_bool
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
-# KEEP IN SYNC WITH plugin-server/src/config/config.ts
 BUFFER_CONVERSION_SECONDS = get_from_env("BUFFER_CONVERSION_SECONDS", default=60, type_cast=int)
 
 # Whether or not random partitioning (i.e. overflow routing) should be allowed.
@@ -75,6 +74,19 @@ OTLP_LOGS_INGEST_TOKEN = os.getenv("OTLP_LOGS_INGEST_TOKEN", "")
 OTEL_METRICS_EXPORT_URL = os.getenv("OTEL_METRICS_EXPORT_URL", "")
 OTEL_METRICS_EXPORT_TOKEN = os.getenv("OTEL_METRICS_EXPORT_TOKEN", "")
 OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS", type_cast=int, default=60_000)
+
+# The names and defaults match the Node producer (nodejs/src/logs/config.ts), so one env set configures both runtimes.
+LOGS_INTERNAL_PRODUCER_URL = os.getenv("LOGS_INTERNAL_PRODUCER_URL", "")
+LOGS_INTERNAL_INGESTION_SIGNING_KEYS = os.getenv("LOGS_INTERNAL_INGESTION_SIGNING_KEYS", "")
+LOGS_INTERNAL_PRODUCER_TEAMS = os.getenv("LOGS_INTERNAL_PRODUCER_TEAMS", "")
+LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT = get_from_env("LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT", type_cast=int, default=20)
+LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES = get_from_env(
+    "LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES", type_cast=int, default=64 * 1024 * 1024
+)
+# The librdkafka default message.timeout.ms, so a record retries as long as the log_entries Kafka write it runs beside.
+LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS = get_from_env(
+    "LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS", type_cast=int, default=300_000
+)
 
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
@@ -161,3 +173,6 @@ AI_RESEARCH_REPLAY_KEY_TABLE = os.getenv("AI_RESEARCH_REPLAY_KEY_TABLE", "")
 AI_RESEARCH_REPLAY_AWS_REGION = os.getenv("AI_RESEARCH_REPLAY_AWS_REGION", "us-east-1")
 AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT", "")
 AI_RESEARCH_REPLAY_KMS_KEY_ARN = os.getenv("AI_RESEARCH_REPLAY_KMS_KEY_ARN", "")
+AI_RESEARCH_V4_KEY_TABLE = os.getenv("AI_RESEARCH_V4_KEY_TABLE", "")
+AI_RESEARCH_V4_AWS_REGION = os.getenv("AI_RESEARCH_V4_AWS_REGION", "us-east-1")
+AI_RESEARCH_V4_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_V4_DYNAMODB_ENDPOINT", "")

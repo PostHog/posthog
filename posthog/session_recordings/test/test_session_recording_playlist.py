@@ -2,7 +2,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
@@ -35,8 +34,7 @@ from posthog.session_recordings.session_recording_playlist_api import (
     PLAYLIST_LIST_MAX_LIMIT,
     _attach_empty_recordings_counts,
     _empty_saved_filters_counts,
-    parse_non_negative_int,
-    parse_positive_int,
+    count_collection_recordings,
     precompute_recordings_counts,
 )
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource
@@ -48,7 +46,7 @@ from posthog.settings import (
 )
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
@@ -336,13 +334,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     def test_can_create_many_playlists_without_n_plus_1(self):
-        # one query to get started and then 13 per creation (was 14, -1 after dropping duplicate session lookup)
-        with self.assertNumQueries(13 * 50 + 1):
+        with self.assertNumQueries(9 * 50 + 1):
             for i in range(50):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
-        # 13 per creation (was 14, -1 after dropping duplicate session lookup)
-        with self.assertNumQueries(13 * 100):
+        with self.assertNumQueries(9 * 100):
             for i in range(100):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
@@ -426,7 +422,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert SessionRecordingPlaylistViewed.objects.count() == 0
 
-    def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
+    def _create_denied_experiment_and_viewer(self) -> tuple[int, User]:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -434,22 +430,20 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         flag = FeatureFlag.objects.create(
             team=self.team, key="playlist-exposure-flag", created_by=self.user, filters={}
         )
-        experiment = Experiment.objects.create(
-            team=self.team,
+        experiment_id = create_experiment(
+            team_id=self.team.id,
             name="playlist exposure experiment",
-            feature_flag=flag,
-            created_by=self.user,
-            exposure_criteria={},
-            metrics=[],
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
         )
         AccessControl.objects.create(
-            team=self.team, resource="experiment", resource_id=str(experiment.pk), access_level="none"
+            team=self.team, resource="experiment", resource_id=str(experiment_id), access_level="none"
         )
-        return experiment, self._create_user("denied-playlist-viewer@posthog.com")
+        return experiment_id, self._create_user("denied-playlist-viewer@posthog.com")
 
     def test_rejects_saving_filters_that_reference_an_experiment_the_saver_cannot_view(self) -> None:
-        experiment, denied_user = self._create_denied_experiment_and_viewer()
-        exposure_filters = {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}}
+        experiment_id, denied_user = self._create_denied_experiment_and_viewer()
+        exposure_filters = {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment_id}}
         self.client.force_login(denied_user)
         plain_playlist = self._create_playlist({"type": "filters", "filters": {"date_from": "-30d"}})
 
@@ -470,15 +464,65 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def test_saves_filters_that_reference_an_experiment_the_saver_can_view(self) -> None:
         # The experiment's creator keeps viewer access despite the team-wide "none", so the
         # save-time check must let their save through.
-        experiment, _ = self._create_denied_experiment_and_viewer()
+        experiment_id, _ = self._create_denied_experiment_and_viewer()
 
         self._create_playlist(
             {
                 "name": "exposed sessions",
                 "type": "filters",
-                "filters": {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}},
+                "filters": {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment_id}},
             }
         )
+
+    @parameterized.expand(
+        [
+            ["from_the_app", {"creation_method": "pin"}, {}, "pin", "web"],
+            ["without_creation_method", {}, {}, None, "web"],
+            ["from_mcp", {}, {"HTTP_X_POSTHOG_CLIENT": "mcp"}, None, "mcp"],
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_create_reports_a_stamped_event(
+        self,
+        _name: str,
+        extra_data: dict,
+        headers: dict,
+        expected_creation_method: str | None,
+        expected_source: str,
+        mock_capture: MagicMock,
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            {"name": "stamped", "type": "collection", **extra_data},
+            **headers,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recording playlist created"]
+        assert len(created) == 1
+        properties = created[0].kwargs["properties"]
+        assert properties["playlist_id"] == response.json()["short_id"]
+        assert properties["playlist_type"] == "collection"
+        assert properties["creation_method"] == expected_creation_method
+        assert properties["source"] == expected_source
+        assert "creation_method" not in response.json()
+
+    @patch("posthoganalytics.capture")
+    def test_update_reports_a_stamped_event(self, mock_capture: MagicMock) -> None:
+        short_id = self._create_playlist({"type": "collection"}, status.HTTP_201_CREATED).json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
+            {"name": "changed name", "pinned": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        updated = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recording playlist updated"]
+        assert len(updated) == 1
+        properties = updated[0].kwargs["properties"]
+        assert properties["playlist_id"] == short_id
+        assert properties["updated_fields"] == ["name", "pinned"]
+        assert properties["source"] == "web"
 
     def test_updates_playlist(self):
         create_response = self._create_playlist(
@@ -839,6 +883,55 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert {x["id"] for x in response.json()["results"]} == {recent_session}
+
+    def test_collection_recordings_respect_requested_limit(self) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="collection", created_by=self.user, type="collection"
+        )
+
+        sessions_newest_first = [f"collection-limit-{i}-{uuid4()}" for i in range(3)]
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
+
+        for hours_earlier, session_id in enumerate(sessions_newest_first):
+            timestamp = three_days_ago - timedelta(hours=hours_earlier)
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="123",
+                first_timestamp=timestamp,
+                last_timestamp=timestamp,
+            )
+            self.client.post(
+                f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_id}"
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings",
+            data={"limit": 2},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert {x["id"] for x in response.json()["results"]} == set(sessions_newest_first[:2])
+
+    @parameterized.expand(
+        [
+            ("recordings_non_numeric_limit", True, {"limit": "abc"}),
+            ("recordings_negative_offset", True, {"offset": -1}),
+            ("list_non_numeric_limit", False, {"limit": "abc"}),
+            ("list_negative_limit", False, {"limit": -5}),
+            ("list_negative_offset", False, {"offset": -1}),
+        ]
+    )
+    def test_rejects_bad_paging_params(self, _name: str, recordings: bool, params: dict[str, str | int]) -> None:
+        url = f"/api/projects/{self.team.id}/session_recording_playlists"
+        if recordings:
+            playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team, name="collection", created_by=self.user, type="collection"
+            )
+            url = f"{url}/{playlist.short_id}/recordings"
+
+        response = self.client.get(url, data=params)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [
@@ -1650,17 +1743,29 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         assert playlist._prefetched_collection_count == {"count": 3, "watched_count": 2}  # type: ignore[attr-defined]
         assert not hasattr(playlist, "_prefetched_saved_filters_count")
 
-    def test_collection_with_soft_deleted_items_excluded_from_count(self) -> None:
-        playlist = self._make_playlist("all deleted")
-        rec = SessionRecording.objects.create(team=self.team, session_id="deleted-1")
-        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec, deleted=True)
-        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="deleted-1")
+    @parameterized.expand(
+        [
+            ("soft_deleted", {"deleted": True}, {}),
+            ("expired", {}, {"start_time": datetime.now(UTC) - timedelta(days=31)}),
+        ]
+    )
+    def test_gone_items_excluded_from_count_and_watched(
+        self, _name: str, item_kwargs: dict, recording_kwargs: dict
+    ) -> None:
+        playlist = self._make_playlist("gone")
+        rec = SessionRecording.objects.create(team=self.team, session_id="gone-1", **recording_kwargs)
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec, **item_kwargs)
+        kept = SessionRecording.objects.create(
+            team=self.team, session_id="kept-1", start_time=datetime.now(UTC) - timedelta(days=29)
+        )
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=kept)
+        for session_id in ["gone-1", "kept-1"]:
+            SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id=session_id)
 
         precompute_recordings_counts([playlist], self.user, self.team)
 
-        # count excludes the soft-deleted item (None), but watched_count includes it
-        # to match the historical behavior of count_collection_recordings.
-        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 1}  # type: ignore[attr-defined]
+        assert playlist._prefetched_collection_count == {"count": 1, "watched_count": 1}  # type: ignore[attr-defined]
+        assert count_collection_recordings(playlist, self.user, self.team) == {"count": 1, "watched_count": 1}
 
     def test_empty_collection_loads_saved_filters_from_redis(self) -> None:
         playlist = self._make_playlist("empty")
@@ -1800,31 +1905,3 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         # and certainly no self-referential loop.
         assert data["next"] is None
         assert len(data["results"]) == data["count"]
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("30", 30),
-        ("0", 0),
-        ("-5", 0),
-        ("abc", 100),
-        (None, 100),
-    ],
-)
-def test_parse_non_negative_int(value: object, expected: int) -> None:
-    assert parse_non_negative_int(value, 100) == expected
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("30", 30),
-        ("0", 100),  # limit=0 would loop pagination -> default
-        ("-5", 100),  # non-positive -> default
-        ("abc", 100),
-        (None, 100),
-    ],
-)
-def test_parse_positive_int(value: object, expected: int) -> None:
-    assert parse_positive_int(value, 100) == expected

@@ -5,7 +5,7 @@ use tonic::transport::{Channel, Endpoint};
 use tracing::info;
 
 use crate::backend::discovery::DiscoveryReadiness;
-use crate::config::RetryConfig;
+use crate::config::{Http2Windows, RetryConfig};
 
 /// Channels to a backend whose pods are interchangeable (replica or
 /// identity), handed out round-robin.
@@ -24,6 +24,7 @@ pub struct DnsBackendConfig {
     pub retry_config: RetryConfig,
     pub keepalive_interval: Option<Duration>,
     pub keepalive_timeout: Option<Duration>,
+    pub http2_windows: Http2Windows,
     pub num_channels: usize,
 }
 
@@ -40,7 +41,7 @@ fn build_dns_endpoint(role: &str, config: &DnsBackendConfig) -> Endpoint {
     if let Some(timeout) = config.keepalive_timeout {
         endpoint = endpoint.keep_alive_timeout(timeout);
     }
-    endpoint
+    config.http2_windows.apply_to_endpoint(endpoint)
 }
 
 impl ChannelBackend {
@@ -128,6 +129,7 @@ mod tests {
                 },
                 keepalive_interval: None,
                 keepalive_timeout: None,
+                http2_windows: Http2Windows::default(),
                 num_channels: 4,
             },
         )

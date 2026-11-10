@@ -35,7 +35,6 @@ from products.product_analytics.backend.facade.models import Insight
 def _make_trend_result(label: str, data: list[float], breakdown_value: str = "") -> dict[str, Any]:
     days = [f"2024-06-{i + 1:02d}" for i in range(len(data))]
     return {
-        "action": {},
         "actions": [],
         "count": sum(data),
         "data": data,
@@ -49,7 +48,6 @@ def _make_trend_result(label: str, data: list[float], breakdown_value: str = "")
         "compare": False,
         "persons_urls": [],
         "persons": {},
-        "filter": {},
     }
 
 
@@ -72,6 +70,7 @@ def _make_query_without_breakdown() -> TrendsQuery:
 
 def _make_alert(team: MagicMock, detector_config: dict[str, Any], series_index: int = 0) -> MagicMock:
     alert = MagicMock(spec=AlertConfiguration)
+    alert.evaluation_delay_intervals = 0
     alert.id = "test-alert-id"
     alert.team = team
     alert.config = {"type": "TrendsAlertConfig", "series_index": series_index}

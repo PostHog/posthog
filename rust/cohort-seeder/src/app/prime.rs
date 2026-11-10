@@ -24,10 +24,11 @@ use cohort_core::hogvm::VmErrorClass;
 use metrics::counter;
 
 use crate::clickhouse::person_sql::ScanFilterOutcome;
-use crate::clickhouse::ScanSkipReason;
+use crate::clickhouse::{ResourceError, ScanSkipReason};
 use crate::observability::metrics::{
-    CHUNKS_POISONED, EVENTS_SKIPPED, HOGVM_ERRORS, PERSON_CONDITIONS_SHORTCUT, PERSON_ROWS_PRUNED,
-    PERSON_SCAN_FILTER, PRUNE_REASON_IRRELEVANT,
+    CHUNKS_POISONED, CLICKHOUSE_RESOURCE_ERRORS, EVENTS_SKIPPED, HOGVM_ERRORS,
+    PERSON_CONDITIONS_SHORTCUT, PERSON_ROWS_PRUNED, PERSON_SCAN_FILTER, PRUNE_REASON_IRRELEVANT,
+    RUN_BREAKER_TRIPS, TILES_SKIPPED,
 };
 use crate::store::runs::RunKind;
 
@@ -42,6 +43,15 @@ pub fn prime_zero_series() {
     }
     for kind in RunKind::ALL {
         counter!(CHUNKS_POISONED, "kind" => kind.as_str()).increment(0);
+        counter!(RUN_BREAKER_TRIPS, "kind" => kind.as_str()).increment(0);
+        for resource in ResourceError::ALL {
+            counter!(
+                CLICKHOUSE_RESOURCE_ERRORS,
+                "kind" => kind.as_str(),
+                "code" => resource.as_str(),
+            )
+            .increment(0);
+        }
     }
     // The person canary is read against these two: a run that pruned nothing and a run whose filter
     // never rendered have to look different from an exporter that dropped the family.
@@ -50,6 +60,7 @@ pub fn prime_zero_series() {
     for outcome in ScanFilterOutcome::ALL {
         counter!(PERSON_SCAN_FILTER, "outcome" => outcome.as_str()).increment(0);
     }
+    counter!(TILES_SKIPPED).increment(0);
 }
 
 #[cfg(test)]
@@ -68,16 +79,20 @@ mod tests {
 
         // The readings a validation run is gated on: malformed blobs skipped, HogVM aborts on an
         // unresolvable reference, chunks dead-lettered at the attempt cap, persons pruned as
-        // irrelevant, and whether the person key filter applied or was refused as too long.
+        // irrelevant, whether the person key filter applied or was refused as too long, and
+        // behavioral tiles skipped for a newer day.
         for series in [
             format!("{EVENTS_SKIPPED}{{reason=\"globals_parse_error\"}} 0"),
             format!("{HOGVM_ERRORS}{{class=\"unknown_ref\"}} 0"),
             format!("{CHUNKS_POISONED}{{kind=\"behavioral\"}} 0"),
+            format!("{CLICKHOUSE_RESOURCE_ERRORS}{{kind=\"behavioral\",code=\"241\"}} 0"),
+            format!("{RUN_BREAKER_TRIPS}{{kind=\"behavioral\"}} 0"),
             format!("{PERSON_ROWS_PRUNED}{{reason=\"irrelevant\"}} 0"),
             format!("{PERSON_SCAN_FILTER}{{outcome=\"key_presence\"}} 0"),
             format!("{PERSON_SCAN_FILTER}{{outcome=\"none\"}} 0"),
             format!("{PERSON_SCAN_FILTER}{{outcome=\"too_long\"}} 0"),
             format!("{PERSON_CONDITIONS_SHORTCUT} 0"),
+            format!("{TILES_SKIPPED} 0"),
         ] {
             assert!(
                 rendered.contains(&series),

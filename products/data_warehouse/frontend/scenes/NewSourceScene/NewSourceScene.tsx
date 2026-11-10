@@ -13,26 +13,25 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb, type ExternalDataSourceType } from '~/types'
 
-import {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
 import { splitQualifiedTableName, supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
@@ -45,9 +44,8 @@ import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { DestinationStep } from './components/DestinationStep'
 import { FileUploadSourceForm } from './components/FileUploadSourceForm'
-import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
+import { WebhookStepFallback } from './components/WebhookStepFallback'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
-import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
 import { SourceCatalogSkeleton } from './SourceCatalogSkeleton'
 import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
@@ -127,7 +125,17 @@ export function NewSourceScene(): JSX.Element {
 // access). Without this the scene keeps rendering a bare skeleton indefinitely, which reads
 // as a permanently stuck loading state.
 export function AvailableSourcesError(): JSX.Element {
+    const { availableSourcesForbidden } = useValues(availableSourcesLogic)
     const { load } = useActions(availableSourcesLogic)
+
+    if (availableSourcesForbidden) {
+        return (
+            <LemonBanner type="info">
+                You don't have permission to connect a data warehouse source. Ask a project admin for editor access to
+                data warehouse sources.
+            </LemonBanner>
+        )
+    }
 
     return (
         <LemonBanner
@@ -140,10 +148,7 @@ export function AvailableSourcesError(): JSX.Element {
             }}
         >
             <p className="font-semibold mb-1">Couldn't load the list of available sources</p>
-            <p className="m-0">
-                This can happen if the request timed out or you don't have permission to manage data sources in this
-                project. Try again, or ask an organization admin to check your access.
-            </p>
+            <p className="m-0">The request may have timed out. Try again, and contact support if it keeps failing.</p>
         </LemonBanner>
     )
 }
@@ -172,6 +177,7 @@ function InternalNewSourceScene({
     sourceWizardLogicProps: SourceWizardLogicProps
 }): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent>
@@ -179,15 +185,21 @@ function InternalNewSourceScene({
                 name="New data warehouse source"
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        center
-                        data-attr="source-form-cancel-button"
-                        onClick={closeWizard}
-                        size="small"
-                    >
-                        Cancel
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" data-attr="source-form-cancel-button" onClick={closeWizard}>
+                            Cancel
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            onClick={closeWizard}
+                            size="small"
+                        >
+                            Cancel
+                        </LemonButton>
+                    )
                 }
             />
             <InternalSourcesWizard sourceWizardLogicProps={sourceWizardLogicProps} />
@@ -197,8 +209,8 @@ function InternalNewSourceScene({
 
 interface NewSourcesWizardProps {
     onComplete?: () => void
-    allowedSources?: ExternalDataSourceTypeEnumApi[] // Filter to only show these source types
-    initialSource?: ExternalDataSourceTypeEnumApi // Pre-select this source and start on step 2
+    allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
+    initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
     hideBackButton?: boolean
     autoConfigureTables?: boolean // Onboarding: pre-select all syncable tables for a one-click sync
     sourceWizardLogicProps?: SourceWizardLogicProps
@@ -240,7 +252,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         nextButtonText,
         selectedConnector,
         connectors,
-        isSelfManagedSource,
         source,
         sourceConnectionDetails,
         isWebhookFieldInputsSubmitting,
@@ -254,7 +265,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         source.access_method
     )
     const showAccessMethodSelector = currentStep === 2 && supportsDirectQuery(selectedConnector?.name)
-    const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()
 
@@ -287,7 +297,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
-                loading={isLoading || manualLinkIsLoading || isWebhookFieldInputsSubmitting}
+                loading={isLoading || isWebhookFieldInputsSubmitting}
                 disabledReason={
                     disabledReason || (!canGoNext && (nextButtonDisabledReason || 'Finish this step to continue'))
                 }
@@ -313,16 +323,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         Back
                     </LemonButton>
                 )}
-                {isSelfManagedSource ? (
-                    nextButton()
-                ) : (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.ExternalDataSource}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        {({ disabledReason: accessDisabledReason }) => nextButton(accessDisabledReason ?? undefined)}
-                    </AccessControlAction>
-                )}
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.ExternalDataSource}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    {({ disabledReason: accessDisabledReason }) => nextButton(accessDisabledReason ?? undefined)}
+                </AccessControlAction>
             </div>
         )
     }, [
@@ -330,14 +336,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         canGoBack,
         onBack,
         isLoading,
-        manualLinkIsLoading,
         isWebhookFieldInputsSubmitting,
         canGoNext,
         nextButtonDisabledReason,
         nextButtonText,
         onSubmit,
         props.hideBackButton,
-        isSelfManagedSource,
         isFileUploadSource,
     ])
 
@@ -546,7 +550,7 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
 // Connectors in the "Databases" category that PostHog reaches over the provider's public HTTPS API
 // with a key the provider issues. The customer has no network path in front of them, so the
 // firewall hint would name a setup step that does not exist.
-const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceTypeEnumApi[] = ['BigQuery', 'DynamoDB', 'Firebase']
+const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceType[] = ['BigQuery', 'CloudflareD1', 'DynamoDB', 'Firebase']
 
 // Firewall allowlisting only applies to self-hosted databases PostHog dials out to, so the hint is
 // scoped to that category rather than shown for OAuth/API connectors.
@@ -568,8 +572,12 @@ function DatabaseFirewallHint(): JSX.Element | null {
     )
 }
 
-function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
-    const { selectedConnector, source, sourceConnectionDetails } = useValues(sourceWizardLogic)
+function SecondStep({
+    sourceWizardLogicProps,
+}: {
+    sourceWizardLogicProps?: SourceWizardLogicProps
+}): JSX.Element | null {
+    const { selectedConnector, source, sourceConnectionDetails, prefixRequired } = useValues(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         2,
         sourceConnectionDetails?.access_method,
@@ -582,7 +590,11 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
         return <FileUploadSourceForm />
     }
 
-    return selectedConnector ? (
+    if (!selectedConnector) {
+        return null
+    }
+
+    return (
         <div className="space-y-4">
             {selectedConnector.caption && selectedAccessMethod !== 'direct' && (
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
@@ -618,13 +630,10 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                 sourceConfig={selectedConnector}
                 initialAccessMethod={sourceConnectionDetails?.access_method ?? source.access_method}
                 showAccessMethodSelector={false}
+                prefixRequired={prefixRequired}
                 sourceWizardLogicProps={sourceWizardLogicProps}
             />
         </div>
-    ) : (
-        <BindLogic logic={selfManagedSourceLogic} props={{ id: 'new' }}>
-            <SelfManagedSourceForm />
-        </BindLogic>
     )
 }
 
@@ -682,18 +691,20 @@ function WebhookSetupStep({
         .map((s) => ({ name: s.table, label: s.label }))
 
     return (
-        <WebhookSetupForm
-            sourceName={selectedConnector?.label ?? selectedConnector?.name ?? 'source'}
-            sourceConfig={selectedConnector}
-            webhookTables={webhookTables}
-            webhookResult={webhookResult}
-            webhookCreating={webhookCreating}
-            webhookFieldsSubmitting={isWebhookFieldInputsSubmitting}
-            onCreateWebhook={createWebhook}
-            formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
-            formKey="webhookFieldInputs"
-            isWizardStep
-        />
+        <div className="flex flex-col gap-4">
+            <WebhookSetupForm
+                sourceName={selectedConnector?.label ?? selectedConnector?.name ?? 'source'}
+                sourceConfig={selectedConnector}
+                webhookTables={webhookTables}
+                webhookResult={webhookResult}
+                webhookCreating={webhookCreating}
+                webhookFieldsSubmitting={isWebhookFieldInputsSubmitting}
+                onCreateWebhook={createWebhook}
+                formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
+                formKey="webhookFieldInputs"
+            />
+            <WebhookStepFallback webhookTableCount={webhookTables.length} />
+        </div>
     )
 }
 

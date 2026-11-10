@@ -13,7 +13,10 @@ rules:
       severity: ERROR
       message: |
           IDOR: User input flows to team-scoped model lookup without team filter.
-          Fix: Add team__project_id=team.project_id to the query.
+          Fix: Add team_id=team_id to the query.
+          Use team__project_id=team.project_id only for project-level models (RootTeamMixin,
+          TeamScopedRootMixin), whose rows live on the project's root team. ProductTeamModel has
+          no team relation: filter it by its canonical team_id.
       pattern-sources:
           - patterns:
                 - pattern-either:
@@ -56,19 +59,22 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountAuditAdmission
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
+                              |AccountView
                               |Action
+                              |AEOBrand
                               |AEOCitationCheck
                               |AEOPrompt
+                              |AEOPromptVersion
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
-                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -80,6 +86,7 @@ rules:
                               |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
+                              |InsightAlertInvestigation
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -98,6 +105,8 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |WorkloadTrustPolicy
+                              |WorkloadTrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -119,6 +128,7 @@ rules:
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
+                              |ConversionRecommendationRun
                               |Conversation
                               |ConversationDelivery
                               |ConversationDeliveryPart
@@ -135,9 +145,13 @@ rules:
                               |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
+                              |TodayHighlights
+                              |TodayPulsePins
+                              |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
+                              |TeamHomeTabDashboardConfig
                               |DataColorTheme
                               |DataModelingJob
                               |DataQualityCheck
@@ -151,7 +165,6 @@ rules:
                               |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
-                              |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
@@ -174,6 +187,7 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventFilterPipelineOverride
                               |EventStream
                               |EventStreamMember
                               |ErrorTrackingAlert
@@ -183,7 +197,10 @@ rules:
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
+                              |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingIssueSummary
+                              |ErrorTrackingIssueTag
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -195,6 +212,7 @@ rules:
                               |ErrorTrackingSymbolSet
                               |Evaluation
                               |EvaluationDirectory
+                              |EventsHealthDaily
                               |Experiment
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
@@ -209,6 +227,7 @@ rules:
                               |ExternalDataSource
                               |ExternalDataSourceDestination
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -229,6 +248,7 @@ rules:
                               |FileSystem
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
+                              |FirstCodeSend
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -236,6 +256,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
                               |HogFlowTemplate
@@ -243,6 +264,7 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightExplanation
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -251,7 +273,11 @@ rules:
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
                               |KnowledgeLearningRun
+                              |KnowledgeLibrary
+                              |KnowledgeLibraryRepository
+                              |KnowledgeLibrarySource
                               |KnowledgeSource
+                              |KnowledgeUsageRecord
                               |PlaygroundChat
                               |PlaygroundTurn
                               |Link
@@ -285,9 +311,13 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricDailyQueryCount
+                              |MetricsDashboardDiscovery
+                              |MetricsDashboardSuggestion
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
+                              |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -308,6 +338,7 @@ rules:
                               |ObjectMediaPreview
                               |OfflineEvaluationResult
                               |OfflineEvaluationResultPayload
+                              |OfflineEvaluationUsageLedger
                               |OfflineExperiment
                               |OfflineExperimentItem
                               |OfflineExperimentItemPayload
@@ -316,27 +347,49 @@ rules:
                               |PluginConfig
                               |ProductBrief
                               |ProductTour
+                              |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
+                              |PurgedTicketThread
+                              |QuarantineLiftRequest
                               |QuarantinedIdentifier
                               |QueryTabState
+                              |QueueJob
+                              |RevokedTeamSecretToken
+                              |QueueSchedulerDecision
+                              |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayHighlightFeedEntry
+                              |ReplayHighlightFeedState
                               |ReplayObservation
+                              |ReplayObservationAnchorSimilarity
+                              |ReplayObservationFeedDismissal
+                              |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRank
+                              |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
-                              |ReplayScannerPromptSuggestion
+                              |ReplayScannerFeedGroup
+                              |ReplayScannerSearchTheme
+                              |ReplayScannerSemanticCenter
+                              |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
+                              |ReviewInstallationClaim
+                              |ReviewProjectSettings
                               |ReviewReport
                               |ReviewReportArtefact
+                              |ReviewRepository
+                              |ReviewRepositoryPerson
                               |ReviewSkillConfig
                               |ReviewUserSettings
+                              |ReviewUserRepositoryChoice
                               |SandboxCustomImage
                               |SandboxEnvironment
                               |SandboxSession
@@ -344,16 +397,24 @@ rules:
                               |ScoreDefinition
                               |SavedHeatmap
                               |HeatmapCaptureConfigVersion
+                              |HeatmapCaptureRequest
+                              |HeatmapScreenshotHistory
+                              |HostProxyDaily
                               |ScheduledChange
+                              |SdkVersionsDaily
                               |SessionGroupSummary
                               |SessionRecording
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalFirstReportNotification
+                              |SignalRatedUsage
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportCheck
+                              |SignalReportMonitoringAttempt
+                              |SignalReportMonitoringResult
                               |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
@@ -362,6 +423,8 @@ rules:
                               |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
+                              |SignalReviewerExclusion
+                              |SignalReviewerExclusionRevision
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -370,11 +433,21 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
+                              |SignalScoutBackgroundBand
+                              |SignalSpend
+                              |SignalTrialGrant
+                              |LegacySignalSpend
+
+                              |AnomalyScoringState
+                              |AnomalyScoringDueInsight
+                              |PushTokenImport
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SlackThreadJoin
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -383,6 +456,13 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryHold
+                              |PlatformAlertDeliveryPath
+                              |PlatformAlertThread
+                              |AlertDestination
+                              |AlertReceiver
+                              |AlertRoute
+                              |SupabaseAuthEmailConfig
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -395,6 +475,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskRunGatewayRequest
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -413,6 +494,7 @@ rules:
                               |SigningSecret
                               |Ticket
                               |TicketView
+                              |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |ReviewQueue
@@ -421,8 +503,12 @@ rules:
                               |TraceReviewScore
                               |TracesRetentionRule
                               |TracingView
+                              |TransactionalEmailKey
                               |UploadedMedia
+                              |UptimeMonitor
                               |UserInterview
+                              |UserActivitySummaryQueueState
+                              |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
@@ -430,14 +516,21 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseMigration
+                              |WarehouseMigrationItem
+                              |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardDetectedTool
                               |WizardRun
                               |WizardRunArtifact
+                              |WizardScan
                               |WizardSession
                               |WizardWorker
+                              |WorkflowIdea
+                              |WorkflowImport
                               |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
@@ -496,17 +589,18 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountAuditAdmission
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
+                        |AccountView
                         |Action
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
-                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -518,6 +612,7 @@ rules:
                         |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
+                        |InsightAlertInvestigation
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
@@ -536,6 +631,8 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |WorkloadTrustPolicy
+                        |WorkloadTrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
@@ -557,6 +654,7 @@ rules:
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
+                        |ConversionRecommendationRun
                         |Conversation
                         |ConversationDelivery
                         |ConversationDeliveryPart
@@ -573,9 +671,13 @@ rules:
                         |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
+                        |TodayHighlights
+                        |TodayPulsePins
+                        |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
+                        |TeamHomeTabDashboardConfig
                         |DataColorTheme
                         |DataModelingJob
                         |DataQualityCheck
@@ -589,7 +691,6 @@ rules:
                         |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
@@ -612,6 +713,7 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |EventStream
                         |EventStreamMember
                         |ErrorTrackingAlert
@@ -621,7 +723,10 @@ rules:
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
+                        |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingIssueSummary
+                        |ErrorTrackingIssueTag
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -633,6 +738,7 @@ rules:
                         |ErrorTrackingSymbolSet
                         |Evaluation
                         |EvaluationDirectory
+                        |EventsHealthDaily
                         |Experiment
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
@@ -644,6 +750,7 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
@@ -664,6 +771,7 @@ rules:
                         |FileSystem
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
+                        |FirstCodeSend
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -671,6 +779,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
                         |HogFlowTemplate
@@ -678,6 +787,7 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightExplanation
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -686,7 +796,11 @@ rules:
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
                         |KnowledgeLearningRun
+                        |KnowledgeLibrary
+                        |KnowledgeLibraryRepository
+                        |KnowledgeLibrarySource
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |PlaygroundChat
                         |PlaygroundTurn
                         |Link
@@ -715,8 +829,12 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricDailyQueryCount
+                        |MetricsDashboardDiscovery
+                        |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
+                        |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
@@ -736,6 +854,7 @@ rules:
                         |ObjectMediaPreview
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
+                        |OfflineEvaluationUsageLedger
                         |OfflineExperiment
                         |OfflineExperimentItem
                         |OfflineExperimentItemPayload
@@ -744,27 +863,49 @@ rules:
                         |PluginConfig
                         |ProductBrief
                         |ProductTour
+                        |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
+                        |PurgedTicketThread
+                        |QuarantineLiftRequest
                         |QuarantinedIdentifier
                         |QueryTabState
+                        |QueueJob
+                        |RevokedTeamSecretToken
+                        |QueueSchedulerDecision
+                        |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayHighlightFeedEntry
+                        |ReplayHighlightFeedState
                         |ReplayObservation
+                        |ReplayObservationAnchorSimilarity
+                        |ReplayObservationFeedDismissal
+                        |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRank
+                        |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
-                        |ReplayScannerPromptSuggestion
+                        |ReplayScannerFeedGroup
+                        |ReplayScannerSearchTheme
+                        |ReplayScannerSemanticCenter
+                        |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
+                        |ReviewInstallationClaim
+                        |ReviewProjectSettings
                         |ReviewReport
                         |ReviewReportArtefact
+                        |ReviewRepository
+                        |ReviewRepositoryPerson
                         |ReviewSkillConfig
                         |ReviewUserSettings
+                        |ReviewUserRepositoryChoice
                         |SandboxCustomImage
                         |SandboxEnvironment
                         |SandboxSession
@@ -772,16 +913,24 @@ rules:
                         |ScoreDefinition
                         |SavedHeatmap
                         |HeatmapCaptureConfigVersion
+                        |HeatmapCaptureRequest
+                        |HeatmapScreenshotHistory
+                        |HostProxyDaily
                         |ScheduledChange
+                        |SdkVersionsDaily
                         |SessionGroupSummary
                         |SessionRecording
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
+                        |SignalRatedUsage
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportCheck
+                        |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
@@ -790,6 +939,8 @@ rules:
                         |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
+                        |SignalReviewerExclusion
+                        |SignalReviewerExclusionRevision
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
@@ -798,11 +949,21 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
+                        |SignalScoutBackgroundBand
+                        |SignalSpend
+                        |SignalTrialGrant
+                        |LegacySignalSpend
+
+                        |AnomalyScoringState
+                        |AnomalyScoringDueInsight
+                        |PushTokenImport
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SlackThreadJoin
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -811,6 +972,13 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryHold
+                        |PlatformAlertDeliveryPath
+                        |PlatformAlertThread
+                        |AlertDestination
+                        |AlertReceiver
+                        |AlertRoute
+                        |SupabaseAuthEmailConfig
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -823,6 +991,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskRunGatewayRequest
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -840,6 +1009,7 @@ rules:
                         |SigningSecret
                         |Ticket
                         |TicketView
+                        |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |ReviewQueue
@@ -848,8 +1018,12 @@ rules:
                         |TraceReviewScore
                         |TracesRetentionRule
                         |TracingView
+                        |TransactionalEmailKey
                         |UploadedMedia
+                        |UptimeMonitor
                         |UserInterview
+                        |UserActivitySummaryQueueState
+                        |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
@@ -857,14 +1031,21 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseMigration
+                        |WarehouseMigrationItem
+                        |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardDetectedTool
                         |WizardRun
                         |WizardRunArtifact
+                        |WizardScan
                         |WizardSession
                         |WizardWorker
+                        |WorkflowIdea
+                        |WorkflowImport
                         |WorkflowProposal
                     )$
           # Exclude when team filter is present
@@ -886,7 +1067,10 @@ rules:
           - pattern-not: $M.objects. ... .$METHOD2(id=$X.id, ...)
       message: |
           IDOR risk: Lookup on team-scoped model without team filter.
-          Fix: Add team_id=team_id or team__project_id=team.project_id to the query.
+          Fix: Add team_id=team_id to the query.
+          Use team__project_id=team.project_id only for project-level models (RootTeamMixin,
+          TeamScopedRootMixin), whose rows live on the project's root team. ProductTeamModel has
+          no team relation: filter it by its canonical team_id.
       languages: [python]
       severity: WARNING
       metadata:
@@ -909,6 +1093,284 @@ rules:
               - '**/backend/admin.py'
               - '**/backend/admin/**'
 
+    # Environment-scoped models keep one set of rows per environment. A project holds
+    # several environments, so a team__project_id filter on these models also returns
+    # rows of sibling environments.
+    - id: environment-model-scoped-by-project
+      languages: [python]
+      severity: ERROR
+      message: |
+          $M is environment-scoped, so team__project_id also returns rows of sibling environments in the same project.
+          Fix: Filter by team_id (the environment's own id).
+          A route under /api/projects/ is still team-scoped unless it is registered with ["project_id"].
+          If project-wide access is intended, add `# nosemgrep: environment-model-scoped-by-project -- <why>`.
+      patterns:
+          - pattern-either:
+                - pattern: $M.$MGR. ... .$METHOD(..., team__project_id=$P, ...)
+                - pattern: $M.$MGR. ... .$METHOD(..., team__project_id__in=$P, ...)
+                - pattern: get_object_or_404($M, ..., team__project_id=$P, ...)
+                - pattern: get_object_or_404($M, ..., team__project_id__in=$P, ...)
+          # Generated list. Regenerate with:
+          # python .github/scripts/check-idor-model-coverage.py --regenerate-environment-models
+          - metavariable-regex:
+                metavariable: $M
+                regex: |
+                    (?x)^(
+                        AccessControl
+                        |ActivityLog
+                        |AgentArtifact
+                        |AgentMemory
+                        |AITrainingDeletionRequest
+                        |Alert
+                        |AlertConfiguration
+                        |Annotation
+                        |ApprovalPolicy
+                        |AsyncDeletion
+                        |BatchExport
+                        |BatchExportBackfill
+                        |BatchExportFileDownload
+                        |BatchImport
+                        |ButtonTile
+                        |ChangeRequest
+                        |ClusteringConfig
+                        |ClusteringJob
+                        |ColumnConfiguration
+                        |Conversation
+                        |ConversationRestoreToken
+                        |ConversionRecommendationRun
+                        |CoreEvent
+                        |CoreMemory
+                        |CustomerJourney
+                        |CustomerProfileConfig
+                        |DAG
+                        |DashboardTile
+                        |DataDeletionRequest
+                        |DataModelingJob
+                        |Dataset
+                        |DatasetItem
+                        |DatasetItemVersion
+                        |DatasetRevision
+                        |DataWarehouseCredential
+                        |DataWarehouseJoin
+                        |DataWarehouseManagedViewSet
+                        |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryDraft
+                        |DataWarehouseSavedQueryFolder
+                        |DataWarehouseTable
+                        |DataWarehouseViewLink
+                        |Edge
+                        |ElementGroup
+                        |EmailChannel
+                        |EmailMessageMapping
+                        |EmailOutboxMessage
+                        |Endpoint
+                        |EndpointVersion
+                        |ErrorTrackingAssignmentRule
+                        |ErrorTrackingAutoCaptureControls
+                        |ErrorTrackingBypassRule
+                        |ErrorTrackingGroup
+                        |ErrorTrackingGroupingRule
+                        |ErrorTrackingIssue
+                        |ErrorTrackingIssueAssignment
+                        |ErrorTrackingIssueFingerprint
+                        |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingRecommendation
+                        |ErrorTrackingRelease
+                        |ErrorTrackingSettings
+                        |ErrorTrackingSpikeDetectionConfig
+                        |ErrorTrackingSpikeEvent
+                        |ErrorTrackingStackFrame
+                        |ErrorTrackingSuppressionRule
+                        |ErrorTrackingSymbolSet
+                        |Evaluation
+                        |EvaluationConfig
+                        |EvaluationContext
+                        |EvaluationReport
+                        |Event
+                        |EventFilterConfig
+                        |EventFilterPipelineOverride
+                        |EventsHealthDaily
+                        |ExperimentTimeseriesRecalculation
+                        |ExplicitTeamMembership
+                        |ExportedAsset
+                        |ExportedRecording
+                        |ExternalDataJob
+                        |ExternalDataSchema
+                        |ExternalDataSource
+                        |FeatureFlagHashKeyOverride
+                        |FeatureFlagOverride
+                        |FileSystemShortcut
+                        |FileSystemViewLog
+                        |FlatPersonOverride
+                        |GithubCommentMapping
+                        |GitHubSyncConfig
+                        |GitHubSyncedModel
+                        |GitHubSyncPlan
+                        |Group
+                        |GroupUsageMetric
+                        |HealthIssue
+                        |HogFlow
+                        |HogFlowTemplate
+                        |HogFunction
+                        |Hook
+                        |HostProxyDaily
+                        |InsightViewed
+                        |Integration
+                        |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
+                        |KernelRuntime
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
+                        |KnowledgeUsageRecord
+                        |Link
+                        |LiveDebuggerBreakpoint
+                        |LLMModelConfiguration
+                        |LLMPrompt
+                        |LLMPromptDependency
+                        |LLMPromptLabel
+                        |LLMProviderKey
+                        |LLMSkill
+                        |LLMSkillOwner
+                        |LLMTraceSummary
+                        |LogsAlertConfiguration
+                        |LogsExclusionRule
+                        |LogsRetentionRule
+                        |LogsView
+                        |MarketingAnalyticsGoalMapping
+                        |MaterializedColumnSlot
+                        |MCPAnalyticsSubmission
+                        |MCPMeasuredStats
+                        |MCPOAuthState
+                        |MCPServerInstallation
+                        |MessageCategory
+                        |MessageRecipientPreference
+                        |MessageTemplate
+                        |Node
+                        |NotificationEvent
+                        |ObjectMediaPreview
+                        |OfflineEvaluationResult
+                        |OfflineEvaluationResultPayload
+                        |OfflineEvaluationUsageLedger
+                        |OfflineExperiment
+                        |OfflineExperimentItem
+                        |OfflineExperimentItemPayload
+                        |OptOutSyncConfig
+                        |PendingPersonOverride
+                        |Person
+                        |PersonalAPIKey
+                        |PersonDistinctId
+                        |PersonOverride
+                        |PersonOverrideMapping
+                        |PluginAttachment
+                        |PluginConfig
+                        |PreaggregationJob
+                        |ProductTour
+                        |ProjectSecretAPIKey
+                        |PropertyAccessControl
+                        |QueryTabState
+                        |QueueJob
+                        |QueueSchedulerDecision
+                        |QueueSchedulerState
+                        |QuickFilter
+                        |QuickFilterContext
+                        |RealtimeCohortTeamAccess
+                        |RemoteConfig
+                        |ReplayObservation
+                        |ReplayObservationLabel
+                        |ReplayObservationUsage
+                        |ReplayScanner
+                        |RepoRoutingRule
+                        |ResourceTransfer
+                        |ReviewQueue
+                        |ReviewQueueItem
+                        |RevokedTeamSecretToken
+                        |SandboxEnvironment
+                        |SavedHeatmap
+                        |ScoreDefinition
+                        |SdkVersionsDaily
+                        |SessionRecording
+                        |SessionRecordingEvent
+                        |SessionRecordingPlaylist
+                        |SessionRecordingPlaylistViewed
+                        |SessionRecordingViewed
+                        |SharingConfiguration
+                        |SignalEmissionRecord
+                        |SignalFirstReportNotification
+                        |SignalReport
+                        |SignalReportArtefact
+                        |SignalReportCheck
+                        |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
+                        |SignalReportSlackThread
+                        |SignalReportTask
+                        |SignalSourceConfig
+                        |SignalTeamConfig
+                        |SigningSecret
+                        |SlackThreadTaskMapping
+                        |SourceBatch
+                        |SourceGroupLease
+                        |Subscription
+                        |SubscriptionDelivery
+                        |SurveyResponseArchive
+                        |TableCertification
+                        |TaggedItem
+                        |Tagger
+                        |Task
+                        |TaskRun
+                        |TeamAccessControlConfig
+                        |TeamBusinessKnowledgeConfig
+                        |TeamConversationsSlackConfig
+                        |TeamConversationsTeamsConfig
+                        |TeamConversationsTicketConfig
+                        |TeamCustomerAnalyticsConfig
+                        |TeamDataQualityConfig
+                        |TeamDataWarehouseConfig
+                        |TeamDefaultEvaluationContext
+                        |TeamEventsPlanDeletion
+                        |TeamEventsRetentionConfig
+                        |TeamEventVolume
+                        |TeamExperimentsConfig
+                        |TeamFeatureFlagDefaultsConfig
+                        |TeamFeatureFlagPolicyConfig
+                        |TeamFeatureFlagsConfig
+                        |TeamHeatmapConfig
+                        |TeamHomeTabDashboardConfig
+                        |TeamJsSnippetConfig
+                        |TeamLogsConfig
+                        |TeamMarketingAnalyticsConfig
+                        |TeamProvisioningConfig
+                        |TeamReplayVisionConfig
+                        |TeamRevenueAnalyticsConfig
+                        |TeamTasksConfig
+                        |TeamTracingConfig
+                        |TeamWorkflowsConfig
+                        |Text
+                        |Threshold
+                        |Ticket
+                        |TicketView
+                        |TraceReview
+                        |TraceReviewScore
+                        |TracesRetentionRule
+                        |TransactionalEmailKey
+                        |User
+                        |UserGroup
+                        |UserInterview
+                        |UserInterviewTopic
+                        |UserRepoPreference
+                        |WarehouseSuggestionTeamConfig
+                        |WebAnalyticsFilterPreset
+                    )$
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/.semgrep/**'
+
     # Organization-scoped model taint rule
     - id: idor-taint-user-input-to-org-model
       mode: taint
@@ -918,6 +1380,7 @@ rules:
           IDOR: User input flows to organization-scoped model lookup without organization filter.
           Fix: Add organization=organization or organization_id=organization_id to the query.
           For RoleMembership, use role__organization= or role__organization_id=.
+          For IdJagIdentity, use identity_provider_config= or identity_provider_config_id=.
       pattern-sources:
           - patterns:
                 - pattern-either:
@@ -959,7 +1422,10 @@ rules:
                               |BillingAlertEvent
                               |CIMDVerificationToken
                               |ContextLayerConfig
+                              |CrossProjectDashboard
+                              |CrossProjectDashboardTile
                               |DesktopBetaTermsAcceptance
+                              |IdJagIdentity
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
@@ -967,13 +1433,15 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationIPRestrictions
+                              |OrganizationEventsRetentionConfig
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayQuotaGrant
+                              |ReplayVisionOrgAdmissionBudget
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -985,6 +1453,8 @@ rules:
           - pattern: $M.objects. ... .$METHOD(..., organization__id=$O, ...)
           - pattern: $M.objects. ... .$METHOD(..., role__organization=$O, ...)
           - pattern: $M.objects. ... .$METHOD(..., role__organization_id=$O, ...)
+          - pattern: $M.objects. ... .$METHOD(..., identity_provider_config=$C, ...)
+          - pattern: $M.objects. ... .$METHOD(..., identity_provider_config_id=$C, ...)
           # get_object_or_404
           - pattern: get_object_or_404($M, ..., organization=$O, ...)
           - pattern: get_object_or_404($M, ..., organization_id=$O, ...)
@@ -1036,7 +1506,10 @@ rules:
                         |BillingAlertEvent
                         |CIMDVerificationToken
                         |ContextLayerConfig
+                        |CrossProjectDashboard
+                        |CrossProjectDashboardTile
                         |DesktopBetaTermsAcceptance
+                        |IdJagIdentity
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
@@ -1044,13 +1517,15 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationIPRestrictions
+                        |OrganizationEventsRetentionConfig
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayQuotaGrant
+                        |ReplayVisionOrgAdmissionBudget
                         |Role
                         |RoleExternalReference
                         |RoleMembership
@@ -1060,6 +1535,8 @@ rules:
           - pattern-not: $M.objects. ... .$METHOD2(..., organization__id=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., role__organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., role__organization_id=$O, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., identity_provider_config=$C, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., identity_provider_config_id=$C, ...)
           # get_object_or_404
           - pattern-not: get_object_or_404($M, ..., organization=$O, ...)
           - pattern-not: get_object_or_404($M, ..., organization_id=$O, ...)
@@ -1075,6 +1552,7 @@ rules:
           IDOR risk: Lookup on organization-scoped model without organization filter.
           Fix: Add organization_id=organization_id or organization=organization to the query.
           For RoleMembership, use role__organization= or role__organization_id=.
+          For IdJagIdentity, use identity_provider_config= or identity_provider_config_id=.
       languages: [python]
       severity: WARNING
       metadata:
@@ -1141,8 +1619,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CommunitySkillVote
-                              |DashboardPrivilege
+                              AccountAuditCredential
+                              |CommunitySkillVote
                               |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
@@ -1198,8 +1676,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CommunitySkillVote
-                        |DashboardPrivilege
+                        AccountAuditCredential
+                        |CommunitySkillVote
                         |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
@@ -1288,17 +1766,19 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |DevGatewayToken
                               |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
+                              |PersonalInboxRanking
                               |Reminder
                               |SessionRecordingViewed
+                              |UserActivitySummary
                               |UserFacetSettings
                               |UserHomeSettings
-                              |UserProductList
                               |UserScenePersonalisation
                               |WebAnalyticsUserConfig
                           )$
@@ -1363,16 +1843,18 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |DevGatewayToken
                         |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
+                        |PersonalInboxRanking
                         |Reminder
                         |SessionRecordingViewed
+                        |UserActivitySummary
                         |UserFacetSettings
                         |UserHomeSettings
-                        |UserProductList
                         |UserScenePersonalisation
                         |WebAnalyticsUserConfig
                     )$

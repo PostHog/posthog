@@ -1,14 +1,18 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,10 +21,13 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
+import { TraceDrawerRowProps, TraceDrawerRowsSync, useTraceDrawerRows } from '../redesign/trace/TraceDrawerRowsHost'
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
+import { toClusterTraceDrawerRow } from './clusterTraceDrawerRow'
 import { TRACES_PER_PAGE } from './constants'
 import { formatEvalTitle } from './traceSummaryLoader'
 import { ClusterItemInfo, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
@@ -34,6 +41,9 @@ export const scene: SceneExport<ClusterDetailLogicProps> = {
         clusterId: clusterId ? parseInt(clusterId, 10) : 0,
     }),
 }
+
+const TRACE_DRAWER_LIST_ID = 'cluster-traces'
+const TRACE_LINK = '[data-attr="clusters-view-trace-link"]'
 
 export function AIObservabilityClusterScene(): JSX.Element {
     const {
@@ -58,6 +68,13 @@ export function AIObservabilityClusterScene(): JSX.Element {
     } = useValues(clusterDetailLogic)
     const { setPage, setPropertyFilters, setShouldFilterTestAccounts } = useActions(clusterDetailLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { rowProps: toDrawerRowProps, openTraceId } = useTraceDrawerRows(TRACE_DRAWER_LIST_ID, TRACE_LINK)
+    const drawerRows = useMemo(
+        () => paginatedTracesWithSummaries.map((item) => toClusterTraceDrawerRow(item, clusteringLevel)),
+        [paginatedTracesWithSummaries, clusteringLevel]
+    )
+    const syncedDrawerRows = useMemo(() => drawerRows.filter((row) => row !== null), [drawerRows])
 
     if (clusterDataLoading) {
         return (
@@ -93,11 +110,21 @@ export function AIObservabilityClusterScene(): JSX.Element {
                 name={cluster.title}
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
-                    <Link to={urls.aiObservabilityClusters()}>
-                        <LemonButton type="secondary" size="small" data-attr="clusters-back-button">
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            render={<LinkPrimitive to={urls.aiObservabilityClusters()} />}
+                            data-attr="clusters-back-button"
+                        >
                             Back to clusters
-                        </LemonButton>
-                    </Link>
+                        </Button>
+                    ) : (
+                        <Link to={urls.aiObservabilityClusters()}>
+                            <LemonButton type="secondary" size="small" data-attr="clusters-back-button">
+                                Back to clusters
+                            </LemonButton>
+                        </Link>
+                    )
                 }
             />
 
@@ -227,11 +254,16 @@ export function AIObservabilityClusterScene(): JSX.Element {
                                 summary={summary}
                                 displayRank={(currentPage - 1) * TRACES_PER_PAGE + index + 1}
                                 clusteringLevel={clusteringLevel}
+                                drawerRowProps={toDrawerRowProps(drawerRows[index])}
+                                isDrawerOpen={drawerRows[index]?.traceId === openTraceId}
                             />
                         )
                     )
                 )}
             </div>
+
+            <TraceDrawerRowsSync listId={TRACE_DRAWER_LIST_ID} rows={syncedDrawerRows} />
+            <TraceDrawerHost listId={TRACE_DRAWER_LIST_ID} />
 
             {/* Pagination controls at bottom */}
             {totalPages > 1 && (
@@ -417,12 +449,16 @@ function TraceListItem({
     summary,
     displayRank,
     clusteringLevel = 'trace',
+    drawerRowProps,
+    isDrawerOpen,
 }: {
     traceId: string
     traceInfo: ClusterItemInfo
     summary?: TraceSummary
     displayRank: number
     clusteringLevel?: ClusteringLevel
+    drawerRowProps: TraceDrawerRowProps
+    isDrawerOpen: boolean
 }): JSX.Element {
     const [showFlow, setShowFlow] = useState(false)
     const [showBullets, setShowBullets] = useState(false)
@@ -468,7 +504,13 @@ function TraceListItem({
                 : 'muted'
 
     return (
-        <div className="p-4 hover:bg-surface-secondary transition-colors">
+        <div
+            className={clsx(
+                'p-4 transition-colors',
+                isDrawerOpen ? 'bg-accent-highlight-secondary' : 'hover:bg-surface-secondary'
+            )}
+            onClickCapture={drawerRowProps.onClickCapture}
+        >
             {/* Header row with rank, title, and link */}
             <div className="flex items-center gap-2 mb-2">
                 <LemonTag type="muted" size="small">

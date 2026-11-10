@@ -9,7 +9,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { percentileSorted } from '../lib/runHealth'
 import { VERDICT_COLOR, verdictTag } from '../lib/runStatus'
-import { type ActivityRun, formatAxisMinutes, isPlottable } from './RunActivityChart'
+import { type ActivityRun, LEGEND_LABEL, LEGEND_ORDER, formatAxisMinutes, isPlottable } from './RunActivityChart'
 
 interface RunActivityMiniBarsProps {
     runs: ActivityRun[]
@@ -60,6 +60,8 @@ export function RunActivityMiniBars({
     const barHeight = (seconds: number): number =>
         maxSeconds > 0 ? Math.max(MIN_BAR_PX, Math.round((seconds / maxSeconds) * CHART_HEIGHT)) : MIN_BAR_PX
     const medianTopPx = maxSeconds > 0 ? CHART_HEIGHT * (1 - Math.min((medianMin * 60) / maxSeconds, 1)) : CHART_HEIGHT
+    const presentTypeSet = new Set<string>(shown.map((run) => verdictTag(run.conclusion).type))
+    const presentTypes = LEGEND_ORDER.filter((type) => presentTypeSet.has(type))
 
     return (
         <div className={cn('flex flex-col gap-2', className)}>
@@ -129,6 +131,17 @@ export function RunActivityMiniBars({
                             </Tooltip>
                         )
                     })}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                    {presentTypes.map((type) => (
+                        <span key={type} className="flex items-center gap-1.5 text-xs text-secondary">
+                            <span
+                                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                                style={{ background: VERDICT_COLOR[type] }}
+                            />
+                            {LEGEND_LABEL[type]}
+                        </span>
+                    ))}
                 </div>
             </LemonCard>
         </div>

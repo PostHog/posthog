@@ -9,7 +9,7 @@ import psycopg
 import pyarrow as pa
 import psycopg.conninfo
 
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import PostgreSQLClient
+from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLClient
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
     DestinationRunContext,

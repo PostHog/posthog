@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use feature_flags::flags::config_v2::{Config, Outcome, ParseError, RolloutMiss, MAX_CONFIG_BYTES};
+use feature_flags::flags::config_v2::{
+    Config, Outcome, ParseError, RolloutMiss, MAX_CONFIG_BYTES, MAX_OBJECT_DEPTH, MAX_VARIANTS,
+};
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagRow, HypercacheFlagsWrapper,
@@ -202,7 +204,10 @@ fn supported_values_and_order_survive_the_reader() {
                 }));
                 let flag = read(document.clone());
                 let parsed = result(&flag).as_ref().unwrap();
-                assert_eq!(parsed.default_value, default.as_bool());
+                assert_eq!(
+                    parsed.default_value,
+                    (!default.is_null()).then(|| default.clone())
+                );
                 assert_eq!(parsed.rules.len(), 2);
                 assert_eq!(parsed.rules[0].id.to_string(), document["rules"][0]["id"]);
                 match &parsed.rules[0].outcome {
@@ -212,7 +217,7 @@ fn supported_values_and_order_survive_the_reader() {
                         on_rollout_miss,
                         seed,
                     } => {
-                        assert!(*value);
+                        assert_eq!(*value, json!(true));
                         assert_eq!(*rollout_percentage, percentage);
                         assert_eq!(
                             *on_rollout_miss,
@@ -228,7 +233,9 @@ fn supported_values_and_order_survive_the_reader() {
                 }
                 assert!(matches!(
                     parsed.rules[1].outcome,
-                    Outcome::TargetedRelease { value: false }
+                    Outcome::TargetedRelease {
+                        value: Value::Bool(false)
+                    }
                 ));
                 assert_eq!(serde_json::to_value(&flag).unwrap()["filters"], document);
             }
@@ -403,6 +410,33 @@ fn semantic_limits_and_duplicate_ids_are_enforced() {
         result(&read(document)).as_ref().unwrap_err(),
         &ParseError::LimitExceeded("filters")
     );
+
+    // Arrays count toward the object depth, and numbers inside them keep the safe range.
+    let mut deepest = json!("leaf");
+    for _ in 1..MAX_OBJECT_DEPTH {
+        deepest = json!([deepest]);
+    }
+    for (value, accepted) in [
+        (json!({"list": deepest.clone()}), true),
+        (json!({"list": [deepest]}), false),
+        (json!({"limits": [9_007_199_254_740_991_u64]}), true),
+        (json!({"limits": [9_007_199_254_740_992_u64]}), false),
+        (json!({"limits": [-9_007_199_254_740_992_i64]}), false),
+    ] {
+        let mut document = config();
+        document["return_type"] = json!("object");
+        document["default_value"] = Value::Null;
+        document["rules"][0]["value"] = value;
+        let flag = read(document);
+        if accepted {
+            assert!(result(&flag).is_ok());
+        } else {
+            assert_eq!(
+                result(&flag).as_ref().unwrap_err(),
+                &ParseError::Malformed("value")
+            );
+        }
+    }
 }
 
 fn person_property_cases() -> Vec<(&'static str, Value)> {
@@ -438,6 +472,9 @@ fn person_property_cases() -> Vec<(&'static str, Value)> {
         ("semver_tilde", json!("1.2")),
         ("semver_caret", json!("1.2.3")),
         ("semver_wildcard", json!("1.2.*")),
+        ("semver_eq", json!("01.2.3-rc.1")),
+        ("semver_eq", json!("1.2.3-alpha+build.01")),
+        ("semver_eq", json!("18446744073709551615.0.0")),
     ]
 }
 
@@ -515,6 +552,14 @@ fn person_properties_are_closed_before_reusing_operator_types() {
         ("semver_eq", json!("+1.2.3")),
         ("semver_eq", json!("1. 2.3")),
         ("semver_eq", json!("1.+2.3")),
+        ("semver_eq", json!("1.2.3.4")),
+        ("semver_tilde", json!("1.2.3.4")),
+        ("semver_wildcard", json!("1.2.3.4.*")),
+        ("semver_eq", json!("1.2.3-")),
+        ("semver_eq", json!("1.2.3-01")),
+        ("semver_eq", json!("1.2.3-a_b")),
+        ("semver_eq", json!("1_0.2.3")),
+        ("semver_eq", json!("18446744073709551616.0.0")),
     ] {
         let mut document = config();
         document["rules"][0]["targeting"]["properties"] =
@@ -539,27 +584,11 @@ fn unsupported_members_reject_the_whole_flag_and_debug_redacts_config() {
             &ParseError::Unsupported("property.type")
         );
     }
-    for (field, value) in [
-        ("return_type", json!("string")),
-        ("return_type", json!("number")),
-        ("return_type", json!("object")),
-        ("aggregation_group_type_index", json!(0)),
-    ] {
-        let mut document = config();
-        document[field] = value;
-        assert!(matches!(
-            result(&read(document)),
-            Err(ParseError::Unsupported(_))
-        ));
-    }
     let mut document = config();
-    document["rules"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"rule_type": "experiment", "holdout": {"seed": "private-holdout"}}));
+    document["aggregation_group_type_index"] = json!(0);
     assert_eq!(
         result(&read(document)).as_ref().unwrap_err(),
-        &ParseError::Unsupported("rule_type")
+        &ParseError::Unsupported("aggregation_group_type_index")
     );
     for version in [json!(2), json!(3), json!("private-version")] {
         let mut document = config();
@@ -643,4 +672,273 @@ fn preparation_reuses_parsing_and_accounts_for_raw_and_typed_data() {
     assert!(result(&flag).is_ok());
     let weighted = prepared(flag).estimated_size_bytes();
     assert!(weighted > document.to_string().len() + 50_000 * std::mem::size_of::<Value>());
+
+    // The parsed default and each rule value count, not only their raw text.
+    let object = json!({"items": vec![Value::Null; 1000]});
+    let mut document = config();
+    document["return_type"] = json!("object");
+    document["default_value"] = object.clone();
+    document["rules"][0]["value"] = object;
+    let flag = read(document.clone());
+    assert!(result(&flag).is_ok());
+    let weighted = prepared(flag).estimated_size_bytes();
+    assert!(weighted > document.to_string().len() + 2000 * std::mem::size_of::<Value>());
+}
+
+fn experiment() -> Value {
+    json!({
+        "version": 2, "return_type": "string", "default_value": "standard",
+        "rules": [{
+            "id": "11111111-1111-4111-8111-111111111111", "rule_type": "experiment",
+            "targeting": {"properties": []}, "paused": false,
+            "rollout_percentage": 80.5, "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1", "seed": "example-seed", "assign_by": "person",
+            "variants": [
+                {"key": "control", "weight": 33.33, "value": "standard"},
+                {"key": "test", "weight": 33.33, "value": "compact"},
+                {"key": "test-copy", "weight": 33.34, "value": "compact"}
+            ],
+            "holdout": {"seed": "example-holdout", "exclusion_percentage": 10.25}
+        }]
+    })
+}
+
+#[test]
+fn experiment_rules_parse_into_a_weighted_split() {
+    let document = experiment();
+    let flag = read(document.clone());
+    let parsed = result(&flag).as_ref().unwrap();
+    let Outcome::Experiment {
+        paused,
+        rollout_percentage,
+        on_rollout_miss,
+        seed,
+        variants,
+        holdout,
+    } = &parsed.rules[0].outcome
+    else {
+        panic!("unexpected outcome {:?}", parsed.rules[0].outcome);
+    };
+    assert!(!paused);
+    assert_eq!(*rollout_percentage, 80.5);
+    assert_eq!(*on_rollout_miss, RolloutMiss::ReturnDefault);
+    assert_eq!(seed, "example-seed");
+    let summary: Vec<_> = variants
+        .iter()
+        .map(|v| (v.key.as_str(), v.weight, v.value.clone()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("control", 33.33, json!("standard")),
+            ("test", 33.33, json!("compact")),
+            ("test-copy", 33.34, json!("compact"))
+        ]
+    );
+    let holdout = holdout.as_ref().unwrap();
+    assert_eq!(
+        (holdout.seed.as_str(), holdout.exclusion_percentage),
+        ("example-holdout", 10.25)
+    );
+    assert_eq!(serde_json::to_value(&flag).unwrap()["filters"], document);
+    let debug = format!("{:?}", parsed.rules);
+    assert!(
+        !debug.contains("example-") && !debug.contains("compact"),
+        "{debug}"
+    );
+
+    let mut without_holdout = experiment();
+    let rule = without_holdout["rules"][0].as_object_mut().unwrap();
+    rule.remove("holdout");
+    rule.remove("assign_by");
+    assert!(result(&read(without_holdout)).is_ok());
+
+    // `weight` and percentages inside values and metadata are not contract percentages.
+    let mut nested = experiment();
+    nested["return_type"] = json!("object");
+    nested["default_value"] = json!({"weight": 0.125});
+    for (index, variant) in nested["rules"][0]["variants"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .enumerate()
+    {
+        variant["value"] = json!({"weight": 0.001, "rank": index});
+    }
+    nested["rules"][0]["metadata"] = json!({"exclusion_percentage": 0.001});
+    assert!(result(&read(nested)).is_ok());
+}
+
+#[test]
+fn experiment_rule_contract_violations_reject_the_whole_flag() {
+    let cases: Vec<(&str, Value, ParseError)> = vec![
+        (
+            "/rules/0/experiment_id",
+            json!(42),
+            ParseError::Malformed("rule"),
+        ),
+        (
+            "/rules/0/paused",
+            json!("false"),
+            ParseError::Malformed("paused"),
+        ),
+        (
+            "/rules/0/holdout/id",
+            json!(7),
+            ParseError::Malformed("holdout"),
+        ),
+        (
+            "/rules/0/holdout/id",
+            Value::Null,
+            ParseError::Malformed("holdout"),
+        ),
+        (
+            "/rules/0/holdout/seed",
+            json!(""),
+            ParseError::Malformed("seed"),
+        ),
+        (
+            "/rules/0/holdout/exclusion_percentage",
+            json!(100.5),
+            ParseError::Malformed("exclusion_percentage"),
+        ),
+        (
+            "/rules/0/holdout/exclusion_percentage",
+            json!(5.555),
+            ParseError::Malformed("exclusion_percentage"),
+        ),
+        (
+            "/rules/0/variants/1/key",
+            json!("control"),
+            ParseError::Malformed("variant.key"),
+        ),
+        (
+            "/rules/0/variants/1/key",
+            json!("test.v2"),
+            ParseError::Malformed("variant.key"),
+        ),
+        (
+            "/rules/0/variants/1/key",
+            json!(""),
+            ParseError::Malformed("variant.key"),
+        ),
+        (
+            "/rules/0/variants/1/weight",
+            json!(33.32),
+            ParseError::Malformed("variants"),
+        ),
+        (
+            "/rules/0/variants/1/weight",
+            json!(33.34),
+            ParseError::Malformed("variants"),
+        ),
+        (
+            "/rules/0/variants/1/weight",
+            json!(33.333),
+            ParseError::Malformed("weight"),
+        ),
+        (
+            "/rules/0/variants/1/weight",
+            json!(-1),
+            ParseError::Malformed("weight"),
+        ),
+        (
+            "/rules/0/variants/1/value",
+            json!(true),
+            ParseError::Malformed("value"),
+        ),
+        (
+            "/rules/0/variants/1/value",
+            Value::Null,
+            ParseError::Malformed("value"),
+        ),
+        (
+            "/rules/0/variants/1/value",
+            json!(""),
+            ParseError::Malformed("value"),
+        ),
+        (
+            "/rules/0/variants/1/label",
+            json!("x"),
+            ParseError::Malformed("variant"),
+        ),
+        (
+            "/rules/0/holdout/name",
+            json!("x"),
+            ParseError::Malformed("holdout"),
+        ),
+        (
+            "/rules/0/value",
+            json!("compact"),
+            ParseError::Malformed("rule"),
+        ),
+        (
+            "/rules/0/variants",
+            json!([{"key": "control", "weight": 100, "value": "standard"}]),
+            ParseError::Malformed("variants"),
+        ),
+    ];
+    for (pointer, value, expected) in cases {
+        let mut document = experiment();
+        let (parent, key) = pointer.rsplit_once('/').unwrap();
+        document
+            .pointer_mut(parent)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert(key.to_owned(), value.clone());
+        let flag = read(document.clone());
+        assert_eq!(
+            result(&flag).as_ref().unwrap_err(),
+            &expected,
+            "{pointer} = {value}"
+        );
+        assert_eq!(serde_json::to_value(&flag).unwrap()["filters"], document);
+    }
+    for (pointer, expected) in [
+        ("/rules/0/paused", ParseError::Malformed("paused")),
+        ("/rules/0/variants", ParseError::Malformed("variants")),
+        ("/rules/0/holdout/seed", ParseError::Malformed("seed")),
+    ] {
+        let mut document = experiment();
+        let (parent, key) = pointer.rsplit_once('/').unwrap();
+        document
+            .pointer_mut(parent)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove(key);
+        assert_eq!(
+            result(&read(document)).as_ref().unwrap_err(),
+            &expected,
+            "{pointer}"
+        );
+    }
+    let mut document = experiment();
+    document["rules"][0]["variants"] = json!((0..=MAX_VARIANTS)
+        .map(|i| json!({"key": format!("arm_{i}"), "weight": 5, "value": "standard"}))
+        .collect::<Vec<_>>());
+    assert_eq!(
+        result(&read(document)).as_ref().unwrap_err(),
+        &ParseError::LimitExceeded("variants")
+    );
+    // Hundredths are summed exactly: these weights total 100, but their binary64 sum is
+    // 100.00000000000001.
+    let mut document = experiment();
+    document["rules"][0]["variants"] = json!([
+        {"key": "a", "weight": 0.01, "value": "standard"},
+        {"key": "b", "weight": 65.4, "value": "standard"},
+        {"key": "c", "weight": 34.59, "value": "standard"}
+    ]);
+    assert!(result(&read(document)).is_ok());
+    let mut document = experiment();
+    document["rules"][0]["variants"] = json!([
+        {"key": "a", "weight": 33.33, "value": "standard"},
+        {"key": "b", "weight": 33.33, "value": "standard"},
+        {"key": "c", "weight": 33.33, "value": "standard"}
+    ]);
+    assert_eq!(
+        result(&read(document)).as_ref().unwrap_err(),
+        &ParseError::Malformed("variants")
+    );
 }

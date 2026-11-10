@@ -3,21 +3,37 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+from django.db import models
+
 from posthog.dataclasses import frozen
 
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 from products.ai_observability.backend.read_pagination import CursorPage
 
+MAX_READ_SCORER_VERSIONS = 20
+MAX_RESULT_CELL_ITEMS = 50
+
+
+class OfflineHistoryBreakdown(models.TextChoices):
+    MODEL = "model_version", "Model"
+    PROMPT = "prompt_version", "Prompt version"
+    APPLICATION = "application_version", "Application version"
+    SUITE = "suite_key", "Suite"
+    SOURCE = "run_source", "Run source"
+
 
 @frozen
 class OfflineReadQuery:
+    breakdown: OfflineHistoryBreakdown | None = None
     limit: int = 50
     cursor: str | None = None
     date_from: datetime | None = None
     date_to: datetime | None = None
     search: str | None = None
     run_source: str | None = None
+    created_by: int | None = None
+    created_by_is_null: bool = False
     run_source_is_null: bool = False
     statuses: tuple[str, ...] | None = None
     suite_key: str | None = None
@@ -29,18 +45,55 @@ class OfflineReadQuery:
     prompt_version: str | None = None
     scorer_definition_id: UUID | None = None
     scorer_version_ids: tuple[UUID, ...] = ()
+    tags: tuple[str, ...] = ()
+    tag_match: Literal["any", "all"] = "any"
 
     def __post_init__(self) -> None:
+        if self.created_by is not None and self.created_by_is_null:
+            raise OfflineEvaluationValidationError("created_by", "Choose an author or no author, not both.")
         if not 1 <= self.limit <= 100:
             raise OfflineEvaluationValidationError("limit", "Use a page size between 1 and 100.")
-        if len(self.scorer_version_ids) > 20 or len(set(self.scorer_version_ids)) != len(self.scorer_version_ids):
-            raise OfflineEvaluationValidationError("scorer_version_ids", "Select at most 20 distinct scorer versions.")
+        if len(self.scorer_version_ids) > MAX_READ_SCORER_VERSIONS or len(set(self.scorer_version_ids)) != len(
+            self.scorer_version_ids
+        ):
+            raise OfflineEvaluationValidationError(
+                "scorer_version_ids", f"Select at most {MAX_READ_SCORER_VERSIONS} distinct scorer versions."
+            )
         if self.date_from is not None and self.date_to is not None and self.date_from > self.date_to:
             raise OfflineEvaluationValidationError("date_to", "The end time must not precede the start time.")
 
 
 @frozen
+class OfflineResultCellQuery:
+    item_ids: tuple[UUID, ...]
+    scorer_version_ids: tuple[UUID, ...]
+
+    def __post_init__(self) -> None:
+        for name, values, limit in (
+            ("item_ids", self.item_ids, MAX_RESULT_CELL_ITEMS),
+            ("scorer_version_ids", self.scorer_version_ids, MAX_READ_SCORER_VERSIONS),
+        ):
+            if not 1 <= len(values) <= limit or len(set(values)) != len(values):
+                raise OfflineEvaluationValidationError(name, f"Select between 1 and {limit} distinct UUIDs.")
+
+
+@frozen
+class OfflineExperimentAuthor:
+    id: int
+    uuid: UUID
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    hedgehog_config: dict[str, JSONValue] | None
+    role_at_organization: str | None
+
+
+@frozen
 class OfflineExperimentRead:
+    tags: tuple[str, ...] = ()
+    created_by: OfflineExperimentAuthor | None = None
     id: UUID
     name: str
     run_source: str | None
@@ -72,6 +125,7 @@ class OfflineScorerVersionRead:
     version: int
     kind: str
     name: str
+    short_name: str
     description: str
     archived: bool
     config: dict[str, JSONValue]
@@ -93,7 +147,14 @@ class OfflineResultRead:
 
 
 @frozen
+class OfflineResultCells:
+    scorer_versions: list[OfflineScorerVersionRead]
+    results: list[OfflineResultRead]
+
+
+@frozen
 class OfflineItemRead:
+    model_version: str | None = None
     id: UUID
     experiment_id: UUID
     case_key: str | None
@@ -154,6 +215,9 @@ class OfflineScorerSummary:
     true_count: int | None
     false_count: int | None
     true_rate: float | None
+    pass_count: int | None
+    fail_count: int | None
+    pass_rate: float | None
     categories: list[OfflineCategorySummary]
 
 
@@ -161,3 +225,4 @@ class OfflineScorerSummary:
 class OfflineHistoryPoint:
     experiment: OfflineExperimentRead
     summary: OfflineScorerSummary
+    breakdown_value: str | None = None

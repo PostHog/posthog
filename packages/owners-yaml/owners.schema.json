@@ -20,6 +20,7 @@
             "items": { "$ref": "#/$defs/rule" }
         },
         "additions": { "$ref": "#/$defs/additions" },
+        "sensitive": { "$ref": "#/$defs/sensitive" },
         "teams": {
             "type": "object",
             "description": "Repository settings: team slug to its channels.",
@@ -77,6 +78,10 @@
                 { "type": "array", "items": { "type": "string", "minLength": 1 } }
             ]
         },
+        "sensitive": {
+            "type": "boolean",
+            "description": "Whether a small change here can change behavior far outside the change. The nearest value wins. It never makes a review required. Default false."
+        },
         "status": {
             "enum": ["active", "deprecated", "generated", "vendored"],
             "description": "The lifecycle of the code. Default active."
@@ -101,7 +106,8 @@
                 "owners": { "$ref": "#/$defs/owners" },
                 "status": { "$ref": "#/$defs/status" },
                 "inherit": { "type": "boolean" },
-                "additions": { "$ref": "#/$defs/additions" }
+                "additions": { "$ref": "#/$defs/additions" },
+                "sensitive": { "$ref": "#/$defs/sensitive" }
             }
         },
         "channel": {

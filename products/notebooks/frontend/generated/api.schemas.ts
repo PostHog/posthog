@@ -46,7 +46,20 @@ export interface ReusableWidgetSummaryApi {
     updated_at: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReusableWidgetPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Reusable widgets in this page. */
     results: ReusableWidgetSummaryApi[]
     /** Total reusable widgets matching the search. */
@@ -548,7 +561,20 @@ export interface WidgetSourceApi {
     source: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReusableWidgetVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Published versions, newest first. */
     results: ReusableWidgetVersionDetailApi[]
     /** Total number of published versions. */
@@ -846,6 +872,35 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
+export interface NotebookKernelCompleteRequestApi {
+    /**
+     * The full source of the cell being edited.
+     * @maxLength 100000
+     */
+    code: string
+    /**
+     * Character offset of the cursor in `code`, counting from 0.
+     * @minimum 0
+     */
+    cursor_pos: number
+}
+
+export interface NotebookKernelCompletionApi {
+    /** The text that replaces `code[cursor_start:cursor_end]`. */
+    text: string
+    /** What the match names, as the kernel reports it: 'function', 'module', 'instance', … or blank. */
+    type: string
+}
+
+export interface NotebookKernelCompleteResponseApi {
+    /** Completions from the live kernel's namespace. Empty when no kernel is running. */
+    matches: NotebookKernelCompletionApi[]
+    /** Start offset of the text the completions replace. */
+    cursor_start: number
+    /** End offset of the text the completions replace. */
+    cursor_end: number
+}
+
 export interface NotebookKernelConfigApi {
     /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
     cpu_cores?: number
@@ -882,6 +937,32 @@ export interface NotebookKernelConfigResponseApi {
      * @nullable
      */
     preset_key?: string | null
+}
+
+export interface NotebookKernelInspectRequestApi {
+    /**
+     * The full source of the cell being edited.
+     * @maxLength 100000
+     */
+    code: string
+    /**
+     * Character offset of the cursor in `code`, counting from 0.
+     * @minimum 0
+     */
+    cursor_pos: number
+    /**
+     * 0 for the signature and docstring, 1 to add the source when the kernel can find it.
+     * @minimum 0
+     * @maximum 1
+     */
+    detail_level?: number
+}
+
+export interface NotebookKernelInspectResponseApi {
+    /** Whether the kernel found an object at the cursor. */
+    found: boolean
+    /** The object's signature and docstring as plain text. Blank when not found. */
+    text: string
 }
 
 export interface NotebookSQLV2FrameApi {
@@ -964,7 +1045,7 @@ export interface NotebookKernelStatusResponseApi {
 }
 
 export interface NotebookRunStartRequestApi {
-    /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+    /** Include prepared embedded insights when refreshing a dashboard widget. */
     include_prepared_insights?: boolean
     /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
     variables?: NotebookVariableApi[]
@@ -1154,6 +1235,8 @@ export interface NotebookSQLV2EnvelopeApi {
     stderr?: string
     /** Rich outputs from a Python node run, e.g. matplotlib figures as PNGs. */
     media?: NotebookSQLV2MediaApi[]
+    /** The plain-text form of a Python node's last expression, as Jupyter shows it under Out[n]. Absent when the cell ends in a statement, a None value, a semicolon, or a dataframe. */
+    result_text?: string
     /** Result column names. */
     columns?: string[]
     /** ClickHouse type per column, as [name, type] pairs; used by the visualization tab. */
@@ -1243,6 +1326,26 @@ export interface NotebookCellLastRunApi {
     error?: string | null
 }
 
+export interface NotebookCellVisualizationApi {
+    /** Chart type the cell opens on, a chart display value such as 'ActionsBar' or 'ActionsLineGraph'. */
+    display: string
+    /**
+     * Column on the X axis. Null means the chart picks it: the first date column, or the first column the Y series do not use when there is no date column.
+     * @nullable
+     */
+    x_axis: string | null
+    /**
+     * Columns plotted as Y series. Null means the chart picks them: every numeric column. An empty list means the author removed every series, so the chart plots nothing.
+     * @nullable
+     */
+    y_axis: string[] | null
+    /**
+     * Column that splits the Y series into one series per value, or null.
+     * @nullable
+     */
+    series_breakdown: string | null
+}
+
 export interface NotebookCellStateApi {
     /** Durable cell identity, used by the cell run and edit endpoints. */
     node_id: string
@@ -1264,6 +1367,8 @@ export interface NotebookCellStateApi {
     dependents: string[]
     /** Summary of the most recent run; null when never run. */
     last_run?: NotebookCellLastRunApi | null
+    /** SQL cells only: the chart the cell opens on, set in the editor or with the visualization parameter of notebooks-add-cell. Null when the cell opens on its results table. */
+    visualization?: NotebookCellVisualizationApi | null
 }
 
 export interface NotebookSQLV2StateResponseApi {
@@ -1510,7 +1615,20 @@ export interface WidgetVersionApi {
     build_hash: string | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface WidgetVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Versions ordered newest first. */
     results: WidgetVersionApi[]
     /**

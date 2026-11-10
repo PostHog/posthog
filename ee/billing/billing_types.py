@@ -1,10 +1,23 @@
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal, Optional, TypedDict, cast, get_args
+from typing import Any, Literal, NotRequired, Optional, TypedDict, cast, get_args
 
 
 class BillingProvider(StrEnum):
     VERCEL = "vercel"
+
+
+class RatedUsageGrant(TypedDict):
+    grant_id: str
+    cents: int
+
+
+class RatedUsageItem(TypedDict):
+    team_id: int
+    product: str
+    day: str
+    cents: int
+    grants: NotRequired[list[RatedUsageGrant]]
 
 
 # Mirror of `billing/billing/types/usage.py::SupportedUsageType` in the billing repo.
@@ -26,6 +39,7 @@ UsageType = Literal[
     "rows_exported_in_period",
     "ai_credits_used_in_period",
     "signals_credits_used_in_period",
+    "signals_spend_credits_used_in_period",
     "posthog_code_credits_used_in_period",
     "posthog_code_token_credits_used_in_period",
     "sandbox_compute_credits_used_in_period",
@@ -33,8 +47,11 @@ UsageType = Literal[
     "sandbox_compute_memory_mib_seconds_in_period",
     "workflow_emails_sent_in_period",
     "workflow_billable_invocations_in_period",
+    "logs_and_traces_mb_in_period",
     "logs_mb_in_period",
+    "apm_tracing_mb_in_period",
     "logs_retention_30d_mb_in_period",
+    "logs_retention_mb_days_in_period",
     "replay_vision_credits_used_in_period",
     "data_pipelines",
     "group_analytics",
@@ -64,6 +81,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Rows exported", "value": "rows_exported_in_period"},
     {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
     {"label": "Self-driving inbox credits", "value": "signals_credits_used_in_period"},
+    {"label": "Self-driving spend credits", "value": "signals_spend_credits_used_in_period"},
     {"label": "PostHog Desktop credits", "value": "posthog_code_credits_used_in_period"},
     {"label": "PostHog Desktop token credits", "value": "posthog_code_token_credits_used_in_period"},
     {"label": "Sandbox compute credits", "value": "sandbox_compute_credits_used_in_period"},
@@ -78,8 +96,11 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Replay vision credits", "value": "replay_vision_credits_used_in_period"},
     {"label": "Workflow emails", "value": "workflow_emails_sent_in_period"},
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
+    {"label": "Logs and traces ingested (MB)", "value": "logs_and_traces_mb_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
+    {"label": "Traces ingested (MB)", "value": "apm_tracing_mb_in_period"},
     {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
+    {"label": "Logs retention (MB-days)", "value": "logs_retention_mb_days_in_period"},
 )
 
 USAGE_TYPE_VALUES: tuple[UsageType, ...] = cast(tuple[UsageType, ...], get_args(UsageType))
@@ -131,6 +152,7 @@ class CustomerProduct(TypedDict):
     price_description: Optional[str]
     image_url: Optional[str]
     type: str
+    subscribed: NotRequired[Optional[bool]]
     free_allocation: int
     tiers: list[Tier]
     tiered: bool
@@ -145,6 +167,10 @@ class CustomerProduct(TypedDict):
     projected_amount_usd: Decimal
     usage_key: str
     addons: list[CustomerProductAddon]
+    # Billing refuses a customer billing limit for this product. Older billing omits the key.
+    no_billing_limit: NotRequired[bool]
+    # Set on a companion product: the type of the product it is billed under. Older billing omits the key.
+    companion_of: NotRequired[Optional[str]]
 
 
 class LicenseInfo(TypedDict):
@@ -160,6 +186,7 @@ class BillingPeriod(TypedDict):
 class UsageSummary(TypedDict):
     limit: Optional[int]
     usage: Optional[int]
+    billing_start_date: NotRequired[str]
 
 
 class ProductFeature(TypedDict):
@@ -174,7 +201,6 @@ class ProductFeature(TypedDict):
 
 class CustomerInfo(TypedDict):
     customer_id: Optional[str]
-    deactivated: bool
     has_active_subscription: bool
     billing_period: BillingPeriod
     available_product_features: list[ProductFeature]
@@ -183,7 +209,7 @@ class CustomerInfo(TypedDict):
     projected_total_amount_usd_with_limit_after_discount: Optional[str]
     products: Optional[list[CustomerProduct]]
     custom_limits_usd: Optional[dict[str, int]]
-    usage_summary: Optional[dict[str, dict[str, Optional[int]]]]
+    usage_summary: Optional[dict[str, UsageSummary]]
     free_trial_until: Optional[str]
     discount_percent: Optional[int]
     discount_amount_usd: Optional[str]
@@ -193,6 +219,8 @@ class CustomerInfo(TypedDict):
 class BillingStatus(TypedDict):
     license: LicenseInfo
     customer: CustomerInfo
+    computed_at: NotRequired[str]
+    latest_usage_report_date: NotRequired[Optional[str]]
 
 
 class ProductPlan(TypedDict):

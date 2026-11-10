@@ -1,13 +1,14 @@
-import type { CommentTarget } from "@posthog/core/comments/anchors";
+import {
+  type CommentTarget,
+  commentScopeFromWire,
+} from "@posthog/core/comments/anchors";
 import type { TaskLinkCommentAnchor } from "@posthog/core/links/task-link";
 import {
   TASK_SERVICE,
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
@@ -30,11 +31,9 @@ function commentTargetFromAnchor(
   taskId: string,
   anchor: TaskLinkCommentAnchor,
 ): CommentTarget {
-  if (
-    (anchor.scope === "desktop_canvas" || anchor.scope === "task_artifact") &&
-    anchor.itemId
-  ) {
-    return { scope: anchor.scope, itemId: anchor.itemId };
+  const scope = commentScopeFromWire(anchor.scope);
+  if ((scope === "canvas" || scope === "task_artifact") && anchor.itemId) {
+    return { scope, itemId: anchor.itemId };
   }
   return { scope: "task", itemId: taskId };
 }
@@ -47,11 +46,6 @@ export function useHandleOpenTask(): (
   const taskService = useService<TaskService>(TASK_SERVICE);
   const { markAsViewed } = useTaskViewed();
   const queryClient = useQueryClient();
-
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
 
   return useCallback(
     async (
@@ -89,10 +83,9 @@ export function useHandleOpenTask(): (
         queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
 
         markAsViewed(taskId);
-        const channelTarget =
-          bluebirdEnabled && task.channel
-            ? { channelId: task.channel, newTab: true }
-            : { newTab: true };
+        const channelTarget = task.channel
+          ? { channelId: task.channel, newTab: true }
+          : { newTab: true };
         void openTaskHelper(task, channelTarget);
         if (comment) {
           useCommentNavigationStore
@@ -109,6 +102,6 @@ export function useHandleOpenTask(): (
         toast.error("Failed to open task");
       }
     },
-    [markAsViewed, queryClient, taskService, bluebirdEnabled],
+    [markAsViewed, queryClient, taskService],
   );
 }

@@ -10,17 +10,19 @@ import { deliverySummaryLogic } from './deliverySummaryLogic'
 export function TeamDeliveryPanel({
     scope,
     sourceId,
+    repo,
     busy,
     controls,
     children,
 }: {
     scope: DeliveryScope
     sourceId: string | null
+    repo: string | null
     busy: boolean
     controls: ReactNode
     children: ReactNode
 }): JSX.Element {
-    const { summary, summaryFailed, summaryLoading } = useValues(deliverySummaryLogic({ scope, sourceId }))
+    const { summary, summaryFailed, summaryLoading } = useValues(deliverySummaryLogic({ scope, sourceId, repo }))
 
     return (
         <ScopePanel busy={busy || summaryLoading} controls={controls}>
@@ -31,7 +33,7 @@ export function TeamDeliveryPanel({
                     delivery figures.
                 </div>
             ) : (
-                <DeliverySections scope={scope} scopeLabel="This team" sourceId={sourceId} />
+                <DeliverySections scope={scope} scopeLabel="This team" sourceId={sourceId} repo={repo} />
             )}
             {children}
         </ScopePanel>

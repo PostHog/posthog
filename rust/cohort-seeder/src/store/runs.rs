@@ -13,8 +13,8 @@ use sqlx::{FromRow, PgPool};
 use crate::domain::{
     PersonPinnedSnapshot, PersonRunValidation, PinnedError, PinnedParticipation,
     PinnedParticipationState, PinnedPersonRun, PinnedRun, PinnedRunSnapshot, ReconcileScope,
-    ReconcileTile, RunId, ScopeKind, ShapeHashError, TriggerKind, UnknownScopeKind, UtcMillis,
-    ValidatedPinnedRun,
+    ReconcileTile, RunBoundaryMs, RunId, ScopeKind, ShapeHashError, TriggerKind, UnknownScopeKind,
+    UtcMillis, ValidatedPinnedRun,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
@@ -63,7 +63,8 @@ const DISCOVER_ONLY: &str = concat!(
     discoverable_run!(),
     ")",
     "\n      AND backfill_kind = ANY($2)",
-    "\n      AND team_id = ANY($1)",
+    "\n      AND ",
+    processing_team!(),
     "\n    ORDER BY created_at\n"
 );
 
@@ -375,13 +376,15 @@ impl SeedableRun {
 }
 
 /// A run proven safe to expand into reconcile control tiles. Construction validates the run state,
-/// tenant boundary, active participation set, and every persisted shape hash of the run's own kind.
+/// tenant boundary, run boundary, active participation set, and every persisted shape hash of the
+/// run's own kind.
 #[derive(Debug, Clone)]
 pub struct ReconcileRun {
     run_id: RunId,
     kind: RunKind,
     status: RunStatus,
     team_id: TeamId,
+    boundary: RunBoundaryMs,
     participations: Vec<ReconcileParticipation>,
 }
 
@@ -409,6 +412,7 @@ impl ReconcileRun {
                 participation.cohort_id,
                 participation.scope.clone(),
                 self.run_id,
+                self.boundary,
             )
         })
     }
@@ -641,6 +645,8 @@ struct BoundaryRow {
     boundary_at: DateTime<Utc>,
 }
 
+/// `allowlist` is the env list. `Only` also admits the grants that `processing_team!` reads from the
+/// access record.
 pub async fn discover_runs(
     pool: &PgPool,
     allowlist: &TeamAllowlist,
@@ -684,6 +690,10 @@ pub async fn load_reconcile_run(
             status: run.status,
         });
     }
+    let boundary = run
+        .boundary_at
+        .map(|boundary_at| RunBoundaryMs(boundary_at.timestamp_millis()))
+        .ok_or(RunError::SeedingBoundaryMissing(run_id))?;
 
     let rows = sqlx::query_as::<_, ReconcileParticipationRow>(READ_ACTIVE_RECONCILE_PARTICIPATIONS)
         .bind(run_id)
@@ -722,6 +732,7 @@ pub async fn load_reconcile_run(
         kind: run.kind,
         status: run.status,
         team_id: run.team_id,
+        boundary,
         participations,
     })
 }

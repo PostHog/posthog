@@ -46,12 +46,13 @@ class AccountRequestSerializer(serializers.Serializer):
         default="",
         help_text="Partner-side account request id, echoed back for idempotency.",
     )
-    email = serializers.CharField(
+    email = serializers.EmailField(
         required=False,
         allow_blank=True,
         allow_null=True,
         default=None,
-        help_text="Email of the account to create or link. Required.",
+        max_length=254,
+        help_text="Email of the account to create or link. Required. An ASCII domain is stored in lowercase.",
     )
     name = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, default="", help_text="Display name of the end user."
@@ -74,7 +75,7 @@ class AccountRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=dict,
-        help_text="Partner configuration: region (US/EU), organization_name, wizard block.",
+        help_text="Partner configuration: region (US/EU), organization_name.",
     )
     code_challenge = serializers.CharField(
         required=False,
@@ -90,6 +91,15 @@ class AccountRequestSerializer(serializers.Serializer):
         default="S256",
         help_text="PKCE challenge method; only S256 is supported.",
     )
+
+    def validate_email(self, value: str | None) -> str | None:
+        # Radar matches the domain as sent, so an uppercase domain must not present a blocked
+        # domain in a form Radar does not match. A non-ASCII domain stays as given, because
+        # account lookups fold only A-Z case and an encoded form would not match the stored email.
+        if not value:
+            return value
+        local_part, _, domain = value.rpartition("@")
+        return f"{local_part}@{domain.lower()}" if domain.isascii() else value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Treat explicit null on optional fields as absent, so downstream code
@@ -120,34 +130,6 @@ class AccountRequestSerializer(serializers.Serializer):
         if not isinstance(attrs.get("configuration"), dict):
             attrs["configuration"] = {}
 
-        return attrs
-
-
-class GitHubGrantCreateSerializer(serializers.Serializer):
-    """POST /provisioning/github/grants body."""
-
-    code = serializers.JSONField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="GitHub OAuth authorization code to exchange server-side.",
-    )
-    redirect_uri = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        allow_null=True,
-        default=None,
-        help_text="redirect_uri used in the GitHub OAuth authorize step, when one was sent.",
-    )
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        code = attrs.get("code")
-        if not code or not isinstance(code, str):
-            capture_provisioning_event(
-                "github_grant", "error", partner=self.context.get("partner"), error_code="missing_code"
-            )
-            raise ProvisioningError("invalid_request", "code is required")
-        attrs["redirect_uri"] = attrs.get("redirect_uri") or None
         return attrs
 
 
@@ -205,58 +187,6 @@ class RotateCredentialsSerializer(serializers.Serializer):
             exc.resource_id = self.context.get("resource_id", "")
             raise
 
-        return attrs
-
-
-class GitHubIntegrationSerializer(serializers.Serializer):
-    """POST /provisioning/resources/:id/github_integration body."""
-
-    grant_id = serializers.JSONField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Opaque grant id returned by POST /provisioning/github/grants.",
-    )
-    installation_id = serializers.JSONField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="GitHub App installation id chosen by the user in the repo picker.",
-    )
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if not attrs.get("grant_id") or not attrs.get("installation_id"):
-            raise ProvisioningError(
-                "invalid_request",
-                "grant_id and installation_id are required",
-                resource_id=self.context.get("resource_id", ""),
-            )
-        return attrs
-
-
-class WizardRunSerializer(serializers.Serializer):
-    """POST /provisioning/resources/:id/wizard_runs body."""
-
-    repository = serializers.JSONField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Repository to run the setup wizard against, in 'owner/repo' form.",
-    )
-    branch = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        allow_null=True,
-        default=None,
-        help_text="Branch to base the wizard run on; defaults to the repository's default branch.",
-    )
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if not attrs.get("repository"):
-            raise ProvisioningError(
-                "invalid_request", "repository is required", resource_id=self.context.get("resource_id", "")
-            )
-        attrs["branch"] = attrs.get("branch") or None
         return attrs
 
 

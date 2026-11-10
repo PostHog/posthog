@@ -37,7 +37,10 @@ class TestFeatureFlagConfigVersionValidation(SimpleTestCase):
         with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
             serializer = FeatureFlagSerializer(flag, data=data, partial=True)
             assert not serializer.is_valid()
-        assert serializer.errors["filters"][0].code == "unsupported_config_version"
+        # Version 1 filters sent to a stored v2 row get their own code.
+        v1_onto_v2 = version == 2 and bool(data.get("filters"))
+        expected = "v1_filters_on_v2_flag" if v1_onto_v2 else "unsupported_config_version"
+        assert serializer.errors["filters"][0].code == expected
 
     @parameterized.expand(
         [
@@ -56,24 +59,29 @@ class TestFeatureFlagConfigVersionValidation(SimpleTestCase):
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_config_version"
 
-    def test_incoming_version_error_precedes_stored_format_error(self) -> None:
+    @parameterized.expand(
+        [("unsupported_stored", 3, "reserved_config_version"), ("v2_stored", 2, "v1_filters_on_v2_flag")]
+    )
+    def test_incoming_version_error_precedes_stored_format_error(self, _name: str, stored: int, code: str) -> None:
         serializer = FeatureFlagSerializer(
-            FeatureFlag(filters={"version": 2}), data={"filters": {"version": 1}}, partial=True
+            FeatureFlag(filters={"version": stored}), data={"filters": {"version": 1}}, partial=True
         )
         assert not serializer.is_valid()
-        assert serializer.errors["filters"][0].code == "reserved_config_version"
+        assert serializer.errors["filters"][0].code == code
 
 
 @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"cross_field.variant_rollout_sum_not_100"})
 class TestFeatureFlagConfigVersionWrites(APIBaseTest):
     @parameterized.expand(
         [
-            ("patch", {}, None),
-            ("patch", {"filters": {}}, "filters"),
-            ("put", {"filters": {"groups": []}}, "filters"),
+            ("patch", {}, None, "unsupported_config_version"),
+            ("patch", {"filters": {}}, "filters", "unsupported_config_version"),
+            ("put", {"filters": {"groups": []}}, "filters", "v1_filters_on_v2_flag"),
         ]
     )
-    def test_unsupported_stored_config_is_not_rewritten(self, method: str, data: dict, attr: str | None) -> None:
+    def test_unsupported_stored_config_is_not_rewritten(
+        self, method: str, data: dict, attr: str | None, code: str
+    ) -> None:
         filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
         flag = FeatureFlag.objects.create(team=self.team, key="stored-config", filters=filters, version=7)
         response = getattr(self.client, method)(
@@ -82,7 +90,7 @@ class TestFeatureFlagConfigVersionWrites(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["code"] == "unsupported_config_version"
+        assert response.json()["code"] == code
         assert response.json()["attr"] == attr
         flag.refresh_from_db()
         assert flag.filters == filters
@@ -156,3 +164,42 @@ class TestFeatureFlagConfigVersionWrites(APIBaseTest):
             assert flag.filters == filters
         else:
             assert not FeatureFlag.objects.filter(team=self.team, key="reserved-version").exists()
+
+
+V2_DOCUMENT = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+
+
+class TestV2RowReads(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.v2_flag = FeatureFlag.objects.create(
+            team=self.team, key="v2-flag", created_by=self.user, filters=V2_DOCUMENT
+        )
+        self.v1_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="v1-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+    def test_get_serializes_the_stored_document(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.v2_flag.id}/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["filters"] == V2_DOCUMENT
+        assert response.json()["is_eligible_for_experiment"] is False
+
+    def test_list_serves_v1_and_v2_rows_together(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        filters_by_key = {flag["key"]: flag["filters"] for flag in response.json()["results"]}
+        assert filters_by_key["v2-flag"] == V2_DOCUMENT
+        assert filters_by_key["v1-flag"]["groups"] == [{"properties": [], "rollout_percentage": 100}]
+
+    def test_activity_and_version_history_read_the_v2_row(self) -> None:
+        activity = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.v2_flag.id}/activity/")
+        assert activity.status_code == status.HTTP_200_OK, activity.json()
+        history = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{self.v2_flag.id}/versions/{self.v2_flag.version}/"
+        )
+        assert history.status_code == status.HTTP_200_OK, history.json()
+        assert history.json()["filters"] == V2_DOCUMENT

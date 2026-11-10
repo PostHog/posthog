@@ -241,7 +241,8 @@ export function fakeUtcToReal(date: Date, timezone?: string): dayjs.Dayjs {
     return timezone ? dayjs.tz(utcStr, timezone) : dayjs.utc(utcStr)
 }
 
-export function buildSummary(state: ScheduleState, startsAt: string | null): string {
+export function buildSummary(state: ScheduleState, startsAt: string | null, timezone?: string): string {
+    const start = startsAt ? (timezone ? dayjs(startsAt).tz(timezone) : dayjs(startsAt)) : null
     const freqLabel = state.frequency === 'daily' ? 'day' : state.frequency.replace('ly', '')
     const intervalStr = state.interval > 1 ? `${state.interval} ${freqLabel}s` : freqLabel
 
@@ -255,16 +256,16 @@ export function buildSummary(state: ScheduleState, startsAt: string | null): str
     if (state.frequency === 'monthly') {
         if (state.monthlyMode === 'last_day') {
             summary += ` on the last day`
-        } else if (state.monthlyMode === 'day_of_month' && startsAt) {
-            summary += ` on the ${dayjs(startsAt).format('Do')}`
-        } else if (state.monthlyMode === 'nth_weekday' && startsAt) {
-            const { n, weekday } = getNthWeekdayOfMonth(dayjs(startsAt))
+        } else if (state.monthlyMode === 'day_of_month' && start) {
+            summary += ` on the ${start.format('Do')}`
+        } else if (state.monthlyMode === 'nth_weekday' && start) {
+            const { n, weekday } = getNthWeekdayOfMonth(start)
             summary += ` on the ${NTH_LABELS[n - 1]} ${WEEKDAY_FULL_LABELS[weekday]}`
         }
     }
 
-    if (startsAt) {
-        summary += `, starting ${dayjs(startsAt).format('MMMM D')}`
+    if (start) {
+        summary += `, starting ${start.format('MMMM D')}`
     }
 
     if (state.endType === 'after_count') {
@@ -277,6 +278,22 @@ export function buildSummary(state: ScheduleState, startsAt: string | null): str
 }
 
 /** Parse natural language like "every week on Monday and Wednesday" into a ScheduleState. */
+// parseRRuleToState falls back to weekly outside these four, and the API accepts any rule
+// dateutil parses, so anything else is shown as written rather than described wrongly.
+const SUMMARIZABLE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
+
+export function summarizeSchedule(rrule: string, startsAt: string | null, timezone?: string): string {
+    if (isOneTimeSchedule(rrule)) {
+        const at = startsAt ? (timezone ? dayjs(startsAt).tz(timezone) : dayjs(startsAt)) : null
+        return at ? `Runs once on ${at.format('D MMM YYYY, HH:mm')}` : 'Runs once'
+    }
+    const frequency = rrule.match(/FREQ=([A-Z]+)/)?.[1]
+    if (!frequency || !SUMMARIZABLE_FREQUENCIES.includes(frequency)) {
+        return rrule
+    }
+    return buildSummary(parseRRuleToState(rrule), startsAt, timezone)
+}
+
 export function parseNaturalLanguage(text: string): ScheduleState | null {
     const trimmed = text.trim().toLowerCase()
     if (!trimmed || !trimmed.includes('every')) {

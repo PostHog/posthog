@@ -11,7 +11,6 @@ from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
 from opentelemetry import trace
-from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
@@ -22,7 +21,7 @@ from posthog.models.team import Team
 from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_client, is_interactive_desktop_grant
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
-from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS, WEBMCP_APP_CLIENT_ID
 from posthog.utils import get_instance_realm, get_instance_region
 
 if TYPE_CHECKING:
@@ -45,6 +44,7 @@ def report_user_signed_up(
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
     referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
+    referral_source_influencer: str = "",  # account or person that referred them via a social or creator channel
     oauth_connection: Optional[PendingOAuthConnection] = None,  # the app whose OAuth request sent them to sign up
 ) -> None:
     """
@@ -67,6 +67,7 @@ def report_user_signed_up(
         "role_at_organization": role_at_organization,
         "referral_source": referral_source,
         "referral_source_ai_prompt": referral_source_ai_prompt,
+        "referral_source_influencer": referral_source_influencer,
         "is_email_verified": user.is_email_verified,
     }
     if oauth_connection is not None:
@@ -89,6 +90,16 @@ def report_user_signed_up(
 
     if is_organization_first_user and user.organization is not None:
         exclude_internal_organization_from_crm(user.organization, user)
+
+    if oauth_connection is not None and is_organization_first_user and user.team is not None:
+        posthoganalytics.group_identify(
+            "project",
+            str(user.team.uuid),
+            properties={
+                "created_via_oauth_client": oauth_connection.client_name,
+                "created_via_oauth_client_id": oauth_connection.client_id,
+            },
+        )
 
 
 def report_user_verified_email(current_user: User) -> None:
@@ -347,6 +358,8 @@ class EventSource(StrEnum):
     # Signals OAuth application, which is what tells them apart from the coding agents they
     # otherwise look identical to.
     SELF_DRIVING = "self_driving"
+    # A browser agent driving a logged-in tab through the WebMCP tool the web app registers.
+    WEBMCP = "webmcp"
     DESKTOP = "desktop"
     MOBILE = "mobile"
     SLACK = "slack"
@@ -378,6 +391,7 @@ AGENT_EVENT_SOURCES = frozenset(
         EventSource.WIZARD,
         EventSource.CLI,
         EventSource.POSTHOG_AI,
+        EventSource.WEBMCP,
     }
 )
 
@@ -397,6 +411,7 @@ MCP_TRANSPORT_EVENT_SOURCES = frozenset(
         EventSource.SLACK,
         EventSource.POSTHOG_CODE,
         EventSource.SELF_DRIVING,
+        EventSource.WEBMCP,
     }
 )
 
@@ -419,12 +434,15 @@ AnalyticsProps = TypedDict(
         "$session_id": NotRequired[str | None],
         "was_impersonated": NotRequired[bool],
         "access_method": NotRequired[str | None],
+        "http_request_id": NotRequired[str],
         "user_agent": NotRequired[str | None],
         "mcp_user_agent": NotRequired[str | None],
         "mcp_client_name": NotRequired[str | None],
         "mcp_client_version": NotRequired[str | None],
         "mcp_protocol_version": NotRequired[str | None],
         "mcp_oauth_client_name": NotRequired[str | None],
+        "upload_attempt_id": NotRequired[str],
+        "upload_run_id": NotRequired[str],
     },
     total=False,
 )
@@ -495,6 +513,8 @@ def get_event_source(request) -> EventSource:
     # declares the posthog-code MCP consumer. Only the application it minted under separates it.
     if client_id in SIGNALS_OAUTH_APP_CLIENT_IDS:
         return EventSource.SELF_DRIVING
+    if client_id == WEBMCP_APP_CLIENT_ID:
+        return EventSource.WEBMCP
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""
@@ -515,13 +535,22 @@ def get_event_source(request) -> EventSource:
     # it authenticates with a personal API key, so there is no application to vouch for it.
     # Mis-declaring as the CLI only mislabels analytics — `cli` is already in
     # AGENT_EVENT_SOURCES, so it buys no extra write latitude.
-    if user_agent == "posthog-cli" or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli":
+    # `hog`, the TypeScript successor to posthog-cli, sends `hog/<version>`.
+    if (
+        user_agent == "posthog-cli"
+        or user_agent.startswith("hog/")
+        or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli"
+    ):
         return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return _resolve_mcp_surface(request)
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie
     # which is available after Django's AuthenticationMiddleware runs.
+    # Call-time import: model files import this module during django.setup(), and posthog.auth
+    # pulls zxcvbn and webauthn, which no background process needs.
+    from posthog.auth import SessionAuthentication  # noqa: PLC0415 — keeps the heavy dep off the import path
+
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return EventSource.WEB
     if getattr(getattr(request, "session", None), "session_key", None) is not None:
@@ -634,7 +663,7 @@ def report_user_action(
     if not isinstance(user, User) or not user.distinct_id:
         return
     if user.email:
-        properties["$set_once"] = {"email": user.email}
+        properties["$set_once"] = {**properties.get("$set_once", {}), "email": user.email}
     with _tracer.start_as_current_span("report_user_action"):
         posthoganalytics.capture(
             distinct_id=user.distinct_id,

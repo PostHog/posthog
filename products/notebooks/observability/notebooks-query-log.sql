@@ -53,7 +53,7 @@ ORDER BY hour;
 
 -- ---------------------------------------------------------------------------
 -- 2. Rollout verification: which path, pool, and ClickHouse identity is actually
---    serving notebook queries. The design doc's phase-1/phase-2 prerequisites
+--    serving notebook queries. The frame-store prerequisites
 --    (dedicated `notebooks` CH user, offline pool) fail *open* and silently — this
 --    is the ClickHouse-side confirmation that they engaged.
 --      user           — 'notebooks' once the dedicated CH user is provisioned, else the default
@@ -129,11 +129,11 @@ GROUP BY query_kind;
 -- 5. Parallel notebook queries per team — exact concurrency, not a rejection count.
 --    Prometheus only counts limiter *rejections*; this reconstructs actual occupancy
 --    by replaying each query as a +1 at its start and a -1 at its end and taking a
---    running sum. Compare the peak against the design doc's per-team ceiling of 2
+--    running sum. Compare the peak against the per-team ceiling of 2
 --    (MATERIALIZE_PER_TEAM_CONCURRENCY) and global 10.
 --    Swap `team_id` for `lc_user_id` to get the per-user view.
 --    Note: there is no notebook_short_id in the query tags today, so a per-notebook
---    breakdown is not possible — see the gaps list in sql_v2_observability.md.
+--    breakdown is not possible.
 -- ---------------------------------------------------------------------------
 WITH notebook_queries AS (
     SELECT
@@ -223,7 +223,7 @@ LIMIT 25;
 
 -- ---------------------------------------------------------------------------
 -- 8. Notebooks' share of the offline pool — the "am I hurting batch exports?"
---    question the design doc's pool-isolation decision rests on.
+--    question the pool-isolation decision rests on.
 -- ---------------------------------------------------------------------------
 SELECT
     toStartOfHour(event_time)                AS hour,

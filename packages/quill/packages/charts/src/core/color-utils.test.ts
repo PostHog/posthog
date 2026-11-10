@@ -1,4 +1,5 @@
-import { mixColors, resolveCssColor } from './color-utils'
+import { mixColors, prefersLightText, resolveCssColor } from './color-utils'
+import { DEFAULT_CHART_COLORS } from './theme'
 
 describe('mixColors', () => {
     it.each([
@@ -58,16 +59,33 @@ describe('resolveCssColor', () => {
 
     it('resolves a CSS variable to its computed value', () => {
         const root = rootWithVars({ '--data-color-1': '#abcdef' })
-        expect(resolveCssColor('var(--data-color-1)', root)).toBe('#abcdef')
+        expect(resolveCssColor('var(--data-color-1)', { root })).toBe('#abcdef')
     })
 
     it('uses the fallback when the variable is undefined', () => {
         const root = rootWithVars({})
-        expect(resolveCssColor('var(--missing, #123456)', root)).toBe('#123456')
+        expect(resolveCssColor('var(--missing, #123456)', { root })).toBe('#123456')
     })
 
-    it('returns the raw string when the variable is undefined and has no fallback', () => {
+    it.each([
+        ['the given fallback', { fallback: '#654321' }, '#654321'],
+        ['the first palette color', {}, DEFAULT_CHART_COLORS[0]],
+    ])('returns %s, never the raw var(), when the variable is undefined', (_, options, expected) => {
         const root = rootWithVars({})
-        expect(resolveCssColor('var(--missing)', root)).toBe('var(--missing)')
+        expect(resolveCssColor('var(--missing)', { root, ...options })).toBe(expected)
+    })
+})
+
+// A luminance cutoff or WCAG 2 picks black on the mid tones here, where white reads better.
+describe('prefersLightText', () => {
+    it.each([
+        { color: '#f14f58', expected: true },
+        { color: '#a56eff', expected: true },
+        { color: '#1d4aff', expected: true },
+        { color: '#e4a604', expected: false },
+        { color: '#41cbc4', expected: false },
+        { color: 'not-a-color', expected: false },
+    ])('$color -> $expected', ({ color, expected }) => {
+        expect(prefersLightText(color)).toBe(expected)
     })
 })

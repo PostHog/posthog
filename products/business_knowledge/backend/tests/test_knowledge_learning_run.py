@@ -1,10 +1,8 @@
 from datetime import UTC, datetime
-from io import StringIO
 from uuid import UUID
 
 from posthog.test.base import BaseTest
 
-from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase
 
@@ -22,7 +20,6 @@ from products.business_knowledge.backend.learning.providers import (
 )
 from products.business_knowledge.backend.models import KnowledgeLearningRun, LearningProvider
 
-LEARNING_RUN_MIGRATION = "0018_knowledge_learning_run"
 _TICKET_ID = UUID("10000000-0000-0000-0000-000000000001")
 _COMMENT_ID = UUID("20000000-0000-0000-0000-000000000002")
 
@@ -196,15 +193,3 @@ class TestKnowledgeLearningRun(BaseTest):
         assert explicit.team_id == self.team.id
         assert explicit.source_team_id == child.id
         assert KnowledgeLearningRun.objects.for_team(self.team.id).get(pk=rewritten.pk).source_team_id == child.id
-
-    def test_migration_sql_creates_table_without_team_fk(self) -> None:
-        # A real FK here takes SHARE ROW EXCLUSIVE on posthog_team during migrate.
-        out = StringIO()
-        call_command("sqlmigrate", "business_knowledge", LEARNING_RUN_MIGRATION, stdout=out)
-        sql = out.getvalue()
-
-        assert "CREATE TABLE" in sql
-        assert "bk_learn_run_unique" in sql
-        assert "bk_learn_run_team_status" in sql
-        assert "REFERENCES" not in sql
-        assert "posthog_team" not in sql

@@ -96,15 +96,19 @@ def decide(
     if not carries_credentials_safely(config.url):
         raise GatewayNotConfiguredError("AI_GATEWAY_URL must use https unless it points at this machine")
     headers = {"Authorization": f"Bearer {config.api_key}"}
+    # Names the customer the relay credential calls for. Set last so a caller's team_id cannot override it.
+    properties = {**(request.properties or {}), "team_id": str(request.team_id)}
     headers.update(
         ai_gateway_headers(
             ai_product=request.ai_product,
             trace_id=request.trace_id,
-            properties=request.properties,
-            distinct_id=team_distinct_id(request.team_id),
+            properties=properties,
+            distinct_id=request.distinct_id or team_distinct_id(request.team_id),
         )
         or {}
     )
+    if request.privacy_mode:
+        headers["X-PostHog-Privacy-Mode"] = "true"
     try:
         with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
             response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)

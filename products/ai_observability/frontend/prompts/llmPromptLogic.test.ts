@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -15,9 +15,10 @@ import {
     llmPromptsNameLabelsDestroy,
     llmPromptsNameLabelsUpdate,
     llmPromptsNamePartialUpdate,
+    llmPromptsNameRetrieve,
     llmPromptsResolveNameRetrieve,
 } from '../generated/api'
-import type { LLMPromptApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
+import type { LLMPromptApi, LLMPromptPublicApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
 import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
 import type { ResolvedLLMPrompt } from './llmPromptLogic'
 import { validatePromptLabelName } from './utils'
@@ -26,6 +27,7 @@ jest.mock('../generated/api', () => ({
     llmPromptsNameLabelsUpdate: jest.fn(),
     llmPromptsNameLabelsDestroy: jest.fn(),
     llmPromptsNamePartialUpdate: jest.fn(),
+    llmPromptsNameRetrieve: jest.fn(),
     llmPromptsResolveNameRetrieve: jest.fn(),
 }))
 
@@ -33,6 +35,7 @@ const mockLabelsUpdate = llmPromptsNameLabelsUpdate as jest.MockedFunction<typeo
 const mockLabelsDestroy = llmPromptsNameLabelsDestroy as jest.MockedFunction<typeof llmPromptsNameLabelsDestroy>
 const mockPartialUpdate = llmPromptsNamePartialUpdate as jest.MockedFunction<typeof llmPromptsNamePartialUpdate>
 const mockResolve = llmPromptsResolveNameRetrieve as jest.MockedFunction<typeof llmPromptsResolveNameRetrieve>
+const mockNameRetrieve = llmPromptsNameRetrieve as jest.MockedFunction<typeof llmPromptsNameRetrieve>
 
 const mockPrompt = {
     id: 'prompt-version-2',
@@ -324,6 +327,95 @@ describe('llmPromptLogic', () => {
             version: 1,
             limit: 50,
         })
+
+        logic.unmount()
+    })
+
+    describe('with the trace drawer open on the related traces', () => {
+        const PATH = '/prompt-management/prompts/my-test-prompt'
+        const LIST_PARAMS = { tab: 'usage', version: 1 }
+
+        async function mountWithEdits(): Promise<ReturnType<typeof llmPromptLogic.build>> {
+            const { versions, has_more, ...promptFields } = mockPrompt
+            mockResolve.mockResolvedValue({
+                prompt: promptFields,
+                versions,
+                has_more,
+            } as unknown as LLMPromptResolveResponseApi)
+            router.actions.push(PATH, LIST_PARAMS)
+            const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+            logic.actions.setPromptFormValue('prompt', 'edited')
+            mockResolve.mockClear()
+            return logic
+        }
+
+        function goBackTo(search: string): void {
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname: router.values.location.pathname,
+                search,
+                searchParams: decodeParams(search, '?'),
+                hash: '',
+                hashParams: {},
+                url: `${router.values.location.pathname}${search}`,
+            })
+        }
+
+        it('does not reload the prompt or reset the form on open, step, close and back', async () => {
+            const logic = await mountWithEdits()
+
+            router.actions.push(PATH, { ...LIST_PARAMS, trace: 'a', ts: '2026' })
+            router.actions.push(PATH, { ...LIST_PARAMS, trace: 'b', step: 'gen-1' })
+            goBackTo('?tab=usage&version=1&trace=a&ts=2026')
+            router.actions.push(PATH, LIST_PARAMS)
+
+            expect(mockResolve).not.toHaveBeenCalled()
+            expect(logic.values.promptForm.prompt).toBe('edited')
+            logic.unmount()
+        })
+
+        it('still reloads when a list param changes with the drawer params', async () => {
+            const logic = await mountWithEdits()
+            router.actions.push(PATH, { ...LIST_PARAMS, trace: 'a' })
+
+            router.actions.push(PATH, { ...LIST_PARAMS, version: 2, trace: 'b' })
+
+            await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+            expect(mockResolve).toHaveBeenCalledTimes(1)
+            logic.unmount()
+        })
+    })
+
+    it('discards a stale resolved-preview response once a newer load started', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        mockResolve.mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponseApi)
+        let resolveStale: (value: LLMPromptPublicApi) => void = () => {}
+        let resolveFresh: (value: LLMPromptPublicApi) => void = () => {}
+        mockNameRetrieve
+            .mockImplementationOnce(() => new Promise((resolve) => (resolveStale = resolve)))
+            .mockImplementationOnce(() => new Promise((resolve) => (resolveFresh = resolve)))
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        logic.actions.toggleResolvedPreview() // show: first fetch starts
+        logic.actions.toggleResolvedPreview() // hide while it is in flight
+        logic.actions.toggleResolvedPreview() // show again: second fetch starts
+
+        resolveFresh({ prompt: 'fresh resolved' } as LLMPromptPublicApi)
+        await expectLogic(logic).toDispatchActions(['loadResolvedPreviewSuccess'])
+        expect(logic.values.resolvedPreview?.prompt).toBe('fresh resolved')
+
+        resolveStale({ prompt: 'stale resolved' } as LLMPromptPublicApi)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.resolvedPreview?.prompt).toBe('fresh resolved')
 
         logic.unmount()
     })
@@ -677,5 +769,28 @@ describe('llmPromptLogic', () => {
         expect(secondMount.values.promptForm.name).toBe('')
         expect(secondMount.values.promptForm.prompt).toBe('')
         secondMount.unmount()
+    })
+
+    it('remembers the markdown rendering choice across prompts', async () => {
+        const firstPrompt = llmPromptLogic({ promptName: 'prompt-a' })
+        firstPrompt.mount()
+        expect(firstPrompt.values.isRenderingMarkdown).toBe(true)
+        firstPrompt.actions.toggleMarkdownRendering()
+        expect(firstPrompt.values.isRenderingMarkdown).toBe(false)
+        firstPrompt.unmount()
+
+        const secondPrompt = llmPromptLogic({ promptName: 'prompt-b' })
+        secondPrompt.mount()
+        expect(secondPrompt.values.isRenderingMarkdown).toBe(false)
+
+        // Edit mode forces the raw textarea; leaving it must restore the stored
+        // preference instead of overwriting it with the mode's forced value.
+        secondPrompt.actions.setMode(PromptMode.Edit)
+        expect(secondPrompt.values.isRenderingMarkdown).toBe(false)
+        secondPrompt.actions.toggleMarkdownRendering()
+        expect(secondPrompt.values.isRenderingMarkdown).toBe(true)
+        secondPrompt.actions.setMode(PromptMode.View)
+        expect(secondPrompt.values.isRenderingMarkdown).toBe(false)
+        secondPrompt.unmount()
     })
 })

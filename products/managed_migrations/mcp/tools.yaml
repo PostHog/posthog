@@ -1,41 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product managed_migrations
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product managed_migrations
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Managed migrations
 feature: managed_migrations
 url_prefix: /managed_migrations
 ui_apps: {}
 tools:
-    managed-migrations-aws-iam-setup-retrieve:
-        operation: managed_migrations_aws_iam_setup_retrieve
-        enabled: false
-    managed-migrations-create:
-        operation: managed_migrations_create
-        enabled: false
-    managed-migrations-destroy:
-        operation: managed_migrations_destroy
-        enabled: false
-    managed-migrations-list:
-        operation: managed_migrations_list
-        enabled: false
-    managed-migrations-partial-update:
-        operation: managed_migrations_partial_update
-        enabled: false
-    managed-migrations-pause-create:
-        operation: managed_migrations_pause_create
-        enabled: false
-    managed-migrations-promote-create:
-        operation: managed_migrations_promote_create
-        enabled: false
-    managed-migrations-resume-create:
-        operation: managed_migrations_resume_create
-        enabled: false
-    managed-migrations-retrieve:
-        operation: managed_migrations_retrieve
-        enabled: false
     managed-migrations-support-get:
         operation: managed_migrations_support_retrieve
         enabled: true
@@ -59,9 +30,3 @@ tools:
         list: true
         title: List batch import jobs across all teams (PostHog staff only)
         description_file: ./prompts/managed-migrations-support-list.md
-    managed-migrations-trial-records-retrieve:
-        operation: managed_migrations_trial_records_retrieve
-        enabled: false
-    managed-migrations-update:
-        operation: managed_migrations_update
-        enabled: false

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from posthog.test.base import _create_event, _create_person
 
-from posthog.models.filters.utils import GroupTypeIndex
+from posthog.constants import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.models.team.team import Team
 from posthog.test.persons import create_group_type_mapping

@@ -3,6 +3,7 @@ import importlib
 import importlib.util
 from collections import defaultdict
 from collections.abc import Iterator
+from importlib.machinery import PathFinder
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Optional
@@ -26,21 +27,41 @@ def product_app_names() -> list[str]:
     return [app_config.name for app_config in apps.get_app_configs() if is_product_module(app_config.name)]
 
 
+def _has_submodule(app_name: str, submodule: str) -> bool:
+    """Whether `<app_name>.<submodule>` exists, found on disk without importing any of it.
+
+    `find_spec` on a dotted name imports every parent package first, so a nested lookup
+    ("facade.x") would run each product's `facade/__init__.py`, and raise for a product
+    without one. PathFinder searches one package directory at a time instead.
+    """
+    app_spec = importlib.util.find_spec(app_name)
+    locations = app_spec.submodule_search_locations if app_spec else None
+    name = app_name
+    for part in submodule.split("."):
+        if locations is None:
+            return False
+        name = f"{name}.{part}"
+        spec = PathFinder.find_spec(name, locations)
+        if spec is None:
+            return False
+        locations = spec.submodule_search_locations
+    return True
+
+
 def load_product_modules(submodule: str) -> Iterator[ModuleType]:
     """Import `<product app>.<submodule>` for every product that has one.
 
     How core picks up per-product declarations (`routes`, `data_freshness`, ...) without a
-    hand-maintained list. `find_spec` rather than try/except so a real ImportError inside a
-    product's module surfaces instead of reading as "this product doesn't have one".
+    hand-maintained list. The lookup imports nothing, so a real ImportError inside a product's
+    module surfaces from the import itself instead of reading as "this product doesn't have one".
 
     Products are imported dynamically here, so the core->product edges are invisible to import
     tooling (tach/grimp). Accepted on purpose, as the alternative duplicates PRODUCTS_APPS.
     """
     for app_name in product_app_names():
-        module_name = f"{app_name}.{submodule}"
-        if importlib.util.find_spec(module_name) is None:
+        if not _has_submodule(app_name, submodule):
             continue
-        yield importlib.import_module(module_name)
+        yield importlib.import_module(f"{app_name}.{submodule}")
 
 
 # This module loads at django.setup() via the file-system product list; posthog.schema

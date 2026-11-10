@@ -3,38 +3,17 @@ import clsx from 'clsx'
 import { IconInfo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
+import type { ScopeAccessLevel, ScopePickerRow } from 'lib/scopes'
+
 interface ScopeAccessRowProps {
-    /** Display label for the scope (e.g. 'Feature flag', 'Endpoint'). */
-    label: string
-    /** Currently selected action: 'none' | 'read' | 'write'. */
-    value: string
-    /** Called with the new value when the user picks an option. */
-    onChange: (value: string) => void
-    /** Reason the No access option should be disabled. Set to a non-empty string to disable. */
-    noneDisabledReason?: string
-    /** Reason the Read option should be disabled. Set to a non-empty string to disable. */
-    readDisabledReason?: string
-    /** Reason the Write option should be disabled. Set to a non-empty string to disable. */
-    writeDisabledReason?: string
-    /** Optional tooltip content shown next to the label via an info icon. */
-    info?: string | JSX.Element
-    /** When true, the label is dimmed (e.g. when the row is contextually disabled). */
-    muted?: boolean
-    /** Optional warning content rendered as a sub-row below the main row. */
-    warning?: string | JSX.Element | null
+    row: ScopePickerRow
+    /** Called with the row's scope object and the level the user picks. */
+    onChange: (scopeObject: string, level: ScopeAccessLevel) => void
 }
 
-export function ScopeAccessRow({
-    label,
-    value,
-    onChange,
-    noneDisabledReason,
-    readDisabledReason,
-    writeDisabledReason,
-    info,
-    muted = false,
-    warning,
-}: ScopeAccessRowProps): JSX.Element {
+/** One scope object in a picker: its label and a No access / Read / Write control. */
+export function ScopeAccessRow({ row, onChange }: ScopeAccessRowProps): JSX.Element {
+    const { key, label, info, value, muted, warning, disabledReasons } = row
     return (
         <>
             <div className="flex items-center justify-between gap-2 min-h-8 group">
@@ -47,12 +26,12 @@ export function ScopeAccessRow({
                     ) : null}
                 </div>
                 <LemonSegmentedButton
-                    onChange={onChange}
+                    onChange={(level) => onChange(key, level as ScopeAccessLevel)}
                     value={value}
                     options={[
-                        { label: 'No access', value: 'none', disabledReason: noneDisabledReason },
-                        { label: 'Read', value: 'read', disabledReason: readDisabledReason },
-                        { label: 'Write', value: 'write', disabledReason: writeDisabledReason },
+                        { label: 'No access', value: 'none', disabledReason: disabledReasons.none },
+                        { label: 'Read', value: 'read', disabledReason: disabledReasons.read },
+                        { label: 'Write', value: 'write', disabledReason: disabledReasons.write },
                     ]}
                     size="xsmall"
                 />

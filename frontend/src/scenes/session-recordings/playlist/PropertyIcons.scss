@@ -1,0 +1,17 @@
+.SessionRecordingPreview__property-label {
+    display: none;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition:
+        max-width 0.2s ease,
+        opacity 0.2s ease;
+}
+
+@container preview (min-width: 30rem) {
+    .SessionRecordingPreview__property-label {
+        display: inline;
+        max-width: 6rem;
+        opacity: 1;
+    }
+}

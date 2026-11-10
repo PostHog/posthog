@@ -5,28 +5,32 @@ from uuid import uuid4
 
 from django.db import transaction
 
-import pydantic
 from rest_framework.exceptions import ValidationError
-
-from posthog.schema import (
-    ExperimentFunnelMetric,
-    ExperimentFunnelsQuery,
-    ExperimentMeanMetric,
-    ExperimentMetricType,
-    ExperimentRatioMetric,
-    ExperimentRetentionMetric,
-    ExperimentTrendsQuery,
-)
 
 from posthog.models.team.team import Team
 
-from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
+from products.experiments.backend.hogql_queries.utils import (
+    SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE,
+    uses_sequential_testing,
+)
+from products.experiments.backend.metric_calculation.config import team_experiments_configs
+from products.experiments.backend.metric_resolution import apply_saved_metric_overrides
+from products.experiments.backend.metric_utils import without_action_names
+from products.experiments.backend.metric_validation import (
+    extract_entity_nodes,
+    parse_and_validate_metric,
+    validate_metric_action_ids,
+)
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     ExperimentSavedMetric,
+    ExperimentToSavedMetric,
     saved_metric_has_legacy_query,
 )
-from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
+from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
+from products.experiments.backend.warehouse_native_sources import (
+    validate_metric_warehouse_native_sources,
+    validate_saved_metric_query_against_linked_experiments,
+)
 
 
 class ExperimentSavedMetricService:
@@ -41,42 +45,7 @@ class ExperimentSavedMetricService:
         """Validate saved metric queries accepted by the API layer."""
         if not query:
             raise ValidationError("Query is required to create a saved metric")
-
-        kind = query.get("kind")
-        if kind in LEGACY_METRIC_KINDS:
-            raise ValidationError(
-                f"Legacy metric kind '{kind}' is no longer supported for new saved metrics. "
-                "Use 'ExperimentMetric' instead."
-            )
-
-        if kind != "ExperimentMetric":
-            raise ValidationError("Metric query kind must be 'ExperimentMetric'")
-
-        try:
-            if kind == "ExperimentMetric":
-                if "metric_type" not in query:
-                    raise ValidationError("ExperimentMetric requires a metric_type")
-                if query["metric_type"] == ExperimentMetricType.MEAN:
-                    ExperimentMeanMetric(**query)
-                elif query["metric_type"] == ExperimentMetricType.FUNNEL:
-                    ExperimentFunnelMetric(**query)
-                elif query["metric_type"] == ExperimentMetricType.RATIO:
-                    ExperimentRatioMetric(**query)
-                elif query["metric_type"] == ExperimentMetricType.RETENTION:
-                    retention_metric = ExperimentRetentionMetric(**query)
-                    retention_error = retention_metric_error(retention_metric)
-                    if retention_error:
-                        raise ValidationError(retention_error)
-                else:
-                    raise ValidationError(
-                        "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
-                    )
-            elif kind == "ExperimentTrendsQuery":
-                ExperimentTrendsQuery(**query)
-            elif kind == "ExperimentFunnelsQuery":
-                ExperimentFunnelsQuery(**query)
-        except pydantic.ValidationError as e:
-            raise ValidationError(str(e.errors())) from e
+        parse_and_validate_metric(query, error_prefix="Invalid metric: ")
 
     @transaction.atomic
     def create_saved_metric(
@@ -88,7 +57,9 @@ class ExperimentSavedMetricService:
     ) -> ExperimentSavedMetric:
         """Create a saved metric with full business-logic validation."""
         normalized_query = self.normalize_query_for_write(query)
-        enforce_warehouse_metric_access([normalized_query], team=self.team, user=self.user)
+        validate_metric_action_ids([normalized_query], self.team, user=self.user)
+        validate_warehouse_metrics([normalized_query], team=self.team, user=self.user)
+        validate_metric_warehouse_native_sources([normalized_query], team=self.team, user=self.user)
 
         return ExperimentSavedMetric.objects.create(
             team=self.team,
@@ -105,9 +76,22 @@ class ExperimentSavedMetricService:
         self._validate_update_payload(update_data, saved_metric)
 
         if "query" in update_data:
-            existing_uuid = saved_metric.query.get("uuid") if saved_metric.query else None
-            update_data["query"] = self.normalize_query_for_write(update_data["query"], existing_uuid=existing_uuid)
-            enforce_warehouse_metric_access([update_data["query"]], team=self.team, user=self.user)
+            update_data["query"] = self.normalize_query_for_write(
+                update_data["query"], existing_query=saved_metric.query
+            )
+            _, stored_action_ids = extract_entity_nodes([saved_metric.query] if saved_metric.query else [])
+            validate_metric_action_ids(
+                [update_data["query"]], self.team, user=self.user, known_action_ids=stored_action_ids
+            )
+            validate_warehouse_metrics([update_data["query"]], team=self.team, user=self.user)
+            validate_saved_metric_query_against_linked_experiments(
+                saved_metric, update_data["query"], team=self.team, user=self.user
+            )
+            validate_metric_warehouse_native_sources([update_data["query"]], team=self.team, user=self.user)
+            if saved_metric.query is None or without_action_names(update_data["query"]) != without_action_names(
+                saved_metric.query
+            ):
+                self._validate_linked_experiments(saved_metric, update_data["query"])
 
         for attr, value in update_data.items():
             setattr(saved_metric, attr, value)
@@ -123,13 +107,67 @@ class ExperimentSavedMetricService:
         self._assert_team_ownership(saved_metric)
         saved_metric.delete()
 
+    def _validate_linked_experiments(self, saved_metric: ExperimentSavedMetric, query: dict) -> None:
+        # Each link applies its own breakdowns to the saved query, and each experiment applies its own stats
+        # settings, so a query change that is valid on its own, such as a switch to a percentile metric, can
+        # make the metric fail on every linked experiment.
+        links = (
+            ExperimentToSavedMetric.objects.filter(saved_metric=saved_metric, experiment__deleted=False)
+            .select_related("experiment")
+            .order_by("id")
+        )
+        is_quantile = query.get("metric_type") == "quantile"
+        team_default_sequential = team_experiments_configs([self.team.id])[
+            self.team.id
+        ].default_sequential_testing_enabled
+        breakdowns_fail = False
+        sequential_fails = False
+        for link in links:
+            metadata = link.metadata or {}
+            if not breakdowns_fail and metadata.get("breakdowns"):
+                try:
+                    parse_and_validate_metric(apply_saved_metric_overrides(query, metadata), error_prefix="")
+                except ValidationError:
+                    breakdowns_fail = True
+            if (
+                not sequential_fails
+                and is_quantile
+                and uses_sequential_testing(
+                    link.experiment.stats_config, team_default_sequential_testing_enabled=team_default_sequential
+                )
+            ):
+                sequential_fails = True
+        # The user may not be allowed to see the experiment, so the error does not name it.
+        errors: list[str] = []
+        if breakdowns_fail:
+            errors.append(
+                "The breakdowns it adds to this metric don't work with this change. "
+                "Remove them from the experiment first."
+            )
+        if sequential_fails:
+            errors.append(
+                f"{SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE} Turn off sequential testing in the experiment first."
+            )
+        if errors:
+            raise ValidationError(f"A linked experiment uses this metric. {' '.join(errors)}")
+
     def _assert_team_ownership(self, saved_metric: ExperimentSavedMetric) -> None:
         if saved_metric.team_id != self.team.id:
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
     @classmethod
-    def normalize_query_for_write(cls, query: dict, *, existing_uuid: str | None = None) -> dict:
-        cls.validate_query(query)
+    def normalize_query_for_write(cls, query: dict, *, existing_query: dict | None = None) -> dict:
+        existing_uuid = existing_query.get("uuid") if existing_query else None
+        # Clients resend the whole query on any edit, including a rename or a tag change. A stored
+        # query that comes back unchanged is not validated again, so a rule added after it was saved
+        # does not block those edits.
+        is_unchanged = (
+            bool(query)
+            and existing_query is not None
+            and without_action_names(query) == without_action_names(existing_query)
+        )
+        if not is_unchanged:
+            cls.validate_query(query)
 
         normalized_query = dict(query)
         incoming_uuid = normalized_query.get("uuid")

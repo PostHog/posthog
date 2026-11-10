@@ -18,12 +18,14 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { dualRead } from '../utils/dual-store'
+import { InvocationFailureSink } from './dead-letter/cdp-dead-letter.service'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from './monitoring/workflows-activation-reporter'
 
 export interface HogFlowInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -38,9 +40,12 @@ export interface HogFlowInvocationPipelineDeps {
     hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
     quotaLimiting: QuotaLimiting
     redis: RedisV2
     valkeyShadow: CdpValkeyShadowPools
+    /** Absent for consumers that have no dead-letter topic; their build failures stay metrics-only. */
+    deadLetterService?: InvocationFailureSink
 }
 
 /**
@@ -67,8 +72,19 @@ export class HogFlowInvocationPipeline {
         this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
     }
 
-    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
     public async buildInvocations(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        options?: { eligibilityFn?: (hogFlow: HogFlow, globals: HogFunctionInvocationGlobals) => boolean }
+    ): Promise<CyclotronJobInvocation[]> {
+        return (await this.buildInvocationsWithRelease(invocationGlobals, options)).invocations
+    }
+
+    /**
+     * Also returns the masker's `release`. Masking claims are written before the caller queues the runs,
+     * so a caller that retries after a failed queue must release them, or the retry masks every run.
+     */
+    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
+    public async buildInvocationsWithRelease(
         invocationGlobals: HogFunctionInvocationGlobals[],
         options?: {
             // Predicate evaluated per (flow, globals) before the executor runs filter bytecode.
@@ -78,7 +94,10 @@ export class HogFlowInvocationPipeline {
             // touching the executor.
             eligibilityFn?: (hogFlow: HogFlow, globals: HogFunctionInvocationGlobals) => boolean
         }
-    ): Promise<CyclotronJobInvocation[]> {
+    ): Promise<{
+        invocations: CyclotronJobInvocation[]
+        release: (persisted?: CyclotronJobInvocation[]) => Promise<void>
+    }> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.deps.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
         const eligibilityFn = options?.eligibilityFn
@@ -91,15 +110,26 @@ export class HogFlowInvocationPipeline {
                         ? teamHogFlows.filter((flow) => eligibilityFn(flow, globals))
                         : teamHogFlows
 
-                    const { invocations, metrics, logs } = await this.deps.hogFlowExecutor.buildHogFlowInvocations(
-                        eligibleFlows,
-                        globals
-                    )
+                    try {
+                        const { invocations, metrics, logs, buildFailures } =
+                            await this.deps.hogFlowExecutor.buildHogFlowInvocations(eligibleFlows, globals)
 
-                    this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
-                    this.deps.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                        this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
+                        this.deps.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                        this.deps.deadLetterService?.recordBuildFailures(globals, buildFailures)
 
-                    return invocations
+                        return invocations
+                    } catch (error) {
+                        // See the same guard in HogFunctionInvocationPipeline: one workflow that
+                        // throws unexpectedly must not stall the partition for everyone else.
+                        if (error?.isRetriable === true) {
+                            throw error
+                        }
+                        if (!this.deps.deadLetterService?.recordProcessFailure(globals, error, 'hog_flow')) {
+                            throw error
+                        }
+                        return []
+                    }
                 })
             )
         ).flat()
@@ -182,6 +212,7 @@ export class HogFlowInvocationPipeline {
                 const isQuotaLimited = await shouldBlockHogFlowDueToQuota(item, {
                     quotaLimiting: this.deps.quotaLimiting,
                     hogFunctionMonitoringService: this.deps.hogFunctionMonitoringService,
+                    workflowsActivationReporter: this.deps.workflowsActivationReporter,
                 })
 
                 if (isQuotaLimited) {
@@ -212,7 +243,11 @@ export class HogFlowInvocationPipeline {
             })
         )
 
-        const { masked, notMasked: notMaskedInvocations } = await this.deps.hogMasker.filterByMasking(validInvocations)
+        const {
+            masked,
+            notMasked: notMaskedInvocations,
+            release,
+        } = await this.deps.hogMasker.filterByMasking(validInvocations)
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(
             masked.map((item) => ({
@@ -241,6 +276,6 @@ export class HogFlowInvocationPipeline {
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
 
-        return notMaskedInvocations
+        return { invocations: notMaskedInvocations, release }
     }
 }

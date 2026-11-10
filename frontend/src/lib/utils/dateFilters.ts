@@ -1,4 +1,3 @@
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { DATE_FORMAT, formatDate, formatDateRange, formatDateTimeRange, isDate } from 'lib/utils/datetime'
 import { UnexpectedNeverError } from 'lib/utils/guards'
@@ -10,6 +9,8 @@ export function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): da
     const start = weekStartDay === 1 ? 1 : 0
     return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
 }
+
+export const CUSTOM_OPTION_KEY = 'Custom'
 
 export const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
@@ -338,7 +339,8 @@ export function dateStringToDayJs(date: string | null, timezone: string = 'UTC')
     const isSubDay = ['hour', 'minute', 'second'].includes(dateComponents.unit)
     const offset: dayjs.Dayjs = isSubDay ? dayjs().tz(timezone) : dayjs().tz(timezone).startOf('day')
     const response = componentsToDayJs(dateComponents, offset, timezone)
-    return response
+    // dayjs keeps today's UTC offset when it adds calendar units, so resolve the local time again.
+    return isSubDay ? response : response.tz(timezone, true)
 }
 
 export function isValidRelativeOrAbsoluteDate(date: string): boolean {

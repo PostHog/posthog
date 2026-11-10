@@ -1,54 +1,84 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
-import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
-import { urls } from 'scenes/urls'
-
+import type { DataQualitySubjectType } from 'products/data_quality/frontend/checksApi'
 import { dataQualityChecksLogic } from 'products/data_quality/frontend/dataQualityChecksLogic'
-import { DataQualityChecksPanel } from 'products/data_quality/frontend/DataQualityChecksPanel'
-import { dataQualityGateLogic } from 'products/data_quality/frontend/dataQualityGateLogic'
 
+import type { NodeDetailDataQualitySubject } from './nodeDetailSceneLogic'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailTableTests } from './NodeDetailTableTests'
+import { NodeDetailViewTests } from './NodeDetailViewTests'
 
-function GateNotice(): JSX.Element | null {
-    const { gateConfig, gateReadable } = useValues(dataQualityGateLogic)
+export type NodeDetailTestsSubjectType = DataQualitySubjectType
 
-    if (!gateReadable || !gateConfig) {
-        return null
+export function NodeDetailTests({ id }: { id: string }): JSX.Element {
+    const logic = nodeDetailSceneLogic({ id })
+    const { node, dataQualitySubject, postHogSubjectLoading, postHogSubjectError, postHogSubjectAccessDenied } =
+        useValues(logic)
+    const { loadPostHogSubject } = useActions(logic)
+
+    if (node?.type === 'table' && node.origin === 'posthog') {
+        if (postHogSubjectLoading) {
+            return (
+                <LemonBanner type="info" icon={<Spinner />}>
+                    Loading data quality for this table.
+                </LemonBanner>
+            )
+        }
+
+        if (postHogSubjectAccessDenied) {
+            return (
+                <LemonBanner type="error">
+                    You don't have access to data quality for this table. Ask a project admin for access.
+                </LemonBanner>
+            )
+        }
+
+        if (postHogSubjectError) {
+            return (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: loadPostHogSubject }}>
+                    Couldn't load data quality for this table. Try again.
+                </LemonBanner>
+            )
+        }
+
+        if (!dataQualitySubject || dataQualitySubject.subjectType !== 'posthog_table') {
+            return <LemonBanner type="info">Data quality is not available for this table.</LemonBanner>
+        }
     }
 
-    return (
-        <LemonBanner type="info">
-            {gateConfig.gate_materialization_on_checks
-                ? 'This project blocks materialization on failing error-severity checks.'
-                : 'This project materializes this view even when an error-severity check fails.'}{' '}
-            <Link to={urls.settings('environment-data-quality')} data-attr="node-detail-tests-gate-settings">
-                Change this in data quality settings
-            </Link>
-        </LemonBanner>
-    )
+    if (!dataQualitySubject) {
+        return <LemonBanner type="info">Data quality is not available for this model.</LemonBanner>
+    }
+
+    return <ResolvedNodeDetailTests id={id} subject={dataQualitySubject} />
 }
 
-export function NodeDetailTests({ id, subjectId }: { id: string; subjectId: string }): JSX.Element {
-    const { savedQuery } = useValues(nodeDetailSceneLogic({ id }))
-    const { accessDenied } = useValues(dataQualityChecksLogic({ subjectType: 'view', subjectId }))
-    const { lastSuccessfulSyncAt } = useValues(materializationJobsLogic({ viewId: subjectId }))
+function ResolvedNodeDetailTests({ id, subject }: { id: string; subject: NodeDetailDataQualitySubject }): JSX.Element {
+    const { accessDenied } = useValues(
+        dataQualityChecksLogic({ subjectType: subject.subjectType, subjectId: subject.subjectId })
+    )
 
     if (accessDenied) {
         return <p className="mb-0 text-secondary">You don't have access to the tests for this model.</p>
     }
 
-    return (
-        <div className="flex flex-col gap-4">
-            <DataQualityChecksPanel
-                subjectType="view"
-                subjectId={subjectId}
-                columns={savedQuery?.columns ?? []}
-                dataLastSyncedAt={savedQuery?.is_materialized ? lastSuccessfulSyncAt : undefined}
-                hideTitle
-                notice={savedQuery?.is_materialized ? <GateNotice /> : undefined}
+    if (subject.subjectType === 'view') {
+        return <NodeDetailViewTests id={id} subjectId={subject.subjectId} />
+    }
+
+    if (subject.subjectType === 'table' || subject.subjectType === 'posthog_table') {
+        return (
+            <NodeDetailTableTests
+                id={id}
+                subjectType={subject.subjectType}
+                subjectId={subject.subjectId}
+                columns={subject.columns}
+                editable={subject.editable}
             />
-        </div>
-    )
+        )
+    }
+
+    return <LemonBanner type="info">Data quality is not available for this model.</LemonBanner>
 }

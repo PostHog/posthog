@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import re
+import dataclasses
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote, urlsplit
 
 from django.db.models import Q, QuerySet
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -16,6 +21,11 @@ from products.data_warehouse.backend.facade.api import (
     get_postgres_source_location,
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
+)
+from products.warehouse_sources.backend.facade.contracts import (
+    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
+    UPDATE_SHARED_CREDENTIALS_PARAM,
+    WAREHOUSE_SOURCE_USAGE_TYPE,
 )
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_config import (
@@ -29,15 +39,24 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     AnySource,
     Config,
     FieldType,
+    SourceRegistry,
     SourceSchema,
     source_requires_ssl,
 )
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
+
+if TYPE_CHECKING:
+    from posthog.integrations import IntegrationUsage
+
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
+_SOURCE_USAGE_TYPES = frozenset({WAREHOUSE_SOURCE_USAGE_TYPE, UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE})
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 
@@ -45,6 +64,16 @@ RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 
 INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
+)
+
+UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE = (
+    "One of the values you entered contains an unsupported character, such as a curly quote. "
+    "Copy the value again from your provider and paste only the value."
+)
+
+UNVERIFIED_CONNECTION_WARNING = (
+    "Source saved, but the API could not reach the database. Syncs and live queries connect "
+    "from other services and can still work. Details: {error}"
 )
 
 
@@ -148,6 +177,10 @@ def _credentials_validation_failed(source: AnySource, team_id: int, error: Excep
     error, so capture it for us and hand back an actionable message — the same treatment schema
     discovery already gives an unexpected error just below the credential check."""
     capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
+    # http.client encodes header values as latin-1, so a key pasted with a curly quote or similar
+    # character fails mid-request in any source that doesn't check the value up front.
+    if isinstance(error, UnicodeEncodeError):
+        return False, UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE
     return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
 
 
@@ -191,6 +224,8 @@ def get_credential_account_field_names(fields: list[FieldType]) -> set[str]:
     for field in fields:
         if isinstance(field, SourceFieldCredentialAccountSelectConfig):
             names.update(field.credentialFields)
+            if field.integrationField:
+                names.add(field.integrationField)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             names.update(get_credential_account_field_names(field.fields))
         elif isinstance(field, SourceFieldSelectConfig):
@@ -357,13 +392,6 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     "cdc_lag_warning_threshold_mb",
     "cdc_lag_critical_threshold_mb",
     "cdc_consistent_point",
-    # Set by migrate_cdc_source_to_buffered, never by the API. Losing it on an unrelated PATCH
-    # would resume legacy delivery from an advanced slot and strand the unread buffer.
-    "cdc_ingest_mode",
-    # Also set only by that command. It is what lets a rolled-back source be flipped again: without
-    # it the reserved-column check reads the `_ph_cdc_seq` the buffered lane wrote as the source's
-    # own and refuses every later flip.
-    "cdc_buffered_before",
 }
 
 
@@ -385,6 +413,114 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
         else:
             result[key] = value
     return result
+
+
+REDACTED_VALUE = "***"
+
+# Shorter stored values (e.g. a port or a boolean flag) would match unrelated parts of an error message.
+_MIN_REDACTED_SECRET_LENGTH = 4
+
+# Matches job_input keys that hold secrets even when a source config does not declare them.
+_SECRET_KEY_NAME_PATTERN = re.compile(
+    r"pass(word|wd|phrase)?|secret|token|api[_-]?key|private[_-]?key|credential|connection[_-]?string",
+    re.IGNORECASE,
+)
+
+_SECRET_PARAM_NAMES = (
+    r"api[_-]?key|apikey|access[_-]?key|secret[_-]?key|client[_-]?secret|secret|access[_-]?token|"
+    r"refresh[_-]?token|auth[_-]?token|token|password|passwd|pwd|signature|sig|key"
+)
+
+_ERROR_REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # Password in URL userinfo: postgres://user:secret@host
+    (re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@?#]+:)[^\s/?#@]+@", re.IGNORECASE), rf"\1{REDACTED_VALUE}@"),
+    # Query string or key=value pairs: ?api_key=secret, password=secret
+    (
+        re.compile(rf"((?<![a-z0-9_])(?:{_SECRET_PARAM_NAMES})=)[^\s&;,'\"]+", re.IGNORECASE),
+        rf"\1{REDACTED_VALUE}",
+    ),
+    # JSON-like pairs: "password": "secret"
+    (
+        re.compile(rf"(['\"](?:{_SECRET_PARAM_NAMES})['\"]\s*:\s*['\"])[^'\"]*", re.IGNORECASE),
+        rf"\1{REDACTED_VALUE}",
+    ),
+    # Authorization header values: Bearer abc.def, Basic dXNlcjpwYXNz
+    (re.compile(r"\b(Bearer|Basic|Token)\s+[a-z0-9._~+/=-]{8,}", re.IGNORECASE), rf"\1 {REDACTED_VALUE}"),
+)
+
+
+def _collect_string_leaves(value: Any, into: set[str]) -> None:
+    if isinstance(value, str):
+        into.add(value)
+        url_password = _url_password(value)
+        if url_password:
+            into.add(url_password)
+    elif isinstance(value, Mapping):
+        for nested in value.values():
+            _collect_string_leaves(nested, into)
+    elif isinstance(value, list | tuple):
+        for nested in value:
+            _collect_string_leaves(nested, into)
+
+
+def _url_password(value: str) -> str | None:
+    if "://" not in value:
+        return None
+    try:
+        password = urlsplit(value).password
+    except ValueError:
+        return None
+    return unquote(password) if password else None
+
+
+def _collect_secret_values(data: Any, sensitive: set[str], into: set[str]) -> None:
+    if isinstance(data, Mapping):
+        for key, value in data.items():
+            if isinstance(key, str) and (key in sensitive or _SECRET_KEY_NAME_PATTERN.search(key)):
+                _collect_string_leaves(value, into)
+            else:
+                _collect_secret_values(value, sensitive, into)
+    elif isinstance(data, list | tuple):
+        for nested in data:
+            _collect_secret_values(nested, sensitive, into)
+
+
+def get_error_redaction_values(
+    source: ExternalDataSource, job_inputs: Mapping[str, Any] | None = None
+) -> frozenset[str]:
+    """The stored secret values of a source, to mask wherever they appear in its error messages.
+
+    ``job_inputs`` are inputs that the caller already loaded, so a list does not read each credentials row again.
+    """
+    if job_inputs is None:
+        try:
+            job_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return frozenset()
+    try:
+        source_config = SourceRegistry.get_source(source.source_type).get_source_config
+        sensitive = get_sensitive_field_names(source_config.fields)
+    except (ValueError, KeyError):
+        sensitive = set()
+    values: set[str] = set()
+    _collect_secret_values(job_inputs, sensitive, values)
+    return frozenset(value for value in values if len(value) >= _MIN_REDACTED_SECRET_LENGTH)
+
+
+def redact_error_message(message: str | None, secret_values: Iterable[str]) -> str | None:
+    """Mask credentials in a sync error message before an API response returns it.
+
+    Source errors often embed the failed request URL, a connection string or a raw driver message,
+    so the source's own stored secrets and common credential patterns are both masked.
+    """
+    if not message:
+        return message
+    # Replace longer values first, so a secret that contains a shorter one is masked whole.
+    for value in sorted(secret_values, key=len, reverse=True):
+        message = message.replace(value, REDACTED_VALUE)
+    for pattern, replacement in _ERROR_REDACTION_PATTERNS:
+        message = pattern.sub(replacement, message)
+    return message
 
 
 # Fields whose change could redirect the database connection to a different server
@@ -429,11 +565,11 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
 
 
 # Nested containers that keep their secrets one level down, not at the top level: the
-# SourceFieldSelectConfig ones (Stripe `auth_method`, Snowflake `auth_type`, ServiceNow
-# `auth_method`) key their selected branch as `selection`; the SourceFieldSwitchGroupConfig
+# SourceFieldSelectConfig ones (Stripe `auth_method`, Snowflake `auth_type`, Kafka
+# `authentication`) key their selected branch as `selection`; the SourceFieldSwitchGroupConfig
 # one (Billomat's `registered_app`) keys it as `enabled` instead, but the same carried-over-
 # secret check below applies either way.
-_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "registered_app")
+_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "authentication", "registered_app")
 
 # Secrets the edit form can never re-supply (parsed into the individual fields on create, then
 # stripped from API reads and hidden in the edit form), so gating credential re-entry on them would
@@ -481,6 +617,69 @@ def has_preserved_credentials(
             return True
 
     return False
+
+
+# The SSH tunnel fields that pick which SSH server receives the tunnel's SSH credentials.
+_SSH_TUNNEL_ENDPOINT_FIELDS = ("host", "port")
+_SSH_TUNNEL_SECRET_FIELDS = ("password", "passphrase", "private_key")
+# Migration 0807 stored the tunnel auth under this key. The config parser reads it before
+# the canonical `auth` key, so a stale block under it shadows the auth an update supplies.
+_LEGACY_SSH_TUNNEL_AUTH_KEY = "auth_type"
+
+
+@frozen
+class _SshTunnelParts:
+    # The tunnel fields other than its auth: enabled, host, port, host_key and the rest.
+    settings: dict[str, Any]
+    # Read from `auth` or the legacy key. It holds the SSH secrets, so repr must not show it.
+    auth: dict[str, Any] = dataclasses.field(repr=False)
+
+
+def _split_ssh_tunnel_auth(tunnel: dict[str, Any], *, reject_conflict: bool) -> _SshTunnelParts:
+    auth_blocks = [tunnel[key] for key in ("auth", _LEGACY_SSH_TUNNEL_AUTH_KEY) if tunnel.get(key)]
+    if any(not isinstance(block, dict) for block in auth_blocks):
+        raise ValidationError({"job_inputs": {"ssh_tunnel": "SSH tunnel auth must be an object."}})
+    if reject_conflict and len(auth_blocks) == 2 and auth_blocks[0] != auth_blocks[1]:
+        raise ValidationError(
+            {"job_inputs": {"ssh_tunnel": "Send the SSH tunnel auth under `auth` only, not also under `auth_type`."}}
+        )
+    return _SshTunnelParts(
+        settings={key: value for key, value in tunnel.items() if key not in ("auth", _LEGACY_SSH_TUNNEL_AUTH_KEY)},
+        auth=auth_blocks[0] if auth_blocks else {},
+    )
+
+
+def merge_ssh_tunnel(existing: Any, incoming: Any) -> dict[str, Any]:
+    """Merge a partial SSH tunnel update onto the stored tunnel, with the auth under `auth` only.
+
+    The API response omits the SSH secrets, so an update that keeps the endpoint keeps any secret
+    it does not re-supply. An update that changes the host or port must supply a new SSH secret,
+    and no stored secret carries over. Otherwise the credential check would send the stored SSH
+    password to a server that the editor picked.
+    """
+    if not isinstance(incoming, dict):
+        raise ValidationError({"job_inputs": {"ssh_tunnel": "Must be an object."}})
+    incoming_parts = _split_ssh_tunnel_auth(incoming, reject_conflict=True)
+    if not isinstance(existing, dict) or not existing:
+        return (
+            {**incoming_parts.settings, "auth": incoming_parts.auth} if incoming_parts.auth else incoming_parts.settings
+        )
+
+    existing_parts = _split_ssh_tunnel_auth(existing, reject_conflict=False)
+    endpoint_changed = any(
+        key in incoming_parts.settings
+        and connection_target_changed(existing_parts.settings.get(key), incoming_parts.settings[key])
+        for key in _SSH_TUNNEL_ENDPOINT_FIELDS
+    )
+    if endpoint_changed and not any(incoming_parts.auth.get(key) for key in _SSH_TUNNEL_SECRET_FIELDS):
+        raise ValidationError("Changing the SSH tunnel host or port requires re-entering your SSH credentials.")
+
+    merged_auth = {**incoming_parts.auth} if incoming_parts.auth else {**existing_parts.auth}
+    if incoming_parts.auth and not endpoint_changed:
+        for key in _SSH_TUNNEL_SECRET_FIELDS:
+            if existing_parts.auth.get(key) and not incoming_parts.auth.get(key):
+                merged_auth[key] = existing_parts.auth[key]
+    return {**existing_parts.settings, **incoming_parts.settings, "auth": merged_auth}
 
 
 def get_direct_connection_metadata(
@@ -562,3 +761,40 @@ def _refresh_name_substitutions(
     if source_namespace_is_blank(source) and is_multi_schema_capable_sql_source(source.source_type):
         return apply_sql_warehouse_refresh_migration(source=source, team_id=team_id)
     return {}
+
+
+def update_shared_credentials_confirmed(request: Any) -> bool:
+    """True when the request confirms an edit of credentials that other sources or products also use.
+
+    The client sends the flag as a query parameter or in the body.
+    """
+    if request is None:
+        return False
+    value = request.query_params.get(UPDATE_SHARED_CREDENTIALS_PARAM)
+    if value is None and isinstance(request.data, Mapping):
+        value = request.data.get(UPDATE_SHARED_CREDENTIALS_PARAM)
+    return value is True or str(value).lower() == "true"
+
+
+def denied_source_usages(
+    user_access_control: UserAccessControl | None,
+    team_id: int,
+    usages: Iterable[IntegrationUsage],
+    required_level: AccessControlLevel,
+) -> set[str]:
+    """The ids of the warehouse source usages that the user lacks ``required_level`` access to.
+
+    Credentials that a source shares with other sources must not give a user access that object
+    access controls deny on those sources.
+    """
+    if user_access_control is None:
+        return set()
+    source_ids = {usage.id for usage in usages if usage.type in _SOURCE_USAGE_TYPES}
+    if not source_ids:
+        return set()
+    sources = ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids)
+    return {
+        str(source.id)
+        for source in sources
+        if not user_access_control.check_access_level_for_object(source, required_level=required_level)
+    }

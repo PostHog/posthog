@@ -1,13 +1,45 @@
+from products.signals.backend.activity_summary.tick import (
+    ActivitySummaryTickWorkflow,
+    capture_activity_summary_tick_activity,
+    plan_activity_summary_tick_activity,
+    update_activity_summary_pair_activity,
+)
+from products.signals.backend.anomaly_scores.refresh import (
+    AnomalyScoringDueListRefreshWorkflow,
+    refresh_anomaly_scoring_due_list_activity,
+)
+from products.signals.backend.anomaly_scores.tick import (
+    AnomalyScoringTickWorkflow,
+    capture_anomaly_scoring_tick_activity,
+    plan_anomaly_scoring_tick_activity,
+    score_anomaly_insight_activity,
+)
+from products.signals.backend.personal_ranking.tick import (
+    PersonalRankingTickWorkflow,
+    build_personal_ranking_pair_activity,
+    capture_personal_ranking_tick_activity,
+    plan_personal_ranking_tick_activity,
+)
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
+    drain_pending_workflow_triggers_activity,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
+from products.signals.backend.temporal.agentic.scout_rubrics import (
+    GenerateScoutRubricsWorkflow,
+    fail_scout_rubrics_activity,
+    generate_scout_rubrics_activity,
+)
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
+    cancel_failed_scout_trial_activity,
+    check_signals_scout_config_runnable_activity,
+    evaluate_signals_scout_precheck_activity,
+    finalize_monitoring_scout_run_activity,
     resume_signals_scout_workflow_step,
     run_signals_scout_activity,
 )
@@ -18,7 +50,25 @@ from products.signals.backend.temporal.agentic.scout_suggestions import (
     run_scout_suggestions_activity,
     stamp_requested_scout_suggestions_activity,
 )
-from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
+from products.signals.backend.temporal.agentic.scout_trial_comparison import (
+    RunScoutTrialComparisonWorkflow,
+    dispatch_scout_trial_comparison_activity,
+    fail_scout_trial_comparison_activity,
+    finish_scout_trial_comparison_activity,
+    prepare_scout_trial_comparison_evaluation_activity,
+)
+from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
+    RunScoutTrialEvaluationWorkflow,
+    RunScoutTrialJudgeWorkflow,
+    finish_scout_trial_evaluation_activity,
+    judge_scout_trial_run_activity,
+    load_scout_trial_evaluation_activity,
+    poll_scout_trial_judge_activity,
+)
+from products.signals.backend.temporal.agentic.select_repository import (
+    github_optional_pilot_activity,
+    select_repository_activity,
+)
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
     emit_backfill_signal_activity,
@@ -39,18 +89,29 @@ from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 from products.signals.backend.temporal.grouping import (
     TeamSignalGroupingWorkflow,
     assign_and_emit_signal_activity,
+    complete_signal_grouping_activity,
     fetch_report_contexts_activity,
     generate_search_queries_activity,
     get_embedding_activity,
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
-from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow, read_signals_from_s3_activity
+from products.signals.backend.temporal.grouping_v2 import (
+    TeamSignalGroupingV2Workflow,
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
+    read_signals_from_s3_activity,
+)
 from products.signals.backend.temporal.inbox_notification import (
     SignalReportInboxNotificationWorkflow,
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
+)
+from products.signals.backend.temporal.monitoring_assessment import (
+    MonitoringAssessmentWorkflow,
+    exhaust_monitoring_assessment_activity,
+    poll_monitoring_assessment_activity,
 )
 from products.signals.backend.temporal.reingestion import (
     SignalReportReingestionWorkflow,
@@ -72,9 +133,15 @@ from products.signals.backend.temporal.signal_queries import (
     run_signal_semantic_search_activity,
     wait_for_signal_in_clickhouse_activity,
 )
+from products.signals.backend.temporal.spend import (
+    UpdateSignalSpendWorkflow,
+    confirm_signal_spend_activity,
+    update_signal_spend_activity,
+)
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
+    check_report_task_settlement_activity,
     dispatch_inbox_slack_notifications_activity,
     implementation_buffer_seconds_activity,
     mark_report_failed_activity,
@@ -82,15 +149,20 @@ from products.signals.backend.temporal.summary import (
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     maybe_autostart_implementation_activity,
+    notify_research_startup_failure_activity,
     publish_report_completed_activity,
+    publish_report_spend_activity,
     report_has_assigned_signals_activity,
     report_is_candidate_activity,
+    report_spend_owner_activity,
     reset_report_to_potential_activity,
     revert_report_to_candidate_activity,
 )
 
 WORKFLOWS = [
-    InboxRankingScoringWorkflow,
+    MonitoringAssessmentWorkflow,
+    UpdateSignalSpendWorkflow,
+    GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
@@ -103,6 +175,9 @@ WORKFLOWS = [
     EmitEvalSignalWorkflow,
     CustomSignalAgentWorkflow,
     RunSignalsScoutWorkflow,
+    RunScoutTrialEvaluationWorkflow,
+    RunScoutTrialJudgeWorkflow,
+    RunScoutTrialComparisonWorkflow,
     SignalsScoutCoordinatorWorkflow,
     RunScoutSuggestionsWorkflow,
     ScoutSuggestionsCoordinatorWorkflow,
@@ -110,7 +185,22 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    score_inbox_reports_activity,
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
+    poll_monitoring_assessment_activity,
+    exhaust_monitoring_assessment_activity,
+    update_signal_spend_activity,
+    confirm_signal_spend_activity,
+    load_scout_trial_evaluation_activity,
+    dispatch_scout_trial_comparison_activity,
+    fail_scout_trial_comparison_activity,
+    prepare_scout_trial_comparison_evaluation_activity,
+    finish_scout_trial_comparison_activity,
+    judge_scout_trial_run_activity,
+    poll_scout_trial_judge_activity,
+    finish_scout_trial_evaluation_activity,
+    generate_scout_rubrics_activity,
+    fail_scout_rubrics_activity,
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,
@@ -119,8 +209,10 @@ ACTIVITIES = [
     fetch_error_tracking_issues_activity,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
+    drain_pending_workflow_triggers_activity,
     run_due_signal_report_checks_activity,
     assign_and_emit_signal_activity,
+    complete_signal_grouping_activity,
     capture_signal_dropped_activity,
     check_signals_quota_limited_activity,
     delete_report_activity,
@@ -135,8 +227,10 @@ ACTIVITIES = [
     get_embedding_activity,
     match_signal_to_report_activity,
     mark_report_failed_activity,
+    notify_research_startup_failure_activity,
     read_signals_from_s3_activity,
     check_report_quota_gate_activity,
+    check_report_task_settlement_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
@@ -144,6 +238,8 @@ ACTIVITIES = [
     implementation_buffer_seconds_activity,
     report_is_candidate_activity,
     publish_report_completed_activity,
+    publish_report_spend_activity,
+    report_spend_owner_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
     delete_team_reports_activity,
@@ -157,6 +253,10 @@ ACTIVITIES = [
     run_custom_signal_agent_activity,
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
+    finalize_monitoring_scout_run_activity,
+    evaluate_signals_scout_precheck_activity,
+    check_signals_scout_config_runnable_activity,
+    cancel_failed_scout_trial_activity,
     plan_scout_suggestion_runs_activity,
     resume_signals_scout_workflow_step,
     run_scout_suggestions_activity,
@@ -164,7 +264,30 @@ ACTIVITIES = [
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,
+    github_optional_pilot_activity,
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
+]
+
+# The temporal-worker-self-driving fleet runs these, not video-export.
+SELF_DRIVING_WORKFLOWS = [
+    InboxRankingScoringWorkflow,
+    ActivitySummaryTickWorkflow,
+    PersonalRankingTickWorkflow,
+    AnomalyScoringTickWorkflow,
+    AnomalyScoringDueListRefreshWorkflow,
+]
+SELF_DRIVING_ACTIVITIES = [
+    score_inbox_reports_activity,
+    plan_activity_summary_tick_activity,
+    update_activity_summary_pair_activity,
+    capture_activity_summary_tick_activity,
+    plan_personal_ranking_tick_activity,
+    build_personal_ranking_pair_activity,
+    capture_personal_ranking_tick_activity,
+    plan_anomaly_scoring_tick_activity,
+    score_anomaly_insight_activity,
+    capture_anomaly_scoring_tick_activity,
+    refresh_anomaly_scoring_due_list_activity,
 ]

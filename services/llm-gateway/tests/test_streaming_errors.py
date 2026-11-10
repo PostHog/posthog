@@ -42,6 +42,7 @@ class TestStreamingErrorHandling:
 
             with pytest.raises(HTTPException) as exc_info:
                 await handle_llm_request(
+                    product="django",
                     request_data={"model": "test", "messages": []},
                     user=mock_user,
                     model="test-model",
@@ -59,6 +60,7 @@ class TestStreamingErrorHandling:
 
         with pytest.raises(HTTPException) as exc_info:
             await handle_llm_request(
+                product="django",
                 request_data={"model": "test", "messages": []},
                 user=mock_user,
                 model="test-model",
@@ -79,6 +81,7 @@ class TestStreamingErrorHandling:
             return mock_stream()
 
         response = await handle_llm_request(
+            product="django",
             request_data={"model": "test", "messages": [], "stream": True},
             user=mock_user,
             model="test-model",
@@ -108,6 +111,7 @@ class TestStreamingErrorHandling:
 
         with pytest.raises(HTTPException) as exc_info:
             await handle_llm_request(
+                product="django",
                 request_data={"model": "test", "messages": []},
                 user=mock_user,
                 model="test-model",
@@ -141,6 +145,7 @@ class TestPreStreamErrors:
 
             with pytest.raises(HTTPException) as exc_info:
                 await handle_llm_request(
+                    product="django",
                     request_data={"model": "test", "messages": [], "stream": True},
                     user=mock_user,
                     model="test-model",
@@ -170,6 +175,7 @@ class TestPreStreamErrors:
 
         with pytest.raises(HTTPException) as exc_info:
             await handle_llm_request(
+                product="django",
                 request_data={"model": "test", "messages": [], "stream": True},
                 user=mock_user,
                 model="test-model",
@@ -210,6 +216,7 @@ class TestStreamingLifecycle:
             return mock_stream()
 
         response = await handle_llm_request(
+            product="django",
             request_data={"model": "test", "messages": [], "stream": True},
             user=mock_user,
             model="test-model",
@@ -235,6 +242,7 @@ class TestStreamingLifecycle:
             return empty_stream()
 
         response = await handle_llm_request(
+            product="django",
             request_data={"model": "test", "messages": [], "stream": True},
             user=mock_user,
             model="test-model",
@@ -259,7 +267,7 @@ def _get_request_count(status_code: str, model: str = "test-model") -> float:
         model=model,
         status_code=status_code,
         auth_method="personal_api_key",
-        product="llm_gateway",
+        product="django",
     )._value.get()
 
 
@@ -295,6 +303,7 @@ class TestRequestCountMetrics:
 
         with pytest.raises(HTTPException):
             await handle_llm_request(
+                product="django",
                 request_data={"model": "test", "messages": []},
                 user=mock_user,
                 model="test-model",
@@ -318,6 +327,7 @@ class TestRequestCountMetrics:
 
             with pytest.raises(HTTPException):
                 await handle_llm_request(
+                    product="django",
                     request_data={"model": "test", "messages": []},
                     user=mock_user,
                     model="test-model",
@@ -340,6 +350,7 @@ class TestRequestCountMetrics:
             return error_stream()
 
         response = await handle_llm_request(
+            product="django",
             request_data={"model": "test", "messages": [], "stream": True},
             user=mock_user,
             model="test-model",
@@ -359,9 +370,7 @@ class TestRequestCountMetrics:
 
     @pytest.mark.asyncio
     async def test_streaming_mid_stream_error_records_provider_errors(self, mock_user: AuthenticatedUser) -> None:
-        before = PROVIDER_ERRORS.labels(
-            provider="anthropic", error_type="ValueError", product="llm_gateway"
-        )._value.get()
+        before = PROVIDER_ERRORS.labels(provider="anthropic", error_type="ValueError", product="django")._value.get()
 
         async def error_stream() -> AsyncGenerator[dict[str, Any]]:
             yield {"type": "content_block_delta", "delta": {"text": "Hello"}}
@@ -371,6 +380,7 @@ class TestRequestCountMetrics:
             return error_stream()
 
         response = await handle_llm_request(
+            product="django",
             request_data={"model": "test", "messages": [], "stream": True},
             user=mock_user,
             model="test-model",
@@ -386,7 +396,5 @@ class TestRequestCountMetrics:
         except Exception:
             pass
 
-        after = PROVIDER_ERRORS.labels(
-            provider="anthropic", error_type="ValueError", product="llm_gateway"
-        )._value.get()
+        after = PROVIDER_ERRORS.labels(provider="anthropic", error_type="ValueError", product="django")._value.get()
         assert after == before + 1

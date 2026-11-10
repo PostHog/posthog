@@ -79,6 +79,14 @@ The Hono runtime keeps per-user session state (active project/organization, regi
 - **Deterministic**: Same token always produces the same hash/prefix
 - **Secure**: Tokens can't be reversed from the hash
 
+Project and organization selections are scoped to the credential and transport session, or to the SDK's conversation handle for sessionless clients. Conversation and transport namespaces are separate. Echoed handles resolve before the state lookup; a newly minted handle binds state before tool execution. Both direct and exec-routed switches require the request to carry a session or conversation handle. A switch without one returns an error and the SDK's new handle for retrying. Switching does not update the shared credential selection.
+
+Each sessionless legacy batch item resolves its own request properties, state, and carried-handle guard. A wrapper-only `sessionId` cannot restore selections, so it does not suppress SDK conversation-handle minting.
+
+Credential, user, and entity lookup promises are shared within an HTTP request, keyed by credential cache scope and entity. Per-item state managers and active selections remain independent. Existing Redis TTLs control freshness; rejected promises are removed to permit retries. A newly minted conversation's state resolution uses the same request-local lookup cache.
+
+Remote flag evaluation uses this cache too, keyed by credential, distinct ID, normalized groups, and flag keys. Both flag values and payloads are shared only for matching contexts; each call applies its own overrides afterward. Failed evaluations leave the cache before the resolver returns its empty fallback.
+
 ### Wide Logging Pattern
 
 Instead of scattered log statements, we accumulate data into a single log object and emit once at the end:
@@ -110,7 +118,16 @@ The server uses one shared `PostHogMCP` client from `src/lib/posthog/client.ts`.
 The `src/hono/analytics.ts` module calls SDK helpers for initialization, tool calls, and tool listings.
 Direct tool calls and inner exec calls use the same `trackToolCall()` path.
 The SDK creates the canonical `$mcp_*` event fields and applies its sanitization and truncation rules.
+Tool arguments and results reach `$mcp_parameters` and `$mcp_response` only under the capture policy and secret redaction that `$ai_span` uses, so a tool excluded from spans sends neither, and `execute-sql` sends its query but not its rows.
+An exec command that resolves no inner tool sends neither, since its raw command string has no tool name to apply the policy to.
+The result is the handler's raw object, redacted by key, not the formatted text the agent reads, and failed calls send no result because their text embeds upstream error bodies.
 New `$mcp_*` events and properties belong in the SDK, not in this server.
+
+Private scout credentials derive capture suppression from their server-issued OAuth scope.
+The existing SDK `beforeSend` hook drops those events; request headers and tool arguments cannot enable this policy.
+Operator trial launch/result tools also omit analytics, including calls through `exec`.
+Private task reads are marked by the PostHog API's response header, including lists and connected-project responses.
+The MCP client applies suppression to that call only, keeping ordinary task telemetry unchanged.
 
 #### Three correlation identifiers
 

@@ -573,3 +573,47 @@ class TestUrlValidation:
     )
     def test_rejects_non_teams_webhook_url(self, url):
         assert uv.is_microsoft_teams_webhook_url(url) is False
+
+
+class TestOOBDomainGuard:
+    @pytest.fixture
+    def seen(self, monkeypatch):
+        events: list[tuple[str, dict]] = []
+        monkeypatch.setattr(uv.logger, "info", lambda event, **fields: events.append((event, fields)))
+        return events
+
+    def test_refuses_a_listed_host_and_logs_it(self, monkeypatch, seen):
+        monkeypatch.setattr(uv, "is_cloud", lambda: True)
+
+        blocked = uv._blocked_host_name("abc.oast.live")
+
+        assert blocked is not None
+        assert blocked.pattern == "oast.live"
+        assert [event for event, _ in seen] == ["security.oob_domain_seen"]
+        assert seen[0][1]["domain"] == "oast.live"
+        assert seen[0][1]["guard"] == "url_validation"
+
+    def test_refuses_a_listed_host_before_it_resolves(self, monkeypatch):
+        # The names resolve to ordinary public IPs, so a refusal that waited for the answer
+        # would have already made the lookup that confirms the path to the collaborator.
+        monkeypatch.setattr(uv, "is_cloud", lambda: True)
+        monkeypatch.setattr(uv, "resolve_host_ips", lambda host: pytest.fail("resolved a listed host"))
+
+        allowed, reason = uv.is_url_allowed("https://abc.oast.live/x")
+
+        assert allowed is False
+        assert reason == "Domain not allowed"
+
+    def test_allows_an_unlisted_host(self, monkeypatch, seen):
+        monkeypatch.setattr(uv, "is_cloud", lambda: True)
+
+        assert uv._blocked_host_name("notoast.me") is None
+
+        assert seen == []
+
+    def test_allows_a_listed_host_off_cloud(self, monkeypatch, seen):
+        monkeypatch.setattr(uv, "is_cloud", lambda: False)
+
+        assert uv._blocked_host_name("abc.oast.live") is None
+
+        assert seen == []

@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Skeleton } from '@posthog/quill'
 
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
@@ -10,9 +12,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { NODE_TYPE_TAG_SETTINGS } from '../lineage/nodeStyles'
 import { NodeDetailActions } from './NodeDetailActions'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailTitleTags } from './NodeDetailTitleTags'
 
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     const {
@@ -22,6 +24,7 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         savedQueryError,
     } = useValues(nodeDetailSceneLogic({ id }))
     const { updateNodeDescription } = useActions(nodeDetailSceneLogic({ id }))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { savedQuery: currentSavedQuery } = useValues(
         materializationJobsLogic({
@@ -38,9 +41,11 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
                     : 'view'
                 : node.type
             : node?.type
-    const typeTag = nodeType ? NODE_TYPE_TAG_SETTINGS[nodeType] : null
+    // A native table such as `events` has no warehouse table, so it has no annotation to edit.
+    const isNativeTable = node?.type === 'table' && !node.warehouse_table_id
     const canEdit =
         node?.type !== 'metric' &&
+        !isNativeTable &&
         userHasAccess(
             AccessControlResourceType.WarehouseObjects,
             AccessControlLevel.Editor,
@@ -51,14 +56,18 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         <>
             <SceneTitleSection
                 name={node?.name}
-                nameSuffix={typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
+                nameSuffix={<NodeDetailTitleTags nodeType={nodeType} node={node} />}
                 actions={
                     // A failed saved query never resolves on its own, so the placeholder must not
                     // outlive it. The Materialization and Query tabs carry the retry.
                     node && savedQuery ? (
-                        <NodeDetailActions node={node} savedQuery={savedQuery} />
+                        <NodeDetailActions id={id} node={node} savedQuery={savedQuery} />
                     ) : node?.saved_query_id && !savedQueryError ? (
-                        <LemonSkeleton className="h-8 w-56" />
+                        todayRailNav ? (
+                            <Skeleton className="h-8 w-56" />
+                        ) : (
+                            <LemonSkeleton className="h-8 w-56" />
+                        )
                     ) : undefined
                 }
                 description={node?.description}

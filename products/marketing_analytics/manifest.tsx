@@ -16,6 +16,7 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.MARKETING_ANALYTICS],
             category: ProductItemCategory.DATA,
             href: urls.marketingAnalyticsApp(),
+            searchKeywords: ['ad spend', 'roas', 'utm', 'attribution', 'paid ads'],
             iconType: 'marketing_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,
             tags: ['beta'],

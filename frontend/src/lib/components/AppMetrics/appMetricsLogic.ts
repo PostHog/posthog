@@ -18,10 +18,9 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { HogQLQueryString, hogql } from 'lib/utils/hogql'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 
@@ -33,9 +32,11 @@ export type AppMetricsCommonParams = {
     /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
     appSourceIdPrefix?: string
     instanceId?: string
+    /** Match any of these instance IDs. */
+    instanceIds?: string[]
     metricName?: string | string[]
     metricKind?: string | string[]
-    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
+    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id'
     interval?: 'day' | 'hour' | 'minute'
     dateFrom?: string
     dateTo?: string
@@ -113,6 +114,9 @@ export const loadAppMetricsTotals = async (
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    }
+    if (request.instanceIds) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceIds}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]
@@ -226,6 +230,9 @@ export const loadAppMetricsTimeSeries = async (
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    }
+    if (request.instanceIds) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceIds}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]

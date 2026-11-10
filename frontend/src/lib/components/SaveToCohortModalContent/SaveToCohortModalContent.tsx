@@ -51,6 +51,11 @@ export function SaveToCohortModalContent({ closeModal, query }: SaveToCohortModa
                     <LemonButton
                         size="xsmall"
                         type="primary"
+                        disabledReason={
+                            cohort.is_calculating
+                                ? 'This cohort is still being populated. Try again when it finishes.'
+                                : undefined
+                        }
                         onClick={() => {
                             saveQueryToCohort(cohort, query)
                             closeModal()

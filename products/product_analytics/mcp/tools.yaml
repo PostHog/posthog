@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product product_analytics
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product product_analytics
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Product analytics
 feature: product_analytics
 url_prefix: /insights
@@ -12,40 +10,18 @@ ui_apps:
         type: detail
         view_prop: data
         link_prop: openLink
+    explain-chart:
+        type: custom
+        app_name: PostHog Chart Explanation
+        description: A trends chart with the moments that stand out highlighted, explained one chapter at a time.
+        render_ui:
+            component_import: ../components/ExplainChart
+            view_component: ExplainChart
+            view_prop: data
+            data_type: ExplainChartData
+            link_prop: openLink
+            app_prop: app
 tools:
-    column-configurations-create:
-        operation: column_configurations_create
-        enabled: false
-    column-configurations-destroy:
-        operation: column_configurations_destroy
-        enabled: false
-    column-configurations-list:
-        operation: column_configurations_list
-        enabled: false
-    column-configurations-partial-update:
-        operation: column_configurations_partial_update
-        enabled: false
-    column-configurations-retrieve:
-        operation: column_configurations_retrieve
-        enabled: false
-    column-configurations-update:
-        operation: column_configurations_update
-        enabled: false
-    elements-create:
-        operation: elements_create
-        enabled: false
-    elements-destroy:
-        operation: elements_destroy
-        enabled: false
-    elements-list:
-        operation: elements_list
-        enabled: false
-    elements-partial-update:
-        operation: elements_partial_update
-        enabled: false
-    elements-retrieve:
-        operation: elements_retrieve
-        enabled: false
     elements-stats-retrieve:
         operation: elements_stats_retrieve
         enabled: true
@@ -63,15 +39,92 @@ tools:
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
             or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
             paginate with `offset` if you need more results.
-    elements-update:
-        operation: elements_update
-        enabled: false
-    elements-values-list:
-        operation: elements_values_list
-        enabled: false
-    events-retention-retrieve:
+    events-retention-deletion-count:
+        operation: events_retention_deletion_count
+        enabled: true
+        scopes:
+            - project:read
+            - query:read
+        title: Count the events a project's retention period would delete
+        description: >
+            Count this project's events that the next monthly cleanup would delete if the project kept events for
+            `retention_months` months. Call it before events-retention-update-prepare and tell the user the count, so
+            they know how many events a shorter period deletes. The cleanup deletes whole calendar months, so the count
+            covers the events from before the start of the month that holds the date `retention_months` months before
+            the next cleanup.
+    events-retention-get:
         operation: events_retention_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - project:read
+        title: Get the events retention period for a project
+        description: >
+            Get how long this project keeps events and when its events are next deleted. Call it before
+            events-retention-update-prepare, and to answer when or why old events are missing.
+
+
+            The project keeps events for `project_retention_months` when that is set. When it is null, the project uses
+            the organization's period, `organization_retention_months`, and when that is null too, the default period,
+            `default_retention_months`. The default is 24 months on current plans, and `default_is_grandfathered` is
+            true when an older plan keeps its whole plan period as the default. `plan_retention_months` is the longest
+            period the plan allows.
+
+
+            `retention_months` and `retained_from` say how far back queries return events right now. Both are null while
+            queries still return events older than the period, but a period set for the project or organization still
+            deletes events. `next_deletion_on` is the date of the next cleanup that deletes this project's events, and
+            `next_deletion_before` is the date it deletes events before. Both are null while no deletion is scheduled.
+
+
+            `retention_months_choices` lists the periods events-retention-update-prepare accepts, and the period also
+            has to be between `min_retention_months` and `max_retention_months`. If the current period isn't one of the
+            choices, PostHog support set it.
+    events-retention-update:
+        operation: events_retention_update
+        enabled: true
+        scopes:
+            - project:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set the events retention period for a project
+        description: >
+            Set how long this project keeps events. A period set for the project overrides the organization's period.
+            Pass one of `retention_months_choices` from events-retention-get that is between `min_retention_months` and
+            `max_retention_months`, or null to remove the project's period. Any other value is rejected. Organization
+            admins only. Requires human typed confirmation.
+
+
+            Events in this project that are older than the new period will be deleted, and deleted events can't be
+            restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. A
+            period set for the project or the organization is applied by a cleanup that runs once a month, on
+            `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month
+            past the period.
+
+
+            Null makes the project use the organization's period, which the monthly cleanup applies. When the
+            organization has no period either, the project uses the default period. Don't give the user a date or a
+            count for deleting events past the default period.
+
+
+            Before you prepare the change, call events-retention-get and tell the user the current and new period. If
+            the new period is shorter and isn't the default period, call events-retention-deletion-count and tell the
+            user how many events are deleted and when. If the current period isn't one of `retention_months_choices`,
+            PostHog support set it. Tell the user that they need to contact support to get that period back after they
+            change it.
+        param_overrides:
+            retention_months:
+                description: >
+                    The period in months. It also has to be between `min_retention_months` and `max_retention_months`
+                    from events-retention-get. Null removes the project's period, so the project uses the organization's
+                    period, or the default period when the organization has none.
+        confirmed_action:
+            message: >
+                About to change how long this project keeps events. If the new period is shorter, events in this project
+                that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to
+                proceed.
+            action_label: set events retention period
     insight-create:
         operation: insights_create
         enabled: true
@@ -95,7 +148,8 @@ tools:
 
             Put the insight definition in `query.source`, under the wrapper node that matches it. Use
 
-            `InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:
+            `InsightVizNode` for a product analytics chart, `DataVisualizationNode` for a SQL visualization, and
+            `DataTableNode` with an `EventsQuery` source for a table of individual events:
 
 
             ```json
@@ -105,10 +159,96 @@ tools:
 
             ```
 
+            Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
+            so a query you just ran through one of the `query-*` tools can be passed straight through.
 
-            A bare query is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }` are each
 
-            wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
+            A saved SQL insight must follow the dashboard and insight date range. Before you save a `HogQLQuery`,
+            replace its fixed date window, such as `timestamp >= now() - INTERVAL 30 DAY`, with the `{filters}`
+            placeholder: `WHERE event = 'signed_up' AND {filters}`. Then put the requested window in
+            `query.source.filters.dateRange`, for example `{"date_from": "-30d"}`. A fixed window ignores the date
+            picker, and `{filters}` without a `dateRange` shows all time. `{filters}` also applies the property and
+            test-account filters. For a table without a `timestamp` column, bind its date column with
+            `{filters(created_at AS timestamp)}`.
+
+
+            Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
+            `InsightVizNode`.
+
+
+            For a PromQL metrics insight, set `language` to `promql`, put the expression in `promql`, and send `clauses`
+            as an empty list. When query-metrics accepts a `promql` field, test the expression with it first:
+
+
+            ```json
+
+            { "name": "Request rate", "query": { "kind": "MetricsQuery", "language": "promql", "promql":
+            "sum(rate(http_requests_total[5m]))", "clauses": [], "dateRange": { "date_from": "-24h" } } }
+
+            ```
+
+
+            Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
+
+            - Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.
+
+            - Compare breakdown values or series as totals ("top pages", "failures by reason"): `ActionsBarValue`, or
+            `ActionsPie` for the share of a whole with a few values.
+
+            - One number for the period, or this period against the previous one: `Metric` with `compareFilter.compare:
+            true` for a comparison, or `BoldNumber` when a trend has no meaning.
+
+            - Many breakdown rows that a person reads rather than compares: `ActionsTable`.
+
+            - Totals per country from a `$geoip_country_code` breakdown: `WorldMap`.
+
+
+            In a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked
+            in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per
+            X-axis value, and `ActionsBarValue` draws the same bars horizontally.
+        agent_note: >
+            When you tell the user about this insight, name the display you chose and one or two other displays that
+            also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with
+            insight-update. Suggest only displays that the insight kind supports and that fit the question:
+
+
+            - Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar`
+            or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or
+            `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series;
+            `WorldMap` only for a `$geoip_country_code` breakdown.
+
+            - Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time,
+            or `time_to_convert` for how long users take.
+
+            - Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.
+
+            - Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.
+
+            - Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).
+
+            - SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.
+
+            - Paths: suggest nothing.
+
+
+            Use the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool
+            names. If the user named the chart they want, do not suggest others. If you create several insights in this
+            task, give one short list of alternatives at the end, not one per insight.
+
+
+            After creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned
+            short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved
+            sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual
+            number, never a placeholder such as X, for example "want me to alert you when daily signups drop below
+            400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1.
+            Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it,
+            offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw
+            pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
+            newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
+            already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
+            nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual
+            changes, check the final saved insight once if browser access is already available. Skip browser checks for
+            small edits.
         exclude_params:
             - query
         include_params:
@@ -126,7 +266,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result
@@ -206,7 +346,10 @@ tools:
         description: >
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
-            tool with the same identifier if you want to see the recomputed results.
+            tool with the same identifier if you want to see the recomputed results. Query uses the same format as
+            insight-create. Replacing query replaces the entire definition; include all filters and visualization
+            settings you want to retain. After substantial visual changes, check the final saved insight once if browser
+            access is already available. Skip browser checks for small edits.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when
@@ -216,7 +359,7 @@ tools:
             nothing when this update left `dashboards` alone or only removed the insight from a dashboard. Describe it
             the way a person would recognize it, for example a weekly email every Monday morning with these charts
             attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs
-            `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 10 charts, `target_type` of
+            `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 20 charts, `target_type` of
             `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also
             set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the
             channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the
@@ -246,7 +389,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result
@@ -279,9 +422,6 @@ tools:
                 - detail.changes.*.after
                 - detail.trigger
                 - detail.type
-    insights-activity-retrieve-2:
-        operation: insights_activity_retrieve
-        enabled: false
     insights-all-activity-retrieve:
         operation: insights_all_activity_retrieve
         enabled: true
@@ -305,24 +445,6 @@ tools:
                 - detail.changes.*.after
                 - detail.trigger
                 - detail.type
-    insights-bulk-delete-create:
-        operation: insights_bulk_delete_create
-        enabled: false
-    insights-bulk-restore-create:
-        operation: insights_bulk_restore_create
-        enabled: false
-    insights-bulk-set-test-account-filter-create:
-        operation: insights_bulk_set_test_account_filter_create
-        enabled: false
-    insights-bulk-update-tags-create:
-        operation: insights_bulk_update_tags_create
-        enabled: false
-    insights-cancel-create:
-        operation: insights_cancel_create
-        enabled: false
-    insights-generate-metadata-create:
-        operation: insights_generate_metadata_create
-        enabled: false
     insights-list:
         operation: insights_list
         enabled: true
@@ -364,9 +486,6 @@ tools:
                 - last_modified_by
                 - last_viewed_at
                 - alerts
-    insights-my-last-viewed-retrieve:
-        operation: insights_my_last_viewed_retrieve
-        enabled: false
     insights-trending-retrieve:
         operation: insights_trending_retrieve
         enabled: true
@@ -401,12 +520,87 @@ tools:
                 - last_viewed_at
                 - view_count
                 - viewers
-    insights-update:
-        operation: insights_update
-        enabled: false
-    insights-viewed-create:
-        operation: insights_viewed_create
-        enabled: false
-    paths-v2-segment-to-funnel-create:
-        operation: paths_v2_segment_to_funnel_create
-        enabled: false
+    organization-events-retention-deletion-count:
+        operation: organization_events_retention_deletion_count
+        enabled: true
+        scopes:
+            - organization:read
+            - query:read
+        title: Count the events an organization's retention period would delete
+        description: >
+            Count the events that the next monthly cleanup would delete if the organization kept events for
+            `retention_months` months, summed over the projects without their own period. Projects with their own period
+            are left out, because the organization's period doesn't apply to them. Call it before
+            organization-events-retention-update-prepare and tell the user the count. The cleanup deletes whole calendar
+            months, so the count covers the events from before the start of the month that holds the date
+            `retention_months` months before the next cleanup.
+
+
+            The count only includes events that queries can still return, and it can be up to a day old.
+    organization-events-retention-get:
+        operation: organization_events_retention_retrieve
+        enabled: true
+        scopes:
+            - organization:read
+        title: Get the events retention period for an organization
+        description: >
+            Get how long projects in this organization keep events. Call it before
+            organization-events-retention-update-prepare. To see one project's period, how far back its queries go, and
+            its next deletion, use events-retention-get.
+
+
+            `organization_retention_months` is the period every project without its own period uses. When it is null,
+            those projects use the default period, `default_retention_months`. The default is 24 months on current
+            plans, and `default_is_grandfathered` is true when an older plan keeps its whole plan period as the default.
+            `plan_retention_months` is the longest period the plan allows. `next_monthly_cleanup_on` is the date of the
+            next monthly cleanup.
+
+
+            `retention_months_choices` lists the periods organization-events-retention-update-prepare accepts, and the
+            period also has to be between `min_retention_months` and `max_retention_months`. If the current period isn't
+            one of the choices, PostHog support set it.
+    organization-events-retention-update:
+        operation: organization_events_retention_update
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set the events retention period for an organization
+        description: >
+            Set how long every project without its own period keeps events. Projects with their own period keep it. Pass
+            one of `retention_months_choices` from organization-events-retention-get that is between
+            `min_retention_months` and `max_retention_months`, or null to remove the organization's period. Any other
+            value is rejected. Organization admins only. Requires human typed confirmation.
+
+
+            Events in projects without their own period that are older than the new period will be deleted, and deleted
+            events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion
+            isn't instant. The organization's period is applied by a cleanup that runs once a month, on
+            `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month
+            past the period.
+
+
+            Null makes projects without their own period use the default period. Don't give the user a date or a count
+            for deleting events past the default period.
+
+
+            Before you prepare the change, call organization-events-retention-get and tell the user the current and new
+            period. If the new period is shorter and isn't the default period, call
+            organization-events-retention-deletion-count and tell the user how many events are deleted and when. If the
+            current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need
+            to contact support to get that period back after they change it.
+        param_overrides:
+            retention_months:
+                description: >
+                    The period in months. It also has to be between `min_retention_months` and `max_retention_months`
+                    from organization-events-retention-get. Null removes the organization's period, so projects without
+                    their own period use the default period.
+        confirmed_action:
+            message: >
+                About to change how long projects without their own period keep events. If the new period is shorter,
+                events in those projects that are older than it will be deleted, and deleted events can't be restored.
+                Reply 'confirm' to proceed.
+            action_label: set organization events retention period

@@ -18,7 +18,7 @@ from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.event.new_events_schema import use_new_events_schema
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
 
 DEFAULT_LIMIT = 500
 
@@ -36,7 +36,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
     def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.settings = settings
-        self._use_new_events_schema = use_new_events_schema(self.team.pk)
+        self._use_new_events_schema = use_new_events_schema(self.team.pk, self.modifiers)
         self.paginator = HogQLHasMorePaginator(
             limit=self.query.limit or DEFAULT_LIMIT,
             offset=self.query.offset or 0,
@@ -111,6 +111,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             # feature flags and experiments
             r"\$feature\/",
             r"^\$feature_flags$",
+            r"^\$active_feature_flags$",
             r"\$feature_enrollment\/",
             r"\$feature_interaction\/",
             # product tours
@@ -157,7 +158,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 )
             )
         elif self.query.actionId:
-            action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
+            action = get_action(action_id=self.query.actionId, project_id=self.team.project_id)
             filter_expr.append(action_to_expr(action))
         else:
             raise ValueError("Either event or action ID must be provided.")

@@ -177,7 +177,7 @@ def source_string_column(column_name: str, use_new: bool = False) -> str:
     if use_new:
         column = f"properties.{escape_clickhouse_identifier(column_name)}"
         if column_name not in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
-            column = f"dynamicElement({column}, 'String')"
+            column = f"CAST({column}, 'Nullable(String)')"
         return f"CAST(ifNull({column}, ''), 'String')"
     return f"JSONExtractString(properties, '{column_name}')"
 

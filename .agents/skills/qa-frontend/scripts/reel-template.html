@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Feature reel</title>
+        <style>
+            body {
+                margin: 0;
+                background: #eeefe9;
+            }
+            #reel {
+                position: relative;
+                overflow: hidden;
+                background: #eeefe9;
+            }
+            #stage {
+                position: absolute;
+                left: 0;
+                top: 0;
+                transform-origin: 0 0;
+            }
+            .still {
+                position: absolute;
+                left: 0;
+                top: 0;
+            }
+            #cursor {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 22px;
+                height: 22px;
+                margin: -2px 0 0 -4px;
+                transform-origin: 4px 2px;
+                z-index: 10;
+            }
+            .ring {
+                position: absolute;
+                width: 40px;
+                height: 40px;
+                margin: -20px 0 0 -20px;
+                box-sizing: border-box;
+                border: 3px solid #f54e00;
+                border-radius: 50%;
+                z-index: 9;
+            }
+            .caption {
+                position: absolute;
+                left: 50%;
+                bottom: 18px;
+                padding: 9px 18px;
+                border-radius: 999px;
+                background: #151515;
+                color: #eeefe9;
+                white-space: nowrap;
+                font:
+                    600 17px/1.2 -apple-system,
+                    BlinkMacSystemFont,
+                    'Segoe UI',
+                    Helvetica,
+                    Arial,
+                    sans-serif;
+                box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+                z-index: 20;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="reel"><div id="stage"></div></div>
+        <script>
+            // The reel is a pure function of time: reel-render.mjs calls render(t) once per output frame.
+            const OUT_WIDTH = 960
+            const MAX_ZOOM = 1.9
+            // The camera never frames less than this many CSS pixels, so a small target keeps its context.
+            const MIN_FOCUS = { w: 420, h: 262 }
+            const INTRO = 0.7
+            const GLIDE = 0.9
+            const CLICK_HOLD = 0.35
+            const FADE = 0.18
+            const PRESS = 0.22
+            const RING = 0.55
+            const SETTLE = 0.8
+            const RESULT_HOLD = 2.2
+            const OUTRO = 0.7
+            const TAIL = 0.3
+            const CURSOR_IN_AT = 0.2
+            const CURSOR_FADE = 0.3
+            const CAPTION_DELAY = 0.1
+            const CAPTION_GAP = 0.15
+            const CAPTION_FADE_IN = 0.25
+            const CAPTION_FADE_OUT = 0.2
+            // keep in sync with the cursor in cursor-overlay.js
+            const CURSOR_SVG =
+                '<svg width="22" height="22" viewBox="0 0 22 22"><path d="M4 2 L4 17 L8 13.5 L11 20 L13.5 19 L10.5 12.5 L16 12 Z" ' +
+                'fill="#fff" stroke="#151515" stroke-width="1.4" stroke-linejoin="round"/></svg>'
+
+            function clamp01(value) {
+                return Math.min(1, Math.max(0, value))
+            }
+
+            function easeInOut(p) {
+                return p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2
+            }
+
+            function easeOut(p) {
+                return 1 - (1 - p) ** 3
+            }
+
+            function mix(from, to, p) {
+                const result = {}
+                for (const key of Object.keys(from)) {
+                    result[key] = from[key] + (to[key] - from[key]) * p
+                }
+                return result
+            }
+
+            // Keys are [time, value] pairs in time order. The value holds before the first key and after the last.
+            function track(keys, t) {
+                if (t <= keys[0][0]) {
+                    return keys[0][1]
+                }
+                for (let i = 1; i < keys.length; i++) {
+                    const [end, to] = keys[i]
+                    if (t <= end) {
+                        const [start, from] = keys[i - 1]
+                        return mix(from, to, easeInOut((t - start) / (end - start)))
+                    }
+                }
+                return keys.at(-1)[1]
+            }
+
+            function union(a, b) {
+                const x = Math.min(a.x, b.x)
+                const y = Math.min(a.y, b.y)
+                return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y }
+            }
+
+            function planReel(data) {
+                const { width: vw, height: vh } = data.viewport
+                const outHeight = Math.round((OUT_WIDTH * vh) / vw)
+                const cameraFor = (rect) => {
+                    const w = Math.max(rect.w, MIN_FOCUS.w)
+                    const h = Math.max(rect.h, MIN_FOCUS.h)
+                    const zoom = Math.min(MAX_ZOOM, Math.max(1, Math.min(vw / w, vh / h)))
+                    const s = (OUT_WIDTH / vw) * zoom
+                    // Clamp so the still always covers the whole output.
+                    const x = Math.min(0, Math.max(OUT_WIDTH - vw * s, OUT_WIDTH / 2 - (rect.x + rect.w / 2) * s))
+                    const y = Math.min(0, Math.max(outHeight - vh * s, outHeight / 2 - (rect.y + rect.h / 2) * s))
+                    return { x, y, s }
+                }
+
+                const steps = data.frames.filter((frame) => frame.target)
+                if (steps.length === 0) {
+                    throw new Error('A reel needs at least one step')
+                }
+                let t = INTRO
+                const beats = steps.map((frame) => {
+                    const { point } = frame.target
+                    const focus = union(frame.target, { x: point.x - 60, y: point.y - 40, w: 120, h: 80 })
+                    const beat = {
+                        at: t,
+                        camera: cameraFor(focus),
+                        point,
+                        clicks: frame.target.action !== 'hover',
+                        click: t + GLIDE,
+                        swap: t + GLIDE + CLICK_HOLD,
+                        caption: frame.caption,
+                    }
+                    t += GLIDE + CLICK_HOLD + FADE
+                    return beat
+                })
+                const lastTarget = steps.at(-1).target
+                const ending = {
+                    at: t,
+                    camera: cameraFor(lastTarget.result ? union(lastTarget, lastTarget.result) : lastTarget),
+                    outro: t + RESULT_HOLD,
+                    caption: data.frames.at(-1).caption,
+                }
+                return {
+                    vw,
+                    vh,
+                    outHeight,
+                    full: { x: 0, y: 0, s: OUT_WIDTH / vw },
+                    beats,
+                    ending,
+                    duration: ending.outro + OUTRO + TAIL,
+                }
+            }
+
+            function cameraKeys(plan) {
+                const keys = [[0, plan.full]]
+                let from = plan.full
+                for (const beat of plan.beats) {
+                    keys.push([beat.at, from], [beat.at + GLIDE, beat.camera])
+                    from = beat.camera
+                }
+                const { ending } = plan
+                keys.push(
+                    [ending.at, from],
+                    [ending.at + SETTLE, ending.camera],
+                    [ending.outro, ending.camera],
+                    [ending.outro + OUTRO, plan.full]
+                )
+                return keys
+            }
+
+            function cursorKeys(plan) {
+                const first = plan.beats[0].point
+                const start = { x: Math.min(first.x + 220, plan.vw - 40), y: Math.min(first.y + 160, plan.vh - 40) }
+                const keys = [[0, start]]
+                let from = start
+                for (const beat of plan.beats) {
+                    keys.push([beat.at + 0.05, from], [beat.at + 0.05 + GLIDE * 0.85, beat.point])
+                    from = beat.point
+                }
+                return keys
+            }
+
+            function captionWindows(plan) {
+                const windows = plan.beats.map((beat, i) => {
+                    const next = i + 1 < plan.beats.length ? plan.beats[i + 1].at : plan.ending.at
+                    return { text: beat.caption, from: beat.at, to: next - CAPTION_GAP }
+                })
+                windows.push({ text: plan.ending.caption, from: plan.ending.at + CAPTION_DELAY, to: plan.ending.outro })
+                return windows.filter((window) => window.text)
+            }
+
+            async function setupReel(data) {
+                const plan = planReel(data)
+                const reel = document.getElementById('reel')
+                const stage = document.getElementById('stage')
+                reel.style.width = `${OUT_WIDTH}px`
+                reel.style.height = `${plan.outHeight}px`
+                stage.style.width = `${plan.vw}px`
+                stage.style.height = `${plan.vh}px`
+
+                const stills = data.frames.map((frame) => {
+                    const img = document.createElement('img')
+                    img.className = 'still'
+                    img.src = frame.src
+                    img.style.width = `${plan.vw}px`
+                    img.style.height = `${plan.vh}px`
+                    stage.appendChild(img)
+                    return img
+                })
+                await Promise.all(stills.map((img) => img.decode()))
+
+                const rings = plan.beats.map((beat) => {
+                    const ring = document.createElement('div')
+                    ring.className = 'ring'
+                    ring.style.left = `${beat.point.x}px`
+                    ring.style.top = `${beat.point.y}px`
+                    stage.appendChild(ring)
+                    return ring
+                })
+                const cursor = document.createElement('div')
+                cursor.id = 'cursor'
+                cursor.innerHTML = CURSOR_SVG
+                stage.appendChild(cursor)
+
+                const captions = captionWindows(plan).map((window) => {
+                    const el = document.createElement('div')
+                    el.className = 'caption'
+                    el.textContent = window.text
+                    reel.appendChild(el)
+                    return { el, ...window }
+                })
+
+                const camera = cameraKeys(plan)
+                const cursorPath = cursorKeys(plan)
+
+                const render = (t) => {
+                    const cam = track(camera, t)
+                    stage.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`
+
+                    // Still i + 1 shows the result of beat i, so it fades in over still i at that beat's swap.
+                    stills.forEach((img, i) => {
+                        img.style.opacity = i === 0 ? 1 : clamp01((t - plan.beats[i - 1].swap) / FADE)
+                    })
+
+                    let press = 1
+                    plan.beats.forEach((beat, i) => {
+                        if (!beat.clicks) {
+                            rings[i].style.opacity = 0
+                            return
+                        }
+                        const p = (t - beat.click) / RING
+                        const visible = p >= 0 && p <= 1
+                        rings[i].style.opacity = visible ? 0.95 * (1 - p) : 0
+                        rings[i].style.transform = `scale(${0.3 + 1.2 * easeOut(clamp01(p))})`
+                        const pressed = (t - beat.click) / PRESS
+                        if (pressed >= 0 && pressed <= 1) {
+                            press = 1 - 0.2 * Math.sin(Math.PI * pressed)
+                        }
+                    })
+
+                    const pos = track(cursorPath, t)
+                    const cursorIn = clamp01((t - CURSOR_IN_AT) / CURSOR_FADE)
+                    cursor.style.opacity = Math.min(
+                        cursorIn,
+                        clamp01((plan.ending.outro + CURSOR_FADE - t) / CURSOR_FADE)
+                    )
+                    cursor.style.transform = `translate(${pos.x}px, ${pos.y}px) scale(${press})`
+
+                    for (const caption of captions) {
+                        const fadeIn = clamp01((t - caption.from) / CAPTION_FADE_IN)
+                        const opacity = Math.min(fadeIn, clamp01((caption.to - t) / CAPTION_FADE_OUT))
+                        caption.el.style.opacity = opacity
+                        caption.el.style.transform = `translate(-50%, ${8 * (1 - fadeIn)}px)`
+                    }
+                }
+
+                window.reel = { duration: plan.duration, render }
+                return { duration: plan.duration, width: OUT_WIDTH, height: plan.outHeight }
+            }
+
+            window.setupReel = setupReel
+        </script>
+    </body>
+</html>

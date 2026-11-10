@@ -122,3 +122,14 @@ export const AUTH_CONNECTIVITY = Symbol.for("posthog.core.auth.connectivity");
 export const AUTH_TOKEN_OVERRIDE = Symbol.for(
   "posthog.core.auth.tokenOverride",
 );
+
+/**
+ * Fetch for the auth service's own PostHog requests. Desktop binds Electron's
+ * `net.fetch` so these requests use system proxies and VPN routing like the
+ * browser does. Defaults to the global fetch when unbound.
+ */
+export const AUTH_FETCH = Symbol.for("posthog.core.auth.fetch");
+
+export const AUTH_FETCH_EXTRA_ORIGINS = Symbol.for(
+  "posthog.core.auth.fetchExtraOrigins",
+);

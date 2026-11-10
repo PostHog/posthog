@@ -33,7 +33,9 @@ function transformDescription(description: string): React.ReactNode {
                     const [_, text, url] = linkMatch
                     return (
                         <Suspense key={i} fallback={text}>
-                            <LazyLink to={url}>{text}</LazyLink>
+                            <LazyLink to={url} target="_blank">
+                                {text}
+                            </LazyLink>
                         </Suspense>
                     )
                 }

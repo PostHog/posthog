@@ -15,7 +15,7 @@ import (
 
 func TestProcessLineCleansEventProperties(t *testing.T) {
 	input := []byte(`{"$active_feature_flags":"undefined","$active_feature_flags":["beta",42,null,{"a.b":1}],"Account.client_id":"abc","Account":{"client_id":null},"huge":18446744073709551616,"max_uint":18446744073709551615,"too_negative":-9223372036854775809,"min_int":-9223372036854775808,"null_field":null,"dupe":"","dupe":"kept","emptydupe":"","emptydupe":null}`)
-	want := `{"Account":{"client_id":"abc"},"huge":"18446744073709551616","max_uint":18446744073709551615,"too_negative":"-9223372036854775809","min_int":-9223372036854775808,"dupe":"kept","emptydupe":""}`
+	want := `{"Account.client_id":"abc","Account":{},"huge":"18446744073709551616","max_uint":18446744073709551615,"too_negative":"-9223372036854775809","min_int":-9223372036854775808,"dupe":"kept","emptydupe":""}`
 
 	for _, width := range []int{0, 16, 256} {
 		var prefix strings.Builder
@@ -48,7 +48,7 @@ func TestProcessLineDropsHighVolumeEventProperties(t *testing.T) {
 
 func TestProcessLinePreservesPersonProperties(t *testing.T) {
 	input := []byte(`{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested.key":"value","drop":null}`)
-	want := `{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested":{"key":"value"}}`
+	want := `{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested.key":"value"}`
 
 	var got bytes.Buffer
 	proc := processor{kind: personProperties}
@@ -62,14 +62,15 @@ func TestProcessLinePreservesPersonProperties(t *testing.T) {
 
 func TestProcessLineGroupsFeaturePropertiesAndPreservesExistingFlagValues(t *testing.T) {
 	tests := map[string]string{
-		`{"$feature_flags.z":true,"$feature_flags.a":false,"other":1}`: `{"$feature_flags":{"a":false,"z":true},"other":1}`,
-		`{"$feature/first-flag":"fresh","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept","first-flag":"existing"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`: `{"$feature_flags":{"config":{"nested":{"value":"dropped"}},"enabled":true,"existing":"kept","first-flag":"existing","number":42},"other":"value"}`,
+		`{"$feature_flags.z":true,"$feature_flags.a":false,"other":1}`: `{"$feature_flags.z":true,"$feature_flags.a":false,"other":1}`,
+		`{"$feature/first-flag":"fresh","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"kept"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept","first-flag":"existing"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`: `{"$feature_flags":{"config":{"nested.value":"kept"},"enabled":true,"existing":"kept","first-flag":"existing","number":42},"other":"value"}`,
 		`{"$feature/zebra":false,"$feature/alpha":"control","other":1}`: `{"other":1,"$feature_flags":{"alpha":"control","zebra":false}}`,
 		`{"$feature_flags":{"zebra":false,"alpha":"control"}}`:          `{"$feature_flags":{"alpha":"control","zebra":false}}`,
-		`{"$feature/a.b":1,"$feature/a":{"b":2},"$feature/Z":true}`:     `{"$feature_flags":{"Z":true,"a":{"b":1}}}`,
+		`{"$feature/a.b":1,"$feature/a":{"b":2},"$feature/Z":true}`:     `{"$feature_flags":{"Z":true,"a":{"b":2},"a.b":1}}`,
 		`{"$feature/named-false":"false","$feature/off":false}`:         `{"$feature_flags":{"named-false":"$false","off":false}}`,
 		`{"$feature_flags":{"off":false,"named-false":"false"}}`:        `{"$feature_flags":{"named-false":"$false","off":false}}`,
-		`{"$feature_flags.named-false":"false"}`:                        `{"$feature_flags":{"named-false":"$false"}}`,
+		`{"$feature/named-true":"true","$feature/on":true}`:             `{"$feature_flags":{"named-true":"$true","on":true}}`,
+		`{"$feature_flags":{"on":true,"named-true":"true"}}`:            `{"$feature_flags":{"named-true":"$true","on":true}}`,
 	}
 
 	for input, want := range tests {
@@ -153,7 +154,6 @@ func TestProcessLineQuarantinesInvalidComplexProperties(t *testing.T) {
 func TestProcessLineQuarantinesExcessiveDepth(t *testing.T) {
 	tests := map[string]string{
 		"nested JSON":            strings.Repeat(`{"x":`, maxJSONDepth) + `1` + strings.Repeat(`}`, maxJSONDepth),
-		"dotted key":             `{"` + strings.Repeat("x.", maxJSONDepth) + `x":1}`,
 		"nested arrays":          `{"x":` + strings.Repeat(`[`, 9) + `1` + strings.Repeat(`]`, 9) + `}`,
 		"arrays through objects": `{"x":` + strings.Repeat(`[{"x":`, 9) + `1` + strings.Repeat(`}]`, 9) + `}`,
 		"temporary property":     `{"$set":` + strings.Repeat(`[`, 9) + `1` + strings.Repeat(`]`, 9) + `}`,
@@ -204,25 +204,6 @@ func TestProcessLineArrayDepthBoundary(t *testing.T) {
 	}
 }
 
-func TestProcessLineDottedDepthBoundary(t *testing.T) {
-	for _, depth := range []int{maxJSONDepth - 1, maxJSONDepth} {
-		for _, leaf := range []string{`1`, `{}`, `{"y":1}`, `[1]`} {
-			input := `{"` + strings.Repeat("x.", depth-2) + `x":` + leaf + `}`
-			want := strings.Repeat(`{"x":`, depth-1) + leaf + strings.Repeat(`}`, depth-1)
-			if depth == maxJSONDepth && (leaf == `{"y":1}` || leaf == `[1]`) {
-				want = fmt.Sprintf(`{"$unparseable_properties":%q}`, input)
-			}
-			var output bytes.Buffer
-			if err := processLine([]byte(input), &output); err != nil {
-				t.Fatal(err)
-			}
-			if output.String() != want {
-				t.Fatalf("depth=%d leaf=%s: got %s, want %s", depth, leaf, output.String(), want)
-			}
-		}
-	}
-}
-
 func TestProcessLineChecksArrayDepthAfterNormalization(t *testing.T) {
 	for _, depth := range []int{7, 8} {
 		object := `{"x":` + strings.Repeat(`[`, depth) + `1` + strings.Repeat(`]`, depth) + `}`
@@ -244,7 +225,6 @@ func TestProcessLineChecksArrayDepthAfterNormalization(t *testing.T) {
 func TestTemporaryPropertiesDoNotDuplicateQuarantinedDocuments(t *testing.T) {
 	for _, input := range []string{
 		`{"$set":` + strings.Repeat(`{"x":`, maxJSONDepth) + `1` + strings.Repeat(`}`, maxJSONDepth) + `}`,
-		`{"$set.` + strings.Repeat("x.", maxJSONDepth) + `x":1}`,
 	} {
 		proc := processor{kind: temporaryProperties}
 		var got bytes.Buffer
@@ -259,7 +239,7 @@ func TestTemporaryPropertiesDoNotDuplicateQuarantinedDocuments(t *testing.T) {
 
 func TestProcessLineParsesStringifiedArrayPath(t *testing.T) {
 	input := []byte(`{"$exception_types":"[\"TypeError\",7,null,{\"x.y\":\"z\"}]"}`)
-	want := `{"$exception_types":["TypeError","7","","{\"x\":{\"y\":\"z\"}}"]}`
+	want := `{"$exception_types":["TypeError","7","","{\"x.y\":\"z\"}"]}`
 
 	var got bytes.Buffer
 	if err := processLine(input, &got); err != nil {
@@ -276,7 +256,7 @@ func TestProcessLineCoercesArrayPathScalars(t *testing.T) {
 		`{"$exception_sources":"worker"}`:            `{"$exception_sources":["worker"]}`,
 		`{"$exception_sources":false}`:               `{"$exception_sources":["false"]}`,
 		`{"$exception_sources":{}}`:                  `{"$exception_sources":[]}`,
-		`{"$exception_sources":{"worker.id":3}}`:     `{"$exception_sources":["{\"worker\":{\"id\":3}}"]}`,
+		`{"$exception_sources":{"worker.id":3}}`:     `{"$exception_sources":["{\"worker.id\":3}"]}`,
 		`{"nested":{"$exception_sources":"worker"}}`: `{"nested":{"$exception_sources":"worker"}}`,
 	}
 
@@ -316,7 +296,7 @@ func TestCleanNodeMatchesNestedArrayStringPath(t *testing.T) {
 
 func TestProcessLineHandlesEscapedDottedKeysAndStrings(t *testing.T) {
 	input := []byte("{\"a\\u002eb\":\"line\\nquote\\\"\",\"emoji\":\"\\ud83d\\ude00\"}")
-	want := "{\"a\":{\"b\":\"line\\nquote\\\"\"},\"emoji\":\"\U0001F600\"}"
+	want := "{\"a.b\":\"line\\nquote\\\"\",\"emoji\":\"\U0001F600\"}"
 
 	var got bytes.Buffer
 	if err := processLine(input, &got); err != nil {
@@ -551,50 +531,6 @@ func TestProcessLineBoundsRetainedMemory(t *testing.T) {
 	}
 }
 
-func TestProcessLineReusesDottedBuffers(t *testing.T) {
-	var proc processor
-	var output bytes.Buffer
-	for _, width := range []int{32, 256, 4096, 17, 512, 32, 256, 1} {
-		var input, expected strings.Builder
-		input.WriteByte('{')
-		expected.WriteString(`{"group":{`)
-		for i := range width {
-			if i > 0 {
-				input.WriteByte(',')
-				expected.WriteByte(',')
-			}
-			fmt.Fprintf(&input, `"group.key%d":%d`, i, i)
-			fmt.Fprintf(&expected, `"key%d":%d`, i, i)
-		}
-		input.WriteByte('}')
-		expected.WriteString("}}")
-		if err := proc.processLine([]byte(input.String()), &output); err != nil {
-			t.Fatal(err)
-		}
-		if output.String() != expected.String() {
-			t.Fatalf("dotted expansion changed after buffer reuse at width %d", width)
-		}
-		retained := 0
-		for _, entries := range proc.entryBuffers {
-			retained += cap(entries)
-			for _, entry := range entries[:cap(entries)] {
-				if entry.key != "" || entry.value != nil {
-					t.Fatal("cached entry retains input or a recycled value")
-				}
-			}
-		}
-		if retained >= 8192 {
-			t.Fatalf("cached %d entries", retained)
-		}
-	}
-	if err := proc.processLine([]byte(`{}`), &output); err != nil {
-		t.Fatal(err)
-	}
-	if proc.entryBufferMask != 0 {
-		t.Fatal("small row retains oversized cached buffers")
-	}
-}
-
 func TestShouldStringifyNumber(t *testing.T) {
 	tests := map[string]bool{
 		"18446744073709551615":  false,
@@ -701,14 +637,14 @@ func TestProcessLineSplitsTemporaryProperties(t *testing.T) {
 		{
 			name:      "allowlist",
 			input:     `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$feature_flag_request_id":"request-example","$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$sent_at":"2026-01-01","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null],"$sdk_debug_current_session_duration":42,"$debug_images":[{"type":"elf"}],"$feature/demo":"control","$active_feature_flags":["demo"],"$feature_flag_payload":{},"$feature_flag_payloads":{},"$feature_flag_bootstrapped_payload":{},"$feature_flag_original_payload":{},"$transformations_succeeded":[],"custom":{"$set":"keep"}}`,
-			permanent: `{"$debug_images":[{"type":"elf"}],"custom":{"$set":"keep"},"$feature_flags":{"demo":"control"}}`,
-			temporary: `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$feature_flag_request_id":"request-example","$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$sent_at":"2026-01-01","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null],"$sdk_debug_current_session_duration":42}`,
+			permanent: `{"$sent_at":"2026-01-01","$sdk_debug_current_session_duration":42,"$debug_images":[{"type":"elf"}],"custom":{"$set":"keep"},"$feature_flags":{"demo":"control"}}`,
+			temporary: `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$feature_flag_request_id":"request-example","$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null]}`,
 		},
 		{
-			name:      "dotted roots and normalization",
+			name:      "dotted keys and normalization",
 			input:     `{"$set.profile.score":7,"$set.profile.missing":null,"$sdk_debug_probe.a":1,"$sdk_debug_probe.a":2,"$sdk_debug_probe.large":18446744073709551616,"$sdk_debug_current_session_duration.value":42,"$set_extra":true,"$debug_custom":"keep","custom.$set":"keep"}`,
-			permanent: `{"$set_extra":true,"$debug_custom":"keep","custom":{"$set":"keep"}}`,
-			temporary: `{"$set":{"profile":{"score":7}},"$sdk_debug_probe":{"a":1,"large":"18446744073709551616"},"$sdk_debug_current_session_duration":{"value":42}}`,
+			permanent: `{"$set.profile.score":7,"$set_extra":true,"$debug_custom":"keep","custom.$set":"keep"}`,
+			temporary: `{"$sdk_debug_probe.a":1,"$sdk_debug_probe.large":"18446744073709551616","$sdk_debug_current_session_duration.value":42}`,
 		},
 		{
 			name: "nothing temporary", input: `{"custom":true}`, permanent: `{"custom":true}`, temporary: `{}`,
@@ -741,6 +677,168 @@ func TestProcessLineSplitsTemporaryProperties(t *testing.T) {
 		var got bytes.Buffer
 		if err := proc.processLine([]byte(input), &got); err == nil {
 			t.Fatalf("expected error for temporary properties %s", input)
+		}
+	}
+}
+
+type envelopeResult struct {
+	Properties                  string   `json:"properties"`
+	TemporaryProperties         string   `json:"temporary_properties"`
+	PersonProperties            string   `json:"person_properties"`
+	PropertiesNullKeys          []string `json:"properties_null_keys"`
+	TemporaryPropertiesNullKeys []string `json:"temporary_properties_null_keys"`
+	PersonPropertiesNullKeys    []string `json:"person_properties_null_keys"`
+}
+
+func processEnvelope(t *testing.T, proc *processor, properties, personProperties string) envelopeResult {
+	t.Helper()
+	row, err := json.Marshal(map[string]string{"properties": properties, "person_properties": personProperties})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := proc.processLine(row, &out); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Result envelopeResult `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("output %s is not JSONEachRow: %v", out.String(), err)
+	}
+	return decoded.Result
+}
+
+func TestProcessEnvelopeLineSplitsEveryOutput(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	got := processEnvelope(t, &proc,
+		`{"$set":{"score":7,"gone":null},"$sdk_debug_probe":true,"$feature/demo":"control","$feature/off":"false","$feature_flag_payload":{"x":1},"$ai_input":"secret","custom":"kept","plan":null,"nested":{"deep":null,"keep":1},"service.name":"api","user":{"plan":null,"a.b":null},"a.b":null,"items":[{"a":null},2],"$exception_types":"TypeError"}`,
+		`{"name":"x","email":null,"$initial_referrer":null,"address":{"city":null}}`,
+	)
+	want := envelopeResult{
+		Properties:                  `{"custom":"kept","nested":{"keep":1},"service.name":"api","user":{},"items":[{},2],"$exception_types":["TypeError"],"$feature_flags":{"demo":"control","off":"$false"}}`,
+		TemporaryProperties:         `{"$set":{"score":7},"$sdk_debug_probe":true}`,
+		PersonProperties:            `{"name":"x","address":{}}`,
+		PropertiesNullKeys:          []string{"plan", "nested.deep", "user.plan", "user.a%2Eb", "a%2Eb", "items.0.a"},
+		TemporaryPropertiesNullKeys: []string{"$set.gone"},
+		PersonPropertiesNullKeys:    []string{"email", "$initial_referrer", "address.city"},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+func TestProcessEnvelopeLineNullKeysIgnoreSurvivingValues(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	var amplified strings.Builder
+	amplified.WriteString(`{"keep":1,"` + strings.Repeat("k", 1024) + `":{`)
+	for i := range 300 {
+		if i > 0 {
+			amplified.WriteByte(',')
+		}
+		fmt.Fprintf(&amplified, `"%d":null`, i)
+	}
+	amplified.WriteString(`}}`)
+	tests := []struct {
+		name, properties string
+		want             []string
+	}{
+		{"duplicate keeps value", `{"a":null,"a":1}`, nil},
+		{"duplicate keeps later value", `{"a":1,"a":null}`, nil},
+		{"dotted key keeps nested null", `{"Account.client_id":"abc","Account":{"client_id":null}}`, []string{"Account.client_id"}},
+		{"duplicate dotted key keeps value", `{"a.b":null,"a.b":1}`, nil},
+		{"paths over the byte budget record none", amplified.String(), nil},
+		{"repeated null once", `{"x":null,"x":null}`, []string{"x"}},
+		{"dropped list never recorded", `{"$ai_input":null,"$feature_flag_payload":null,"kept":null}`, []string{"kept"}},
+		{"null flags map", `{"$feature_flags":null}`, []string{"$feature_flags"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := processEnvelope(t, &proc, tt.properties, `{}`)
+			if fmt.Sprint(got.PropertiesNullKeys) != fmt.Sprint(tt.want) {
+				t.Fatalf("null keys = %v, want %v", got.PropertiesNullKeys, tt.want)
+			}
+		})
+	}
+}
+
+func TestProcessEnvelopeLineQuarantinesBadInput(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	poison := `{"$set":` + strings.Repeat(`[`, 9) + `1` + strings.Repeat(`]`, 9) + `}`
+	tests := []struct {
+		name, properties, person string
+		want                     envelopeResult
+	}{
+		{"blank", "", "  ", envelopeResult{Properties: "{}", TemporaryProperties: "{}", PersonProperties: "{}"}},
+		{"malformed", `{"broken"`, `[1`, envelopeResult{
+			Properties: `{"$unparseable_properties":"{\"broken\""}`, TemporaryProperties: "{}",
+			PersonProperties: `{"$unparseable_properties":"[1"}`,
+		}},
+		{"non-object", `[]`, `"text"`, envelopeResult{
+			Properties: `{"$unparseable_properties":"[]"}`, TemporaryProperties: "{}",
+			PersonProperties: `{"$unparseable_properties":"\"text\""}`,
+		}},
+		{"too deep arrays", poison, `{"ok":1}`, envelopeResult{
+			Properties: fmt.Sprintf(`{"$unparseable_properties":%q}`, poison), TemporaryProperties: "{}",
+			PersonProperties: `{"ok":1}`,
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := processEnvelope(t, &proc, tt.properties, tt.person)
+			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Fatalf("got  %+v\nwant %+v", got, tt.want)
+			}
+		})
+	}
+
+	var out bytes.Buffer
+	for _, row := range []string{`not json`, `[]`, `{"properties":1}` + "x"} {
+		if err := proc.processLine([]byte(row), &out); err == nil {
+			t.Fatalf("expected a protocol error for envelope row %s", row)
+		}
+	}
+	got := processEnvelope(t, &proc, `{"a":1}`, `{"b":2}`)
+	if got.Properties != `{"a":1}` || got.PersonProperties != `{"b":2}` {
+		t.Fatalf("processor did not recover after protocol errors: %+v", got)
+	}
+}
+
+func TestProcessEnvelopeLineMissingFields(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	var out bytes.Buffer
+	if err := proc.processLine([]byte(`{"properties":"{\"a\":null}"}`), &out); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"result":{"properties":"{}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":["a"],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`
+	if out.String() != want {
+		t.Fatalf("processLine() = %s, want %s", out.String(), want)
+	}
+}
+
+func TestRunChunkedEnvelope(t *testing.T) {
+	rows := []string{
+		`{"properties":"{\"keep\":1,\"drop\":null,\"$set\":{\"a\":1}}","person_properties":"{\"p\":null}"}`,
+		`{"properties":"{\"$feature/enabled\":true}","person_properties":""}`,
+		`{"properties":"","person_properties":"{}"}`,
+	}
+	input := "2\n" + rows[0] + "\n" + rows[1] + "\n1\n" + rows[2] + "\n"
+	var output bytes.Buffer
+	if err := runChunked(strings.NewReader(input), &output, eventEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d output lines, want 3: %q", len(lines), output.String())
+	}
+	want := []string{
+		`{"result":{"properties":"{\"keep\":1}","temporary_properties":"{\"$set\":{\"a\":1}}","person_properties":"{}","properties_null_keys":["drop"],"temporary_properties_null_keys":[],"person_properties_null_keys":["p"]}}`,
+		`{"result":{"properties":"{\"$feature_flags\":{\"enabled\":true}}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":[],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`,
+		`{"result":{"properties":"{}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":[],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`,
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("line %d = %s, want %s", i, lines[i], want[i])
 		}
 	}
 }

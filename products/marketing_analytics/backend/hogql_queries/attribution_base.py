@@ -20,11 +20,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
 
 from .attribution_weights import DAY_IN_SECONDS
+from .constants import MARKETING_SPILL_AFTER_BYTES, MAX_TOUCHPOINTS_PER_PERSON
 from .conversion_goal_conditions import conversion_goal_condition
 from .marketing_analytics_base_query_runner import ResponseType
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
@@ -38,17 +40,9 @@ PERSON_ARRAYS_CTE = "person_arrays"
 # make the array shorter than it.
 PERSON_CONVERSION_COUNT = "conversion_count"
 
-# Ceiling on how many sessions of one person can earn credit. Bots and shared devices would otherwise
-# fan out touchpoints x conversions far enough to dominate the query. Touchpoints are sorted before
-# truncating and the *most recent* are kept, because only touches within a lookback window of a
-# conversion can be credited and conversions sit at the end of the range. Keeping the oldest instead
-# would strand a heavy person's conversions with no eligible touchpoint at all, dropping them from the
-# table; this way they keep their credit, and only first touch becomes approximate for such a person.
-MAX_TOUCHPOINTS_PER_PERSON = 500
-
-# The same ceiling for the other side of the fan-out. Without it, a person with many conversions
+# MAX_TOUCHPOINTS_PER_PERSON for the other side of the fan-out. Without it, a person with many conversions
 # multiplies the two downstream ARRAY JOINs by an unbounded factor, which is the shape that makes the
-# query run out of memory. The most recent are kept for the mirror of the reason above: a conversion
+# query run out of memory. The most recent are kept for the mirror of the touchpoint reason: a conversion
 # is credited by touchpoints that precede it, and the recent ones are those with touchpoints still in
 # the collected window.
 MAX_CONVERSIONS_PER_PERSON = 500
@@ -57,6 +51,26 @@ MAX_CONVERSIONS_PER_PERSON = 500
 class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[ResponseType], Generic[ResponseType]):
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
+
+    def additional_session_columns(self) -> set[str]:
+        return set()
+
+    def resolved_breakdown_expr(self) -> ast.Expr | None:
+        return None
+
+    def get_query_settings(self) -> HogQLGlobalSettings:
+        # Extra aggregation threads create more partial states and spill files for the same sessions.
+        return HogQLGlobalSettings(
+            max_bytes_before_external_group_by=MARKETING_SPILL_AFTER_BYTES,
+            max_threads=16 if self._live_session_resolution_used else None,
+            optimize_aggregation_in_order=True if self._live_session_resolution_used else None,
+        )
+
+    def get_cache_key_variant(self) -> str:
+        variant = super().get_cache_key_variant()
+        if self.config.live_session_resolution_enabled:
+            return f"{variant}_live_session_resolution"
+        return variant
 
     @cached_property
     def goal(self) -> ConversionGoal:
@@ -241,15 +255,15 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
         )
 
     def _person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
-        """The credit side, served from the precompute when it can."""
-        if self.config.sessions_precomputation_enabled:
+        """The credit side, using shared session resolution when eligible."""
+        if self.config.live_session_resolution_enabled:
             from .attribution_sessions_read import build_person_arrays  # noqa: PLC0415 (import cycle)
 
-            with self.timings.measure("attribution_sessions_precompute_credit"):
-                precomputed = build_person_arrays(self, date_range)
-            if precomputed is not None:
-                self._sessions_precompute_used = True
-                return precomputed
+            with self.timings.measure("attribution_live_session_resolution"):
+                resolved = build_person_arrays(self, date_range)
+            if resolved is not None:
+                self._live_session_resolution_used = True
+                return resolved
         return self._build_person_arrays_select(date_range)
 
     def _build_person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:

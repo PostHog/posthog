@@ -1,10 +1,9 @@
-import { IconGlobe } from '@posthog/icons'
+import { IconCloud, IconGlobe } from '@posthog/icons'
 
 import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
 import geminiImage from 'scenes/onboarding/shared/logos/gemini.svg'
 import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
 import { OpenRouterLogo } from 'scenes/onboarding/shared/logos/OpenRouterLogo'
-import zeaburImage from 'scenes/onboarding/shared/logos/zeabur.svg'
 
 import azureImage from 'public/services/azure.png'
 
@@ -15,7 +14,6 @@ const PROVIDER_IMAGES: Partial<Record<LLMProvider, string>> = {
     together_ai: 'https://res.cloudinary.com/dmukukwp6/image/upload/together_ai_49ac1a57fb.svg',
     fireworks: 'https://res.cloudinary.com/dmukukwp6/image/upload/fireworks_ai_a3d8a59e96.svg',
     minimax: 'https://res.cloudinary.com/dmukukwp6/image/upload/minimax_8fc73dbf8b.svg',
-    zeabur: zeaburImage,
     azure_openai: azureImage,
 }
 
@@ -23,6 +21,7 @@ const PROVIDER_COMPONENTS: Partial<Record<LLMProvider, React.ComponentType>> = {
     openai: OpenAILogo,
     openrouter: OpenRouterLogo,
     anthropic: AnthropicLogo,
+    system_one: IconCloud,
     // No vendor logo: this provider represents any user-configured OpenAI-compatible endpoint.
     openai_compatible: IconGlobe,
 }

@@ -16,10 +16,50 @@ from dataclasses import (
 )
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.schema import PersonPropertyFilter
+
+
+class AccountPersonsPropertyAccessError(Exception):
+    pass
+
+
+@frozen
+class AccountPersonsOptions:
+    limit: int
+    offset: int
+    search: str
+    properties: list[str]
+    filters: list["PersonPropertyFilter"]
+    sort_column: str
+    sort_direction: Literal["asc", "desc"]
+
+
+@frozen
+class AccountPerson:
+    id: str
+    display_name: str
+    distinct_ids: list[str]
+    properties: dict[str, object]
+    account_first_seen: datetime
+    account_last_seen: datetime
+
+
+@frozen
+class AccountPersonsPage:
+    results: list[AccountPerson]
+    columns: list[str]
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: int | None
 
 
 class InvalidCustomPropertyOptions(ValueError):
@@ -53,10 +93,20 @@ class AccountRelationshipDefinition:
     is_controlled: bool = False
 
 
+PinnedAccountPropertyKind = Literal["custom_property", "relationship", "account_field"]
+
+
 @dataclass(frozen=True)
 class PinnedAccountProperty:
-    kind: Literal["custom_property", "relationship"]
-    id: UUID
+    kind: PinnedAccountPropertyKind
+    # A definition UUID for custom properties and relationships, or a field name for account fields.
+    id: str
+
+
+class InvalidPinnedAccountProperties(ValueError):
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
 
 
 TASK_DIGEST_SEND_TIME_FORMAT = "%H:%M"
@@ -75,9 +125,17 @@ class TaskDigestPreferences:
 
 
 @dataclass(frozen=True)
+class AccountDetailTabsConfig:
+    ordered_tab_ids: list[str] = field(default_factory=list)
+    hidden_tab_ids: list[str] = field(default_factory=list)
+    default_tab_id: str | None = None
+
+
+@dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
     task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
+    account_detail_tabs: AccountDetailTabsConfig = field(default_factory=AccountDetailTabsConfig)
 
 
 RelationshipSourceValue = Literal["human", "workflow", "ai", "salesforce_claim", "migration"]
@@ -213,6 +271,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    is_recurring: bool
     gong_url: str | None
     start_time: datetime
     end_time: datetime | None
@@ -250,6 +309,7 @@ class AccountTableField(str, Enum):
 
 @dataclass(frozen=True, kw_only=True)
 class AccountTableColumnSelection:
+    use_default_columns: bool = False
     account_fields: frozenset[AccountTableField] = frozenset()
     include_tags: bool = False
     include_note_count: bool = False
@@ -513,7 +573,22 @@ class AccountTableRow:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyDefinition:
+    id: UUID
+    name: str
+    description: str | None
+    display_type: str
+    is_big_number: bool
+    is_canonical: bool
+    has_workflow_reference: bool
+    source_id: UUID | None
+    options: list[dict[str, str]] | None
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTablePage:
+    relationship_definitions: list[AccountRelationshipDefinition] = field(default_factory=list)
+    custom_property_definitions: list[AccountTableCustomPropertyDefinition] = field(default_factory=list)
     rows: list[AccountTableRow]
     has_more: bool
     limit: int
@@ -769,7 +844,7 @@ class UserBasicInfo:
 
 
 @stdlib_dataclass(frozen=True)
-class AccountView:
+class AccountDetails:
     """An account as returned by the accounts list/detail endpoints.
 
     ``properties`` is the raw stored JSON dict (``Account._properties``), not the
@@ -801,11 +876,28 @@ class AccountView:
     updated_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class AccountView:
+    id: UUID
+    name: str
+    visibility: Literal["private", "team"]
+    content: dict[str, Any]
+    text_content: str
+    version: int
+    created_by: int | None
+    last_modified_by: int | None
+    created_at: datetime
+    updated_at: datetime
+    can_edit: bool
+    can_delete: bool
+    can_change_visibility: bool
+
+
 @stdlib_dataclass(frozen=True)
 class CustomerJourneyView:
     """A customer journey as returned by the customer-journey endpoints.
 
-    Defaults exist for the same reason as :class:`AccountView` — the wrapping serializer
+    Defaults exist for the same reason as :class:`AccountDetails` — the wrapping serializer
     doubles as request + response so the OpenAPI components stay identical.
     """
 
@@ -1021,7 +1113,7 @@ class CustomerProfileConfigView:
     """A customer profile config as returned by the profile-config endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1059,7 +1151,7 @@ class CustomPropertyDefinitionView:
     custom-property-definitions endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
+    :class:`AccountDetails`). ``created_by`` is the creator's user id (or ``None``), matching
     the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
     property is used (workflows), resolved by definition id. ``source`` is the read-only
     view-sync binding when one is configured for this definition, else ``None``.
@@ -1093,7 +1185,7 @@ class CustomPropertySourceView:
     run. Account-target sources set ``saved_query`` + ``source_column``; person- and group-target
     sources set ``column_property_map`` plus exactly one of ``external_data_schema`` (an imported
     table) and ``saved_query`` (a materialized view). Defaults exist so the wrapping serializer can
-    parse partial request bodies (see :class:`AccountView`).
+    parse partial request bodies (see :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1157,7 +1249,7 @@ class AccountNotebookView:
     """An account notebook as returned by the nested account-notebooks endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1169,13 +1261,14 @@ class AccountNotebookView:
     created_by: UserBasicInfo | None = None
     last_modified_at: datetime | None = None
     last_modified_by: UserBasicInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class AccountNoteView:
     """A row of the team-wide account-notes list: an internal notebook plus the account it's
     linked to. Read-only (the wrapping serializer never parses request bodies), so fields are
-    strict — no serializer-instantiation defaults like :class:`AccountView` needs."""
+    strict — no serializer-instantiation defaults like :class:`AccountDetails` needs."""
 
     short_id: str
     title: str | None
@@ -1184,6 +1277,7 @@ class AccountNoteView:
     account_id: UUID
     account_name: str
     created_by: UserBasicInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 # --- Presentation wave: input contracts for the CRUD write paths ---
@@ -1204,6 +1298,7 @@ class CreateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -1221,11 +1316,13 @@ class UpdateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     # Distinguishes omitted fields from fields explicitly set to null.
     external_id_provided: bool = False
     properties_provided: bool = False
     slack_summary_cadence_provided: bool = False
     churned_at_provided: bool = False
+    ignored_at_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -1241,6 +1338,14 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+    tags: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class UpdateAccountNotebookInput:
+    """Validated body for a partial update of an account notebook. ``None`` leaves the tags untouched."""
+
+    tags: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -1290,7 +1395,7 @@ class EventStreamView:
     (``event_names``), the owner's Slack delivery target, and the member accounts
     (``account_ids``) whose users' events are streamed.
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1338,6 +1443,8 @@ class AnnouncementView:
     short_id: str = ""
     message: str = ""
     status: str = ""
+    send_as: str = "bot"
+    sender_display_name: str = ""
     total_channels: int = 0
     sent_count: int = 0
     failed_count: int = 0
@@ -1360,6 +1467,10 @@ class CustomerTaskAssigneeCannotViewAccount(Exception):
     pass
 
 
+class CustomerTaskRoleNotFound(Exception):
+    pass
+
+
 class CustomerTaskInvalidTransition(Exception):
     def __init__(self, current: str, requested: str) -> None:
         self.current = current
@@ -1372,6 +1483,10 @@ class CustomerTaskArchived(Exception):
 
 
 class CustomerTaskAccessDenied(Exception):
+    pass
+
+
+class CustomerTaskBulkUpdateConflict(Exception):
     pass
 
 
@@ -1429,6 +1544,7 @@ class CustomerTaskListFilters:
     search: str | None = None
     account_id: UUID | None = None
     assigned_to: str | None = None
+    assigned_role_id: UUID | None = None
     statuses: tuple[str, ...] = ()
     archive_state: str = "active"
     due_after: datetime | None = None
@@ -1461,3 +1577,14 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+
+
+@dataclass(frozen=True)
+class KeyMetric:
+    key: str
+    name: str
+    people: bool
+    daily: list[tuple[date, float]]
+    this_week: float
+    last_week: float
+    node: dict[str, Any]

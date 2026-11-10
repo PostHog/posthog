@@ -15,14 +15,75 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade.api import get_incremental_config
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    ViewColumnSource,
+    ViewEngineDialect,
+    ViewEngineTarget,
+)
 
-from . import sync_cadence, view_description
+from . import rendered_node_states, sync_cadence, view_description
 
 # Only these two are still written to the column: MODIFIED on edit, CANCELLED by the cancel action.
 # Every other value was last written by the v1 materialization workflow, which no longer exists, so it
 # describes a run no current code path could have produced.
 STATUSES_STILL_WRITTEN = frozenset({DataWarehouseSavedQuery.Status.MODIFIED, DataWarehouseSavedQuery.Status.CANCELLED})
+
+
+class SavedQuerySuspensionSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When materialization was suspended.")
+    reason = serializers.CharField(help_text="Error from the materialization run that tripped suspension.")
+    job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
+
+
+class ViewCapabilitySerializer(serializers.Serializer):
+    available = serializers.BooleanField(help_text="Whether the view supports this.")
+    reason = serializers.CharField(
+        allow_null=True, help_text="Why the view does not support this, written for the user. Null when available."
+    )
+
+
+class ViewEngineCapabilitiesSerializer(serializers.Serializer):
+    materialize = ViewCapabilitySerializer(
+        source="can_materialize", help_text="Whether the view can be materialized, run or scheduled."
+    )
+    lineage = ViewCapabilitySerializer(
+        source="has_lineage", help_text="Whether the view has lineage and a node in the data modeling DAG."
+    )
+    referenceable_from_clickhouse = ViewCapabilitySerializer(
+        help_text="Whether HogQL queries on ClickHouse can read from this view by name."
+    )
+    column_source = serializers.ChoiceField(
+        choices=ViewColumnSource.choices,
+        help_text="Where the view's column types come from: a ClickHouse probe of the query, or the types "
+        "the client sends from its last run.",
+    )
+
+
+class ViewEngineSerializer(serializers.Serializer):
+    target = serializers.ChoiceField(
+        choices=ViewEngineTarget.choices,
+        help_text="The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.",
+    )
+    dialect = serializers.ChoiceField(
+        choices=ViewEngineDialect.choices,
+        help_text="Whether the view stores HogQL or raw SQL for its engine.",
+    )
+    connection_id = serializers.CharField(
+        allow_null=True, help_text="The direct connection that runs this view. Null for any other engine."
+    )
+    capabilities = ViewEngineCapabilitiesSerializer(
+        source="*", help_text="What the rest of the product can do with this view."
+    )
+
+
+VIEW_ENGINE_HELP_TEXT = "The engine that runs this view, and what the product can do with it."
+IS_RAW_MANAGED_TRINO_HELP_TEXT = (
+    "Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, "
+    "and HogQL queries cannot reference it."
+)
 
 
 class DataWarehouseSavedQuerySerializerMixin:
@@ -47,6 +108,10 @@ class DataWarehouseSavedQuerySerializerMixin:
                 .first()
             )
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_raw_managed_trino(self, view: DataWarehouseSavedQuery) -> bool:
+        return view.engine.is_raw_trino
+
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         run = self._serving_run(view)
@@ -59,10 +124,11 @@ class DataWarehouseSavedQuerySerializerMixin:
             return view.status if view.status in STATUSES_STILL_WRITTEN else None
         # Modified means "edited and not materialized since", which no run can express. A run that
         # happened after the edit answers it, so the column only wins while the edit is the newer fact.
+        query_updated_at = view.query_updated_at or view.updated_at
         edited_since_the_run = (
             view.status == DataWarehouseSavedQuery.Status.MODIFIED
-            and view.updated_at is not None
-            and view.updated_at > run.last_run_at
+            and query_updated_at is not None
+            and query_updated_at > run.last_run_at
         )
         return view.status if edited_since_the_run else run.status
 
@@ -70,6 +136,18 @@ class DataWarehouseSavedQuerySerializerMixin:
     def get_latest_error(self, view: DataWarehouseSavedQuery) -> str | None:
         run = self._serving_run(view)
         return run.error if run is not None else None
+
+    @extend_schema_field(
+        serializers.DictField(
+            child=SavedQuerySuspensionSerializer(),
+            help_text="Engines this query's materialization is suspended for after repeated failures. "
+            "Suspended engines are skipped by scheduled runs until the query is resumed.",
+        )
+    )
+    def get_suspended(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
+        state = rendered_node_states.rendered_node_states(self.root, view).get(str(view.pk))  # type: ignore[attr-defined]
+        suspended = state.suspended if state is not None else {}
+        return {engine: SavedQuerySuspensionSerializer(marker).data for engine, marker in suspended.items()}
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
@@ -141,6 +219,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
     last_run_at = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
+    suspended = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
     folder_name = serializers.CharField(source="folder.name", read_only=True, allow_null=True)
@@ -149,6 +228,8 @@ class DataWarehouseSavedQueryMinimalSerializer(
         help_text="Whether this view is set up to update incrementally. A run can still rebuild the "
         "whole table, for example on the first run or after the query changes.",
     )
+    engine = ViewEngineSerializer(read_only=True, help_text=VIEW_ENGINE_HELP_TEXT)
+    is_raw_managed_trino = serializers.SerializerMethodField(read_only=True, help_text=IS_RAW_MANAGED_TRINO_HELP_TEXT)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -167,17 +248,14 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "folder_id",
             "folder_name",
             "latest_error",
+            "suspended",
             "is_materialized",
             "is_incremental",
             "origin",
             "is_test",
             "expires_at",
             "user_access_level",
+            "engine",
+            "is_raw_managed_trino",
         ]
         read_only_fields = fields
-
-
-class SavedQuerySuspensionSerializer(serializers.Serializer):
-    at = serializers.DateTimeField(help_text="When materialization was suspended.")
-    reason = serializers.CharField(help_text="Error from the materialization run that tripped suspension.")
-    job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")

@@ -39,19 +39,8 @@ def bind_tables_to_ducklake(database: Any, team_id: int) -> None:
 
 
 def get_data_modeling_table_names(team_id: int, saved_query_ids: Sequence[UUID]) -> dict[UUID, str]:
-    from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
-
-    labels = {
-        saved_query_id: path[-1]
-        for saved_query_id, path in DataWarehouseModelPath.objects.filter(
-            team_id=team_id, saved_query_id__in=saved_query_ids
-        ).values_list("saved_query_id", "path")
-        if path
-    }
     return {
-        saved_query_id: ducklake_data_modeling_table_name(
-            labels.get(saved_query_id, saved_query_id.hex), saved_query_id.hex
-        )
+        saved_query_id: ducklake_data_modeling_table_name(saved_query_id.hex, saved_query_id.hex)
         for saved_query_id in saved_query_ids
     }
 
@@ -72,6 +61,10 @@ def build_trino_table_locators(
         "events": (catalog_name, "posthog", table_names.events_table),
         "persons": (catalog_name, "posthog", table_names.persons_table),
     }
+
+    if table_names.groups_table is not None:
+        for logical_name in ("groups", "raw_groups"):
+            locators[logical_name] = (catalog_name, "posthog", table_names.groups_table)
 
     model_schema = ducklake_data_modeling_schema(team_id)
     materialized_models = list(

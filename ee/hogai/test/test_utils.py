@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantMessage, FailureMessage, HumanMessage
 
@@ -6,7 +6,7 @@ from ee.hogai.utils.helpers import filter_and_merge_messages
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 
 
-class TestTrendsUtils(BaseTest):
+class TestTrendsUtils(SimpleTestCase):
     def test_filters_and_merges_human_messages(self):
         conversation: list[AssistantMessageUnion] = [
             HumanMessage(content="Text"),

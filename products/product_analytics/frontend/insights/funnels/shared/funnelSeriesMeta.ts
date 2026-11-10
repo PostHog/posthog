@@ -1,4 +1,4 @@
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
 import type { FunnelTrendsCounts } from './funnelTrendsCounts'
 

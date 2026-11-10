@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.db import transaction
 
+from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -28,7 +29,12 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
-from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, TASK_OWNERSHIP_VERSION_STATE_KEY, Task
+from products.tasks.backend.models import (
+    INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    Task,
+    TaskRun,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -44,11 +50,6 @@ __all__ = [
     "dispatched_run_scopes",
 ]
 
-# Loop CRUD MCP tools must never be reachable from inside a loop-fired run, regardless of the
-# loop's configured connector scope (products/tasks/docs/LOOPS.md, Connectors section): a
-# triggered run has no legitimate reason to create/edit/delete loops, and this closes the
-# injected-instructions plant-a-persistent-loop path. loop:read stays granted.
-LOOP_FIRED_RUN_EXCLUDED_SCOPES = frozenset({"loop:write"})
 SUBSCRIPTION_RUN_WITHHELD_SCOPES = frozenset({"llm_gateway:read"})
 
 
@@ -75,8 +76,22 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
 )
 
 
-def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
-    if task.origin_product == Task.OriginProduct.POSTHOG_AI:
+def _oauth_application_for_task(task: Task, state: dict[str, Any] | None) -> SandboxOAuthApplication:
+    if (
+        task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
+        and (state or {}).get("billing_product") == "posthog_ai"
+    ):
+        return "posthog_ai"
+    profile = task.stored_profile
+    if profile is not None:
+        return cast(SandboxOAuthApplication, profile.oauth_app.value)
+    # Metrics import and feature flag tasks bill the `posthog_ai` gateway product, which accepts only this
+    # application.
+    if task.origin_product in (
+        Task.OriginProduct.POSTHOG_AI,
+        Task.OriginProduct.METRICS_IMPORT,
+        Task.OriginProduct.FEATURE_FLAGS,
+    ):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"
@@ -107,11 +122,6 @@ def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool
         return False
     stage = (state or {}).get("ai_stage")
     return not stage or stage in INTERACTIVE_SIGNALS_AI_STAGES
-
-
-def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
-    resolved = resolve_scopes(scopes, include_internal_scopes=True)
-    return [scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES]
 
 
 def _scopes_from_state_value(raw: object) -> PosthogMcpScopes | None:
@@ -170,16 +180,31 @@ def dispatched_run_scopes(task: Task, state: dict[str, Any] | None) -> PosthogMc
 
 def _workflow_run_scopes(requested: PosthogMcpScopes, state: dict[str, Any] | None) -> list[str]:
     """Scopes for a workflow-fired run: the request intersected with the run's snapshotted
-    choice (neither side can widen the other), minus the automation-editing scopes loop
-    runs also strip. A snapshot that does not parse narrows to ``read_only`` rather than
-    dropping the leg that stops a widened request."""
+    choice (neither side can widen the other). A snapshot that does not parse narrows to
+    ``read_only`` rather than dropping the leg that stops a widened request."""
     resolved = set(resolve_scopes(requested, include_internal_scopes=True))
     connectors = ((state or {}).get("config_snapshot") or {}).get("connectors")
     raw = connectors.get("posthog_mcp_scopes") if isinstance(connectors, dict) else None
     if raw is not None:
         snapshot = _scopes_from_state_value(raw)
         resolved &= set(resolve_scopes("read_only" if snapshot is None else snapshot, include_internal_scopes=True))
-    return sorted(scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES)
+    return sorted(resolved)
+
+
+def _builtin_agent_enforcement(task: Task) -> bool | None:
+    if Task.mcp_agent_key_for(task.origin_product, task.stored_profile) is None:
+        return None
+    return is_builtin_agent_enforcement_enabled(task.team_id)
+
+
+def _monitoring_result_scope(task: Task, run_id: UUID | str | None) -> bool | None:
+    if task.origin_product != Task.OriginProduct.SIGNALS_SCOUT or run_id is None:
+        return None
+    from products.signals.backend.facade.monitoring import (  # noqa: PLC0415 -- avoids loading Signals during Tasks startup
+        monitoring_scout_can_submit,
+    )
+
+    return monitoring_scout_can_submit(team_id=task.team_id, task_id=task.id, task_run_id=run_id)
 
 
 def create_oauth_access_token(
@@ -188,13 +213,14 @@ def create_oauth_access_token(
     scopes: PosthogMcpScopes = "read_only",
     user: User | None = None,
     allow_task_creator_fallback: bool = True,
-    loop_id: str | None = None,
     run_state: dict[str, Any] | None = None,
+    run_id: UUID | str | None = None,
+    builtin_agent_enforcement: bool | None = None,
+    monitoring_result_scope: bool | None = None,
 ) -> str:
     """Create an OAuth access token for the task's sandbox app, scoped to the task's team.
 
-    OAuth tokens auto-expire after 6 hours, so no cleanup is needed. Pass `loop_id` for a
-    loop-fired run so `loop:write` is stripped from the granted scopes regardless of `scopes`.
+    OAuth tokens auto-expire after 6 hours, so no cleanup is needed.
     Pass `run_state` so the Signals budget is picked from the run's own provenance
     (`is_interactive_signals_run`); omitting it bills a signals run as interactive, which is
     the safe default but is never what a pipeline run wants.
@@ -207,18 +233,14 @@ def create_oauth_access_token(
             cause=RuntimeError(f"Task {task.id} missing sandbox OAuth user"),
         )
 
-    effective_scopes: PosthogMcpScopes = _scopes_for_loop_fired_run(scopes) if loop_id else scopes
     token_options: dict[str, Any] = {
-        "scopes": effective_scopes,
-        "application": _oauth_application_for_task(task),
+        "scopes": scopes,
+        "application": _oauth_application_for_task(task, run_state),
         "sandbox_task_id": task.id,
     }
-    if task.origin_product in {
-        Task.OriginProduct.SIGNALS_SCOUT,
-        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-        Task.OriginProduct.SUPPORT_REPLY,
-        Task.OriginProduct.WORKFLOW,
-    } and is_builtin_agent_enforcement_enabled(task.team_id):
+    if builtin_agent_enforcement is None:
+        builtin_agent_enforcement = _builtin_agent_enforcement(task)
+    if builtin_agent_enforcement:
         # This scope only removes access to the human MCP Store surface. Add it
         # even when a legacy task lacks trusted provenance so an old spoofed
         # origin fails closed instead of inheriting its creator's connections.
@@ -226,12 +248,20 @@ def create_oauth_access_token(
         # task needs a member-capable token, or every member-proxy call it was
         # just granted would 403.
         token_options["include_mcp_builtin_agent_scope"] = True
-    if is_interactive_signals_run(task, run_state):
+    if token_options["application"] == "signals" and is_interactive_signals_run(task, run_state):
         token_options["include_interactive_run_scope"] = True
     if task.origin_product == Task.OriginProduct.SLACK:
         token_options["include_slack_run_scope"] = True
-    if run_uses_own_subscription(run_state):
-        token_options["withhold_scopes"] = sorted(SUBSCRIPTION_RUN_WITHHELD_SCOPES)
+    withheld = set(SUBSCRIPTION_RUN_WITHHELD_SCOPES) if run_uses_own_subscription(run_state) else set()
+    if "internal_run:write" in resolve_scopes(scopes):
+        # Flat scopes regain shared internal grants when resolved again during minting.
+        withheld.update(RESEARCH_WITHHELD_SCOPES)
+    if withheld:
+        token_options["withhold_scopes"] = sorted(withheld)
+    if monitoring_result_scope is None:
+        monitoring_result_scope = _monitoring_result_scope(task, run_id)
+    if monitoring_result_scope:
+        token_options["include_monitoring_result_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
 
@@ -245,6 +275,7 @@ def create_oauth_access_token_for_run(
     state: dict[str, Any] | None,
     *,
     scopes: PosthogMcpScopes | None = None,
+    run_id: str | UUID | None = None,
 ) -> str:
     """Mint the sandbox OAuth token for a run, resolving the acting user from run state.
 
@@ -252,10 +283,11 @@ def create_oauth_access_token_for_run(
     recorded actor can't be validated (never falling back to the task creator), while
     other runs keep the creator fallback. Callers must not re-derive this pairing by
     hand — passing ``user``/``allow_task_creator_fallback`` separately makes it possible
-    to mint creator credentials for a Slack run by omitting one kwarg. Loop-fired runs
-    (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
+    to mint creator credentials for a Slack run by omitting one kwarg.
     ``scopes`` defaults to what the run was dispatched with (``dispatched_run_scopes``), so
     a caller without the value on its activity input still mints the run's own grant.
+    Tokens recorded on ``run_id`` may read that run's protected agent context, even when the
+    sandbox's query scopes are withheld. The binding never grants access to other runs.
     """
     if scopes is None:
         scopes = dispatched_run_scopes(task, state)
@@ -265,9 +297,14 @@ def create_oauth_access_token_for_run(
         # `start_agent_server` mints its token with explicit scopes.
         if scopes == "signals_research":
             scopes = [*resolve_scopes(scopes), *RESEARCH_WITHHELD_SCOPES]
+        elif scopes == "signals_assessment":
+            # Runtime uploads are bound to this run; the separately minted MCP token stays read-only.
+            scopes = [*resolve_scopes(scopes), "internal_run:write"]
+    builtin_agent_enforcement = _builtin_agent_enforcement(task)
+    monitoring_result_scope = _monitoring_result_scope(task, run_id)
     with transaction.atomic():
         locked_task = (
-            Task.objects.select_for_update(of=("self",))
+            Task.objects.select_for_update(of=("self",), no_key=True)
             .select_related("created_by", "team")
             .get(id=task.id, team_id=task.team_id)
         )
@@ -280,13 +317,21 @@ def create_oauth_access_token_for_run(
             )
 
         actor_user = get_task_run_credential_user(locked_task, state)
-        loop_id = (state or {}).get("loop_id")
         effective_scopes = scopes
+        trial_origin = locked_task.is_scout_experiment
+        if trial_origin or "scout_experiment_internal:read" in resolve_scopes(scopes):
+            if not trial_origin:
+                raise TaskInvalidStateError(
+                    "The scout trial has no trusted execution context.",
+                    {"task_id": task.id},
+                    cause=RuntimeError("missing scout trial context"),
+                )
+            effective_scopes = "signals_scout_experiment"
         credential_owner_kind: str | None = None
         if locked_task.origin_product == Task.OriginProduct.WORKFLOW:
             effective_scopes = _workflow_run_scopes(scopes, state)
             credential_owner_kind = "workflow"
-        elif loop_id is not None:
+        elif (state or {}).get("loop_id") is not None:
             credential_owner_kind = "loop"
 
         if credential_owner_kind is not None:
@@ -298,14 +343,27 @@ def create_oauth_access_token_for_run(
                     cause=RuntimeError(f"{credential_owner_kind} credential owner is not an active team member"),
                 )
 
-        return create_oauth_access_token(
+        access_token = create_oauth_access_token(
             locked_task,
             scopes=effective_scopes,
             user=actor_user,
             allow_task_creator_fallback=not is_slack_interaction_state(state),
-            loop_id=loop_id if isinstance(loop_id, str) else None,
             run_state=state,
+            run_id=run_id,
+            builtin_agent_enforcement=builtin_agent_enforcement,
+            monitoring_result_scope=monitoring_result_scope,
         )
+        if run_id is not None:
+            run = TaskRun.objects.select_for_update().get(
+                id=run_id, task_id=locked_task.id, team_id=locked_task.team_id
+            )
+            token_id = str(OAuthAccessToken.objects.get(token=access_token).id)
+            run.state = {
+                **(run.state or {}),
+                "sandbox_oauth_token_ids": [*(run.state or {}).get("sandbox_oauth_token_ids", []), token_id],
+            }
+            run.save(update_fields=["state"])
+        return access_token
 
 
 def create_wizard_oauth_access_token(task: Task) -> str:
@@ -340,6 +398,7 @@ def create_oauth_access_token_for_user(
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
     include_slack_run_scope: bool = False,
+    include_monitoring_result_scope: bool = False,
     sandbox_task_id: UUID | None = None,
     withhold_scopes: Collection[str] = (),
 ) -> str:
@@ -356,6 +415,8 @@ def create_oauth_access_token_for_user(
             token_options["include_interactive_run_scope"] = True
         if include_slack_run_scope:
             token_options["include_slack_run_scope"] = True
+        if include_monitoring_result_scope:
+            token_options["include_monitoring_result_scope"] = True
         if withhold_scopes:
             token_options["withhold_scopes"] = list(withhold_scopes)
         return _create_oauth_access_token_for_user(user, team_id, **token_options)

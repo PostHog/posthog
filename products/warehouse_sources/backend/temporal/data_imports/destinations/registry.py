@@ -1,10 +1,10 @@
 """Where destination writers are looked up by type.
 
 The external destinations (Redshift, Snowflake, BigQuery, ...) are implemented on top of
-batch exports' destination clients and transformers, which warehouse_sources depends on
-directly (see tach.toml). Writers are still resolved by type string rather than imported at
-the call site, so the processor never names a destination type and a driver only loads when
-a destination of that type is actually written to.
+batch exports' destination clients and transformers, which warehouse_sources reads through
+batch exports' ``facade.destinations`` package. Writers are still resolved by type string
+rather than imported at the call site, so the processor never names a destination type and a
+driver only loads when a destination of that type is actually written to.
 
 An unregistered type raises rather than degrading to a no-op: silently writing nothing to a
 destination a customer configured, and billing it, is worse than failing the batch.

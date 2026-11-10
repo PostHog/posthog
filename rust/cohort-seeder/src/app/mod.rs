@@ -1,9 +1,11 @@
 //! Application layer: wires `store`, `clickhouse`, `kafka`, and `config` into the seeder's poll loop.
 //! Depends on every lower layer; nothing below depends on it, so this is where the arrows terminate.
 
+mod breaker;
 pub mod completion;
 mod deliver;
 mod execute;
+mod newest_day;
 pub mod observe;
 mod orchestrator;
 mod person_execute;

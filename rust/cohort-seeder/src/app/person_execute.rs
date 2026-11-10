@@ -97,7 +97,7 @@ pub(super) async fn execute_person_chunk(
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
     // PreMark: CAS `scanning`→`produced` — the row is still `scanning` on failure.
-    let enqueued = match store.mark_produced_streamed(streamed).await {
+    let enqueued = match store.mark_produced(streamed).await {
         Ok(enqueued) => enqueued,
         Err(halt) => {
             return resolve_halt(&store, mark_produced_halt(halt), &shutdown, retry_backoff).await
@@ -303,4 +303,32 @@ enum PersonChunkError {
     Cursor(#[source] clickhouse::error::Error),
     #[error(transparent)]
     Produce(ProduceError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clickhouse::ResourceError;
+
+    /// `Scan` is transparent, so its source chain skips `PersonScanError` and must still reach the
+    /// ClickHouse error, or the person breaker never sees a resource error.
+    #[test]
+    fn person_scan_resource_errors_reach_the_breaker() {
+        let memory = || {
+            clickhouse::error::Error::BadResponse(
+                "Code: 241. DB::Exception: Memory limit (for query) exceeded. (MEMORY_LIMIT_EXCEEDED)"
+                    .to_owned(),
+            )
+        };
+        for error in [
+            PersonChunkError::Scan(PersonScanError::Cursor(memory())),
+            PersonChunkError::Cursor(memory()),
+        ] {
+            assert_eq!(
+                ResourceError::classify(&error),
+                Some(ResourceError::MemoryLimitExceeded),
+                "{error:?}"
+            );
+        }
+    }
 }

@@ -1,3 +1,5 @@
+import { type ActionsNode, NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
+
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { buildTrendsPieSeries } from './trendsPieTransforms'
@@ -13,7 +15,6 @@ function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendRe
         days: [],
         labels: [],
         count: 0,
-        action: undefined,
         breakdown_value: undefined,
         compare_label: undefined,
         ...overrides,
@@ -29,7 +30,7 @@ describe('buildTrendsPieSeries', () => {
             makeResult({ id: 1, label: 'B', aggregated_value: 30 }),
             makeResult({ id: 2, label: 'C', aggregated_value: 60 }),
         ]
-        const series = buildTrendsPieSeries(results, { getColor })
+        const series = buildTrendsPieSeries(results, { querySource: null, getColor })
 
         expect(series).toHaveLength(3)
         expect(series.map((s) => s.key)).toEqual(['0', '1', '2'])
@@ -39,13 +40,14 @@ describe('buildTrendsPieSeries', () => {
 
     it('assigns colors via getColor', () => {
         const results = [makeResult({ id: 0 }), makeResult({ id: 1 }), makeResult({ id: 2 })]
-        const series = buildTrendsPieSeries(results, { getColor })
+        const series = buildTrendsPieSeries(results, { querySource: null, getColor })
         expect(series.map((s) => s.color)).toEqual(['#001', '#002', '#003'])
     })
 
     it('marks hidden series as visibility.excluded', () => {
         const results = [makeResult({ id: 0 }), makeResult({ id: 1 }), makeResult({ id: 2 })]
         const series = buildTrendsPieSeries(results, {
+            querySource: null,
             getColor,
             getHidden: (_, i) => i === 1,
         })
@@ -58,6 +60,7 @@ describe('buildTrendsPieSeries', () => {
             makeResult({ id: 1, label: 'raw-b', breakdown_value: 'b' }),
         ]
         const series = buildTrendsPieSeries(results, {
+            querySource: null,
             getColor,
             getLabel: (r) => `Breakdown: ${r.breakdown_value}`,
         })
@@ -66,30 +69,34 @@ describe('buildTrendsPieSeries', () => {
 
     it('falls back to label when getLabel is omitted', () => {
         const results = [makeResult({ id: 0, label: 'fallback' })]
-        const series = buildTrendsPieSeries(results, { getColor })
+        const series = buildTrendsPieSeries(results, { querySource: null, getColor })
         expect(series[0].label).toBe('fallback')
     })
 
     it('clamps missing aggregated_value to 0', () => {
         // aggregated_value is required by the type, but we want to be defensive against partial data.
         const results = [makeResult({ id: 0, label: 'A', aggregated_value: undefined as unknown as number })]
-        const series = buildTrendsPieSeries(results, { getColor })
+        const series = buildTrendsPieSeries(results, { querySource: null, getColor })
         expect(series[0].data).toEqual([0])
     })
 
-    it('carries action / breakdown_value / compare_label through TrendsSeriesMeta', () => {
-        const action = { id: 7, order: 3 } as unknown as IndexedTrendResult['action']
+    it('carries the series / breakdown_value / compare_label through TrendsSeriesMeta', () => {
+        const signups: ActionsNode = { kind: NodeKind.ActionsNode, id: 7, name: 'Signed up' }
+        const querySource: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }, signups],
+        }
         const results = [
             makeResult({
                 id: 0,
                 label: 'A',
-                action,
+                order: 1,
                 breakdown_value: 'chrome',
                 days: ['2024-01-01'],
             }),
         ]
-        const series = buildTrendsPieSeries(results, { getColor })
-        expect(series[0].meta?.action).toBe(action)
+        const series = buildTrendsPieSeries(results, { querySource, getColor })
+        expect(series[0].meta?.series.node).toEqual(signups)
         expect(series[0].meta?.breakdown_value).toBe('chrome')
         expect(series[0].meta?.days).toEqual(['2024-01-01'])
     })

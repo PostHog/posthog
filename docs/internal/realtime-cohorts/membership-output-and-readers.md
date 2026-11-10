@@ -48,8 +48,26 @@ Its compiled default is `cohort_membership_changed_shadow`, which only a parity 
 }
 ```
 
-The seeder reads markers to decide run completion.
+A partition that cannot certify the run produces a withheld marker under the same key instead, and no reconcile rows:
+
+```json
+{
+  "type": "reconcile_withheld",
+  "team_id": 7,
+  "cohort_id": 42,
+  "partition": 17,
+  "run_id": "01928c3e-...",
+  "reason": "partial_coverage",
+  "covered_since_ms": 1791547200000
+}
+```
+
+`reason` is `partial_coverage`, `team_absent`, `cohort_absent`, `not_emitting`, `hash_unknown` or `hash_mismatch`.
+`covered_since_ms` comes only with `partial_coverage`: it is when the partition's history begins.
+
+The seeder reads markers to decide run completion, and supersedes a withheld cohort's participation.
 The membership consumer reads them to decide when stale rows may be deleted.
+It counts a withheld marker and otherwise ignores it, so that run never collects every marker, and its row stays `collecting` until it is abandoned.
 
 The 64 processor partitions that markers count are unrelated to the partitions of the membership topic, which has its own count.
 
@@ -156,7 +174,7 @@ Taking the lower of the two can only make the sweep delete less.
 
 The consumer knows nothing about Django's supersession.
 A run that an edit superseded after its reconcile was dispatched can still collect all 64 markers.
-The processor discards the remaining requests only when the edit moved the shape hash of the run's kind, and it cannot take back markers it already produced.
+The processor withholds the remaining requests only when the edit moved the shape hash of the run's kind, after a catalog refresh that began after each request arrived, and it cannot take back markers it already produced.
 A run with every marker sweeps like any other run.
 A run whose markers stay incomplete never leaves `collecting`, and it is abandoned after a few days.
 
@@ -165,6 +183,7 @@ A run whose markers stay incomplete never leaves `collecting`, and it is abandon
 After a swept reconcile, the table holds the processor's Stage 2 state for the cohort, plus any row written at or after the reconcile began.
 It converges to what the processor believes, not to the cohort's definition.
 A true member for whom the processor holds no Stage 2 row gets no reconcile row, and the sweep deletes their old row.
+A partition whose slice lost its history after the run's boundary is the large case of this, so it withholds its marker instead of reconciling, and the sweep never runs for that run.
 
 Some rows are never swept:
 
@@ -182,16 +201,26 @@ Its connection pool, cache and timeout settings are in [the flags service overvi
 
 ### When a cohort is read from the table
 
-For each request on a team in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, the flags service routes a cohort to the table only if:
+For each request on a team in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, or whose team access row is at `serving`, the flags service routes a cohort to the table only if:
 
 - the cohort's type is `realtime`, or the legacy `behavioral` type,
 - its `condition_type` marks a behavioral or lifecycle condition,
 - its [readiness stamps](completion-and-readiness.md#what-readiness-unlocks) satisfy the configured stamp policy.
 
+`/flags` reads the team access level from the team metadata cache, or from Postgres when the cache has no entry for the team.
+Batch flag evaluation always reads it from Postgres.
+A cache entry without the level reads as `off`.
+
 `condition_type` is derived by Django on save.
 A cohort whose `condition_type` is empty is never routed, and resaving it fills the column.
+A behavioral run refuses such a cohort, so it never reads as ready.
 
 Every other non-static cohort is evaluated dynamically from the person's properties, where a behavioral condition can never match.
+
+The team metadata cache that the flags service reads carries the team's access row level as `realtime_cohort_level`, or `off` when the team has no row.
+It carries the row's level, not Django's effective level, because `REALTIME_COHORT_TEAM_ALLOWLIST` can name every team.
+`realtime_cohort_team_access enable`, `grant` and `revoke` queue a refresh of the team's entry after they commit.
+The hourly team metadata verification repairs an entry whose level still differs from the row.
 
 ### How it reads
 

@@ -5,6 +5,6 @@ they never import metrics internals; the seeder writes rows shaped like real
 ingest output directly into ClickHouse.
 """
 
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
-__all__ = ["seed_metric"]
+__all__ = ["seed_metric", "truncate_metrics_tables"]

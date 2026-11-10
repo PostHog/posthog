@@ -2,9 +2,12 @@ import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,6 +19,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
+import { FirstDataSeen } from './FirstDataSeen'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
@@ -25,6 +29,8 @@ import { MCPAnalyticsMissingCapabilities } from './missingCapabilities/MCPAnalyt
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
+import { MCPSetupMode } from './setupMode/MCPSetupMode'
+import { SetupGuideButton } from './setupMode/SetupGuideButton'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -36,12 +42,22 @@ export const scene: SceneExport = {
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
+    return (
+        <>
+            <FirstDataSeen />
+            <MCPAnalyticsSceneBody />
+        </>
+    )
+}
+
+function MCPAnalyticsSceneBody(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (activeTab === 'intent-clustering' && !intentRoutingEnabled) {
         return <NotFound object="page" />
@@ -122,15 +138,28 @@ export function MCPAnalyticsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <MCPSetupMode />
             <MCPAnalyticsSceneMenuBar />
             <SceneTitleSection
                 name="MCP analytics"
                 description={onboardingState === 'onboarded' ? TAB_DESCRIPTIONS[activeTab] : null}
                 resourceType={{ type: 'mcp_analytics' }}
                 actions={
-                    <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
-                        Documentation
-                    </LemonButton>
+                    todayRailNav ? (
+                        <>
+                            <SetupGuideButton quill />
+                            <Button variant="outline" render={<LinkPrimitive to={MCP_DOCS_URL} target="_blank" />}>
+                                Documentation
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <SetupGuideButton quill={false} />
+                            <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
+                                Documentation
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
 

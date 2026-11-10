@@ -1,6 +1,8 @@
-import { LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
+import { IconClock } from '@posthog/icons'
+import { LemonBanner, LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { Experiment } from '~/types'
 
@@ -10,6 +12,10 @@ import {
     isExperimentPaused,
     isLaunched,
 } from 'products/experiments/frontend/experimentStatus'
+import {
+    estimateFreezeExposureSeconds,
+    formatFreezeExposureDuration,
+} from 'products/experiments/frontend/freezeExposureDuration'
 
 /** Whether an experiment is in a state where it can be archived (ignoring permissions). */
 export function canArchiveExperiment(
@@ -51,7 +57,8 @@ export function canFreezeExposure(
     )
 }
 
-export function confirmFreezeExposure(onConfirm: () => Promise<void>): void {
+/** `exposedUsers` is 0 when the exposure count has not loaded, and the dialog then shows no estimate. */
+export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUsers: number): void {
     LemonDialog.open({
         title: 'Freeze exposure?',
         content: (
@@ -69,7 +76,19 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>): void {
                     From a frozen state you can end an experiment or ship a variant at any time. You can unfreeze as
                     well to reopen enrollment.
                 </p>
-                <p>Freezing can take a little while on projects with many users, so keep this dialog open.</p>
+                {exposedUsers > 0 ? (
+                    <LemonBanner type="info" icon={<IconClock className="LemonBanner__icon" />}>
+                        <div className="font-semibold">
+                            Freezing takes {formatFreezeExposureDuration(estimateFreezeExposureSeconds(exposedUsers))}
+                        </div>
+                        <div className="font-normal">
+                            {humanFriendlyNumber(exposedUsers)} exposed {exposedUsers === 1 ? 'user' : 'users'}. Keep
+                            this dialog open until it finishes.
+                        </div>
+                    </LemonBanner>
+                ) : (
+                    <p>Freezing can take a little while on projects with many users, so keep this dialog open.</p>
+                )}
             </div>
         ),
         shouldAwaitSubmit: true,

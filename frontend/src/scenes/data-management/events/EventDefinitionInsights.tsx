@@ -8,7 +8,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { INSIGHTS_PER_PAGE, eventInsightsLogic } from 'scenes/data-management/events/eventInsightsLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
+import { InsightIcon } from 'scenes/saved-insights/InsightIcon'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'

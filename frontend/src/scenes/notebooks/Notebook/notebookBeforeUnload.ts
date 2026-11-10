@@ -4,6 +4,7 @@ export type ShouldWarnBeforeLeavingNotebookInput = {
     isLocalOnly: boolean
     isEditable: boolean
     syncStatus: NotebookSyncStatus
+    hasMountedEditor: boolean
     currentPathname: string
     newPathname?: string
 }
@@ -27,6 +28,9 @@ export function shouldWarnBeforeLeavingNotebook(input: ShouldWarnBeforeLeavingNo
     }
     // Ignore in-page URL updates (side panel, hash params, comment selection, ...).
     if (input.newPathname === input.currentPathname) {
+        return false
+    }
+    if (input.newPathname && !input.hasMountedEditor) {
         return false
     }
     return true

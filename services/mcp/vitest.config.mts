@@ -29,6 +29,7 @@ export default defineConfig({
                         'node_modules/**',
                         'dist/**',
                         'tests/**/*.integration.test.ts',
+                        'tests/live/**',
                         'tests/workers/**',
                         'tests/hono/**',
                     ],

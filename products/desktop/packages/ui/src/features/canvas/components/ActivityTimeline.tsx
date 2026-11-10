@@ -1,4 +1,3 @@
-import { Robot } from "@phosphor-icons/react";
 import type {
   ArtifactPayload,
   CommentEventPayload,
@@ -12,6 +11,7 @@ import {
   type UserMessageLike,
 } from "@posthog/core/canvas/activityTimeline";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
+import { commentScopeFromWire } from "@posthog/core/comments/anchors";
 import { DEFAULT_TAB_IDS } from "@posthog/core/panels/panelConstants";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
 import {
@@ -48,7 +48,6 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { INJECTED_BLOCK_PRESENTATION } from "@posthog/ui/features/sessions/components/session-update/injectedBlocks";
-import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
 import {
   useHasTranscriptListener,
@@ -76,7 +75,7 @@ function UserMessageRow({
   onShowInChat?: () => void;
 }) {
   const name = author ? userDisplayName(author) : "You";
-  const { peerAgentMessage, blocks, displayContent } = useMemo(
+  const { blocks, displayContent } = useMemo(
     () => splitUserMessage(content),
     [content],
   );
@@ -100,12 +99,6 @@ function UserMessageRow({
       onShowInChat={onShowInChat}
       detail={
         <div className="space-y-1.5">
-          {peerAgentMessage && (
-            <MentionChip
-              icon={<Robot size={12} />}
-              label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
-            />
-          )}
           <MessageBubble content={displayContent} />
           {disclosedBlocks.map((block) => {
             const { icon: BlockIcon, label } =
@@ -253,9 +246,7 @@ export function ActivityTimeline({
           ? { scope: "task", itemId: task.id }
           : {
               scope:
-                thread.target.type === "canvas"
-                  ? "desktop_canvas"
-                  : "task_artifact",
+                thread.target.type === "canvas" ? "canvas" : "task_artifact",
               itemId: thread.target.id,
             },
         thread.id,
@@ -279,14 +270,8 @@ export function ActivityTimeline({
 
   const openCommentThread = (payload: CommentEventPayload) => {
     if (!canOpenInPlace) return undefined;
-    const scope = payload.scope;
-    if (
-      scope !== "task" &&
-      scope !== "task_artifact" &&
-      scope !== "desktop_canvas"
-    ) {
-      return undefined;
-    }
+    const scope = commentScopeFromWire(payload.scope);
+    if (!scope) return undefined;
     const itemId = scope === "task" ? task.id : payload.itemId;
     if (!itemId) return undefined;
     return () =>

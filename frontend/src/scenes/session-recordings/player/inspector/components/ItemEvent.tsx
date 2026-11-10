@@ -189,6 +189,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
             items={[
                 {
                     label: 'View event in the activity feed',
+                    'data-attr': 'inspector-event-open-activity',
                     icon: <IconOpenInNew />,
                     to: urls.currentProject(urls.event(String(item.data.id), item.data.timestamp)),
                     targetBlank: true,
@@ -196,6 +197,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                 item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
                     ? {
                           label: 'View issue in Error Tracking',
+                          'data-attr': 'inspector-event-open-error-tracking',
                           icon: <IconOpenInNew />,
                           to: urls.errorTrackingIssue(item.data.properties.$exception_issue_id, {
                               fingerprint: item.data.properties.$exception_fingerprint,
@@ -207,6 +209,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                 insightUrl
                     ? {
                           label: 'Try out in Insights',
+                          'data-attr': 'inspector-event-open-insights',
                           icon: <IconOpenInNew />,
                           to: insightUrl,
                           targetBlank: true,
@@ -215,6 +218,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                 traceUrl
                     ? {
                           label: 'View LLM Trace',
+                          'data-attr': 'inspector-event-open-llm-trace',
                           icon: <IconOpenInNew />,
                           to: traceUrl,
                           targetBlank: true,
@@ -223,7 +227,12 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
             ]}
             buttonSize="xsmall"
         >
-            <LemonButton size="xsmall" icon={<IconShare />} className="recordings-event-share-actions" />
+            <LemonButton
+                data-attr="inspector-event-share"
+                size="xsmall"
+                icon={<IconShare />}
+                className="recordings-event-share-actions"
+            />
         </LemonMenu>
     )
 }

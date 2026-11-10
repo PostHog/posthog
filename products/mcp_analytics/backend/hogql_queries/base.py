@@ -17,9 +17,11 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
+from posthog.hogql_queries.query_runner import AR, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 
 if TYPE_CHECKING:
     from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
@@ -28,18 +30,22 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 # The effective tool name for new-SDK events: the inner tool when the call went through the
-# single-exec wrapper, else the directly-registered tool name. Shared by every runner that
-# scopes to one tool, so the expression lives OnceAndOnlyOnce.
-EFFECTIVE_TOOL_SQL = (
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
-)
+# single-exec wrapper, including calls rejected before dispatch. Discovery verbs only
+# describe a tool, so their target must not count as an execution attempt.
+EFFECTIVE_TOOL_SQL = """coalesce(
+    nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
+    if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
+       nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
+    toString(properties.$mcp_tool_name)
+)"""
 # The description of the *effective* tool: for single-exec calls the inner tool's
 # $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
 # Without this, an inner tool's description would resolve to the exec wrapper's text
 # (another tool's description) — a tool-level disclosure.
 EFFECTIVE_DESCRIPTION_SQL = (
     "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_description), ''), "
-    "toString(properties.$mcp_tool_description))"
+    f"if(({EFFECTIVE_TOOL_SQL}) = toString(properties.$mcp_tool_name), "
+    "toString(properties.$mcp_tool_description), NULL))"
 )
 # One MCP conversation: the SDK's own session id, falling back to the PostHog session id.
 CONVERSATION_ID_SQL = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
@@ -127,3 +133,14 @@ def mcp_query_date_range(
         interval=interval,
         now=datetime.now(team.timezone_info),
     )
+
+
+class HarnessLabelQueryRunner(AnalyticsQueryRunner[AR]):
+    """A runner whose results carry harness labels, which depend on the team's custom harness rules."""
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # Without the rules in the key, a save keeps serving cached results with the old labels until they expire.
+        if rules := custom_harness_rules(self.team):
+            payload["mcp_custom_harness_rules"] = [[rule.name, rule.pattern] for rule in rules]
+        return payload

@@ -8,6 +8,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardBasicType } from '~/types'
 
+import * as generatedApi from 'products/dashboards/frontend/generated/api'
+import type { DashboardBulkDeleteResponseApi } from 'products/dashboards/frontend/generated/api.schemas'
+
 import { dashboardsModel, mergeTileTextUpdatesIntoDashboard, nameCompareFunction } from './dashboardsModel'
 
 const dashboards: Partial<DashboardBasicType>[] = [
@@ -110,6 +113,42 @@ describe('the dashboards model', () => {
         await expectLogic(logic, () => {
             logic.actions.loadDashboardsIfNeeded()
         }).toDispatchActions(['loadDashboardsSuccess'])
+    })
+
+    it('reloads every page after a failed bulk deletion', async () => {
+        await expectLogic(logic, () => logic.actions.loadDashboards()).toDispatchActions(['loadDashboardsSuccess'])
+        let failRequest: (error: Error) => void
+        const request = new Promise<DashboardBulkDeleteResponseApi>((_, reject) => {
+            failRequest = reject
+        })
+        const deleteSpy = jest.spyOn(generatedApi, 'dashboardsBulkDeleteCreate').mockReturnValueOnce(request)
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    return [
+                        200,
+                        {
+                            count: 2,
+                            results: [{ ...basicDashboard, id: offset === '0' ? 5 : 6 }],
+                            next: offset === '0' ? '/api/projects/1/dashboards/?offset=1' : null,
+                            previous: null,
+                        },
+                    ]
+                },
+            },
+        })
+        try {
+            logic.actions.bulkDeleteDashboards({ ids: [3], onStillSelected: jest.fn() })
+            await expectLogic(logic, () => failRequest!(new Error('Lost response'))).toDispatchActions([
+                'bulkDeleteDashboardsFailure',
+                'reloadDashboardsSuccess',
+            ])
+            expect(Object.keys(logic.values.rawDashboards).sort()).toEqual(['5', '6'])
+            expect(logic.values.pagingDashboardsCompleted).toBe(true)
+        } finally {
+            deleteSpy.mockRestore()
+        }
     })
 
     describe('sorting dashboards', () => {
@@ -302,7 +341,7 @@ describe('the dashboards model', () => {
 })
 
 describe('mergeTileTextUpdatesIntoDashboard', () => {
-    it('updates only text body and preserves server metadata', () => {
+    it('updates editable text fields and preserves server metadata', () => {
         const dashboard = {
             id: 123,
             tiles: [
@@ -310,6 +349,7 @@ describe('mergeTileTextUpdatesIntoDashboard', () => {
                     id: 1,
                     text: {
                         body: 'server body',
+                        agent_context: 'server context',
                         last_modified_at: '2026-03-17T10:00:00Z',
                     },
                 },
@@ -321,12 +361,14 @@ describe('mergeTileTextUpdatesIntoDashboard', () => {
                 id: 1,
                 text: {
                     body: 'client body',
+                    agent_context: 'client context',
                     last_modified_at: 'stale-client-value',
                 },
             },
         ])
 
         expect(merged.tiles?.[0]?.text?.body).toEqual('client body')
+        expect(merged.tiles?.[0]?.text?.agent_context).toEqual('client context')
         expect(merged.tiles?.[0]?.text?.last_modified_at).toEqual('2026-03-17T10:00:00Z')
     })
 })

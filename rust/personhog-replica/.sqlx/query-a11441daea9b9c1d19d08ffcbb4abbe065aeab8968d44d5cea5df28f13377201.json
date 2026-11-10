@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO posthog_person (uuid, team_id, properties, properties_last_updated_at,\n                                    properties_last_operation, created_at, version,\n                                    is_identified, is_deleted)\n        SELECT f.uuid, $1, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, NOW(), f.version, false, true\n        FROM UNNEST($2::uuid[], $3::bigint[]) AS f(uuid, version)\n        ON CONFLICT (team_id, uuid) DO NOTHING\n        RETURNING id::bigint as \"id!\", uuid as \"uuid!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a11441daea9b9c1d19d08ffcbb4abbe065aeab8968d44d5cea5df28f13377201"
+}

@@ -10,13 +10,13 @@ from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.organization_caching import connect_signal_handlers as connect_organization_cache_signal_handlers
+from posthog.ph_client import default_before_send, self_hosted_capture_reaches_posthog
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
     get_instance_region,
     get_machine_id,
     initialize_self_capture_api_token,
-    str_to_bool,
 )
 
 logger = structlog.get_logger(__name__)
@@ -38,8 +38,12 @@ class PostHogConfig(AppConfig):
             connect_signal_handlers as connect_gateway_credential_signal_handlers,
         )
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
+        from posthog.storage.team_metadata_signal_handlers import (
+            connect_signal_handlers as connect_team_metadata_signal_handlers,
+        )
 
         connect_signal_handlers()
+        connect_team_metadata_signal_handlers()
         connect_gateway_credential_signal_handlers()
         connect_organization_cache_signal_handlers()
 
@@ -48,7 +52,8 @@ class PostHogConfig(AppConfig):
         # django.setup(), so a process that never builds the router (celery, temporal, migrate,
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
-        import posthog.storage.checks  # noqa: F401, PLC0415
+        import posthog.checks  # noqa: F401, PLC0415
+        import posthog.models.file_system.signal_handlers  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 
@@ -76,6 +81,13 @@ class PostHogConfig(AppConfig):
         }
         posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
         posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
+        # Retained trial data still needs privacy when new launches are disabled.
+        before_send = default_before_send(
+            private_scout_capture=settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE,
+            self_hosted=self_hosted_capture_reaches_posthog(),
+        )
+        if before_send is not None:
+            posthoganalytics.before_send = before_send  # ty: ignore[invalid-assignment]
 
         # Config for the SDK's `client.metrics` API. The pinned SDK version predates
         # the metrics API and ignores this attr; once posthoganalytics is bumped to
@@ -89,17 +101,15 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
-        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
-            posthoganalytics.capture_exception_code_variables = False
-        else:
-            posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
+        # Frame locals can hold credentials that the SDK masking does not reliably redact, so never send them.
+        posthoganalytics.capture_exception_code_variables = False
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]
             posthoganalytics.personal_api_key = None
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True  # ty: ignore[invalid-assignment]
-        elif settings.DEBUG:
+        elif settings.DEBUG or settings.SELF_CAPTURE:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
             # Due to ASGI's workings, we can't query for the right project token in this `ready()` method
             # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file

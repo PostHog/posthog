@@ -8,6 +8,7 @@ import {
     type QuestionnaireItemStatus,
     type QuestionnaireShortcutMode,
 } from '@shadcn/react/questionnaire'
+import { mergeProps } from '@base-ui/react/merge-props'
 import { CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
@@ -30,103 +31,113 @@ import { cn } from '../lib/utils'
  * native radios and checkboxes under an invisible overlay, which is what keeps arrow-key roving and
  * form participation working while the whole row stays the hit target.
  */
-function Questionnaire({
-    className,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Root>): React.ReactElement {
+const Questionnaire = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Root>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Root>
+>(function Questionnaire({ className, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Root
+            ref={ref}
             data-quill
             data-slot="questionnaire"
             className={cn('quill-questionnaire', className)}
             {...props}
         />
     )
-}
+})
 
 /** `Question 2 of 5` by default; pass children to word it differently. */
-function QuestionnaireProgress({
-    className,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Progress>): React.ReactElement {
+const QuestionnaireProgress = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Progress>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Progress>
+>(function QuestionnaireProgress({ className, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Progress
+            ref={ref}
             data-slot="questionnaire-progress"
             className={cn('quill-questionnaire__progress', className)}
             {...props}
         />
     )
-}
+})
 
 /**
  * One question. `name` is the key its answer arrives under and must be unique in the root. Only the
  * active item is rendered visibly — the engine hides and inerts the rest, so all of them can stay
  * mounted and keep their answers.
  */
-function QuestionnaireItem({
-    className,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Item>): React.ReactElement {
+const QuestionnaireItem = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Item>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Item>
+>(function QuestionnaireItem({ className, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Item
+            ref={ref}
             data-slot="questionnaire-item"
             className={cn('quill-questionnaire__item', className)}
             {...props}
         />
     )
-}
+})
 
-function QuestionnaireTitle({
-    className,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Title>): React.ReactElement {
+const QuestionnaireTitle = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Title>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Title>
+>(function QuestionnaireTitle({ className, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Title
+            ref={ref}
             data-slot="questionnaire-title"
             className={cn('quill-questionnaire__title', className)}
             {...props}
         />
     )
-}
+})
 
-function QuestionnaireDescription({
-    className,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Description>): React.ReactElement {
+const QuestionnaireDescription = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Description>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Description>
+>(function QuestionnaireDescription({ className, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Description
+            ref={ref}
             data-slot="questionnaire-description"
             className={cn('quill-questionnaire__description', className)}
             {...props}
         />
     )
-}
+})
 
-function QuestionnaireChoices({
-    className,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Choices>): React.ReactElement {
+const QuestionnaireChoices = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Choices>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Choices>
+>(function QuestionnaireChoices({ className, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Choices
+            ref={ref}
             data-slot="questionnaire-choices"
             className={cn('quill-questionnaire__choices', className)}
             {...props}
         />
     )
-}
+})
 
 /**
  * One fixed answer. The row assembles its own parts — the overlaid control, the indicator, the label
  * children, and the shortcut key — so a caller only writes the answer's text. The indicator draws
  * itself off the row's `data-type`: a dot for a radio, a check for a checkbox.
  */
-function QuestionnaireChoice({
-    children,
-    className,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Choice>): React.ReactElement {
+// Annotated so the emitted .d.ts names the public `typeof` instead of the package's private props chunk.
+const QuestionnaireChoice: React.ForwardRefExoticComponent<
+    React.ComponentPropsWithoutRef<typeof QuestionnairePrimitive.Choice> &
+        React.RefAttributes<React.ComponentRef<typeof QuestionnairePrimitive.Choice>>
+> = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Choice>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Choice>
+>(function QuestionnaireChoice({ children, className, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Choice
+            ref={ref}
             data-slot="questionnaire-choice"
             className={cn('quill-questionnaire__choice', className)}
             {...props}
@@ -164,18 +175,21 @@ function QuestionnaireChoice({
             />
         </QuestionnairePrimitive.Choice>
     )
-}
+})
 
 /** The muted second line of an answer — what picking it means. */
-function QuestionnaireChoiceDescription({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return (
-        <span
-            data-slot="questionnaire-choice-description"
-            className={cn('quill-questionnaire__choice-description', className)}
-            {...props}
-        />
-    )
-}
+const QuestionnaireChoiceDescription = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(
+    function QuestionnaireChoiceDescription({ className, ...props }, ref) {
+        return (
+            <span
+                ref={ref}
+                data-slot="questionnaire-choice-description"
+                className={cn('quill-questionnaire__choice-description', className)}
+                {...props}
+            />
+        )
+    }
+)
 
 /**
  * A freeform answer alongside the fixed ones. It takes its `name` from the item, so it competes with
@@ -186,14 +200,18 @@ function QuestionnaireChoiceDescription({ className, ...props }: React.Component
  * rather than a field that happens to sit under the answers. The indicator takes its shape from the
  * choices beside it — round for radios, square for checkboxes.
  */
-function QuestionnaireInput({
-    className,
-    render,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Input>): React.ReactElement {
+// Annotated so the emitted .d.ts names the public `typeof` instead of the package's private props chunk.
+const QuestionnaireInput: React.ForwardRefExoticComponent<
+    React.ComponentPropsWithoutRef<typeof QuestionnairePrimitive.Input> &
+        React.RefAttributes<React.ComponentRef<typeof QuestionnairePrimitive.Input>>
+> = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Input>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Input>
+>(function QuestionnaireInput({ className, render, ...props }, ref) {
     return (
         <div data-slot="questionnaire-input-wrapper" className="quill-questionnaire__input-wrapper">
             <QuestionnairePrimitive.Input
+                ref={ref}
                 data-slot="questionnaire-input"
                 className={className}
                 render={
@@ -228,37 +246,44 @@ function QuestionnaireInput({
             />
         </div>
     )
-}
+})
 
 /** The engine's own message by default; pass children for a question-specific one. */
-function QuestionnaireError({
-    className,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Error>): React.ReactElement {
+const QuestionnaireError = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Error>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Error>
+>(function QuestionnaireError({ className, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Error
+            ref={ref}
             data-slot="questionnaire-error"
             className={cn('quill-questionnaire__error', className)}
             {...props}
         />
     )
-}
+})
 
 /** Layout only — the row Previous, Skip, and Next/Submit sit in. It holds no state. */
-function QuestionnaireActions({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return (
-        <div data-slot="questionnaire-actions" className={cn('quill-questionnaire__actions', className)} {...props} />
-    )
-}
+const QuestionnaireActions = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(
+    function QuestionnaireActions({ className, ...props }, ref) {
+        return (
+            <div
+                ref={ref}
+                data-slot="questionnaire-actions"
+                className={cn('quill-questionnaire__actions', className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function QuestionnairePrevious({
-    children,
-    className,
-    render,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Previous>): React.ReactElement {
+const QuestionnairePrevious = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Previous>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Previous>
+>(function QuestionnairePrevious({ children, className, render, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Previous
+            ref={ref}
             data-slot="questionnaire-previous"
             className={cn('quill-questionnaire__previous', className)}
             render={render ?? <Button variant="outline" />}
@@ -267,16 +292,15 @@ function QuestionnairePrevious({
             {children ?? 'Previous'}
         </QuestionnairePrimitive.Previous>
     )
-}
+})
 
-function QuestionnaireSkip({
-    children,
-    className,
-    render,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Skip>): React.ReactElement {
+const QuestionnaireSkip = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Skip>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Skip>
+>(function QuestionnaireSkip({ children, className, render, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Skip
+            ref={ref}
             data-slot="questionnaire-skip"
             className={cn('quill-questionnaire__skip', className)}
             render={render ?? <Button variant="outline" />}
@@ -285,43 +309,59 @@ function QuestionnaireSkip({
             {children ?? 'Skip'}
         </QuestionnairePrimitive.Skip>
     )
+})
+
+type AdvanceRender = React.ComponentProps<typeof QuestionnairePrimitive.Submit>['render']
+
+/**
+ * Next and Submit stay disabled while the active question is unanswered. The engine refuses an unanswered
+ * question on submit anyway, optional ones included (Skip is their way past), so a live button there only
+ * invites a click that fails. A keyboard submit still runs the engine's validation and shows the error.
+ */
+function disabledUntilAnswered(render: AdvanceRender): NonNullable<AdvanceRender> {
+    return (props, state) => {
+        const gated = { ...props, disabled: props.disabled || state.status === 'unanswered' }
+        if (typeof render === 'function') {
+            return render(gated, state)
+        }
+        const element = render ?? <Button variant="primary" />
+        return React.cloneElement(element, mergeProps(element.props as React.ComponentProps<'button'>, gated))
+    }
 }
 
-function QuestionnaireNext({
-    children,
-    className,
-    render,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Next>): React.ReactElement {
+const QuestionnaireNext = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Next>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Next>
+>(function QuestionnaireNext({ children, className, render, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Next
+            ref={ref}
             data-slot="questionnaire-next"
             className={cn('quill-questionnaire__next', className)}
-            render={render ?? <Button variant="primary" />}
+            render={disabledUntilAnswered(render)}
             {...props}
         >
             {children ?? 'Next'}
         </QuestionnairePrimitive.Next>
     )
-}
+})
 
-function QuestionnaireSubmit({
-    children,
-    className,
-    render,
-    ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Submit>): React.ReactElement {
+const QuestionnaireSubmit = React.forwardRef<
+    React.ComponentRef<typeof QuestionnairePrimitive.Submit>,
+    React.ComponentProps<typeof QuestionnairePrimitive.Submit>
+>(function QuestionnaireSubmit({ children, className, render, ...props }, ref) {
     return (
         <QuestionnairePrimitive.Submit
+            ref={ref}
             data-slot="questionnaire-submit"
             className={cn('quill-questionnaire__submit', className)}
-            render={render ?? <Button variant="primary" />}
+            render={disabledUntilAnswered(render)}
             {...props}
         >
             {children ?? 'Submit'}
         </QuestionnairePrimitive.Submit>
     )
-}
+})
 
 export {
     Questionnaire,

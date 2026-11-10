@@ -56,7 +56,7 @@ When true (default), cells count **traces by their root span's duration** — th
 
 Property filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -91,4 +91,4 @@ Property filters applied to the counted spans. Same filter shape and operators a
 - `{bucket_ns: 0, count: 0}` rows are the sentinel time-axis filler described above — skip them when reading densities.
 - Default counts are **traces** (one per root span); they line up with `apm-spans-duration-histogram`, not with `apm-spans-count`.
 - Cells carry no service breakdown — narrow with `serviceNames` instead.
-- After spotting when the slow band appeared, pull the actual traces with `query-apm-spans` filtered to that time window plus a `duration` filter (nanoseconds), `orderBy: "duration"`.
+- After spotting when the slow band appeared, pull the actual traces with `query-apm-spans` filtered to that time window plus a `duration` filter (milliseconds, not nanoseconds), `orderBy: "duration"`.

@@ -10,11 +10,11 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 import { OrganizationMemberType, Region, UserType } from '~/types'
 
@@ -199,6 +199,25 @@ describe('impersonationNoticeLogic', () => {
                         {
                             region: Region.EU,
                             url: 'https://eu.posthog.com/admin/posthog/user/?q=slack%40example.com',
+                        },
+                    ],
+                })
+            })
+
+            it('looks up a verified widget ticket by its signed distinct ID, not by the typed email', async () => {
+                logic.actions.setTicketContext({
+                    ticketId: '1',
+                    email: 'other-account@example.com',
+                    region: Region.US,
+                    isEmailUnverified: true,
+                    verifiedDistinctId: 'signed/distinct id',
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    adminLoginUrls: [
+                        {
+                            region: Region.US,
+                            url: 'https://us.posthog.com/admin/posthog/user/?q=signed%2Fdistinct%20id',
                         },
                     ],
                 })

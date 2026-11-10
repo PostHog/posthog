@@ -25,8 +25,6 @@ DEFAULT_USER_COST_LIMIT = UserCostLimit(
 )
 
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, ProductCostLimit] = {
-    "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
-    "ci": ProductCostLimit(limit_usd=1000.0, window_seconds=2592000),  # $1000 / 30 days
     "wizard": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
     "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
@@ -226,6 +224,8 @@ class Settings(BaseSettings):
 
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
+    posthog_code_user_cost_limits_enabled: bool = False
+    posthog_code_capped_user_ids: set[int] = set()
 
     # Per-sandbox-run ceiling, keyed on the task the token was minted for. Product and user
     # budgets are windowed, so neither bounds one runaway conversation inside its window.

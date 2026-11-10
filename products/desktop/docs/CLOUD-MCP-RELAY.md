@@ -5,7 +5,7 @@ Status: **implemented** (same PR as the import work), behind the same
 Follows
 [CLOUD-MCP-IMPORT.md](./CLOUD-MCP-IMPORT.md) (which handles the easy case:
 url-based servers on public hosts). Sandbox side: `McpRelayServer`
-(`packages/agent/src/server/mcp-relay-server.ts`). Desktop execution:
+(`packages/agent/packages/agent/src/server/mcp-relay-server.ts`). Desktop execution:
 `McpRelayService` (`packages/workspace-server/src/services/mcp-relay/`).
 Client coordination: `CloudTaskService.handleMcpRelayRequest`
 (`packages/core/src/cloud-task/cloud-task.ts`). Django broker: PR #68954.
@@ -35,7 +35,7 @@ executes each request against the real server and returns the result.
 ## Prior art: the question relay
 
 The exact shape already exists for permission requests / questions
-(`packages/agent/src/server/agent-server.ts`):
+(`packages/agent/packages/agent/src/server/agent-server.ts`):
 
 - Sandbox → client: a `permission_request` **event** with a
   `requestId = crypto.randomUUID()` correlation id, broadcast over both the
@@ -68,7 +68,7 @@ sandbox                                          desktop
                                                   └──────────────────────────────┘
 ```
 
-### Sandbox side (`packages/agent/src/server/`)
+### Sandbox side (`packages/agent/packages/agent/src/server/`)
 
 A new `McpRelayServer` starts one loopback HTTP MCP endpoint per
 relay-designated server
@@ -150,7 +150,7 @@ A new `McpRelayService`:
 
 ### Schemas
 
-Zod, in `packages/agent/src/server/schemas.ts` (sandbox) and
+Zod, in `packages/agent/packages/agent/src/server/schemas.ts` (sandbox) and
 `packages/core/src/cloud-task/schemas.ts` (client):
 
 ```ts

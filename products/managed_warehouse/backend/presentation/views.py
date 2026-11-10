@@ -11,8 +11,10 @@ per organization (not per team).
 """
 
 import re
+from collections.abc import Callable
 from datetime import date
-from typing import Literal, TypedDict
+from functools import partial
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -25,7 +27,16 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
+from products.managed_warehouse.backend.facade.access import (
+    background_loading_configured,
+    enable_customer_warehouse_access,
+    is_internal_warehouse,
+)
+from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
+from products.managed_warehouse.backend.presentation import hogtower
+
+if TYPE_CHECKING:
+    from posthog.models import Organization, User
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +65,28 @@ class PresentedConnection(TypedDict):
     username: str
 
 
+class PresentedTrinoConnection(TypedDict):
+    host: str
+    port: int
+    catalog: str
+    username: str
+
+
+TrinoStatusState = Literal["not_enabled", "pending", "provisioning", "ready", "failed", "unavailable"]
+
+
+class PresentedTrinoStatus(TypedDict):
+    state: TrinoStatusState
+    ready_at: str | None
+    connection: PresentedTrinoConnection | None
+    # The Trino catalog is a hoglake catalog that hoglake has created. Only then do hoglake
+    # credentials reach anything: a DuckLake catalog has no hoglake behind it.
+    hoglake: bool
+
+
+_TRINO_LIFECYCLE_STATES = frozenset({"pending", "provisioning", "ready", "failed"})
+
+
 ManagedWarehouseMonitoringMetric = Literal[
     "query_rate",
     "error_ratio",
@@ -66,10 +99,28 @@ ManagedWarehouseMonitoringMetric = Literal[
     "storage_bytes",
     "worker_crash_rate",
 ]
+ManagedWarehouseTrinoMonitoringMetric = Literal[
+    "queries_in_flight",
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "queue_time_p95",
+    "scanned_bytes_rate",
+    "cpu_seconds_rate",
+    "storage_bytes",
+]
 ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
+DataOpsVariant = Literal["trino", "duckdb"]
 
 
 def managed_warehouse_domain() -> str:
+    """The zone managed warehouse hostnames are served under in this deployment.
+
+    The value is shared with `managed_ingress`, which the warehouse-source host guard reads. It
+    is defined here because a presentation module cannot import a plain backend module without
+    breaking the facade contract.
+    """
     deployment = (getattr(settings, "CLOUD_DEPLOYMENT", None) or "").upper()
     return _MANAGED_WAREHOUSE_DOMAINS.get(deployment, "test.local")
 
@@ -88,8 +139,8 @@ def validate_warehouse_name(name: str | None) -> str | None:
     return None
 
 
-def is_enabled(organization_id: UUID | str) -> bool:
-    """Evaluate the managed-warehouse flag for the organization.
+def _organization_flag_enabled(flag: str, organization_id: UUID | str) -> bool:
+    """Evaluate one managed-warehouse flag for the organization.
 
     Identity is the organization so every team in the org resolves the same value.
     """
@@ -97,7 +148,7 @@ def is_enabled(organization_id: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                DATA_WAREHOUSE_SCENE_FLAG,
+                flag,
                 org_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
@@ -106,8 +157,27 @@ def is_enabled(organization_id: UUID | str) -> bool:
             )
         )
     except Exception:
-        logger.warning("Failed to evaluate managed warehouse feature flag", organization_id=org_id)
+        logger.warning("Failed to evaluate managed warehouse feature flag", organization_id=org_id, flag=flag)
         return False
+
+
+def data_ops_variant(organization_id: UUID | str) -> DataOpsVariant | None:
+    """Which Data ops variant the organization gets, or None when it has neither flag.
+
+    The Trino flag wins when both are on, so an organization never moves between variants
+    because of Trino's state.
+    """
+    variant: DataOpsVariant | None = None
+    if _organization_flag_enabled(MANAGED_TRINO_QUERY_FLAG, organization_id):
+        return "trino" if enable_customer_warehouse_access(organization_id, trino_enabled=True) else None
+    elif _organization_flag_enabled(DATA_WAREHOUSE_SCENE_FLAG, organization_id):
+        variant = "duckdb"
+    return None if variant is not None and is_internal_warehouse(organization_id) else variant
+
+
+def is_enabled(organization_id: UUID | str) -> bool:
+    """Whether the organization has the managed warehouse through either flag."""
+    return data_ops_variant(organization_id) is not None
 
 
 def _present_connection(raw: dict) -> PresentedConnection:
@@ -135,13 +205,17 @@ def _request(
     timeout: int = 30,
     require_enabled: bool = True,
 ) -> Response:
-    """Proxy a request to the duckgres provisioning API, gated on the org's feature flag.
+    """Proxy a request to the managed-warehouse control plane, gated on the org's feature flag.
+
+    The control plane is duckgres (`DUCKGRES_API_URL`, /api/v1) unless `HOGTOWER_API_URL`
+    is set, in which case the same call is served by hogtower's /api/v2 through
+    `products.managed_warehouse.backend.presentation.hogtower`, which returns the duckgres v1 body.
 
     An empty path targets the org resource itself (`/api/v1/orgs/{org}`, e.g. to delete it);
     paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
     API paths (`/api/v1/{path}`).
 
-    `require_enabled` gates on the user-facing `data-warehouse-scene` flag and is the right
+    `require_enabled` gates on the user-facing managed warehouse flags and is the right
     default for UI-driven calls. Backend/background callers (e.g. the Dagster duckling
     backfill) must pass `require_enabled=False`: the flag is evaluated only-locally and a
     worker without the flag definition loaded would otherwise get a spurious 403 even when
@@ -150,30 +224,40 @@ def _request(
     if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
-    base_url = getattr(settings, "DUCKGRES_API_URL", None)
-    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
     org_id = str(organization_id)
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        # hogtower serves the same calls from its /api/v2 routes, translated back to the
+        # duckgres v1 bodies below.
+        send = partial(hogtower.request, method, org_id, path, json_body=json_body, params=params, timeout=timeout)
+    else:
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
 
-    if not base_url:
-        logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
-        return Response(
-            {"error": "Managed warehouse provisioning is not configured"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
+        if not base_url:
+            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
+            return Response(
+                {"error": "Managed warehouse provisioning is not configured"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+        if path == "":
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
+        elif path.startswith("/"):
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/{path}"
+
+        headers = {}
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        send = partial(
+            internal_requests.request, method, url, json=json_body, params=params, headers=headers, timeout=timeout
         )
 
-    if path == "":
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
-    elif path.startswith("/"):
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
-    else:
-        url = f"{base_url.rstrip('/')}/api/v1/{path}"
-
-    headers = {}
-    if token:
-        headers["X-Duckgres-Internal-Secret"] = token
-
     try:
-        resp = internal_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+        resp = send()
     except http_requests.Timeout:
         logger.warning("Provisioning API timeout", method=method, path=path, organization_id=org_id)
         return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
@@ -256,6 +340,7 @@ def provision(
     require_enabled: bool = True,
     *,
     triggered_by: str,
+    internal_only: bool = False,
 ) -> Response:
     pending_deletion = _block_if_pending_deletion(organization_id)
     if pending_deletion is not None:
@@ -268,6 +353,22 @@ def provision(
     schema_name_error = _validate_schema_name(schema_name)
     if schema_name_error or schema_name is None:
         return Response({"error": schema_name_error or "schema_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if internal_only and require_enabled:
+        return Response({"error": "Internal provisioning requires the staff admin."}, status=status.HTTP_403_FORBIDDEN)
+    if internal_only:
+        from products.managed_warehouse.backend.facade.connection import reserve_internal_warehouse  # noqa: PLC0415
+
+        if not reserve_internal_warehouse(organization_id=organization_id):
+            return Response(
+                {"error": "Deprovision the warehouse before enabling internal testing mode."},
+                status=status.HTTP_409_CONFLICT,
+            )
+    existing_internal = is_internal_warehouse(organization_id)
+    if _org_has_warehouse(organization_id) and existing_internal != internal_only:
+        return Response(
+            {"error": "Deprovision the warehouse before changing its internal testing mode."},
+            status=status.HTTP_409_CONFLICT,
+        )
     source_generation = _managed_source_generation(organization_id)
     resp = _request(
         "POST",
@@ -299,6 +400,7 @@ def provision(
         logger.info(
             "managed_warehouse_action",
             action="provision",
+            internal_only=internal_only,
             triggered_by=triggered_by,
             organization_id=str(organization_id),
             team_id=team_id,
@@ -309,6 +411,7 @@ def provision(
         activated_generation = _activate_managed_source_lifecycle(
             organization_id,
             expected_generation=source_generation,
+            internal_only=internal_only,
         )
         if activated_generation is None:
             logger.warning(
@@ -363,6 +466,7 @@ def _strip_bucket_fields(body: dict) -> None:
     """Drop the internal bucket fields from a UI-facing response body, in place."""
     body.pop("bucket", None)
     body.pop("bucket_region", None)
+    body.pop("bucket_prefix", None)
 
 
 def _validate_schema_name(name: str | None) -> str | None:
@@ -394,10 +498,21 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int, sourc
     the one-time provision password is never lost to it.
     """
     try:
-        _ensure_direct_source(team_id, organization_id, source_generation)
-        _schedule_earliest_event_date_sync(team_id)
+        _finish_team_loading_setup(organization_id, team_id, source_generation)
     except Exception:
         logger.exception("Failed to register provisioning team after provision", team_id=team_id)
+
+
+def _finish_team_loading_setup(organization_id: UUID | str, team_id: int, source_generation: int) -> None:
+    _schedule_earliest_event_date_sync(team_id)
+    if background_loading_configured(organization_id):
+        from django.db import transaction  # noqa: PLC0415
+
+        from products.managed_warehouse.backend.facade.tasks import load_internal_warehouse  # noqa: PLC0415
+
+        transaction.on_commit(lambda: load_internal_warehouse.delay(str(organization_id), team_id, source_generation))
+    if not is_internal_warehouse(organization_id):
+        _ensure_direct_source(team_id, organization_id, source_generation)
 
 
 def _active_managed_source_generation(organization_id: UUID | str) -> int | None:
@@ -420,6 +535,7 @@ def _activate_managed_source_lifecycle(
     organization_id: UUID | str,
     *,
     expected_generation: int,
+    internal_only: bool = False,
 ) -> int | None:
     from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
         activate_managed_warehouse_source_lifecycle,
@@ -428,6 +544,7 @@ def _activate_managed_source_lifecycle(
     return activate_managed_warehouse_source_lifecycle(
         organization_id=organization_id,
         expected_generation=expected_generation,
+        internal_only=internal_only,
     )
 
 
@@ -591,8 +708,8 @@ def update_team(
 
 
 def push_team_earliest_event_date(organization_id: UUID | str, team_id: int, earliest: date | None) -> bool:
-    """Persist a team's resolved earliest event date (incl. the no-history sentinel) onto
-    its duckgres team row — the read source for the backfill sensors.
+    """Persist a team's resolved earliest event date onto its duckgres team row — the
+    read source for the backfill sensors.
 
     A failure is logged and swallowed; returns True when the control plane accepted the
     value, so callers (the provisioning-time task, the full-backfill sensor) can leave
@@ -748,8 +865,7 @@ def onboard_team(
         schema_name=schema_name,
         created=existing is None,
     )
-    _ensure_direct_source(team_id, organization_id, source_generation)
-    _schedule_earliest_event_date_sync(team_id)
+    _finish_team_loading_setup(organization_id, team_id, source_generation)
     return Response({"onboarded": True, "schema_name": schema_name}, status=status.HTTP_200_OK)
 
 
@@ -979,9 +1095,10 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
             status_code=resp.status_code,
         )
         return
-    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED:
-        # DUCKGRES_API_URL is not configured (e.g. a dev/env-var-backed DuckgresServer
-        # row): there is no control plane to deprovision against.
+    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED and not hogtower.is_configured():
+        # Neither HOGTOWER_API_URL nor DUCKGRES_API_URL is configured (e.g. a
+        # dev/env-var-backed DuckgresServer row): there is no control plane to deprovision against.
+        # A 501 from the hogtower adapter means an unmapped route instead, and must not skip.
         logger.warning(
             "Managed warehouse deprovisioning skipped: provisioning API not configured",
             organization_id=org_id,
@@ -1075,6 +1192,66 @@ def status_for(organization_id: UUID | str) -> Response:
     return resp
 
 
+def _present_trino_connection(trino_status: dict) -> PresentedTrinoConnection | None:
+    catalog = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
+    connection = trino_status.get("connection")
+    if not isinstance(catalog, str) or not catalog.strip() or not isinstance(connection, dict):
+        return None
+    host = connection.get("host")
+    username = connection.get("username")
+    port = connection.get("port")
+    if not isinstance(host, str) or not host.strip() or not isinstance(username, str) or not username.strip():
+        return None
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        return None
+    return PresentedTrinoConnection(host=host.strip(), port=port, catalog=catalog.strip(), username=username.strip())
+
+
+def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
+    """Customer-safe summary of the organization's Trino enablement, for the Trino Data ops variant.
+
+    The control plane's Trino status is an operator payload. Only the lifecycle state, the ready
+    time, and the connection target leave this function.
+    """
+    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None, hoglake=False)
+    resp = _request("GET", organization_id, "/trino", timeout=10)
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        return unavailable
+    if resp.data.get("enabled") is not True:
+        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None, hoglake=False)
+
+    trino_status = resp.data.get("status")
+    if not isinstance(trino_status, dict):
+        return unavailable
+    if str(trino_status.get("org")) != str(organization_id):
+        logger.warning(
+            "refusing_trino_status_for_mismatched_organization",
+            requested_organization_id=str(organization_id),
+            response_organization_id=str(trino_status.get("org")),
+        )
+        return unavailable
+
+    raw_state = trino_status.get("state")
+    # A row that has not been reconciled yet has no state, which means pending.
+    if raw_state is None or raw_state == "":
+        state: TrinoStatusState = "pending"
+    elif isinstance(raw_state, str) and raw_state in _TRINO_LIFECYCLE_STATES:
+        state = cast(TrinoStatusState, raw_state)
+    else:
+        # The control plane has lifecycle states this view does not present, such as deleting. Showing
+        # them as pending would make the scene poll for a setup that never completes.
+        logger.warning("unexpected_trino_lifecycle_state", organization_id=str(organization_id), state=str(raw_state))
+        return unavailable
+    ready_at = trino_status.get("ready_at")
+    backend = resp.data.get("backend") or trino_status.get("backend")
+    return PresentedTrinoStatus(
+        state=state,
+        ready_at=ready_at if isinstance(ready_at, str) else None,
+        connection=_present_trino_connection(trino_status) if state == "ready" else None,
+        hoglake=backend == "hoglake" and resp.data.get("hoglake_initialized") is True,
+    )
+
+
 def monitoring_snapshot_for(organization_id: UUID | str) -> Response:
     """Fetch tenant-safe live monitoring data for one organization."""
     return _request("GET", organization_id, "/monitoring/snapshot", timeout=10)
@@ -1095,6 +1272,42 @@ def monitoring_series_for(
     )
 
 
+def trino_monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live Trino query data for one organization."""
+    return _request("GET", organization_id, "/monitoring/trino/snapshot", timeout=10)
+
+
+def trino_monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseTrinoMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed Trino monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/trino/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
+
+
+def _cp_status_body(organization_id: UUID | str) -> dict | None:
+    resp = _request("GET", organization_id, "/warehouse/status", require_enabled=False)
+    if resp.status_code != 200 or not isinstance(resp.data, dict):
+        return None
+
+    response_org = resp.data.get("org_id")
+    if response_org is not None and str(response_org) != str(organization_id):
+        logger.warning(
+            "Refusing to use control-plane bucket: status org_id mismatch",
+            requested_organization_id=str(organization_id),
+            response_org_id=str(response_org),
+        )
+        return None
+    return resp.data
+
+
 def cp_bucket_for(organization_id: UUID | str) -> str | None:
     """Authoritative S3 bucket for the org's duckling, straight from the control plane.
 
@@ -1108,21 +1321,25 @@ def cp_bucket_for(organization_id: UUID | str) -> str | None:
     Also reconciles the stored `DuckgresServer` row so it converges for next time. Returns
     None when the control plane is unreachable, unconfigured, or names no bucket.
     """
-    resp = _request("GET", organization_id, "/warehouse/status", require_enabled=False)
-    if resp.status_code != 200 or not isinstance(resp.data, dict):
+    body = _cp_status_body(organization_id)
+    if body is None:
         return None
+    _reconcile_bucket_from_status(organization_id, body)
+    return body.get("bucket") or None
 
-    response_org = resp.data.get("org_id")
-    if response_org is not None and str(response_org) != str(organization_id):
-        logger.warning(
-            "Refusing to use control-plane bucket: status org_id mismatch",
-            requested_organization_id=str(organization_id),
-            response_org_id=str(response_org),
-        )
+
+def cp_data_path_for(organization_id: UUID | str) -> str | None:
+    """S3 URI of the org's DuckLake data path, as `s3://<bucket>/` or `s3://<bucket>/<prefix>/`.
+
+    Same control-plane request and org-id check as `cp_bucket_for`. DuckLake registers file paths
+    relative to this root, so files must land under it. None when the control plane names no bucket.
+    """
+    body = _cp_status_body(organization_id)
+    if body is None or not body.get("bucket"):
         return None
-
-    _reconcile_bucket_from_status(organization_id, resp.data)
-    return resp.data.get("bucket") or None
+    prefix = str(body.get("bucket_prefix") or "").strip("/")
+    root = f"s3://{body['bucket']}/"
+    return f"{root}{prefix}/" if prefix else root
 
 
 def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> None:
@@ -1194,6 +1411,291 @@ def reset_password(organization_id: UUID | str, *, triggered_by: str) -> Respons
                 {"error": "The password was rotated but could not be saved. Retry the password reset."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+    return resp
+
+
+def _hogtower_only() -> Response | None:
+    """Hoglake credentials are served by hogtower alone; duckgres has no such route.
+
+    They are also useless until hoglake has a public endpoint in this deployment, so
+    HOGLAKE_OAUTH_TOKEN_URL being set is what turns the feature on.
+    """
+    if not hogtower.is_configured():
+        return Response(
+            {"error": "Hoglake credentials need the hogtower control plane"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    if not getattr(settings, "HOGLAKE_OAUTH_TOKEN_URL", None):
+        return Response(
+            {"error": "Hoglake credentials are not available in this region yet"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    return None
+
+
+def _hoglake_connect(organization_id: UUID | str) -> dict[str, str]:
+    """Where a hoglake credential is used: the catalog is the org id."""
+    connect = {"catalog": str(organization_id)}
+    if url := getattr(settings, "HOGLAKE_PUBLIC_URL", None):
+        connect["hoglake_url"] = url
+    if token_url := getattr(settings, "HOGLAKE_OAUTH_TOKEN_URL", None):
+        connect["token_url"] = token_url
+    return connect
+
+
+def _add_owners(organization_id: UUID | str, credentials: list[dict[str, Any]]) -> None:
+    """Name the owner of each personal (team) credential, from the organization's own members.
+
+    A uuid that is no longer a member of the organization keeps no name: the credential
+    stops minting tokens when its owner leaves, and is listed only so it can be revoked.
+    """
+    from posthog.models.organization import OrganizationMembership
+
+    uuids = {c["owner_user_uuid"] for c in credentials if c.get("owner_user_uuid")}
+    if not uuids:
+        return
+    members = {
+        str(m.user.uuid): m.user
+        for m in OrganizationMembership.objects.filter(
+            organization_id=organization_id, user__uuid__in=uuids
+        ).select_related("user")
+    }
+    for c in credentials:
+        if (user := members.get(str(c.get("owner_user_uuid")))) is not None:
+            c["owner_email"] = user.email
+            c["owner_name"] = user.first_name or user.email
+
+
+def list_hoglake_credentials(organization_id: UUID | str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("GET", organization_id, "/hoglake-credentials")
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        _add_owners(organization_id, resp.data.get("hoglake_credentials") or [])
+        resp.data["connect"] = _hoglake_connect(organization_id)
+    return resp
+
+
+def _refuse_rotating_a_personal_credential(organization_id: UUID | str, credential_id: str) -> Response | None:
+    """Fails closed: the list's error when hogtower cannot list the organization's
+    credentials, 404 when it does not have this one, 403 when it is a member's personal
+    credential, and None only for an org credential."""
+    resp = _request("GET", organization_id, "/hoglake-credentials")
+    if not status.is_success(resp.status_code):
+        return resp
+    listed = resp.data.get("hoglake_credentials") if isinstance(resp.data, dict) else None
+    if not isinstance(listed, list):
+        return Response({"error": "Unexpected response from the control plane"}, status=status.HTTP_502_BAD_GATEWAY)
+    kind = next((c.get("kind") or "org" for c in listed if c.get("client_id") == credential_id), None)
+    if kind is None:
+        return Response({"error": "credential not found"}, status=status.HTTP_404_NOT_FOUND)
+    if kind != "org":
+        return Response(
+            {"error": "This is a member's personal credential: only its owner can rotate it. Revoke it instead."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
+def create_hoglake_credential(
+    organization_id: UUID | str, *, name: str, scope: str, ttl_seconds: int | None, triggered_by: str
+) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    body: dict[str, Any] = {"name": name, "scope": scope}
+    if ttl_seconds:
+        body["ttl_seconds"] = ttl_seconds
+    resp = _request("POST", organization_id, "/hoglake-credentials", json_body=body)
+    _log_hoglake_action(resp, "create_hoglake_credential", organization_id, triggered_by, scope=scope)
+    return resp
+
+
+def rotate_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    # A personal credential's tokens name its owner, so its secret is for its owner alone.
+    # An admin may revoke one, never take a working secret for it.
+    if (refused := _refuse_rotating_a_personal_credential(organization_id, credential_id)) is not None:
+        return refused
+    resp = _request("POST", organization_id, f"/hoglake-credentials/{credential_id}/rotate")
+    _log_hoglake_action(resp, "rotate_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
+    return resp
+
+
+def revoke_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("DELETE", organization_id, f"/hoglake-credentials/{credential_id}")
+    _log_hoglake_action(resp, "revoke_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
+    return resp
+
+
+def _log_hoglake_action(
+    resp: Response, action: str, organization_id: UUID | str, triggered_by: str, **fields: str
+) -> None:
+    """The audit line for a hoglake credential change. Never the secret: only ids and scope."""
+    if not status.is_success(resp.status_code):
+        return
+    if not action.startswith("revoke_") and isinstance(resp.data, dict):
+        fields.setdefault("credential_id", str(resp.data.get("client_id", "")))
+    logger.info(
+        "managed_warehouse_action",
+        action=action,
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        **fields,
+    )
+
+
+# --- personal hoglake credentials -------------------------------------------------------
+#
+# A member's own credentials: owned by them and limited to projects they choose among the
+# ones they can see. hogtower narrows every token to the owner's current projects and
+# levels (its copy of them is the member-teams push), so these never reach further than
+# the member can in PostHog. Every call here is held to the caller's own credentials, and
+# names the caller to hogtower, which holds it to them too.
+
+
+def _personal_credentials_off() -> Response | None:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    from products.managed_warehouse.backend.facade.member_teams import member_teams_push_enabled
+
+    # Without the push, hogtower holds no projects for anyone and refuses every create.
+    if not getattr(settings, "HOGLAKE_TEAM_CREDENTIALS_ENABLED", False) or not member_teams_push_enabled():
+        return Response(
+            {"error": "Personal hoglake credentials are not available in this region yet"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    return None
+
+
+def _my_hoglake_credentials(organization_id: UUID | str, user_uuid: str) -> Response:
+    return _request("GET", organization_id, "/hoglake-credentials", params={"owner_user_uuid": user_uuid})
+
+
+def _hoglake_enabled_teams(organization_id: UUID | str) -> set[int] | None:
+    """The projects the managed warehouse serves, or None when the control plane can't say.
+
+    hogtower gives a project a namespace and tokens only while it is enabled, and refuses a
+    personal credential for any other.
+    """
+    from products.managed_warehouse.backend.facade.cp_teams import list_org_team_memberships
+
+    rows = list_org_team_memberships(str(organization_id))
+    return None if rows is None else {row.team_id for row in rows if row.enabled}
+
+
+def _my_projects(organization: "Organization", user: "User") -> list[dict[str, Any]]:
+    """The projects ``user`` may put in a personal credential, with the access it would get."""
+    from posthog.models import Team
+
+    from products.managed_warehouse.backend.facade.member_teams import visible_member_teams
+
+    teams = visible_member_teams(organization, user)
+    if (enabled := _hoglake_enabled_teams(organization.id)) is not None:
+        teams = {team_id: access for team_id, access in teams.items() if team_id in enabled}
+    names = dict(Team.objects.filter(organization_id=organization.id, id__in=teams).values_list("id", "name"))
+    return [
+        {"id": team_id, "name": names.get(team_id, str(team_id)), "access": teams[team_id]} for team_id in sorted(teams)
+    ]
+
+
+def list_my_hoglake_credentials(organization: "Organization", user: "User") -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    resp = _my_hoglake_credentials(organization.id, str(user.uuid))
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        resp.data["connect"] = _hoglake_connect(organization.id)
+        resp.data["projects"] = _my_projects(organization, user)
+    return resp
+
+
+def create_my_hoglake_credential(
+    organization: "Organization",
+    user: "User",
+    *,
+    name: str,
+    scope: str,
+    team_ids: list[int],
+    ttl_seconds: int | None,
+    triggered_by: str,
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    from products.managed_warehouse.backend.facade.member_teams import refresh_member_teams, visible_member_teams
+
+    visible = visible_member_teams(organization, user)
+    enabled = _hoglake_enabled_teams(organization.id)
+    usable = visible.keys() & enabled if enabled is not None else visible.keys()
+    if hidden := sorted(set(team_ids) - usable):
+        return Response(
+            {"error": f"You can't use project {', '.join(map(str, hidden))} in a hoglake credential"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    # hogtower checks the projects against its own copy of the member's. Bring it current
+    # first, so a project granted moments ago is not refused while its push is queued.
+    refresh_member_teams(str(organization.id), str(user.uuid))  # on failure, hogtower answers from its copy
+    body: dict[str, Any] = {
+        "name": name,
+        "scope": scope,
+        "owner_user_uuid": str(user.uuid),
+        "team_ids": sorted(set(team_ids)),
+    }
+    if ttl_seconds:
+        body["ttl_seconds"] = ttl_seconds
+    resp = _request("POST", organization.id, "/hoglake-credentials", json_body=body)
+    _log_hoglake_action(resp, "create_my_hoglake_credential", organization.id, triggered_by, scope=scope)
+    return resp
+
+
+def _not_mine(organization_id: UUID | str, user: "User", credential_id: str) -> Response | None:
+    """None when ``credential_id`` is one of ``user``'s live personal credentials; otherwise the
+    response to send instead: 404, or hogtower's error when it could not list them."""
+    resp = _my_hoglake_credentials(organization_id, str(user.uuid))
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        return resp
+    for c in resp.data.get("hoglake_credentials") or []:
+        if c.get("client_id") == credential_id and c.get("kind") == "team" and not c.get("revoked_at"):
+            return None
+    return Response({"error": "You have no such hoglake credential"}, status=status.HTTP_404_NOT_FOUND)
+
+
+def rotate_my_hoglake_credential(
+    organization: "Organization", user: "User", credential_id: str, *, triggered_by: str
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    if (refused := _not_mine(organization.id, user, credential_id)) is not None:
+        return refused
+    resp = _request(
+        "POST",
+        organization.id,
+        f"/hoglake-credentials/{credential_id}/rotate",
+        json_body={"owner_user_uuid": str(user.uuid)},
+    )
+    _log_hoglake_action(
+        resp, "rotate_my_hoglake_credential", organization.id, triggered_by, credential_id=credential_id
+    )
+    return resp
+
+
+def revoke_my_hoglake_credential(
+    organization: "Organization", user: "User", credential_id: str, *, triggered_by: str
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    if (refused := _not_mine(organization.id, user, credential_id)) is not None:
+        return refused
+    resp = _request(
+        "DELETE",
+        organization.id,
+        f"/hoglake-credentials/{credential_id}",
+        params={"owner_user_uuid": str(user.uuid)},
+    )
+    _log_hoglake_action(
+        resp, "revoke_my_hoglake_credential", organization.id, triggered_by, credential_id=credential_id
+    )
     return resp
 
 

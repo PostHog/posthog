@@ -6,6 +6,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import EmailSendingTierLimits
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 logger = structlog.get_logger(__name__)
@@ -13,16 +14,6 @@ logger = structlog.get_logger(__name__)
 TierMode = Literal["off", "shadow", "enforce"]
 
 MIN_EMAIL_SENDING_TIER = 0
-
-
-@frozen
-class EmailSendingTierLimits:
-    """What a trust tier allows: two send-rate caps and a maximum batch audience."""
-
-    tier: int
-    per_hour: int
-    per_day: int
-    max_batch_audience: int
 
 
 @frozen
@@ -58,9 +49,8 @@ def min_days_at_tier(tier: int) -> int:
 
 
 def _tier_count() -> int:
-    # The shortest list wins so a partial env override cannot index past the end of another table.
+    # The shorter list wins so a partial env override cannot index past the end of the other table.
     return min(
-        len(settings.WORKFLOWS_EMAIL_TIER_HOURLY_CAPS),
         len(settings.WORKFLOWS_EMAIL_TIER_DAILY_CAPS),
         len(settings.WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS),
     )
@@ -79,7 +69,6 @@ def get_email_sending_tier_limits(tier: int) -> EmailSendingTierLimits:
         elevated = settings.HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED
         return EmailSendingTierLimits(
             tier=tier,
-            per_hour=elevated,
             per_day=elevated,
             max_batch_audience=elevated,
         )
@@ -87,7 +76,6 @@ def get_email_sending_tier_limits(tier: int) -> EmailSendingTierLimits:
     clamped = min(max(tier, MIN_EMAIL_SENDING_TIER), count - 1)
     return EmailSendingTierLimits(
         tier=clamped,
-        per_hour=settings.WORKFLOWS_EMAIL_TIER_HOURLY_CAPS[clamped],
         per_day=settings.WORKFLOWS_EMAIL_TIER_DAILY_CAPS[clamped],
         max_batch_audience=settings.WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS[clamped],
     )

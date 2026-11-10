@@ -759,7 +759,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_handling() {
-        let redis_client = setup_redis_client(Some("redis://localhost:6379/".to_string())).await;
+        let redis_client = setup_redis_client(None).await;
         let context = TestContext::new(None).await;
 
         // Test malformed JSON in Redis (using Django-compatible hypercache key format)
@@ -1752,7 +1752,10 @@ mod tests {
         assert!(flag.has_experience_continuity());
 
         for version in [serde_json::json!(2), serde_json::json!(3)] {
-            flag.filters.extra.insert("version".to_string(), version);
+            flag.filters = crate::flags::config_format::decode_filters(serde_json::json!({
+                "version": version, "groups": [{"rollout_percentage": 50}]
+            }))
+            .unwrap();
             assert!(!flag.has_experience_continuity());
             assert!(!flag.needs_hash_key_override());
         }

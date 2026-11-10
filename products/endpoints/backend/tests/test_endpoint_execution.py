@@ -1,22 +1,42 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest import mock
 
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import psycopg
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
-from posthog.errors import CHQueryErrorNoCommonType
-from posthog.exceptions import APIQueriesBudgetExceeded
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.errors import (
+    CHQueryErrorNoCommonType,
+    CHQueryErrorNotAnAggregate,
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownTable,
+    CHQueryErrorUnsupportedMethod,
+    wrap_clickhouse_query_error,
+)
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
@@ -152,6 +172,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 None,
                 "HogQL column `missing_property` could not be resolved",
                 None,
+                False,
             ),
             (
                 "clickhouse",
@@ -159,6 +180,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "no_common_type",
                 "There is no supertype for types String, UInt64",
                 "Stack trace",
+                False,
+            ),
+            (
+                "materialized_clickhouse",
+                "DB::Exception: Column `value` is not under aggregate function and not in GROUP BY keys",
+                "not_an_aggregate",
+                "Column `value` is not under aggregate function",
+                None,
+                True,
             ),
         ]
     )
@@ -169,6 +199,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         code_name: str | None,
         expected_detail: str,
         forbidden_detail: str | None,
+        is_materialized: bool,
     ):
         endpoint = create_endpoint_with_version(
             name=f"{_name}_safe_error",
@@ -177,16 +208,23 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
             is_active=True,
         )
-        error = (
-            CHQueryErrorNoCommonType(message, code=386, code_name=code_name)
-            if code_name
-            else ExposedHogQLError(message)
-        )
+        error: Exception
+        if code_name == "not_an_aggregate":
+            error = CHQueryErrorNotAnAggregate(message, code=215, code_name=code_name)
+        elif code_name:
+            error = CHQueryErrorNoCommonType(message, code=386, code_name=code_name)
+        else:
+            error = ExposedHogQLError(message)
+
+        if is_materialized:
+            self._materialize_endpoint(endpoint)
 
         with (
             mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
-            mock.patch("products.endpoints.backend.logic.execution.capture_exception"),
-            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch(
+                "products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"
+            ) as mock_failure_signal,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -198,6 +236,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+        mock_capture.assert_not_called()
+        mock_failure_signal.assert_not_called()
 
     def test_budget_refusal_does_not_count_as_an_endpoint_error(self):
         endpoint = create_endpoint_with_version(
@@ -225,6 +265,111 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         mock_counter.labels.assert_not_called()
         mock_signal.assert_not_called()
         mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("concurrency", ConcurrencyLimitExceeded("too many"), "concurrency", "5"),
+            ("read_budget", APIQueriesBudgetExceeded(wait=120), "read_budget", "120"),
+        ]
+    )
+    def test_query_refusal_records_reason_and_sends_one_event_per_window(
+        self, _name, error, expected_reason, expected_retry_after
+    ):
+        cache.clear()
+        endpoint = create_endpoint_with_version(
+            name=f"refused_{expected_reason}",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"scope": expected_reason, "reason": expected_reason}
+        before = REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels) or 0
+        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/"
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.rate_limit_signal.posthoganalytics.capture") as mock_capture,
+        ):
+            for _ in range(2):
+                response = self.client.post(url, {}, format="json")
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                self.assertEqual(response["Retry-After"], expected_retry_after)
+
+        self.assertEqual(REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels), before + 2)
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "endpoint rate limited"]
+        self.assertEqual(len(events), 1)
+        properties = events[0].kwargs["properties"]
+        self.assertEqual(
+            {k: properties[k] for k in ("team_id", "endpoint_name", "endpoint_version", "reason")},
+            {
+                "team_id": self.team.id,
+                "endpoint_name": endpoint.name,
+                "endpoint_version": 1,
+                "reason": expected_reason,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("cannot_parse_datetime", 41, False),
+            ("cannot_parse_number", 72, False),
+            ("no_common_type", 386, False),
+        ]
+    )
+    def test_customer_input_errors_skip_error_tracking(self, _name: str, code: int, expect_capture: bool):
+        endpoint = create_endpoint_with_version(
+            name=f"{_name}_capture",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = wrap_clickhouse_query_error(ServerException("DB::Exception: bad value", code=code))
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mock_capture.called, expect_capture)
+        self.assertEqual(mock_signal.called, expect_capture)
+
+    def test_capacity_error_preserves_retry_after(self):
+        endpoint = create_endpoint_with_version(
+            name="at_capacity",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = ClickHouseAtCapacity()
+        error.wait = 37
+
+        with mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "server_error",
+                "code": "query_capacity",
+                "detail": (
+                    "Queries are momentarily at capacity — please retry shortly. For consistently heavy "
+                    "endpoints, materialize to run on dedicated endpoint compute that isn't affected by shared query load."
+                ),
+                "attr": None,
+            },
+        )
+        self.assertEqual(response.get("Retry-After"), "37")
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(
@@ -541,43 +686,85 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # MATERIALIZED HOGQL ENDPOINTS
     # =========================================================================
 
-    def test_materialized_hogql_endpoint_filters_by_variable(self):
+    @parameterized.expand(
+        [
+            ("number", 424242),
+            ("string", "424242"),
+        ]
+    )
+    def test_materialized_hogql_endpoint_filters_by_variable_type(self, _name: str, capture_id: object):
+        stored_capture_id = "424242"
+        _create_event(
+            event="capture",
+            distinct_id="user1",
+            team=self.team,
+            timestamp="2026-01-05 12:00:00",
+            properties={"capture_id": stored_capture_id},
+        )
+        flush_persons_and_events()
+        capture_id_var = InsightVariable.objects.create(
+            team=self.team,
+            name="Capture ID",
+            code_name="capture_id",
+            type=InsightVariable.Type.STRING,
+            default_value=stored_capture_id,
+        )
+
         endpoint = create_endpoint_with_version(
-            name="mat_hogql_var",
+            name=f"mat-hogql-var-{_name}",
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "query": "SELECT count() FROM events WHERE properties.capture_id = {variables.capture_id}",
                 "variables": {
-                    str(self.event_name_var.id): {
-                        "variableId": str(self.event_name_var.id),
-                        "code_name": "event_name",
-                        "value": "$pageview",
+                    str(capture_id_var.id): {
+                        "variableId": str(capture_id_var.id),
+                        "code_name": "capture_id",
+                        "value": stored_capture_id,
                     }
                 },
             },
             created_by=self.user,
             is_active=True,
         )
-        self._materialize_endpoint(endpoint)
+        inline_response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"capture_id": stored_capture_id}},
+            format="json",
+        )
+        self.assertEqual(inline_response.status_code, status.HTTP_200_OK, inline_response.json())
 
-        # Execute with variable filter - should filter materialized table by event_name
-        with mock.patch.object(
-            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
-        ) as mock_exec:
+        saved_query = self._materialize_endpoint(endpoint)
+        saved_query.columns = {
+            "count()": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64", "valid": True},
+            "capture_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+        }
+        saved_query.save(update_fields=["columns"])
+
+        def run_query(_team, query, **_kwargs):
+            if (
+                query.modifiers
+                and query.modifiers.useMaterializedViews
+                and stored_capture_id in query.query
+                and f"'{stored_capture_id}'" not in query.query
+            ):
+                raise CHQueryErrorNoCommonType(
+                    "There is no supertype for types String, UInt64",
+                    code=386,
+                    code_name="no_common_type",
+                )
+            return {"results": inline_response.json()["results"], "columns": ["count()"]}
+
+        with mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=run_query):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-                {"variables": {"event_name": "$pageleave"}},
+                {"variables": {"capture_id": capture_id}},
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            mock_exec.assert_called()
-            # Verify the query has WHERE clause filtering by event_name
-            query_request_data = mock_exec.call_args[0][0]
-            query_sql = query_request_data["query"]["query"].lower()
-            self.assertIn("event_name", query_sql)
-            self.assertIn("$pageleave", query_sql)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIs(response.json()["endpoint_materialized"], True)
+        self.assertEqual(response.json()["results"], inline_response.json()["results"])
 
     def test_materialized_hogql_endpoint_selects_only_original_columns(self):
         endpoint = create_endpoint_with_version(
@@ -913,8 +1100,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("greaterorequals", query_sql)
             self.assertIn("less(", query_sql)
 
-    def test_materialized_count_with_range_variables_reaggregates(self):
-        """When range variables exist, read-time SQL should re-aggregate with sum()."""
+    @parameterized.expand(
+        [
+            ("bare_aggregate", "count()", "sum(`count()`) AS `count()`"),
+            ("aliased_aggregate", "count() AS impressions", "sum(impressions) AS impressions"),
+        ]
+    )
+    def test_materialized_count_with_range_variables_reaggregates(self, _name, select_expr, expected_select):
+        """When range variables exist, read-time SQL should re-aggregate with sum()
+        and keep the column name the endpoint declares."""
         start_var = InsightVariable.objects.create(
             team=self.team,
             name="Start Timestamp",
@@ -942,7 +1136,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} AND properties.$host = {variables.host}",
+                "query": f"SELECT {select_expr} FROM events WHERE timestamp >= {{variables.start_ts}} AND timestamp < {{variables.end_ts}} AND properties.$host = {{variables.host}}",
                 "variables": {
                     str(start_var.id): {
                         "variableId": str(start_var.id),
@@ -977,11 +1171,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_exec.assert_called()
-            query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
-            # Re-aggregation: count() column should be wrapped with sum()
-            self.assertIn("sum(", query_sql)
+            query_sql = mock_exec.call_args[0][0]["query"]["query"]
+            # Re-aggregation wraps the column with sum(), then aliases it back to the name
+            # the endpoint declares, so a typed client can still parse the rows.
+            self.assertIn(expected_select, query_sql)
             # Range variable values should be wrapped with toStartOfDay
-            self.assertIn("tostartofday", query_sql)
+            self.assertIn("tostartofday", query_sql.lower())
 
     # =========================================================================
     # MATERIALIZED INSIGHT ENDPOINTS
@@ -1064,6 +1259,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             # Must use has() for array containment, not = for string equality
             self.assertIn("has(breakdown_value", query_sql)
             self.assertIn("chrome", query_sql)
+            # Insight reads are nested on return, so a default row cap would silently drop
+            # breakdown values or a compare period instead of reporting hasMore.
+            self.assertEqual(mock_exec.call_args.kwargs["limit_context"], LimitContext.SAVED_QUERY)
 
     def test_materialized_insight_endpoint_filters_by_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(
@@ -1670,6 +1868,30 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             assert pagination is not None
             assert pagination.limit == req_limit
             assert pagination.offset == req_offset
+
+    @parameterized.expand(
+        [
+            ("truncated_at_default_limit", 150, 100, True),
+            ("under_default_limit", 20, 20, False),
+        ]
+    )
+    def test_inline_run_without_limit_reports_has_more(self, _name, num_rows, expected_rows, expected_has_more):
+        endpoint = create_endpoint_with_version(
+            name="no_limit_has_more",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": f"SELECT number FROM numbers({num_rows})"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertEqual(len(data["results"]), expected_rows)
+        self.assertEqual(data["hasMore"], expected_has_more)
 
     def test_inline_pagination_with_variables(self):
         """Pagination on a HogQL query with {variables.*} placeholders must not raise."""
@@ -2281,14 +2503,27 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
         self.assertEqual(after - before, 0.0)
 
-    def test_inline_endpoint_failure_emits_signal(self):
+    @parameterized.expand(
+        [
+            ("runtime", RuntimeError("synthetic failure")),
+            (
+                "unknown_identifier",
+                CHQueryErrorUnknownIdentifier("DB::Exception: Unknown identifier", code=47),
+            ),
+            (
+                "unsupported_method",
+                CHQueryErrorUnsupportedMethod("DB::Exception: Unsupported method", code=1),
+            ),
+        ]
+    )
+    def test_inline_endpoint_failure_emits_signal(self, _name: str, boom: Exception):
         """When inline execution raises, we emit a Signal for self-driving diagnostics."""
-        endpoint = self._make_simple_hogql_endpoint("failure_emits_signal")
-        boom = RuntimeError("synthetic failure")
+        endpoint = self._make_simple_hogql_endpoint(f"failure_emits_signal_{_name}")
 
         with (
             mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=boom),
             mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_emit,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
@@ -2297,6 +2532,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        mock_capture.assert_called_once()
         mock_emit.assert_called_once()
         args, kwargs = mock_emit.call_args
         self.assertEqual(args[0].id, self.team.id)
@@ -2364,7 +2600,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             query=query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=24),
             last_run_at=timezone.now(),
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -2448,24 +2683,52 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         ]
         self.assertEqual(len(breakdown_signal_calls), 1, "expected a breakdown-limit-exceeded signal")
 
-    def test_materialized_failure_falls_back_to_inline(self):
+    @parameterized.expand(
+        [
+            ("runtime", RuntimeError("materialized table exploded")),
+            (
+                "unknown_table",
+                CHQueryErrorUnknownTable("DB::Exception: Unknown table", code=60, code_name="unknown_table"),
+            ),
+        ]
+    )
+    def test_materialized_failure_falls_back_to_inline(self, _name: str, materialized_error: Exception):
         """A materialized execution failure must fall back to inline execution, not 500."""
         endpoint = self._make_fresh_materialized_endpoint(
-            "mat-fallback", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+            f"mat-fallback-{_name}", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
         )
 
         inline_response = Response({"results": [[1]], "columns": ["count()"]})
-        with mock.patch.object(
-            EndpointExecutionService,
-            "_execute_query_and_respond",
-            side_effect=[RuntimeError("materialized table exploded"), inline_response],
-        ) as mock_exec:
+        outcomes: list[Response | Exception] = [materialized_error, inline_response]
+        workloads_seen: list[str | None] = []
+
+        def run_query(*args, **kwargs) -> Response:
+            workloads_seen.append(get_query_tags().workload)
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with (
+            mock.patch.object(
+                EndpointExecutionService, "_execute_query_and_respond", side_effect=run_query
+            ) as mock_exec,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+        self.assertEqual(workloads_seen[0], Workload.ENDPOINTS)
+        self.assertNotEqual(
+            workloads_seen[1], Workload.ENDPOINTS, "the inline fallback must not run on the endpoints cluster"
+        )
+        mock_capture.assert_called_once()
+        mock_signal.assert_called_once()
+        self.assertTrue(mock_signal.call_args.kwargs["materialized"])
 
     def test_materialized_cache_ttl_derived_from_modeling_jobs(self):
         """v2 DAG runs record success in DataModelingJob but never write saved_query.last_run_at.
@@ -2475,7 +2738,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         version = endpoint.versions.first()
         saved_query = version.saved_query
-        saved_query.sync_frequency_interval = None  # migration cleanup nulls this on v2 teams
         saved_query.last_run_at = timezone.now() - timedelta(days=3)
         saved_query.status = None
         saved_query.save()
@@ -2508,7 +2770,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             "v2-transform-now", {"kind": "HogQLQuery", "query": "select 1 as n"}
         )
         saved_query = endpoint.versions.first().saved_query
-        saved_query.sync_frequency_interval = None
         saved_query.last_run_at = None
         saved_query.status = None
         saved_query.save()
@@ -2618,6 +2879,69 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(inline_after - inline_before, 1.0)
 
+    def test_exhausted_inline_budget_refuses_the_fallback_run(self):
+        from rest_framework.exceptions import Throttled
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "mat-fallback-throttled", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+
+        with (
+            mock.patch.object(
+                EndpointExecutionService,
+                "_execute_query_and_respond",
+                side_effect=RuntimeError("materialized table exploded"),
+            ) as mock_exec,
+            mock.patch(
+                "products.endpoints.backend.presentation.views.api.charge_inline_rate",
+                side_effect=Throttled(wait=5),
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(mock_exec.call_count, 1, "the inline retry must not run once the inline budget is spent")
+
+    def test_paginating_union_query_counts_as_user_error(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="union_limit_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS x UNION ALL SELECT 2 AS x"},
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"execution_type": "inline", "query_kind": "hogql"}
+        user_error_before = (
+            REGISTRY.get_sample_value("posthog_endpoint_execution_total", {**labels, "status": "user_error"}) or 0.0
+        )
+        error_before = (
+            REGISTRY.get_sample_value("posthog_endpoint_execution_total", {**labels, "status": "error"}) or 0.0
+        )
+
+        with mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"limit": 10}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        user_error_after = (
+            REGISTRY.get_sample_value("posthog_endpoint_execution_total", {**labels, "status": "user_error"}) or 0.0
+        )
+        error_after = (
+            REGISTRY.get_sample_value("posthog_endpoint_execution_total", {**labels, "status": "error"}) or 0.0
+        )
+        self.assertEqual(user_error_after - user_error_before, 1.0)
+        self.assertEqual(error_after - error_before, 0.0)
+        mock_capture.assert_not_called()
+
+
+class TestEndpointFailureSignal(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def test_emit_failure_signal_reaches_workflow_boundary(self):
         """The failure-signal plumbing must make it to the Temporal boundary when the
         org/source gates allow it — anything raising before that is a plumbing bug."""
@@ -2634,15 +2958,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.ENDPOINTS,
+            source_type=SignalSourceConfig.SourceType.ENDPOINT_EXECUTION_FAILED,
+            enabled=True,
+        )
         mock_client = mock.AsyncMock()
-        with (
-            mock.patch(
-                "products.signals.backend.facade.api.async_connect",
-                new=mock.AsyncMock(return_value=mock_client),
-            ),
-            # The gate runs on a separate DB connection (thread_sensitive=False) and can't see
-            # rows from the test transaction, so patch it rather than creating a config row.
-            mock.patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        with mock.patch(
+            "products.signals.backend.facade.api.async_connect", new=mock.AsyncMock(return_value=mock_client)
         ):
             _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("boom"), materialized=False, version=1)
 

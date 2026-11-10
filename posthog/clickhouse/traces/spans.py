@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import kafka_engine, kafka_num_consumers
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.run_mode import RunMode, run_mode
 
 from .trace_attributes import (
@@ -93,18 +93,6 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
             service_name,
             resource_fingerprint,
             is_root_span
-    ),
-
-    PROJECTION projection_index_span_id
-    (
-        SELECT _part_offset
-        ORDER BY span_id
-    ),
-
-    PROJECTION projection_index_trace_id
-    (
-        SELECT _part_offset
-        ORDER BY trace_id
     ),
 
     PROJECTION projection_index_team_span_id
@@ -400,7 +388,7 @@ AS SELECT
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-    observed_timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
     _partition,
     _topic,
     _offset,
@@ -423,7 +411,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_ME
     `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
     `max_lag` SimpleAggregateFunction(max, UInt64)
 )
-ENGINE = {MergeTreeEngine(KAFKA_METRICS_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
+ENGINE = {AggregatingMergeTree(KAFKA_METRICS_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 ORDER BY (_topic, _partition)
 SETTINGS
     index_granularity = 8192

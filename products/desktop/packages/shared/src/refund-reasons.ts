@@ -1,4 +1,4 @@
-import type { SignalReportRefundReason } from "./domain-types";
+import type { SignalReportRefundReason } from "@posthog/agent-contracts/domain-types";
 
 /**
  * Canonical refund reasons shown when refunding a report's PR. Values are

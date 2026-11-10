@@ -2,6 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { LineChart, ReferenceLines, useChartTheme } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
@@ -15,7 +16,6 @@ import {
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
 import { AlertThresholdLine, shouldUseLogScale, thresholdReferenceLines } from './AlertPreviewCard.utils'
@@ -75,6 +75,7 @@ export interface AlertPreviewCardProps {
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
+    previewHistoryTooShort?: boolean
     // Keeps the card visible with a skeleton while data loads instead of popping in once it arrives.
     loading?: boolean
 }
@@ -88,6 +89,7 @@ export function AlertPreviewCard({
     funnelPreview,
     hogqlPreview,
     checkPreview,
+    previewHistoryTooShort,
     loading,
 }: AlertPreviewCardProps): JSX.Element {
     const config = alertForm.config
@@ -128,6 +130,12 @@ export function AlertPreviewCard({
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 Set less than or more than to preview this alert.
+            </div>
+        )
+    } else if (previewHistoryTooShort && !loading) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                The insight's date range is too short to preview this delay. The alert loads more history when it runs.
             </div>
         )
     } else if (isBreakdownPreview && breakdownPreview && breakdownPreviewValues.length > 0) {

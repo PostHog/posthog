@@ -647,10 +647,14 @@ export function toolFromPreBuilt(preBuilt: PreBuiltTool, entry: McpTool): Tool<Z
     }
 }
 
-// `ToolExecutor` copies the client through `withIntent` before it runs a tool, so the mock needs
-// the real method or every call fails before it reaches the code under test.
+// Preserve per-call client copies so tests exercise the same intent and privacy boundaries.
 export function mockApi(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-    return { config: {}, withIntent: ApiClient.prototype.withIntent, ...overrides }
+    return {
+        config: {},
+        withIntent: ApiClient.prototype.withIntent,
+        withAnalyticsSuppression: ApiClient.prototype.withAnalyticsSuppression,
+        ...overrides,
+    }
 }
 
 export function makeToolExecutorState(
@@ -682,14 +686,13 @@ export function makeToolExecutorState(
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
-            isClaudeUiHost: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
             isAnthropicConnector: vi.fn(() => false),
         } as any,
         requestContext: {
             authMethod: 'personal_api_key',
-            sessionId: 'sess-1',
+            mcpSessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
             mcpProtocolVersion: '2025-03-26',
@@ -698,6 +701,8 @@ export function makeToolExecutorState(
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        findScopeGatedTool: () => undefined,
+        supportsStepUp: false,
         flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',

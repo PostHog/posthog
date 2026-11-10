@@ -8,8 +8,6 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
-from django.conf import settings
-
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -28,8 +26,9 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
@@ -1174,9 +1173,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        # The native-JSON table treats an empty value as absent, so an explicit '' never matches there.
-        expected_ids = set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"trace_with_empty_name"}
-        self.assertEqual({result.id for result in response.results}, expected_ids)
+        self.assertEqual({result.id for result in response.results}, {"trace_with_empty_name"})
 
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):

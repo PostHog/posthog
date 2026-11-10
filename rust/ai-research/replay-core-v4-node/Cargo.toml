@@ -1,0 +1,19 @@
+[package]
+name = "replay-core-v4-node"
+version = "0.0.1"
+edition = "2021"
+exclude = ["index.node"]
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# `external-buffers`: a sealed image crosses the FFI without a copy. The addon runs only in Node
+# ingestion workers, never under Electron, where external buffers abort the VM.
+neon = { workspace = true, features = ["external-buffers"] }
+# default-features = false: the key table and KMS clients have no place in an addon that only checks URLs.
+replay-core-v4 = { path = "../replay-core-v4", default-features = false }

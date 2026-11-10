@@ -1,17 +1,9 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import {
-    buildTaxonomicGroups,
-    BuildTaxonomicGroupsContext,
-} from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import {
     MCP_TOOL_CALL_EVENT,
     getMCPPropertyFilterOptions,
     includesMCPAnalyticsEvents,
 } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
-
-import { NodeKind } from '~/queries/schema/schema-general'
-import { TeamType } from '~/types'
 
 describe('mcpProperties', () => {
     it('leads with the funnel-relevant properties and derives the rest of the known schema', () => {
@@ -48,93 +40,5 @@ describe('mcpProperties', () => {
         // Guards the taxonomy entry and its regenerated JSON — this is what makes
         // tool-call funnel steps and event rows describe themselves by tool name.
         expect(getPrimaryPropertyForEvent(MCP_TOOL_CALL_EVENT)).toBe('$mcp_tool_name')
-    })
-
-    describe('rebuild group availability (buildTaxonomicGroups)', () => {
-        const baseContext: BuildTaxonomicGroupsContext = {
-            currentTeam: { id: 997 } as TeamType,
-            projectId: 997,
-            groupAnalyticsTaxonomicGroups: [],
-            groupAnalyticsTaxonomicGroupNames: [],
-            eventNames: [],
-            schemaColumns: [],
-            schemaColumnsLoading: false,
-            metadataSource: { kind: NodeKind.HogQLQuery, query: 'select event from events' },
-            suggestedFiltersLabel: undefined,
-            propertyFilters: { excludedProperties: {} },
-            eventMetadataPropertyDefinitions: [],
-            personMetadataPropertyDefinitions: [],
-            maxContextOptions: [],
-            hideBehavioralCohorts: false,
-            showCohortFlagTargeting: false,
-            endpointFilters: undefined,
-            hogQLExpressionComponentProps: { showBreakdownLabelHint: false },
-            featureFlags: {},
-        }
-
-        it('only offers the MCP properties group when scoped to canonical MCP events', () => {
-            const unscoped = buildTaxonomicGroups(baseContext)
-            expect(unscoped.find((g) => g.type === TaxonomicFilterGroupType.MCPProperties)).toBeUndefined()
-
-            const scoped = buildTaxonomicGroups({ ...baseContext, eventNames: [MCP_TOOL_CALL_EVENT] })
-            const mcpGroup = scoped.find((g) => g.type === TaxonomicFilterGroupType.MCPProperties)
-            expect(mcpGroup).toBeTruthy()
-            // Options remap to EventProperties so selecting one creates a plain event property filter.
-            expect(mcpGroup?.options?.[0]).toEqual({
-                name: '$mcp_tool_name',
-                value: '$mcp_tool_name',
-                group: TaxonomicFilterGroupType.EventProperties,
-            })
-        })
-
-        it.each([
-            {
-                name: 'excludes the known schema from Event properties when the MCP tab is requested',
-                eventNames: [MCP_TOOL_CALL_EVENT],
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
-                expectExcluded: true,
-            },
-            {
-                name: 'keeps Event properties intact when the MCP tab is not requested',
-                eventNames: [MCP_TOOL_CALL_EVENT],
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
-                expectExcluded: false,
-            },
-            {
-                name: 'keeps Event properties intact when not scoped to MCP events',
-                eventNames: ['$pageview'],
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
-                expectExcluded: false,
-            },
-        ])('$name', ({ eventNames, taxonomicGroupTypes, expectExcluded }) => {
-            const groups = buildTaxonomicGroups({ ...baseContext, eventNames, taxonomicGroupTypes })
-            const eventProperties = groups.find((g) => g.type === TaxonomicFilterGroupType.EventProperties)
-            if (expectExcluded) {
-                // Exclusive like autocapture: the known schema lives only in the MCP tab.
-                // The concrete key guards against arrayContaining([]) matching vacuously.
-                expect(eventProperties?.excludedProperties).toContain('$mcp_tool_name')
-                expect(eventProperties?.excludedProperties).toEqual(
-                    expect.arrayContaining(getMCPPropertyFilterOptions())
-                )
-            } else {
-                expect(eventProperties?.excludedProperties ?? []).not.toContain('$mcp_tool_name')
-            }
-        })
-
-        it('seeds $mcp_is_error into SuggestedFilters when scoped to $mcp_tool_call', () => {
-            const scoped = buildTaxonomicGroups({ ...baseContext, eventNames: [MCP_TOOL_CALL_EVENT] })
-            const suggested = scoped.find((g) => g.type === TaxonomicFilterGroupType.SuggestedFilters)
-            expect(suggested?.options).toContainEqual({
-                name: '$mcp_is_error',
-                group: TaxonomicFilterGroupType.EventProperties,
-            })
-
-            const unscoped = buildTaxonomicGroups(baseContext)
-            const unscopedSuggested = unscoped.find((g) => g.type === TaxonomicFilterGroupType.SuggestedFilters)
-            expect(unscopedSuggested?.options).not.toContainEqual({
-                name: '$mcp_is_error',
-                group: TaxonomicFilterGroupType.EventProperties,
-            })
-        })
     })
 })

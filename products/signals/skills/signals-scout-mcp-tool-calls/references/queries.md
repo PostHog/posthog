@@ -1,5 +1,24 @@
 # MCP tool-call query cookbook
 
+## Contents
+
+- [Conventions](#conventions)
+- [0. Field-coverage probe (run this first, every run)](#0-field-coverage-probe-run-this-first-every-run)
+- [1. Failure leaderboard (Tier-1 detection — always available)](#1-failure-leaderboard-tier-1-detection--always-available)
+- [2. Struggle / retry leaderboard (Tier-1 detection — always available, high value)](#2-struggle--retry-leaderboard-tier-1-detection--always-available-high-value)
+- [3a. Error-class composition — HONO regime (`pct_failures_classified` non-trivial)](#3a-error-class-composition--hono-regime-pct_failures_classified-non-trivial)
+- [3b. Error-message sampling — EXTERNAL-SDK regime (`pct_failures_with_message` high)](#3b-error-message-sampling--external-sdk-regime-pct_failures_with_message-high)
+- [4. Latency leaderboard (Tier-1 — always available)](#4-latency-leaderboard-tier-1--always-available)
+- [5. Intent lens (coverage-gated — only if `pct_with_intent` ≥ ~20)](#5-intent-lens-coverage-gated--only-if-pct_with_intent--20)
+- [6. Per-client / per-mode split (localize a partial break)](#6-per-client--per-mode-split-localize-a-partial-break)
+- [7. Observability-gap detection (a report-worthy finding)](#7-observability-gap-detection-a-report-worthy-finding)
+- [8. Output-size bloat — HONO regime only (`pct_with_tokens` high)](#8-output-size-bloat--hono-regime-only-pct_with_tokens-high)
+- [9. By-category rollup (the report grain — per-category mode)](#9-by-category-rollup-the-report-grain--per-category-mode)
+- [10. Session share — the "called too much" lens](#10-session-share--the-called-too-much-lens)
+- [11. Category metrics — the `category_rollup` record](#11-category-metrics--the-category_rollup-record)
+
+## Conventions
+
 All queries run via `execute-sql` over the `$mcp_tool_call` event. Conventions used
 throughout:
 
@@ -9,8 +28,9 @@ throughout:
   (both PostHog's hono server and external customer servers), excludes pre-SDK legacy events.
   If a project's counts look suspiciously low, re-run the coverage probe without this filter
   to check for legacy-only instrumentation.
-- Effective tool name (always use this — unwraps the single-exec `exec` dispatcher):
-  `coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))`
+- Effective tool name: prefer the dispatched inner tool, then a known target rejected before dispatch.
+  Only `exec` with verb `call` uses the target; discovery verbs and unrecognized targets stay under `exec`:
+  `coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name))`
 - **Presence check = `isNotNull(properties.X)`.** This is the one reliable way to test whether an
   enrichment field is populated. Do **not** use `!= ''` or `NOT IN ('', 'None')` as a presence test —
   both resolve unreliably in HogQL for the MCP props (verified: they returned >100% coverage and
@@ -98,7 +118,7 @@ Ranks tools by failures over a volume floor, with rate and reach. Uses only alwa
 
 ```sql
 SELECT
-    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
     any(properties.$mcp_tool_category) AS category,
     count() AS calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
@@ -138,7 +158,7 @@ SELECT
 FROM (
     SELECT
         $session_id AS session,
-        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
         any(properties.$mcp_tool_category) AS category,
         count() AS calls,
         countIf(toBool(properties.$mcp_is_error)) AS errors
@@ -179,7 +199,7 @@ FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
     AND toBool(properties.$mcp_is_error)
-    AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) = '<tool>'
+    AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) = '<tool>'
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY error_type
 ORDER BY errors DESC
@@ -208,7 +228,7 @@ FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
     AND toBool(properties.$mcp_is_error)
-    AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) = '<tool>'
+    AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) = '<tool>'
     AND properties.$mcp_error_message != ''
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY message
@@ -223,7 +243,7 @@ failures in the hono regime.
 
 ```sql
 SELECT
-    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
     any(properties.$mcp_tool_category) AS category,
     count() AS calls,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50_ms,
@@ -253,7 +273,7 @@ SELECT
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
-    AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) = '<tool>'
+    AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) = '<tool>'
     AND isNotNull(properties.$mcp_intent)
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY intent, source
@@ -268,7 +288,7 @@ tool is broken universally or only for one client/harness — a different improv
 
 ```sql
 SELECT
-    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
     coalesce(nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'None'), 'unknown') AS client,
     count() AS calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
@@ -276,7 +296,7 @@ SELECT
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
-    AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) = '<tool>'
+    AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) = '<tool>'
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY tool, client
 HAVING calls >= 20
@@ -297,7 +317,7 @@ worst offenders rather than every tool.
 
 ```sql
 SELECT
-    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
     count() AS calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     countIf(toBool(properties.$mcp_is_error)) - countIf(toBool(properties.$mcp_is_error) AND toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')) AS undiagnosable_errors
@@ -323,7 +343,7 @@ and are estimates, hono-only.
 
 ```sql
 SELECT
-    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+    coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
     count() AS calls,
     round(quantile(0.5)(toFloat(properties.output_tokens))) AS p50_output_tokens,
     round(quantile(0.95)(toFloat(properties.output_tokens))) AS p95_output_tokens
@@ -359,7 +379,7 @@ SELECT
     groupArrayIf((tool, calls, errors, tool_error_rate_pct, users), calls >= 50 AND tool_error_rate_pct >= 10) AS problem_tool_details
 FROM (
     SELECT
-        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
         any(properties.$mcp_tool_category) AS category,
         count() AS calls,
         countIf(toBool(properties.$mcp_is_error)) AS errors,
@@ -416,7 +436,7 @@ WITH per_session AS (
         coalesce(nullIf(nullIf(toString(properties.source), ''), 'None'), 'unknown') AS source_bucket,
         $session_id AS session,
         any(distinct_id) AS user,
-        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
         coalesce(nullIf(nullIf(toString(any(properties.$mcp_tool_category)), ''), 'None'), 'Uncategorized') AS category,
         timestamp >= now() - INTERVAL 7 DAY AS is_current,
         count() AS calls
@@ -504,7 +524,7 @@ times, or failed and was called again.
 ```sql
 WITH calls AS (
     SELECT
-        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
         properties.$mcp_tool_category AS raw_category,
         $session_id AS session,
         distinct_id,

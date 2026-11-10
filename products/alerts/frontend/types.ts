@@ -14,7 +14,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightModel, UserBasicType } from '~/types'
 
-import type { AlertDeliveryApi } from './generated/api.schemas'
+import type { AlertApi, AlertDeliveryApi, AlertSimulateResponseApi } from './generated/api.schemas'
 
 export type AlertCheckDelivery = AlertDeliveryApi
 
@@ -82,7 +82,10 @@ export interface BreakdownSimulationResult {
     sub_detector_scores?: SubDetectorScores[]
 }
 
-export interface AlertSimulationResult {
+export interface AlertSimulationResult extends Pick<
+    AlertSimulateResponseApi,
+    'evaluation_delay_intervals' | 'evaluated_interval_start' | 'evaluated_interval_end' | 'evaluated_interval_timezone'
+> {
     data: number[]
     dates: string[]
     scores: (number | null)[]
@@ -93,6 +96,10 @@ export interface AlertSimulationResult {
     anomaly_count: number
     sub_detector_scores?: SubDetectorScores[]
     breakdown_results?: BreakdownSimulationResult[]
+    /** AI detector only: the model's reason for its verdict on the latest point. */
+    rationale?: string
+    /** AI detector only: the shape the model saw at the latest point. */
+    kind?: string | null
 }
 
 export interface AnomalyPoint {
@@ -108,7 +115,7 @@ export type AlertThreshold = Omit<InsightThreshold, 'bounds'> & {
     bounds?: InsightsThresholdBounds | null
 }
 
-export interface AlertTypeBase {
+export interface AlertTypeBase extends Pick<AlertApi, 'evaluation_delay_intervals'> {
     name: string
     condition: AlertCondition
     threshold: { configuration: AlertThreshold }
@@ -169,6 +176,8 @@ export interface AlertType extends AlertTypeBase {
     checks?: AlertCheck[]
     /** Whether the alert's creator can use the AI detector. Only set when a single alert was retrieved. */
     llm_detector_available?: boolean | null
+    /** Whether the alert can open PagerDuty incidents, which only the alerts platform sends. */
+    pagerduty_available?: boolean
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number

@@ -7,10 +7,13 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter2,
     DateRange,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
@@ -22,7 +25,8 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
@@ -104,7 +108,7 @@ class DataConfig:
 
 
 def _create_action(team, name: str = "test_action") -> Action:
-    return Action.objects.create(
+    return create_action(
         team=team,
         name=name,
         steps_json=[{"event": "test_event"}],
@@ -381,6 +385,40 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         assert len(response_beyond.results) == 0, "Should return empty results when offset exceeds data"
         assert response_beyond.hasMore is False, "Should not have more results when offset exceeds data"
+
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsDrillDownLevel.CAMPAIGN, [(99.84, 8.67), (13.83, 4.83)]),
+            ("channel", MarketingAnalyticsDrillDownLevel.CHANNEL, [(113.67, 13.50)]),
+        ]
+    )
+    def test_compare_with_row_key_columns_hidden(
+        self, _name: str, level: MarketingAnalyticsDrillDownLevel, expected_costs: list[tuple[float, float]]
+    ) -> None:
+        facebook_info = self._setup_csv_table("facebook_ads")
+        tiktok_info = self._setup_csv_table("tiktok_ads")
+        self._setup_team_source_configs(
+            [
+                {
+                    "table_id": facebook_info.table.id,
+                    "source_map": {**FACEBOOK_SOURCE_MAP, "campaign": "'Shared campaign'"},
+                },
+                {
+                    "table_id": tiktok_info.table.id,
+                    "source_map": {**TIKTOK_SOURCE_MAP, "campaign": "'Shared campaign'"},
+                },
+            ]
+        )
+
+        query = self._create_basic_query(select=["Cost"], drillDownLevel=level)
+        response = get_default_query_runner(query, self.team).calculate()
+
+        assert response.columns == ["Cost"]
+        assert len(response.results) == len(expected_costs)
+        for row, (current_cost, previous_cost) in zip(response.results, expected_costs, strict=True):
+            assert len(row) == 1
+            assert row[0].value == pytest.approx(current_cost)
+            assert row[0].previous == pytest.approx(previous_cost)
 
     def test_invalid_table_configuration(self):
         source_configs = [

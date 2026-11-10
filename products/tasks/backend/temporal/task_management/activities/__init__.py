@@ -6,6 +6,7 @@ from .pending_followups import (
     ReadPendingFollowupsResult,
     persist_pending_followups,
     persist_pending_followups_v2,
+    persist_pending_followups_v3,
     read_pending_followups,
 )
 
@@ -18,5 +19,6 @@ __all__ = [
     "ensure_execute_sandbox_started",
     "persist_pending_followups",
     "persist_pending_followups_v2",
+    "persist_pending_followups_v3",
     "read_pending_followups",
 ]

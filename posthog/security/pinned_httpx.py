@@ -27,6 +27,7 @@ from django.conf import settings
 
 import httpx
 
+from posthog.security.bounded_httpx import BoundedHTTPTransport
 from posthog.security.pinned_requests import SSRFBlockedError, select_pinned_ip
 from posthog.security.url_validation import ResolvedIPs
 
@@ -93,15 +94,38 @@ class PinnedClient(httpx.Client):
     ``httpx.Client`` would instead switch environment proxies off altogether.
     """
 
-    def __init__(self, *, pins: Mapping[str, IPAddress], **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *,
+        pins: Mapping[str, IPAddress],
+        total_timeout: float | None = None,
+        max_response_bytes: int = 1_048_576,
+        **kwargs: Any,
+    ) -> None:
         self._pins = dict(pins)
+        self._total_timeout = total_timeout
+        self._max_response_bytes = max_response_bytes
         super().__init__(**kwargs)
 
     def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.BaseTransport:
-        return PinnedTransport(super()._init_transport(*args, **kwargs), self._pins)
+        if self._total_timeout is None:
+            inner = super()._init_transport(*args, **kwargs)
+        else:
+            if kwargs.pop("transport", None) is not None:
+                raise ValueError("Bounded clients manage their own HTTP transport.")
+            inner = BoundedHTTPTransport(
+                total_timeout=self._total_timeout, max_response_bytes=self._max_response_bytes, **kwargs
+            )
+        return PinnedTransport(inner, self._pins)
 
     def _init_proxy_transport(self, proxy: httpx.Proxy, *args: Any, **kwargs: Any) -> httpx.BaseTransport:
-        return PinnedTransport(super()._init_proxy_transport(proxy, *args, **kwargs), self._pins, proxy_url=proxy.url)
+        if self._total_timeout is None:
+            inner = super()._init_proxy_transport(proxy, *args, **kwargs)
+        else:
+            inner = BoundedHTTPTransport(
+                proxy=proxy, total_timeout=self._total_timeout, max_response_bytes=self._max_response_bytes, **kwargs
+            )
+        return PinnedTransport(inner, self._pins, proxy_url=proxy.url)
 
 
 def pinned_client(url: str, pinned_ips: ResolvedIPs, **kwargs: Any) -> httpx.Client:

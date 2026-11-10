@@ -10,11 +10,12 @@ describe('Tool name validation', () => {
     const allTools = mergeToolFactories({ generated: GENERATED_TOOL_MAP, handwritten: TOOL_MAP })
 
     // A hand-written tool that shares a generated tool's name shadows it everywhere, so a
-    // newly generated tool colliding with one would silently replace it.
-    it('shadows only the generated tools it means to', () => {
+    // newly generated tool colliding with one would silently replace it. To customize a
+    // generated tool, use `hooks:` in tools.yaml instead of shadowing it.
+    it('shadows no generated tools', () => {
         const shadowed = Object.keys(TOOL_MAP).filter((name) => name in GENERATED_TOOL_MAP)
 
-        expect(shadowed.sort()).toEqual(['session-recording-get', 'update-feature-flag'])
+        expect(shadowed.sort()).toEqual([])
     })
 
     it.each(Object.keys(allTools))('%s — name matches map key, length, and pattern', (mapKey) => {

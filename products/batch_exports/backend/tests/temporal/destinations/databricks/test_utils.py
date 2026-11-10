@@ -4,13 +4,20 @@ import pytest
 
 import pyarrow as pa
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     _events_table_fields,
     _get_databricks_table_settings,
     _get_long_running_query_timeout,
     databricks_default_fields,
 )
+from products.batch_exports.backend.temporal.errors import UnsupportedColumnTypeError
+from products.batch_exports.backend.temporal.utils import JsonType
 
 
 @pytest.mark.parametrize(
@@ -37,7 +44,7 @@ def _staged_events_schema(column_names: list[str]) -> pa.Schema:
 
 def _events_table_field_names(staged_column_names: list[str], schema: BatchExportSchema | None) -> list[str]:
     table_fields, _, _ = _get_databricks_table_settings(
-        model=BatchExportModel(name="events", schema=schema),
+        model=BatchExportEventsCustomModel(schema=schema) if schema is not None else BatchExportEventsModel(),
         record_batch_schema=_staged_events_schema(staged_column_names),
         use_variant_type=True,
     )
@@ -77,3 +84,50 @@ def test_events_table_fields_follow_a_custom_schema():
     }
 
     assert _events_table_field_names(["event", "browser"], schema=schema) == ["event", "browser"]
+
+
+@pytest.mark.parametrize(
+    "field_name, pa_type, expected_databricks_type",
+    [
+        ("col", pa.string(), "STRING"),
+        ("col", JsonType(), "STRING"),
+        ("properties", pa.string(), "VARIANT"),
+        ("col", pa.binary(), "BINARY"),
+        ("col", pa.int32(), "INTEGER"),
+        ("col", pa.uint8(), "INTEGER"),
+        ("col", pa.int64(), "BIGINT"),
+        ("col", pa.uint64(), "BIGINT"),
+        ("col", pa.float32(), "FLOAT"),
+        ("col", pa.float64(), "DOUBLE"),
+        ("col", pa.bool_(), "BOOLEAN"),
+        ("col", pa.timestamp("us", tz="UTC"), "TIMESTAMP"),
+        ("col", pa.date32(), "DATE"),
+        ("col", pa.date64(), "DATE"),
+        ("col", pa.decimal128(38, 2), "DECIMAL(38, 2)"),
+        ("col", pa.decimal256(10, 0), "DECIMAL(10, 0)"),
+        ("col", pa.list_(pa.string()), "ARRAY<STRING>"),
+        ("col", pa.list_(pa.int64()), "ARRAY<BIGINT>"),
+    ],
+)
+def test_hogql_table_fields_map_arrow_types(
+    field_name: str, pa_type: pa.DataType, expected_databricks_type: str
+) -> None:
+    # A HogQL query stages whatever Arrow types its columns produce. A type without a mapping makes
+    # the insert activity raise on every retry, so the run never lands.
+    table_fields, _, _ = _get_databricks_table_settings(
+        model=BatchExportHogQLModel(query="SELECT 1", user_id=1, modifiers={}),
+        record_batch_schema=pa.schema([pa.field(field_name, pa_type)]),
+        use_variant_type=True,
+    )
+
+    assert table_fields == [(field_name, expected_databricks_type)]
+
+
+@pytest.mark.parametrize("pa_type", [pa.decimal256(76, 0), pa.list_(pa.decimal256(76, 0))])
+def test_hogql_table_fields_reject_unsupported_arrow_types(pa_type: pa.DataType) -> None:
+    with pytest.raises(UnsupportedColumnTypeError, match=r"Column 'col' has type '.*decimal256\(76, 0\)"):
+        _get_databricks_table_settings(
+            model=BatchExportHogQLModel(query="SELECT 1", user_id=1, modifiers={}),
+            record_batch_schema=pa.schema([pa.field("col", pa_type)]),
+            use_variant_type=True,
+        )

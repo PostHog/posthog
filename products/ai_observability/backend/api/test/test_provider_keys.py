@@ -1,25 +1,152 @@
+import json
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+import httpx
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.proxy import models_cache_key
+from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
+from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerializer, models_cache_key
+from products.ai_observability.backend.api.taggers import TaggerModelConfigurationWriteSerializer
+from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+
+
+class TestProviderKeySerializer(SimpleTestCase):
+    @parameterized.expand([(LLMProxyCompletionSerializer,), (TaggerModelConfigurationWriteSerializer,)])
+    def test_system_one_is_not_a_completion_provider(self, serializer_class: type[serializers.Serializer]) -> None:
+        serializer = serializer_class(
+            data={
+                "provider": "system_one",
+                "model": "example-judge-v1",
+                "provider_key_id": str(uuid4()),
+                "system": "Reply politely.",
+                "messages": [{"role": "user", "content": "Hello!"}],
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("provider", serializer.errors)
+
+    @parameterized.expand([("openai", "system_one"), ("system_one", "openai")])
+    def test_cannot_change_provider_of_an_existing_key(self, current: str, requested: str) -> None:
+        key = LLMProviderKey(provider=current, state="ok", encrypted_config={"api_key": "test-key"})
+        serializer = LLMProviderKeySerializer(key, data={"provider": requested}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("provider", serializer.errors)
+
+    def test_system_one_cannot_be_created_as_the_shared_key(self) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={
+                "provider": "system_one",
+                "name": "Example connection",
+                "api_key": "example-token",
+                "base_url": "https://decisions.example.com/v1",
+                "system_one_model": "custom-model",
+                "set_as_active": True,
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("set_as_active", serializer.errors)
+
+    @parameterized.expand([("base_url",), ("system_one_model",)])
+    def test_system_one_connection_requires_endpoint_and_model(self, missing_field: str) -> None:
+        data = {
+            "provider": "system_one",
+            "name": "Example connection",
+            "api_key": "",
+            "base_url": "https://decisions.example.com/v1",
+            "system_one_model": "custom-model",
+        }
+        del data[missing_field]
+        serializer = LLMProviderKeySerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(missing_field, serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("openai_compatible", "https://api.typesafe.ai/v1", False),
+            ("openai_compatible", "https://API.TYPESAFE.AI.:443/v1", False),
+            ("system_one", "https://api.typesafe.ai/v1", True),
+        ]
+    )
+    def test_typesafe_endpoint_is_only_accepted_for_system_one(self, provider: str, base_url: str, valid: bool) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={
+                "provider": provider,
+                "name": "Example connection",
+                "api_key": "example-token",
+                "base_url": base_url,
+                **({"system_one_model": "example-judge-v1"} if provider == "system_one" else {}),
+            }
+        )
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if not valid:
+            self.assertIn("base_url", serializer.errors)
+
+    def test_non_system_one_model_error_uses_model_field(self) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={
+                "provider": "openai",
+                "name": "Example key",
+                "api_key": "sk-example",
+                "system_one_model": "custom-model",
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("system_one_model", serializer.errors)
+        self.assertNotIn("base_url", serializer.errors)
+
+    @parameterized.expand([("https://other.example.com/v1", False), ("https://decisions.example.com/v1", True)])
+    def test_endpoint_change_requires_explicit_credentials(self, base_url: str, valid: bool) -> None:
+        key = LLMProviderKey(
+            provider="system_one",
+            encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+        )
+        serializer = LLMProviderKeySerializer(key, data={"base_url": base_url}, partial=True)
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("foundry_key_without_prefix", {"azure_endpoint": "https://contoso.services.ai.azure.com/"}, None),
+            ("api_key_without_prefix", {}, "api_key"),
+            ("non_azure_endpoint", {"azure_endpoint": "https://evil.example.com/"}, "azure_endpoint"),
+        ]
+    )
+    def test_anthropic_key_validation(self, _name: str, extra: dict, error_field: str | None) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={"provider": "anthropic", "name": "Claude", "api_key": "no-prefix-key", **extra}
+        )
+        self.assertEqual(serializer.is_valid(), error_field is None, serializer.errors)
+        if error_field:
+            self.assertIn(error_field, serializer.errors)
+
+    @parameterized.expand([({}, False), ({"api_key": "no-prefix-key"}, True)])
+    def test_foundry_endpoint_change_requires_the_api_key(self, extra: dict, valid: bool) -> None:
+        key = LLMProviderKey(
+            provider="anthropic",
+            encrypted_config={"api_key": "foundry-key", "azure_endpoint": "https://old.services.ai.azure.com/"},
+        )
+        serializer = LLMProviderKeySerializer(
+            key, data={"azure_endpoint": "https://new.services.ai.azure.com/", **extra}, partial=True
+        )
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
 
 
 def _setup_team():
@@ -85,13 +212,23 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @parameterized.expand([("openai",), ("system_one",)])
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_create_provider_key(self, mock_validate):
+    def test_can_create_provider_key(self, provider: str, mock_validate: Mock) -> None:
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
-            {"provider": "openai", "name": "My Key", "api_key": "sk-test-key-12345"},
+            {
+                "provider": provider,
+                "name": "My Key",
+                "api_key": "sk-test-key-12345",
+                **(
+                    {"base_url": "https://decisions.example.com/v1", "system_one_model": "custom-model"}
+                    if provider == "system_one"
+                    else {}
+                ),
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(LLMProviderKey.objects.count(), 1)
@@ -99,14 +236,110 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         key = LLMProviderKey.objects.first()
         assert key is not None
         self.assertEqual(key.name, "My Key")
-        self.assertEqual(key.provider, "openai")
+        self.assertEqual(key.provider, provider)
         self.assertEqual(key.state, LLMProviderKey.State.OK)
         self.assertEqual(key.team, self.team)
         self.assertEqual(key.created_by, self.user)
 
         self.assertEqual(response.data["api_key_masked"], "sk-t...2345")
         self.assertNotIn("api_key", response.data)
-        mock_validate.assert_called_once_with("openai", "sk-test-key-12345")
+        expected_config = (
+            {"base_url": "https://decisions.example.com/v1", "model": "custom-model"}
+            if provider == "system_one"
+            else {}
+        )
+        mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_model",
+                404,
+                "system_one_model",
+                "The endpoint returned 404 for this model ID. Check the model ID, and that the base URL ends before /systemone.",
+            ),
+            ("rejected_token", 401, "api_key", "The endpoint rejected this credential. Check the bearer token."),
+        ]
+    )
+    @mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"])
+    @patch("httpx.AsyncHTTPTransport.handle_async_request")
+    def test_system_one_validation_error_names_the_field_to_fix(
+        self, _name: str, endpoint_status: int, expected_attr: str, expected_detail: str, request: Mock, _dns: Mock
+    ) -> None:
+        request.return_value = httpx.Response(endpoint_status, stream=httpx.ByteStream(b""))
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "system_one",
+                "name": "Custom",
+                "api_key": "example-token",
+                "base_url": "https://decisions.example.com/v1",
+                "system_one_model": "example-model",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual((response.json()["attr"], response.json()["detail"]), (expected_attr, expected_detail))
+        self.assertFalse(LLMProviderKey.objects.exists())
+
+    @mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"])
+    @patch("httpx.AsyncHTTPTransport.handle_async_request")
+    def test_custom_system_one_connection_round_trip(self, request: Mock, _dns: Mock) -> None:
+        body = json.dumps(
+            {
+                "model": "custom-model",
+                "answers": {"verdict": {"type": "noul", "noul": 1.0}, "applicable": {"type": "noul", "noul": 1.0}},
+                "usage": {"input_tokens": 12, "output_tokens": 0},
+            }
+        ).encode()
+        response_status = 200
+
+        def respond(*_args: object, **_kwargs: object) -> httpx.Response:
+            return httpx.Response(response_status, stream=httpx.ByteStream(body))
+
+        request.side_effect = respond
+        url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/"
+        response = self.client.post(
+            url,
+            {
+                "provider": "system_one",
+                "name": "Custom",
+                "api_key": "",
+                "base_url": "https://decisions.example.com/v1/",
+                "system_one_model": "custom-model",
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["base_url_display"], "https://decisions.example.com/v1")
+        key = LLMProviderKey.objects.get(id=response.data["id"])
+        self.assertEqual(Client.list_models("system_one", **key.provider_extra_kwargs()), ["custom-model"])
+        model_config = LLMModelConfiguration(provider="system_one", model="custom-model", provider_key=key)
+        self.assertEqual(model_config.get_available_models(), ["custom-model"])
+        self.assertNotIn("Authorization", request.call_args.args[0].headers)
+        request.reset_mock()
+        response = self.client.patch(f"{url}{key.id}/", {"base_url": "https://other.example.com/v1"})
+        self.assertEqual(response.status_code, 400)
+        request.assert_not_called()
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["base_url"], "https://decisions.example.com/v1")
+        response_status = 401
+        response = self.client.patch(
+            f"{url}{key.id}/", {"base_url": "https://other.example.com/v1", "api_key": "fake-token"}
+        )
+        self.assertEqual(response.status_code, 400)
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["base_url"], "https://decisions.example.com/v1")
+        self.assertEqual(key.encrypted_config["api_key"], "")
+        response_status = 200
+        response = self.client.patch(
+            f"{url}{key.id}/", {"base_url": "https://other.example.com/v1", "api_key": "fake-token"}
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["base_url"], "https://other.example.com/v1")
+        self.assertEqual(request.call_args.args[0].headers["Authorization"], "Bearer fake-token")
+        response = self.client.post(f"{url}{key.id}/validate/")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(str(request.call_args.args[0].url), "https://other.example.com/v1/systemone")
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_provider_key_with_set_as_active(self, mock_validate):
@@ -257,7 +490,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
         key.refresh_from_db()
         self.assertEqual(key.encrypted_config["api_key"], "sk-new-key-12345")
-        mock_validate.assert_called_once_with("openai", "sk-new-key-12345")
+        mock_validate.assert_called_once_with("openai", "sk-new-key-12345", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_update_fireworks_provider_key_api_key(self, mock_validate):
@@ -280,7 +513,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
         key.refresh_from_db()
         self.assertEqual(key.encrypted_config["api_key"], "fw-new-key-12345")
-        mock_validate.assert_called_once_with("fireworks", "fw-new-key-12345")
+        mock_validate.assert_called_once_with("fireworks", "fw-new-key-12345", team_id=self.team.id)
 
     def test_can_delete_provider_key(self):
         key = LLMProviderKey.objects.create(
@@ -437,7 +670,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         assert key is not None
         self.assertEqual(key.provider, "openrouter")
         self.assertEqual(key.state, LLMProviderKey.State.OK)
-        mock_validate.assert_called_once_with("openrouter", "sk-or-v1-test-key-12345")
+        mock_validate.assert_called_once_with("openrouter", "sk-or-v1-test-key-12345", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_openrouter_key_accepts_any_format(self, mock_validate):
@@ -463,7 +696,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         assert key is not None
         self.assertEqual(key.provider, "fireworks")
         self.assertEqual(key.state, LLMProviderKey.State.OK)
-        mock_validate.assert_called_once_with("fireworks", "fw-test-key-12345")
+        mock_validate.assert_called_once_with("fireworks", "fw-test-key-12345", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_fireworks_key_accepts_any_format(self, mock_validate):
@@ -489,7 +722,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         assert key is not None
         self.assertEqual(key.provider, "together_ai")
         self.assertEqual(key.state, LLMProviderKey.State.OK)
-        mock_validate.assert_called_once_with("together_ai", "together-test-key-12345")
+        mock_validate.assert_called_once_with("together_ai", "together-test-key-12345", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_together_key_accepts_any_format(self, mock_validate):
@@ -515,7 +748,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         assert key is not None
         self.assertEqual(key.provider, "minimax")
         self.assertEqual(key.state, LLMProviderKey.State.OK)
-        mock_validate.assert_called_once_with("minimax", "minimax-test-key-12345")
+        mock_validate.assert_called_once_with("minimax", "minimax-test-key-12345", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_minimax_key_accepts_any_format(self, mock_validate):
@@ -526,34 +759,6 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             {"provider": "minimax", "name": "MiniMax Key", "api_key": "any-format-key"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_create_zeabur_provider_key(self, mock_validate):
-        mock_validate.return_value = (LLMProviderKey.State.OK, None)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
-            {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "sk-zeabur-test-key-12345"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        key = LLMProviderKey.objects.first()
-        assert key is not None
-        self.assertEqual(key.provider, "zeabur")
-        self.assertEqual(key.state, LLMProviderKey.State.OK)
-        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key-12345")
-
-    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_zeabur_key_rejects_invalid_format(self, mock_validate):
-        mock_validate.return_value = (LLMProviderKey.State.OK, None)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
-            {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "no-prefix-key"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("sk-", str(response.data))
-        mock_validate.assert_not_called()
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_azure_openai_provider_key(self, mock_validate):
@@ -580,8 +785,34 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(
             "azure_openai",
             "azure-hex-123",
+            team_id=self.team.id,
             azure_endpoint="https://contoso.openai.azure.com/",
             api_version="2024-10-21",
+        )
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_anthropic_key_on_microsoft_foundry(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "anthropic",
+                "name": "Foundry Claude",
+                "api_key": "foundry-hex-123",
+                "azure_endpoint": "https://contoso.services.ai.azure.com/",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["azure_endpoint_display"], "https://contoso.services.ai.azure.com/")
+
+        key = LLMProviderKey.objects.get(id=response.json()["id"])
+        self.assertEqual(key.provider_extra_kwargs(), {"azure_endpoint": "https://contoso.services.ai.azure.com/"})
+        mock_validate.assert_called_once_with(
+            "anthropic",
+            "foundry-hex-123",
+            team_id=self.team.id,
+            azure_endpoint="https://contoso.services.ai.azure.com/",
         )
 
     def test_create_azure_openai_without_endpoint_fails(self):
@@ -657,6 +888,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(
             "azure_openai",
             "azure-hex-123",
+            team_id=self.team.id,
             azure_endpoint="https://contoso.openai.azure.com/",
             api_version="2024-10-21",
         )
@@ -714,6 +946,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(
             "azure_openai",
             "azure-hex-123",
+            team_id=self.team.id,
             azure_endpoint="https://contoso.openai.azure.com/",
             api_version=DEFAULT_API_VERSION,
         )
@@ -766,6 +999,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(
             "openai_compatible",
             "custom-key-123",
+            team_id=self.team.id,
             base_url="https://8.8.8.8/v1",
         )
 
@@ -920,6 +1154,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(
             "openai_compatible",
             "new-key",
+            team_id=self.team.id,
             base_url="https://1.1.1.1/v1",
         )
 
@@ -950,6 +1185,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(
             "openai_compatible",
             "new-key",
+            team_id=self.team.id,
             base_url="https://8.8.8.8/v1",
         )
 
@@ -973,6 +1209,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(
             "openai_compatible",
             "custom-key-123",
+            team_id=self.team.id,
             base_url="https://8.8.8.8/v1",
         )
 
@@ -994,7 +1231,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         key = LLMProviderKey.objects.first()
         assert key is not None
         self.assertNotIn("base_url", key.encrypted_config)
-        mock_validate.assert_called_once_with("openai", "sk-test-123")
+        mock_validate.assert_called_once_with("openai", "sk-test-123", team_id=self.team.id)
 
     def test_update_invalidates_models_cache(self):
         key = LLMProviderKey.objects.create(
@@ -1109,7 +1346,7 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
         self.assertIsNone(response.data["error_message"])
-        mock_validate.assert_called_once_with("openai", "sk-test-key")
+        mock_validate.assert_called_once_with("openai", "sk-test-key", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_pre_validate_returns_error_state(self, mock_validate):
@@ -1133,7 +1370,7 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
-        mock_validate.assert_called_once_with("openrouter", "sk-or-v1-test-key")
+        mock_validate.assert_called_once_with("openrouter", "sk-or-v1-test-key", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_pre_validate_fireworks_key(self, mock_validate):
@@ -1145,7 +1382,7 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
-        mock_validate.assert_called_once_with("fireworks", "fw-test-key")
+        mock_validate.assert_called_once_with("fireworks", "fw-test-key", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_pre_validate_together_key(self, mock_validate):
@@ -1157,7 +1394,7 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
-        mock_validate.assert_called_once_with("together_ai", "together-test-key")
+        mock_validate.assert_called_once_with("together_ai", "together-test-key", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_pre_validate_minimax_key(self, mock_validate):
@@ -1169,19 +1406,7 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
-        mock_validate.assert_called_once_with("minimax", "minimax-test-key")
-
-    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_pre_validate_zeabur_key(self, mock_validate):
-        mock_validate.return_value = (LLMProviderKey.State.OK, None)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
-            {"api_key": "sk-zeabur-test-key", "provider": "zeabur"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["state"], "ok")
-        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key")
+        mock_validate.assert_called_once_with("minimax", "minimax-test-key", team_id=self.team.id)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_pre_validate_openai_compatible_key(self, mock_validate):
@@ -1193,7 +1418,9 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
-        mock_validate.assert_called_once_with("openai_compatible", "custom-key-123", base_url="https://8.8.8.8/v1")
+        mock_validate.assert_called_once_with(
+            "openai_compatible", "custom-key-123", team_id=self.team.id, base_url="https://8.8.8.8/v1"
+        )
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_pre_validate_openai_compatible_attributes_base_url_errors(self, mock_validate):
@@ -1221,6 +1448,26 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+    @parameterized.expand([("key_in_the_url_project", True, 200), ("key_from_another_project", False, 404)])
+    def test_models_follow_the_project_in_the_url(self, _name: str, key_in_url_project: bool, expected: int) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        key = LLMProviderKey.objects.create(
+            team=other_team if key_in_url_project else self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test-key"},
+        )
+        # The user's current project stays self.team, as when a second tab switched it.
+        with patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=["gpt-5-mini"]):
+            response = self.client.get(
+                f"/api/environments/{other_team.id}/llm_analytics/provider_keys/{key.id}/models/"
+            )
+
+        self.assertEqual(response.status_code, expected, response.json())
+        if expected == 200:
+            self.assertIn("gpt-5-mini", [model["id"] for model in response.json()])
+
     def test_dependent_configs_returns_evaluations_using_key(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -1243,6 +1490,9 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
             evaluation_config={"prompt": "Is this good?"},
             output_type="boolean",
             model_configuration=model_config,
+            enabled=False,
+            status=EvaluationStatus.ERROR,
+            status_reason="provider_key_quota_exceeded",
         )
 
         response = self.client.get(
@@ -1252,6 +1502,52 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(len(response.data["evaluations"]), 1)
         self.assertEqual(response.data["evaluations"][0]["id"], str(evaluation.id))
         self.assertEqual(response.data["evaluations"][0]["name"], "Test Evaluation")
+        # The settings page offers to turn back on the evaluations this key's problem turned off.
+        self.assertEqual(response.data["evaluations"][0]["enabled"], False)
+        self.assertEqual(response.data["evaluations"][0]["status_reason"], "provider_key_quota_exceeded")
+
+    @parameterized.expand(
+        [
+            ("active_key", True, True, ["Keyless"]),
+            ("not_the_active_key", False, True, []),
+            ("no_evaluation_access", True, False, []),
+        ]
+    )
+    def test_dependent_configs_lists_errored_evaluations_on_the_active_key(
+        self, _name: str, is_active: bool, evaluation_access: bool, expected: list[str]
+    ) -> None:
+        if not evaluation_access:
+            _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test-key"},
+        )
+        if is_active:
+            EvaluationConfig.objects.update_or_create(team=self.team, defaults={"active_provider_key": key})
+        keyless_config = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        for name, status_value in (("Keyless", EvaluationStatus.ERROR), ("Paused keyless", EvaluationStatus.PAUSED)):
+            Evaluation.objects.create(
+                team=self.team,
+                name=name,
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Is this good?"},
+                output_type="boolean",
+                model_configuration=keyless_config,
+                enabled=False,
+                status=status_value,
+                status_reason="provider_key_quota_exceeded" if status_value == EvaluationStatus.ERROR else None,
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/dependent_configs/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([evaluation["name"] for evaluation in response.data["active_key_evaluations"]], expected)
+        self.assertEqual(response.data["evaluations"], [])
 
     def test_dependent_configs_excludes_deleted_evaluations(self):
         key = LLMProviderKey.objects.create(

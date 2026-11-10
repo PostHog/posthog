@@ -165,7 +165,7 @@ function timedNotification(timestamp: string, method: string, params: Record<str
 }
 
 const MESSAGE_FOOTER_ENTRIES: StoredLogEntry[] = [
-    timedNotification('2024-03-11T14:02:10Z', '_client/human_message', {
+    timedNotification('2024-03-11T14:02:10Z', '_posthog/user_message', {
         content: 'How many users signed up last week?',
     }),
     timedNotification('2024-03-11T14:02:18Z', 'session/update', {

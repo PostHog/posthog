@@ -161,6 +161,57 @@ export interface ExternalAccountErrorApi {
     error: string
 }
 
+/**
+ * Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account already exists.
+ * @nullable
+ */
+export type ExternalAccountCreateApiProperties = {
+    /**
+     * Primary company website hostname used for account identity and logo lookup.
+     * @nullable
+     */
+    website_domain?: string | null
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
+    /** Individual email addresses pinned to this account, matched before the domain fallback. */
+    known_emails?: string[]
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
+    /** @nullable */
+    slack_channel_id?: string | null
+    /** @nullable */
+    usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
+} | null | null
+
+export interface ExternalAccountCreateApi {
+    /**
+     * External ID (group key) for the account. An account with this ID already existing is a no-op. Without a `name`, the account name is derived from the matching group's `name` property, falling back to this ID.
+     * @maxLength 400
+     */
+    external_id: string
+    /**
+     * Name for a new account. Ignored when the account already exists. Blank means no name.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account already exists.
+     * @nullable
+     */
+    properties?: ExternalAccountCreateApiProperties
+}
+
 export interface ExternalAccountListAssignmentApi {
     /** PostHog user id of the assigned user. */
     user_id: number
@@ -318,6 +369,8 @@ export interface AccountNoteApi {
     readonly account_name: string
     /** User who created the note, if known. */
     readonly created_by: UserBasicApi | null
+    /** Tag names on the note. */
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedAccountNoteListApi {
@@ -516,6 +569,138 @@ export interface PaginatedAccountTrackRuleRunViewListApi {
 }
 
 /**
+ * * `private` - Personal
+ * * `team` - Team
+ */
+export type AccountViewVisibilityEnumApi =
+    (typeof AccountViewVisibilityEnumApi)[keyof typeof AccountViewVisibilityEnumApi]
+
+export const AccountViewVisibilityEnumApi = {
+    Private: 'private',
+    Team: 'team',
+} as const
+
+/**
+ * * `doc` - doc
+ */
+export type AccountViewContentTypeEnumApi =
+    (typeof AccountViewContentTypeEnumApi)[keyof typeof AccountViewContentTypeEnumApi]
+
+export const AccountViewContentTypeEnumApi = {
+    Doc: 'doc',
+} as const
+
+/**
+ * * `ph-markdown-notebook` - ph-markdown-notebook
+ */
+export type AccountViewMarkdownNodeTypeEnumApi =
+    (typeof AccountViewMarkdownNodeTypeEnumApi)[keyof typeof AccountViewMarkdownNodeTypeEnumApi]
+
+export const AccountViewMarkdownNodeTypeEnumApi = {
+    PhMarkdownNotebook: 'ph-markdown-notebook',
+} as const
+
+export interface AccountViewMarkdownAttributesApi {
+    /** Stable identifier for this document. */
+    nodeId: string
+    /**
+     * Component-only Markdown stored by the account view editor.
+     * @maxLength 262144
+     */
+    markdown: string
+}
+
+export interface AccountViewMarkdownNodeApi {
+    /** Markdown notebook node type.
+     *
+     * * `ph-markdown-notebook` - ph-markdown-notebook */
+    type: AccountViewMarkdownNodeTypeEnumApi
+    /** Markdown notebook attributes. */
+    attrs: AccountViewMarkdownAttributesApi
+}
+
+export interface AccountViewContentApi {
+    /** Document root type.
+     *
+     * * `doc` - doc */
+    type: AccountViewContentTypeEnumApi
+    /**
+     * The single Markdown notebook node containing the account view components.
+     * @minItems 1
+     * @maxItems 1
+     */
+    content: AccountViewMarkdownNodeApi[]
+}
+
+export interface AccountViewApi {
+    /** Stable account view identifier. */
+    readonly id: string
+    /** Name shown in the account view. */
+    readonly name: string
+    /** Whether the view is personal or available to the project.
+     *
+     * * `private` - Personal
+     * * `team` - Team */
+    readonly visibility: AccountViewVisibilityEnumApi
+    /** Validated Markdown notebook document. */
+    readonly content: AccountViewContentApi
+    /** Searchable component labels extracted from content. */
+    readonly text_content: string
+    /** Optimistic concurrency version. */
+    readonly version: number
+    /**
+     * Creator user ID.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * User ID that last changed the view.
+     * @nullable
+     */
+    readonly last_modified_by: number | null
+    /** When the view was created. */
+    readonly created_at: string
+    /** When the view was last changed. */
+    readonly updated_at: string
+    /** Whether the requesting user can edit the view. */
+    readonly can_edit: boolean
+    /** Whether the requesting user can delete the view. */
+    readonly can_delete: boolean
+    /** Whether the requesting user can change the view visibility. */
+    readonly can_change_visibility: boolean
+}
+
+export interface AccountViewCreateApi {
+    /**
+     * View name.
+     * @maxLength 400
+     */
+    name: string
+    /** Initial account view components. */
+    content: AccountViewContentApi
+}
+
+export interface AccountViewUpdateApi {
+    /**
+     * New view name. Omit to keep the current name.
+     * @maxLength 400
+     */
+    name?: string
+    /** Replacement account view components. Omit to keep current content. */
+    content?: AccountViewContentApi
+    /** New visibility. Only the creator or a project admin can change it.
+     *
+     * * `private` - Personal
+     * * `team` - Team */
+    visibility?: AccountViewVisibilityEnumApi
+    /**
+     * Version returned by the last read.
+     * @minimum 1
+     */
+    version: number
+}
+
+/**
  * * `daily` - daily
  * * `weekly` - weekly
  * * `monthly` - monthly
@@ -597,10 +782,10 @@ export interface AccountApi {
      */
     churned_at?: string | null
     /**
-     * When Track Rules ignored the account. Null means the account is tracked.
+     * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
      * @nullable
      */
-    readonly ignored_at: string | null
+    ignored_at?: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -665,6 +850,11 @@ export interface AccountNotebookApi {
     readonly created_by: UserBasicApi
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
+    /**
+     * Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface PaginatedAccountNotebookListApi {
@@ -674,6 +864,18 @@ export interface PaginatedAccountNotebookListApi {
     /** @nullable */
     previous?: string | null
     results: AccountNotebookApi[]
+}
+
+/**
+ * Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+ * since a note's title comes from its first line.
+ */
+export interface PatchedAccountNotebookUpdateApi {
+    /**
+     * Replaces the notebook's tags. Omit to leave them untouched.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -742,1165 +944,56 @@ export interface AccountRelationshipWriteApi {
 }
 
 /**
- * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
- * @nullable
+ * Selected visible person properties.
  */
-export type PatchedAccountApiProperties = {
-    /**
-     * Primary company website hostname used for account identity and logo lookup.
-     * @nullable
-     */
-    website_domain?: string | null
-    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
-    email_domains?: string[]
-    /** Individual email addresses pinned to this account, matched before the domain fallback. */
-    known_emails?: string[]
-    /** @nullable */
-    stripe_customer_id?: string | null
-    /** @nullable */
-    hubspot_deal_id?: string | null
-    /** @nullable */
-    billing_id?: string | null
-    /** @nullable */
-    sfdc_id?: string | null
-    /** @nullable */
-    zendesk_id?: string | null
-    /** @nullable */
-    slack_channel_id?: string | null
-    /** @nullable */
-    usage_dashboard_link?: string | null
-    /** @nullable */
-    metabase_link?: string | null
-} | null | null
+export type AccountPersonApiProperties = { [key: string]: unknown }
 
-/**
- * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
- */
-export interface PatchedAccountApi {
-    readonly id?: string
-    /**
-     * Human-readable name of the account.
-     * @maxLength 400
-     */
-    name?: string
-    /**
-     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
-     * @maxLength 400
-     * @nullable
-     */
-    external_id?: string | null
-    /**
-     * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
-     * @nullable
-     */
-    properties?: PatchedAccountApiProperties
-    /** Tag names attached to the account. Pass a list to replace existing tags. */
-    tags?: string[]
-    /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
-    readonly notebooks?: readonly string[]
-    /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
-     *
-     * * `daily` - daily
-     * * `weekly` - weekly
-     * * `monthly` - monthly */
-    slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
-    /**
-     * When the account churned. Null means the account has not churned.
-     * @nullable
-     */
-    churned_at?: string | null
-    /**
-     * When Track Rules ignored the account. Null means the account is tracked.
-     * @nullable
-     */
-    readonly ignored_at?: string | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly created_by?: number | null
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
-export interface ConversationMessageSenderApi {
-    /** Display name of the message sender. */
-    readonly name: string
-    /**
-     * Email address of the message sender, when available.
-     * @nullable
-     */
-    readonly email: string | null
-    /**
-     * UUID of the matched PostHog person, when available.
-     * @nullable
-     */
-    readonly person_id: string | null
-    /**
-     * Distinct ID of the sender, when available.
-     * @nullable
-     */
-    readonly distinct_id: string | null
-}
-
-/**
- * * `inbound` - Inbound
- * * `outbound` - Outbound
- */
-export type EmailThreadMessageDirectionEnumApi =
-    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
-
-export const EmailThreadMessageDirectionEnumApi = {
-    Inbound: 'inbound',
-    Outbound: 'outbound',
-} as const
-
-export interface ConversationMessageSummaryApi {
-    /** Sender of the message. */
-    readonly sender: ConversationMessageSenderApi
-    /** Timestamp from the message source. */
-    readonly sent_at: string
-    /** Whether PostHog received or sent the message.
-     *
-     * * `inbound` - Inbound
-     * * `outbound` - Outbound */
-    readonly direction: EmailThreadMessageDirectionEnumApi
-}
-
-/**
- * * `internal` - Internal
- * * `customer` - Customer
- */
-export type EmailThreadParticipantKindEnumApi =
-    (typeof EmailThreadParticipantKindEnumApi)[keyof typeof EmailThreadParticipantKindEnumApi]
-
-export const EmailThreadParticipantKindEnumApi = {
-    Internal: 'internal',
-    Customer: 'customer',
-} as const
-
-export interface AccountEmailThreadParticipantApi {
-    /** Email address of the thread participant. */
-    readonly email: string
-    /** Display name from the captured email headers. */
-    readonly display_name: string
-    /** Whether the participant belongs to the PostHog organization or the customer.
-     *
-     * * `internal` - Internal
-     * * `customer` - Customer */
-    readonly kind: EmailThreadParticipantKindEnumApi
-    /**
-     * UUID of the matched PostHog person for a customer participant, when available.
-     * @nullable
-     */
-    readonly person_id: string | null
-}
-
-export interface AccountEmailThreadApi {
-    /** UUID of the captured email thread. */
-    readonly id: string
-    /** Email thread subject. */
-    readonly subject: string
-    /** Plain-text preview of the latest captured message. */
-    readonly preview: string
-    /**
-     * Source timestamp of the first captured message.
-     * @nullable
-     */
-    readonly first_message_at: string | null
-    /** Sender, timestamp, and direction of the first captured message, when available. */
-    readonly first_message: ConversationMessageSummaryApi | null
-    /**
-     * Source timestamp of the latest captured message.
-     * @nullable
-     */
-    readonly last_message_at: string | null
-    /** Sender, timestamp, and direction of the latest captured message, when available. */
-    readonly last_message: ConversationMessageSummaryApi | null
-    /** Number of captured messages in the thread. */
-    readonly message_count: number
-    /** Participants included in the email thread. */
-    readonly participants: readonly AccountEmailThreadParticipantApi[]
-}
-
-export interface PaginatedAccountEmailThreadListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AccountEmailThreadApi[]
-}
-
-export interface AccountEmailThreadAddressApi {
-    /** Name from the email header. */
-    readonly name: string
-    /** Email address from the email header. */
-    readonly email: string
-}
-
-export interface AccountEmailThreadMessageApi {
-    /** UUID of the captured email message. */
-    readonly id: string
-    /** Timestamp from the source email. */
-    readonly sent_at: string
-    /** Sender from the email From header. */
-    readonly sender: AccountEmailThreadAddressApi
-    /** Recipients from the email To header. */
-    readonly to_recipients: readonly AccountEmailThreadAddressApi[]
-    /** Recipients from the email Cc header. */
-    readonly cc_recipients: readonly AccountEmailThreadAddressApi[]
-    /** Whether Mailgun authentication verified the sender domain. */
-    readonly sender_authenticated: boolean
-    /** Whether PostHog received or sent the message.
-     *
-     * * `inbound` - Inbound
-     * * `outbound` - Outbound */
-    readonly direction: EmailThreadMessageDirectionEnumApi
-    /** Plain-text email content. */
-    readonly content: string
-}
-
-export interface PaginatedAccountEmailThreadMessageListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AccountEmailThreadMessageApi[]
-}
-
-/**
- * One attendee of a synced calendar meeting (read-only).
- */
-export interface MeetingParticipantApi {
-    /** Email address of the attendee. */
-    readonly email: string
-    /** Display name from the calendar event; may be empty. */
-    readonly display_name: string
-    /** The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'. */
-    readonly response_status: string
-    /** Whether this attendee organized the meeting. */
-    readonly is_organizer: boolean
-    /**
-     * UUID of the PostHog person resolved for this attendee, if any.
-     * @nullable
-     */
-    readonly person_id: string | null
-}
-
-/**
- * A calendar meeting synced from a connected employee calendar (read-only).
- */
-export interface MeetingApi {
-    /** UUID of the meeting. */
-    readonly id: string
-    /** Meeting title; may be empty. */
-    readonly title: string
-    /**
-     * Gong call URL matched through the calendar event id; null when no Gong call is available.
-     * @nullable
-     */
-    readonly gong_url: string | null
-    /** When the meeting starts. */
-    readonly start_time: string
-    /**
-     * When the meeting ends.
-     * @nullable
-     */
-    readonly end_time: string | null
-    /** Email address of the meeting organizer; may be empty. */
-    readonly organizer_email: string
-    /** Meeting status: 'confirmed', 'tentative', or 'cancelled'. */
-    readonly status: string
-    /** Attendees of the meeting. */
-    readonly participants: readonly MeetingParticipantApi[]
-}
-
-export interface PaginatedMeetingListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: MeetingApi[]
-}
-
-export interface AccountPresenceViewerApi {
-    /** PostHog user ID of the teammate viewing this account. */
-    readonly user_id: number
-    /** Display name of the teammate viewing this account. */
-    readonly display_name: string
-}
-
-/**
- * Metadata for one message a channel summary covered — never the message text.
- */
-export interface ChannelSummaryMessageApi {
-    /** Display name of the message author. */
-    readonly author: string
-    /** When the message was sent. */
-    readonly sent_at: string
-    /** Slack permalink to the message. */
-    readonly permalink: string
-}
-
-/**
- * An AI summary of one closed period of the account's bound Slack channel (read-only).
- */
-export interface AccountChannelSummaryApi {
-    /** UUID of the summary. */
-    readonly id: string
-    /** Slack channel the summary covered — kept even if the account is later rebound. */
-    readonly slack_channel_id: string
-    /** Cadence the summarized period belongs to (daily, weekly, or monthly).
-     *
-     * * `daily` - daily
-     * * `weekly` - weekly
-     * * `monthly` - monthly */
-    readonly cadence: SlackSummaryCadenceEnumApi
-    /** Start of the summarized period (inclusive). */
-    readonly period_start: string
-    /** End of the summarized period (exclusive). */
-    readonly period_end: string
-    /** Markdown summary citing the original Slack messages with permalinks. */
-    readonly content: string
-    /** Number of channel messages the summary covered. */
-    readonly message_count: number
-    /** The messages the summary covered, in transcript order — metadata only, no message text. */
-    readonly messages: readonly ChannelSummaryMessageApi[]
-    /** When the summary was generated. */
-    readonly generated_at: string
-}
-
-export interface PaginatedAccountChannelSummaryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AccountChannelSummaryApi[]
-}
-
-/**
- * A support ticket linked to an account, sourced from the conversations product (read-only).
- */
-export interface SupportTicketApi {
-    /** UUID of the support ticket. */
-    readonly id: string
-    /** Human-readable ticket number. */
-    readonly ticket_number: number
-    /** Current status of the ticket (e.g. 'new', 'open'). */
-    readonly status: string
-    /**
-     * When the most recent message was sent on this ticket.
-     * @nullable
-     */
-    readonly last_message_at: string | null
-    /**
-     * Truncated preview of the most recent message.
-     * @nullable
-     */
-    readonly last_message_text: string | null
-    /** Sender, timestamp, and direction of the latest public message, when available. */
-    readonly last_message: ConversationMessageSummaryApi | null
-    /** Absolute URL to open this ticket in the app. */
-    readonly deep_link: string
-    /** When the ticket conversation started. */
-    readonly created_at: string
-    /** Display name of the customer who started the ticket. */
-    readonly started_by: string
-    /** Distinct ID of the customer who started the ticket. */
-    readonly distinct_id: string
-}
-
-export interface AccountSupportTicketMessageApi {
-    /** UUID of the support ticket message. */
-    readonly id: string
-    /** Plain-text message content. */
-    readonly content: string
-    /** Display name of the message author. */
-    readonly author_name: string
-    /** Whether PostHog received or sent the message.
-     *
-     * * `inbound` - Inbound
-     * * `outbound` - Outbound */
-    readonly direction: EmailThreadMessageDirectionEnumApi
-    /** Whether the message is an internal note hidden from the customer. */
-    readonly is_private: boolean
-    /** When the message was created. */
-    readonly created_at: string
-}
-
-export interface PaginatedAccountSupportTicketMessageListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AccountSupportTicketMessageApi[]
-}
-
-export interface AccountPresenceListRequestApi {
-    /**
-     * Up to 100 account IDs to read presence for.
-     * @maxItems 100
-     */
-    account_ids: string[]
-}
-
-export interface AccountPresenceApi {
-    /** Customer analytics account ID. */
-    readonly account_id: string
-    /** People viewing this account. */
-    readonly viewers: readonly AccountPresenceViewerApi[]
-}
-
-export type AccountsTableQueryRequestApiVariablesOverride = { [key: string]: { [key: string]: unknown } } | null
-
-export type AccountsTableAccountFieldApi =
-    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
-
-export const AccountsTableAccountFieldApi = {
-    Name: 'name',
-    ExternalId: 'external_id',
-    CreatedAt: 'created_at',
-    UpdatedAt: 'updated_at',
-    ChurnedAt: 'churned_at',
-    IgnoredAt: 'ignored_at',
-    StripeCustomerId: 'stripe_customer_id',
-    HubspotDealId: 'hubspot_deal_id',
-    BillingId: 'billing_id',
-    SfdcId: 'sfdc_id',
-    ZendeskId: 'zendesk_id',
-} as const
-
-export interface AccountsTableAccountFieldColumnApi {
-    field: AccountsTableAccountFieldApi
-    kind?: 'account_field'
-}
-
-export const AccountsTableTagsColumnApiValue = {
-    kind: 'tags',
-} as const
-export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
-
-export const AccountsTableNoteCountColumnApiValue = {
-    kind: 'note_count',
-} as const
-export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
-
-export interface AccountsTableRelationshipColumnApi {
-    /** Team-scoped relationship definition to return for each account. */
-    definitionId: string
-    kind?: 'relationship'
-}
-
-export interface AccountsTableCustomPropertyColumnApi {
-    /** Team-scoped custom property definition to return for each account. */
-    definitionId: string
-    kind?: 'custom_property'
-}
-
-export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
-
-export const WindowDaysApi = {
-    Number7: 7,
-    Number14: 14,
-    Number30: 30,
-    Number90: 90,
-} as const
-
-export interface AccountsTableCustomPropertyHistoryColumnApi {
-    /** Team-scoped numeric custom property definition whose write history should be returned. */
-    definitionId: string
-    kind?: 'custom_property_history'
-    /** Number of days of history to return. The current value is included even when it is older. */
-    windowDays: WindowDaysApi
-}
-
-export interface AccountsTableSearchFilterApi {
-    kind?: 'search'
-    query: string
-}
-
-export interface AccountsTableTagsFilterApi {
-    kind?: 'tags'
-    /** Match accounts carrying any of these tag names. */
-    tagNames: string[]
-}
-
-export interface AccountsTableAssignedToFilterApi {
-    kind?: 'assigned_to'
-    /** Match accounts where any listed user actively holds any relationship. */
-    userIds: number[]
-}
-
-export const AccountsTableAssignedFilterApiValue = {
-    kind: 'assigned',
-} as const
-export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
-
-export const AccountsTableUnassignedFilterApiValue = {
-    kind: 'unassigned',
-} as const
-export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
-
-export type AccountsTableRelationshipOperatorApi =
-    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
-
-export const AccountsTableRelationshipOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-} as const
-
-export interface AccountsTableRelationshipFilterApi {
-    definitionId: string
-    kind?: 'relationship'
-    operator: AccountsTableRelationshipOperatorApi
-    userIds?: number[] | null
-}
-
-export interface AccountsTableAccountIdFilterApi {
-    accountId: string
-    kind?: 'account_id'
-}
-
-export type AccountsTableAccountFieldOperatorApi =
-    (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
-
-export const AccountsTableAccountFieldOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    IsDateExact: 'is_date_exact',
-    IsDateBefore: 'is_date_before',
-    IsDateAfter: 'is_date_after',
-} as const
-
-export interface AccountsTableAccountFieldFilterApi {
-    field: AccountsTableAccountFieldApi
-    kind?: 'account_field'
-    operator: AccountsTableAccountFieldOperatorApi
-    values?: string[] | null
-}
-
-export type AccountsTableCustomPropertyOperatorApi =
-    (typeof AccountsTableCustomPropertyOperatorApi)[keyof typeof AccountsTableCustomPropertyOperatorApi]
-
-export const AccountsTableCustomPropertyOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-    Gt: 'gt',
-    Gte: 'gte',
-    Lt: 'lt',
-    Lte: 'lte',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    IsDateExact: 'is_date_exact',
-    IsDateBefore: 'is_date_before',
-    IsDateAfter: 'is_date_after',
-} as const
-
-export interface AccountsTableCustomPropertyFilterApi {
-    definitionId: string
-    kind?: 'custom_property'
-    operator: AccountsTableCustomPropertyOperatorApi
-    /** Values interpreted according to the custom property definition's display type. */
-    values?: (string | number | boolean)[] | null
-}
-
-export const AccountsTableCountMetricApiValue = {
-    kind: 'count',
-} as const
-export type AccountsTableCountMetricApi = typeof AccountsTableCountMetricApiValue
-
-export type AccountsTableAggregationApi = (typeof AccountsTableAggregationApi)[keyof typeof AccountsTableAggregationApi]
-
-export const AccountsTableAggregationApi = {
-    Sum: 'sum',
-    Avg: 'avg',
-    Min: 'min',
-    Max: 'max',
-    Median: 'median',
-} as const
-
-export interface AccountsTableAggregateMetricApi {
-    aggregation: AccountsTableAggregationApi
-    column: AccountsTableCustomPropertyColumnApi
-    kind?: 'aggregate'
-    scale?: number | null
-}
-
-export type AccountsTableThresholdOperatorApi =
-    (typeof AccountsTableThresholdOperatorApi)[keyof typeof AccountsTableThresholdOperatorApi]
-
-export const AccountsTableThresholdOperatorApi = {
-    Gt: 'gt',
-    Gte: 'gte',
-    Lt: 'lt',
-    Lte: 'lte',
-    Exact: 'exact',
-    IsNot: 'is_not',
-} as const
-
-export interface AccountsTableCountThresholdMetricApi {
-    column: AccountsTableCustomPropertyColumnApi
-    kind?: 'count_threshold'
-    operator: AccountsTableThresholdOperatorApi
-    value: number
-}
-
-export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
-
-export const BounceRatePageViewModeApi = {
-    CountPageviews: 'count_pageviews',
-    UniqUrls: 'uniq_urls',
-    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
-} as const
-
-export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
-
-export const FilterLogicalOperatorApi = {
-    And: 'AND',
-    Or: 'OR',
-} as const
-
-export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
-
-export const CustomBotFieldApi = {
-    RawUserAgent: '$raw_user_agent',
-    Ip: '$ip',
-    Lib: '$lib',
-    Host: '$host',
-    Pathname: '$pathname',
-    CurrentUrl: '$current_url',
-    Browser: '$browser',
-    Os: '$os',
-    BrowserLanguage: '$browser_language',
-    ScreenWidth: '$screen_width',
-    ScreenHeight: '$screen_height',
-    GeoipCountryCode: '$geoip_country_code',
-    Referrer: '$referrer',
-    ReferringDomain: '$referring_domain',
-} as const
-
-export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
-
-export const CustomBotMatcherApi = {
-    Contains: 'contains',
-    Regex: 'regex',
-    Exact: 'exact',
-    Cidr: 'cidr',
-} as const
-
-export interface CustomBotConditionApi {
+export interface AccountPersonApi {
+    /** Current person ID. */
     id: string
-    /** The event property this condition reads. */
-    key: CustomBotFieldApi
-    matcher: CustomBotMatcherApi
-    /** Matched against the property named by `key`. */
-    pattern: string
+    /** Display name from visible person properties, or the person ID. */
+    display_name: string
+    /** Current membership distinct IDs for person navigation, up to 101. */
+    distinct_ids: string[]
+    /** Selected visible person properties. */
+    properties: AccountPersonApiProperties
+    /** Earliest account activity across current distinct IDs, in UTC. */
+    account_first_seen: string
+    /** Latest account activity across current distinct IDs, in UTC. */
+    account_last_seen: string
 }
 
-export interface CustomBotRuleApi {
-    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
-    category?: string | null
-    /** Whether every condition must match (AND) or any one of them (OR). */
-    combiner: FilterLogicalOperatorApi
-    id: string
-    items: CustomBotConditionApi[]
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-    name: string
-}
-
-export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
-
-export const CustomChannelFieldApi = {
-    UtmSource: 'utm_source',
-    UtmMedium: 'utm_medium',
-    UtmCampaign: 'utm_campaign',
-    ReferringDomain: 'referring_domain',
-    Url: 'url',
-    Pathname: 'pathname',
-    Hostname: 'hostname',
-} as const
-
-export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
-
-export const CustomChannelOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-} as const
-
-export interface CustomChannelConditionApi {
-    id: string
-    key: CustomChannelFieldApi
-    op: CustomChannelOperatorApi
-    value?: string | string[] | null
-}
-
-export interface CustomChannelRuleApi {
-    channel_type: string
-    combiner: FilterLogicalOperatorApi
-    id: string
-    items: CustomChannelConditionApi[]
-}
-
-export interface DataWarehouseEventsModifierApi {
-    distinct_id_field: string
-    id_field: string
-    table_name: string
-    timestamp_field: string
-}
-
-export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
-
-export const InCohortViaApi = {
-    Auto: 'auto',
-    Leftjoin: 'leftjoin',
-    Subquery: 'subquery',
-    LeftjoinConjoined: 'leftjoin_conjoined',
-} as const
-
-export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
-
-export const InlineCohortCalculationApi = {
-    Off: 'off',
-    Auto: 'auto',
-    Always: 'always',
-} as const
-
-export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
-
-export const MaterializationModeApi = {
-    Auto: 'auto',
-    LegacyNullAsString: 'legacy_null_as_string',
-    LegacyNullAsNull: 'legacy_null_as_null',
-    Disabled: 'disabled',
-} as const
-
-export type MaterializedColumnsOptimizationModeApi =
-    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
-
-export const MaterializedColumnsOptimizationModeApi = {
-    Disabled: 'disabled',
-    Optimized: 'optimized',
-} as const
-
-export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
-
-export const ParserModeApi = {
-    CppOnly: 'cpp_only',
-    CppWithRustShadow: 'cpp_with_rust_shadow',
-    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
-    RustWithCppShadow: 'rust_with_cpp_shadow',
-    RustOnly: 'rust_only',
-    RustPyOnly: 'rust_py_only',
-    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
-} as const
-
-export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
-
-export const PersonsArgMaxVersionApi = {
-    Auto: 'auto',
-    V1: 'v1',
-    V2: 'v2',
-} as const
-
-export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
-
-export const PersonsJoinModeApi = {
-    Inner: 'inner',
-    Left: 'left',
-} as const
-
-export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
-
-export const PersonsOnEventsModeApi = {
-    Disabled: 'disabled',
-    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
-    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
-    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
-} as const
-
-export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
-
-export const PropertyGroupsModeApi = {
-    Enabled: 'enabled',
-    Disabled: 'disabled',
-    Optimized: 'optimized',
-} as const
-
-export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
-
-export const SessionTableVersionApi = {
-    Auto: 'auto',
-    V1: 'v1',
-    V2: 'v2',
-    V3: 'v3',
-} as const
-
-export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
-
-export const SessionsV2JoinModeApi = {
-    String: 'string',
-    Uuid: 'uuid',
-} as const
-
-export interface HogQLQueryModifiersApi {
-    bounceRateDurationSeconds?: number | null
-    bounceRatePageViewMode?: BounceRatePageViewModeApi | null
-    convertToProjectTimezone?: boolean | null
-    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
-    cookielessTrafficIsRegular?: boolean | null
-    customBotDefinitions?: CustomBotRuleApi[] | null
-    customChannelTypeRules?: CustomChannelRuleApi[] | null
-    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
-    debug?: boolean | null
-    /** If these are provided, the query will fail if these skip indexes are not used */
-    forceClickhouseDataSkippingIndexes?: string[] | null
-    formatCsvAllowDoubleQuotes?: boolean | null
-    inCohortVia?: InCohortViaApi | null
-    inlineCohortCalculation?: InlineCohortCalculationApi | null
-    materializationMode?: MaterializationModeApi | null
-    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
-    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
-    mergeFederatedAggregateJoins?: boolean | null
-    optimizeJoinedFilters?: boolean | null
-    optimizeProjections?: boolean | null
-    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
-    parserMode?: ParserModeApi | null
-    personsArgMaxVersion?: PersonsArgMaxVersionApi | null
-    personsJoinMode?: PersonsJoinModeApi | null
-    personsOnEventsMode?: PersonsOnEventsModeApi | null
-    propertyGroupsMode?: PropertyGroupsModeApi | null
-    pushDownPredicates?: boolean | null
-    s3TableUseInvalidColumns?: boolean | null
-    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
-    sessionIdPushdown?: boolean | null
-    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
-    sessionPropertyPreAggregation?: boolean | null
-    sessionTableVersion?: SessionTableVersionApi | null
-    sessionsV2JoinMode?: SessionsV2JoinModeApi | null
-    timings?: boolean | null
-    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
-    typeAwareCastSimplification?: boolean | null
-    useMaterializedViews?: boolean | null
-    usePreaggregatedIntermediateResults?: boolean | null
-    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
-    usePreaggregatedTableTransforms?: boolean | null
-    useWebAnalyticsPreAggregatedTables?: boolean | null
-    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
-    webAnalyticsFirstPageviewFilters?: boolean | null
-}
-
-export interface ClickhouseQueryProgressApi {
-    active_cpu_time: number
-    bytes_read: number
-    estimated_rows_total: number
-    rows_read: number
-    time_elapsed: number
-}
-
-export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
-
-export const QueryScanFixLocationApi = {
-    Query: 'query',
-    Subquery: 'subquery',
-    View: 'view',
-    InsightDateRange: 'insight_date_range',
-    DashboardDateFilter: 'dashboard_date_filter',
-} as const
-
-export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
-
-export const QueryScanFindingKindApi = {
-    NoEventFilter: 'no_event_filter',
-    NoStartDate: 'no_start_date',
-    PersonsJoin: 'persons_join',
-} as const
-
-export interface QueryScanWarningApi {
-    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
-    actionable: boolean
-    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
-    by_design?: boolean | null
-    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
-    cause?: string | null
-    /** The one fact the finding rests on. */
-    evidence?: string | null
-    /** What "Fix with AI" and the assistant are told to do. */
-    fix: string
-    /** Where the change goes. Absent means the query itself. */
-    fix_location?: QueryScanFixLocationApi | null
-    kind: QueryScanFindingKindApi
-    /** Shown to the person: what happened and what to do. */
-    message: string
-}
-
-export interface QueryScanAnalysisApi {
-    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
-    assistant_prompt?: string | null
-    /** Every finding, fixable or not. Empty when the analysis found none. */
-    findings: QueryScanWarningApi[]
-    /** How much of all the project's events the query read, 0 to 1. */
-    project_share?: number | null
-    /** How much of the project's events in the query's date range the query read, 0 to 1. */
-    range_share?: number | null
-}
-
-export interface QueryScanSummaryApi {
-    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
-    analysis?: QueryScanAnalysisApi | null
-    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
-    analysis_requested?: boolean | null
-    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
-    duration_ms: number
-    /** True when ClickHouse stopped the run instead of finishing it. */
-    killed?: boolean | null
-    /** Rows ClickHouse read for the last fresh run, all tables included. */
-    rows_read: number
-}
-
-export interface QueryStatusApi {
-    budget_remaining_bytes?: number | null
-    bytes_read?: number | null
-    /** Cache key of the run that failed, so clients can ask for its query scan. */
-    cache_key?: string | null
-    /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
-    complete?: boolean | null
-    dashboard_id?: number | null
-    /** When did the query execution task finish (whether successfully or not). */
-    end_time?: string | null
-    /** If the query failed, this will be set to true. More information can be found in the error_message field. */
-    error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
-    error_code?: string | null
-    error_message?: string | null
-    expiration_time?: string | null
-    id: string
-    insight_id?: number | null
-    labels?: string[] | null
-    /** When was the query execution task picked up by a worker. */
-    pickup_time?: string | null
-    /** ONLY async queries use QueryStatus. */
-    query_async?: true
-    query_progress?: ClickhouseQueryProgressApi | null
-    query_scan?: QueryScanSummaryApi | null
-    results?: unknown
-    /** When was query execution task enqueued. */
-    start_time?: string | null
-    task_id?: string | null
-    team_id: number
-}
-
-export interface ResolvedDateRangeResponseApi {
-    date_from: string
-    date_to: string
-}
-
-export interface AccountsTableCustomPropertyHistoryPointApi {
-    timestamp: string
-    value: number
-}
-
-/**
- * Requested direct Account fields, keyed by their typed field reference.
- */
-export type AccountsTableRowApiAccountFields = { [key: string]: string | null }
-
-/**
- * Current values keyed by requested custom property definition ID.
- */
-export type AccountsTableRowApiCustomProperties = { [key: string]: string | number | boolean | null }
-
-/**
- * Numeric write history keyed by requested custom property definition ID.
- */
-export type AccountsTableRowApiCustomPropertyHistory = { [key: string]: AccountsTableCustomPropertyHistoryPointApi[] }
-
-/**
- * Active assignee user IDs keyed by requested relationship definition ID.
- */
-export type AccountsTableRowApiRelationships = { [key: string]: number[] }
-
-export interface AccountsTableRowApi {
-    /** Requested direct Account fields, keyed by their typed field reference. */
-    accountFields: AccountsTableRowApiAccountFields
-    /** Current values keyed by requested custom property definition ID. */
-    customProperties: AccountsTableRowApiCustomProperties
-    /** Numeric write history keyed by requested custom property definition ID. */
-    customPropertyHistory: AccountsTableRowApiCustomPropertyHistory
-    externalId?: string | null
-    id: string
-    /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
-    logoDomain?: string | null
-    name: string
-    /** Number of linked internal notes. Omitted when the request does not select the note count. */
-    noteCount?: number | null
-    /** Active assignee user IDs keyed by requested relationship definition ID. */
-    relationships: AccountsTableRowApiRelationships
-    /** Sorted tag names. Omitted when the request does not select tags. */
-    tags?: string[] | null
-}
-
-export interface QueryTimingApi {
-    /** Key. Shortened to 'k' to save on data. */
-    k: string
-    /** Time in seconds. Shortened to 't' to save on data. */
-    t: number
-}
-
-export interface DataWarehouseSourceUsageApi {
-    /** ExternalDataSource id */
-    id: string
-    /** Connector type of the source (e.g. Stripe, Postgres), if known */
-    source_type?: string | null
-    /** Warehouse table name that was referenced */
-    table_name: string
-}
-
-export interface DataWarehouseSyncWarningApi {
-    /** Human-readable warning shown to the user */
-    message: string
-    /** Name of the ExternalDataSchema responsible for syncing the table */
-    schema_name: string
-    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
-    source_id?: string | null
-    /** Source type, e.g. "Stripe", "Hubspot" */
-    source_type: string
-    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
-    status: string
-    /** Name of the warehouse table the warning refers to */
-    table_name: string
-    /** Tells warning kinds apart in the shared `warnings` list */
-    type?: 'warehouse_sync'
-}
-
-export interface AccessControlFilterWarningApi {
-    /** Human-readable warning shown to the user */
-    message: string
-    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
-    resources: string[]
-    /** Tells warning kinds apart in the shared `warnings` list */
-    type?: 'access_control'
-}
-
-export interface AccountsTableQueryResponseApi {
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    hasMore: boolean
-    /** Generated HogQL query. */
-    hogql?: string | null
-    kind?: 'AccountsTableQuery'
+export interface AccountPersonsPageApi {
+    /** Matching current persons for this account. */
+    results: AccountPersonApi[]
+    /** Selected visible property keys, in request order. */
+    columns: string[]
+    /** Maximum persons per page. */
     limit: number
-    /** Aggregated values in the same order as the requested metrics. */
-    metricsResults?: (number | null)[] | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
+    /** Number of matching persons skipped. */
     offset: number
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: AccountsTableRowApi[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Connector-synced data warehouse sources referenced by this query, if any. */
-    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    /** Whether another page exists. */
+    has_more: boolean
+    /**
+     * Offset of the next page, or null.
+     * @nullable
+     */
+    next_offset: number | null
 }
 
-export type AccountsTableSortDirectionApi =
-    (typeof AccountsTableSortDirectionApi)[keyof typeof AccountsTableSortDirectionApi]
+/**
+ * Read cached results or calculate synchronously.
+ */
+export type AccountPersonsQueryRequestApiRefresh =
+    | (typeof AccountPersonsQueryRequestApiRefresh)[keyof typeof AccountPersonsQueryRequestApiRefresh]
+    | null
 
-export const AccountsTableSortDirectionApi = {
-    Asc: 'asc',
-    Desc: 'desc',
+export const AccountPersonsQueryRequestApiRefresh = {
+    Blocking: 'blocking',
+    ForceBlocking: 'force_blocking',
 } as const
 
-export interface AccountsTableSortApi {
-    /** A typed column that supports server-side sorting. */
-    column:
-        | AccountsTableAccountFieldColumnApi
-        | AccountsTableTagsColumnApi
-        | AccountsTableNoteCountColumnApi
-        | AccountsTableRelationshipColumnApi
-        | AccountsTableCustomPropertyColumnApi
-    direction: AccountsTableSortDirectionApi
-}
-
-export interface QueryLogTagsApi {
-    /** Name of the query, preferably unique. For example web_analytics_vitals */
-    name?: string | null
-    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
-    presetId?: string | null
-    /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
-    productKey?: string | null
-    /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
-    scene?: string | null
-}
-
-export interface AccountsTableQueryApi {
-    /** Columns to load for each account. Account identity fields are always returned. */
-    columns: (
-        | AccountsTableAccountFieldColumnApi
-        | AccountsTableTagsColumnApi
-        | AccountsTableNoteCountColumnApi
-        | AccountsTableRelationshipColumnApi
-        | AccountsTableCustomPropertyColumnApi
-        | AccountsTableCustomPropertyHistoryColumnApi
-    )[]
-    /** Filters are combined with AND. Values within tag and assignment filters use OR. */
-    filters?:
-        | (
-              | AccountsTableSearchFilterApi
-              | AccountsTableTagsFilterApi
-              | AccountsTableAssignedToFilterApi
-              | AccountsTableAssignedFilterApi
-              | AccountsTableUnassignedFilterApi
-              | AccountsTableRelationshipFilterApi
-              | AccountsTableAccountIdFilterApi
-              | AccountsTableAccountFieldFilterApi
-              | AccountsTableCustomPropertyFilterApi
-          )[]
-        | null
-    /** Include churned accounts. Churned accounts are hidden by default. */
-    includeChurned?: boolean | null
-    /** Include ignored accounts. Ignored accounts are hidden by default. */
-    includeIgnored?: boolean | null
-    kind?: 'AccountsTableQuery'
-    limit?: number | null
-    /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
-    metrics?:
-        | (AccountsTableCountMetricApi | AccountsTableAggregateMetricApi | AccountsTableCountThresholdMetricApi)[]
-        | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    offset?: number | null
-    response?: AccountsTableQueryResponseApi | null
-    sort?: AccountsTableSortApi | null
-    tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
+export type AccountPersonsQueryRequestApiVariablesOverride = { [key: string]: { [key: string]: unknown } } | null
 
 export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
 
@@ -1909,6 +1002,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -1923,6 +1017,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -1952,6 +1047,13 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
 export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
 
 export const IntervalTypeApi = {
@@ -1964,6 +1066,65 @@ export const IntervalTypeApi = {
     Quarter: 'quarter',
     Year: 'year',
 } as const
+
+export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
+
+export const MetricsFilterOpApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export type MetricsAttributeScopeApi = (typeof MetricsAttributeScopeApi)[keyof typeof MetricsAttributeScopeApi]
+
+export const MetricsAttributeScopeApi = {
+    Resource: 'resource',
+    Attribute: 'attribute',
+    Auto: 'auto',
+} as const
+
+export interface MetricsQueryFilterApi {
+    key: string
+    op: MetricsFilterOpApi
+    scope?: MetricsAttributeScopeApi | null
+    value: string
+}
+
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+export type MetricsDashboardVariableSourceApi =
+    (typeof MetricsDashboardVariableSourceApi)[keyof typeof MetricsDashboardVariableSourceApi]
+
+export const MetricsDashboardVariableSourceApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface MetricsDashboardVariableApi {
+    /** The text that All puts in a PromQL query. `.*` when it is empty. */
+    allValue?: string | null
+    current?: MetricsDashboardVariableSelectionApi | null
+    /** The options when `source` is `custom`. */
+    customValues?: string[] | null
+    includeAll?: boolean | null
+    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+    label?: string | null
+    multi?: boolean | null
+    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+    name: string
+    /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+    query?: string | null
+    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+    regex?: string | null
+    source: MetricsDashboardVariableSourceApi
+}
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
@@ -1994,6 +1155,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -2069,6 +1231,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -2292,6 +1458,8 @@ export interface BehavioralPropertyFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -2299,6 +1467,9 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
+    metricFilters?: MetricsQueryFilterApi[] | null
+    /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+    metricVariables?: MetricsDashboardVariableApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -2334,6 +1505,1387 @@ export type LimitContextApi = (typeof LimitContextApi)[keyof typeof LimitContext
 export const LimitContextApi = {
     PosthogAi: 'posthog_ai',
 } as const
+
+export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
+
+export const BounceRatePageViewModeApi = {
+    CountPageviews: 'count_pageviews',
+    UniqUrls: 'uniq_urls',
+    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
+} as const
+
+export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
+
+export const FilterLogicalOperatorApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+    Browser: '$browser',
+    Os: '$os',
+    BrowserLanguage: '$browser_language',
+    ScreenWidth: '$screen_width',
+    ScreenHeight: '$screen_height',
+    GeoipCountryCode: '$geoip_country_code',
+    Referrer: '$referrer',
+    ReferringDomain: '$referring_domain',
+} as const
+
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Exact: 'exact',
+    Cidr: 'cidr',
+} as const
+
+export interface CustomBotConditionApi {
+    id: string
+    /** The event property this condition reads. */
+    key: CustomBotFieldApi
+    matcher: CustomBotMatcherApi
+    /** Matched against the property named by `key`. */
+    pattern: string
+}
+
+export interface CustomBotRuleApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomBotConditionApi[]
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+}
+
+export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
+
+export const CustomChannelFieldApi = {
+    UtmSource: 'utm_source',
+    UtmMedium: 'utm_medium',
+    UtmCampaign: 'utm_campaign',
+    ReferringDomain: 'referring_domain',
+    Url: 'url',
+    Pathname: 'pathname',
+    Hostname: 'hostname',
+} as const
+
+export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
+
+export const CustomChannelOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export interface CustomChannelConditionApi {
+    id: string
+    key: CustomChannelFieldApi
+    op: CustomChannelOperatorApi
+    value?: string | string[] | null
+}
+
+export interface CustomChannelRuleApi {
+    channel_type: string
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomChannelConditionApi[]
+}
+
+export interface DataWarehouseEventsModifierApi {
+    distinct_id_field: string
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
+export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
+
+export const InCohortViaApi = {
+    Auto: 'auto',
+    Leftjoin: 'leftjoin',
+    Subquery: 'subquery',
+    LeftjoinConjoined: 'leftjoin_conjoined',
+} as const
+
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
+export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
+
+export const MaterializationModeApi = {
+    Auto: 'auto',
+    LegacyNullAsString: 'legacy_null_as_string',
+    LegacyNullAsNull: 'legacy_null_as_null',
+    Disabled: 'disabled',
+} as const
+
+export type MaterializedColumnsOptimizationModeApi =
+    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
+
+export const MaterializedColumnsOptimizationModeApi = {
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
+
+export const ParserModeApi = {
+    CppOnly: 'cpp_only',
+    CppWithRustShadow: 'cpp_with_rust_shadow',
+    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
+    RustWithCppShadow: 'rust_with_cpp_shadow',
+    RustOnly: 'rust_only',
+    RustPyOnly: 'rust_py_only',
+    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
+} as const
+
+export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
+
+export const PersonsArgMaxVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+} as const
+
+export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
+
+export const PersonsJoinModeApi = {
+    Inner: 'inner',
+    Left: 'left',
+} as const
+
+export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
+
+export const PersonsOnEventsModeApi = {
+    Disabled: 'disabled',
+    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
+    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
+    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
+} as const
+
+export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
+
+export const PropertyGroupsModeApi = {
+    Enabled: 'enabled',
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
+
+export const SessionTableVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+    V3: 'v3',
+} as const
+
+export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
+
+export const SessionsV2JoinModeApi = {
+    String: 'string',
+    Uuid: 'uuid',
+} as const
+
+export interface HogQLQueryModifiersApi {
+    bounceRateDurationSeconds?: number | null
+    bounceRatePageViewMode?: BounceRatePageViewModeApi | null
+    convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
+    customBotDefinitions?: CustomBotRuleApi[] | null
+    customChannelTypeRules?: CustomChannelRuleApi[] | null
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
+    debug?: boolean | null
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[] | null
+    formatCsvAllowDoubleQuotes?: boolean | null
+    inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
+    materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
+    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
+    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+    mergeFederatedAggregateJoins?: boolean | null
+    /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+    negatedPersonFiltersNotIn?: boolean | null
+    optimizeJoinedFilters?: boolean | null
+    optimizeProjections?: boolean | null
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
+    personsArgMaxVersion?: PersonsArgMaxVersionApi | null
+    personsJoinMode?: PersonsJoinModeApi | null
+    personsOnEventsMode?: PersonsOnEventsModeApi | null
+    propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
+    s3TableUseInvalidColumns?: boolean | null
+    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
+    sessionIdPushdown?: boolean | null
+    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
+    sessionPropertyPreAggregation?: boolean | null
+    sessionTableVersion?: SessionTableVersionApi | null
+    /** Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range. */
+    sessionTimestampBufferMinutes?: number | null
+    sessionsV2JoinMode?: SessionsV2JoinModeApi | null
+    timings?: boolean | null
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean | null
+    useMaterializedViews?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
+    usePreaggregatedIntermediateResults?: boolean | null
+    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
+    usePreaggregatedTableTransforms?: boolean | null
+    useWebAnalyticsPreAggregatedTables?: boolean | null
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean | null
+}
+
+export interface PropertyGroupFilterValueApi {
+    type: FilterLogicalOperatorApi
+    values: (
+        | PropertyGroupFilterValueApi
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
+        | ElementPropertyFilterApi
+        | EventMetadataPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+        | RecordingPropertyFilterApi
+        | LogEntryPropertyFilterApi
+        | GroupPropertyFilterApi
+        | FeaturePropertyFilterApi
+        | FlagPropertyFilterApi
+        | HogQLPropertyFilterApi
+        | EmptyPropertyFilterApi
+        | DataWarehousePropertyFilterApi
+        | DataWarehousePersonPropertyFilterApi
+        | ErrorTrackingIssueFilterApi
+        | LogPropertyFilterApi
+        | MetricPropertyFilterApi
+        | SpanPropertyFilterApi
+        | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
+        | WorkflowVariablePropertyFilterApi
+        | BehavioralPropertyFilterApi
+    )[]
+}
+
+export interface ClickhouseQueryProgressApi {
+    active_cpu_time: number
+    bytes_read: number
+    estimated_rows_total: number
+    rows_read: number
+    time_elapsed: number
+}
+
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
+export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
+
+export const QueryScanFindingKindApi = {
+    NoEventFilter: 'no_event_filter',
+    NoStartDate: 'no_start_date',
+    PersonsJoin: 'persons_join',
+} as const
+
+export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string | null
+    /** The one fact the finding rests on. */
+    evidence?: string | null
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
+    kind: QueryScanFindingKindApi
+    /** Shown to the person: what happened and what to do. */
+    message: string
+}
+
+export interface QueryScanAnalysisApi {
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    assistant_prompt?: string | null
+    /** Every finding, fixable or not. Empty when the analysis found none. */
+    findings: QueryScanWarningApi[]
+    /** How much of all the project's events the query read, 0 to 1. */
+    project_share?: number | null
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
+    range_share?: number | null
+}
+
+export interface QueryScanSummaryApi {
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysisApi | null
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean | null
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean | null
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: number
+}
+
+export interface QueryStatusApi {
+    budget_remaining_bytes?: number | null
+    bytes_read?: number | null
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string | null
+    /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
+    complete?: boolean | null
+    dashboard_id?: number | null
+    /** When did the query execution task finish (whether successfully or not). */
+    end_time?: string | null
+    /** If the query failed, this will be set to true. More information can be found in the error_message field. */
+    error?: boolean | null
+    /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
+    error_code?: string | null
+    error_message?: string | null
+    expiration_time?: string | null
+    id: string
+    insight_id?: number | null
+    labels?: string[] | null
+    /** When was the query execution task picked up by a worker. */
+    pickup_time?: string | null
+    /** ONLY async queries use QueryStatus. */
+    query_async?: true
+    query_progress?: ClickhouseQueryProgressApi | null
+    query_scan?: QueryScanSummaryApi | null
+    results?: unknown
+    /** When was query execution task enqueued. */
+    start_time?: string | null
+    task_id?: string | null
+    team_id: number
+}
+
+export interface ResolvedDateRangeResponseApi {
+    date_from: string
+    date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
+}
+
+export interface QueryTimingApi {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
+
+export interface DataWarehouseSourceUsageApi {
+    /** ExternalDataSource id */
+    id: string
+    /** Connector type of the source (e.g. Stripe, Postgres), if known */
+    source_type?: string | null
+    /** Warehouse table name that was referenced */
+    table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean | null
+}
+
+export interface DataWarehouseSyncWarningApi {
+    /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+    data_is_current?: boolean | null
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'warehouse_sync'
+}
+
+export interface AccessControlFilterWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'access_control'
+}
+
+export interface BreakdownNotAppliedWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'breakdown_not_applied'
+}
+
+export interface ActorsQueryResponseApi {
+    columns: unknown[]
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    limit: number
+    missing_actors_count?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[][]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: string[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | BreakdownNotAppliedWarningApi)[] | null
+}
+
+export interface QueryLogTagsApi {
+    /** Name of the query, preferably unique. For example web_analytics_vitals */
+    name?: string | null
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string | null
+    /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
+    productKey?: string | null
+    /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
+    scene?: string | null
+}
+
+export interface AccountUsersQueryApi {
+    /** ID of the account whose users to list. */
+    accountId: string
+    kind?: 'AccountUsersQuery'
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    response?: ActorsQueryResponseApi | null
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface AccountPersonsActorsQueryApi {
+    /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+    filterTestAccounts?: boolean | null
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    fixedProperties?:
+        | (
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | CohortPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+          )[]
+        | null
+    kind?: 'ActorsQuery'
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    orderBy?: string[] | null
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    properties?:
+        | (
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | CohortPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+          )[]
+        | PropertyGroupFilterValueApi
+        | null
+    response?: ActorsQueryResponseApi | null
+    search?: string | null
+    select?: string[] | null
+    /** Account membership source for the table. */
+    source: AccountUsersQueryApi
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface AccountPersonsQueryRequestApi {
+    async?: false | null
+    /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
+    client_query_id?: string | null
+    filters_override?: DashboardFilterApi | null
+    /** Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value. */
+    limit_context?: LimitContextApi | null
+    /** Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name. */
+    name?: string | null
+    /** Account-user table query to run. */
+    query: AccountPersonsActorsQueryApi
+    /** Read cached results or calculate synchronously. */
+    refresh?: AccountPersonsQueryRequestApiRefresh
+    variables_override?: AccountPersonsQueryRequestApiVariablesOverride
+}
+
+/**
+ * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+ * @nullable
+ */
+export type PatchedAccountApiProperties = {
+    /**
+     * Primary company website hostname used for account identity and logo lookup.
+     * @nullable
+     */
+    website_domain?: string | null
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
+    /** Individual email addresses pinned to this account, matched before the domain fallback. */
+    known_emails?: string[]
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
+    /** @nullable */
+    slack_channel_id?: string | null
+    /** @nullable */
+    usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
+} | null | null
+
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
+export interface PatchedAccountApi {
+    readonly id?: string
+    /**
+     * Human-readable name of the account.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
+     * @maxLength 400
+     * @nullable
+     */
+    external_id?: string | null
+    /**
+     * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * @nullable
+     */
+    properties?: PatchedAccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
+    /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
+    readonly notebooks?: readonly string[]
+    /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
+    /**
+     * When the account churned. Null means the account has not churned.
+     * @nullable
+     */
+    churned_at?: string | null
+    /**
+     * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
+     * @nullable
+     */
+    ignored_at?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface ConversationMessageSenderApi {
+    /** Display name of the message sender. */
+    readonly name: string
+    /**
+     * Email address of the message sender, when available.
+     * @nullable
+     */
+    readonly email: string | null
+    /**
+     * UUID of the matched PostHog person, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
+    /**
+     * Distinct ID of the sender, when available.
+     * @nullable
+     */
+    readonly distinct_id: string | null
+}
+
+/**
+ * * `inbound` - Inbound
+ * * `outbound` - Outbound
+ */
+export type EmailThreadMessageDirectionEnumApi =
+    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
+
+export const EmailThreadMessageDirectionEnumApi = {
+    Inbound: 'inbound',
+    Outbound: 'outbound',
+} as const
+
+export interface ConversationMessageSummaryApi {
+    /** Sender of the message. */
+    readonly sender: ConversationMessageSenderApi
+    /** Timestamp from the message source. */
+    readonly sent_at: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+}
+
+/**
+ * * `internal` - Internal
+ * * `customer` - Customer
+ */
+export type EmailThreadParticipantKindEnumApi =
+    (typeof EmailThreadParticipantKindEnumApi)[keyof typeof EmailThreadParticipantKindEnumApi]
+
+export const EmailThreadParticipantKindEnumApi = {
+    Internal: 'internal',
+    Customer: 'customer',
+} as const
+
+export interface AccountEmailThreadParticipantApi {
+    /** Email address of the thread participant. */
+    readonly email: string
+    /** Display name from the captured email headers. */
+    readonly display_name: string
+    /** Whether the participant belongs to the PostHog organization or the customer.
+     *
+     * * `internal` - Internal
+     * * `customer` - Customer */
+    readonly kind: EmailThreadParticipantKindEnumApi
+    /**
+     * UUID of the matched PostHog person for a customer participant, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
+}
+
+export interface AccountEmailThreadApi {
+    /** UUID of the captured email thread. */
+    readonly id: string
+    /** Email thread subject. */
+    readonly subject: string
+    /** Plain-text preview of the latest captured message. */
+    readonly preview: string
+    /**
+     * Source timestamp of the first captured message.
+     * @nullable
+     */
+    readonly first_message_at: string | null
+    /** Sender, timestamp, and direction of the first captured message, when available. */
+    readonly first_message: ConversationMessageSummaryApi | null
+    /**
+     * Source timestamp of the latest captured message.
+     * @nullable
+     */
+    readonly last_message_at: string | null
+    /** Sender, timestamp, and direction of the latest captured message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
+    /** Number of captured messages in the thread. */
+    readonly message_count: number
+    /** Participants included in the email thread. */
+    readonly participants: readonly AccountEmailThreadParticipantApi[]
+}
+
+export interface PaginatedAccountEmailThreadListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountEmailThreadApi[]
+}
+
+export interface AccountEmailThreadAddressApi {
+    /** Name from the email header. */
+    readonly name: string
+    /** Email address from the email header. */
+    readonly email: string
+}
+
+export interface AccountEmailThreadMessageApi {
+    /** UUID of the captured email message. */
+    readonly id: string
+    /** Timestamp from the source email. */
+    readonly sent_at: string
+    /** Sender from the email From header. */
+    readonly sender: AccountEmailThreadAddressApi
+    /** Recipients from the email To header. */
+    readonly to_recipients: readonly AccountEmailThreadAddressApi[]
+    /** Recipients from the email Cc header. */
+    readonly cc_recipients: readonly AccountEmailThreadAddressApi[]
+    /** Whether Mailgun authentication verified the sender domain. */
+    readonly sender_authenticated: boolean
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+    /** Plain-text email content. */
+    readonly content: string
+}
+
+export interface PaginatedAccountEmailThreadMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountEmailThreadMessageApi[]
+}
+
+/**
+ * One attendee of a synced calendar meeting (read-only).
+ */
+export interface MeetingParticipantApi {
+    /** Email address of the attendee. */
+    readonly email: string
+    /** Display name from the calendar event; may be empty. */
+    readonly display_name: string
+    /** The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'. */
+    readonly response_status: string
+    /** Whether this attendee organized the meeting. */
+    readonly is_organizer: boolean
+    /**
+     * UUID of the PostHog person resolved for this attendee, if any.
+     * @nullable
+     */
+    readonly person_id: string | null
+}
+
+/**
+ * A calendar meeting synced from a connected employee calendar (read-only).
+ */
+export interface MeetingApi {
+    /** UUID of the meeting. */
+    readonly id: string
+    /** Meeting title; may be empty. */
+    readonly title: string
+    /** Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences and only the next upcoming, non-canceled occurrence of each series. */
+    readonly is_recurring: boolean
+    /**
+     * Gong call URL matched through the calendar event id; null when no Gong call is available.
+     * @nullable
+     */
+    readonly gong_url: string | null
+    /** When the meeting starts. */
+    readonly start_time: string
+    /**
+     * When the meeting ends.
+     * @nullable
+     */
+    readonly end_time: string | null
+    /** Email address of the meeting organizer; may be empty. */
+    readonly organizer_email: string
+    /** Meeting status: 'confirmed', 'tentative', or 'cancelled'. */
+    readonly status: string
+    /** Attendees of the meeting. */
+    readonly participants: readonly MeetingParticipantApi[]
+}
+
+export interface PaginatedMeetingListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MeetingApi[]
+}
+
+export interface AccountPresenceViewerApi {
+    /** PostHog user ID of the teammate viewing this account. */
+    readonly user_id: number
+    /** Display name of the teammate viewing this account. */
+    readonly display_name: string
+}
+
+/**
+ * Metadata for one message a channel summary covered — never the message text.
+ */
+export interface ChannelSummaryMessageApi {
+    /** Display name of the message author. */
+    readonly author: string
+    /** When the message was sent. */
+    readonly sent_at: string
+    /** Slack permalink to the message. */
+    readonly permalink: string
+}
+
+/**
+ * An AI summary of one closed period of the account's bound Slack channel (read-only).
+ */
+export interface AccountChannelSummaryApi {
+    /** UUID of the summary. */
+    readonly id: string
+    /** Slack channel the summary covered — kept even if the account is later rebound. */
+    readonly slack_channel_id: string
+    /** Cadence the summarized period belongs to (daily, weekly, or monthly).
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    readonly cadence: SlackSummaryCadenceEnumApi
+    /** Start of the summarized period (inclusive). */
+    readonly period_start: string
+    /** End of the summarized period (exclusive). */
+    readonly period_end: string
+    /** Markdown summary citing the original Slack messages with permalinks. */
+    readonly content: string
+    /** Number of channel messages the summary covered. */
+    readonly message_count: number
+    /** The messages the summary covered, in transcript order — metadata only, no message text. */
+    readonly messages: readonly ChannelSummaryMessageApi[]
+    /** When the summary was generated. */
+    readonly generated_at: string
+}
+
+export interface PaginatedAccountChannelSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountChannelSummaryApi[]
+}
+
+/**
+ * A support ticket linked to an account, sourced from the conversations product (read-only).
+ */
+export interface SupportTicketApi {
+    /** UUID of the support ticket. */
+    readonly id: string
+    /** Human-readable ticket number. */
+    readonly ticket_number: number
+    /** Current status of the ticket (e.g. 'new', 'open'). */
+    readonly status: string
+    /**
+     * When the most recent message was sent on this ticket.
+     * @nullable
+     */
+    readonly last_message_at: string | null
+    /**
+     * Truncated preview of the most recent message.
+     * @nullable
+     */
+    readonly last_message_text: string | null
+    /** Sender, timestamp, and direction of the latest public message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
+    /** Absolute URL to open this ticket in the app. */
+    readonly deep_link: string
+    /** When the ticket conversation started. */
+    readonly created_at: string
+    /** Display name of the customer who started the ticket. */
+    readonly started_by: string
+    /** Distinct ID of the customer who started the ticket. */
+    readonly distinct_id: string
+}
+
+export interface AccountSupportTicketMessageApi {
+    /** UUID of the support ticket message. */
+    readonly id: string
+    /** Plain-text message content. */
+    readonly content: string
+    /** Display name of the message author. */
+    readonly author_name: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+    /** Whether the message is an internal note hidden from the customer. */
+    readonly is_private: boolean
+    /** When the message was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedAccountSupportTicketMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountSupportTicketMessageApi[]
+}
+
+export interface AccountPresenceListRequestApi {
+    /**
+     * Up to 100 account IDs to read presence for.
+     * @maxItems 100
+     */
+    account_ids: string[]
+}
+
+export interface AccountPresenceApi {
+    /** Customer analytics account ID. */
+    readonly account_id: string
+    /** People viewing this account. */
+    readonly viewers: readonly AccountPresenceViewerApi[]
+}
+
+export type AccountsTableQueryRequestApiVariablesOverride = { [key: string]: { [key: string]: unknown } } | null
+
+export type AccountsTableAccountFieldApi =
+    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
+
+export const AccountsTableAccountFieldApi = {
+    Name: 'name',
+    ExternalId: 'external_id',
+    CreatedAt: 'created_at',
+    UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
+    StripeCustomerId: 'stripe_customer_id',
+    HubspotDealId: 'hubspot_deal_id',
+    BillingId: 'billing_id',
+    SfdcId: 'sfdc_id',
+    ZendeskId: 'zendesk_id',
+} as const
+
+export interface AccountsTableAccountFieldColumnApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+}
+
+export const AccountsTableTagsColumnApiValue = {
+    kind: 'tags',
+} as const
+export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
+
+export const AccountsTableNoteCountColumnApiValue = {
+    kind: 'note_count',
+} as const
+export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
+
+export interface AccountsTableRelationshipColumnApi {
+    /** Team-scoped relationship definition to return for each account. */
+    definitionId: string
+    kind?: 'relationship'
+}
+
+export interface AccountsTableCustomPropertyColumnApi {
+    /** Team-scoped custom property definition to return for each account. */
+    definitionId: string
+    kind?: 'custom_property'
+}
+
+export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
+
+export const WindowDaysApi = {
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+    Number90: 90,
+} as const
+
+export interface AccountsTableCustomPropertyHistoryColumnApi {
+    /** Team-scoped numeric custom property definition whose write history should be returned. */
+    definitionId: string
+    kind?: 'custom_property_history'
+    /** Number of days of history to return. The current value is included even when it is older. */
+    windowDays: WindowDaysApi
+}
+
+export type AccountsTableAccountFieldOperatorApi =
+    (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
+
+export const AccountsTableAccountFieldOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+export interface AccountsTableAccountFieldFilterApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+    operator: AccountsTableAccountFieldOperatorApi
+    values?: string[] | null
+}
+
+export type AccountsTableRelationshipOperatorApi =
+    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
+
+export const AccountsTableRelationshipOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface AccountsTableRelationshipFilterApi {
+    definitionId: string
+    kind?: 'relationship'
+    operator: AccountsTableRelationshipOperatorApi
+    userIds?: number[] | null
+}
+
+export type AccountsTableCustomPropertyOperatorApi =
+    (typeof AccountsTableCustomPropertyOperatorApi)[keyof typeof AccountsTableCustomPropertyOperatorApi]
+
+export const AccountsTableCustomPropertyOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+export interface AccountsTableCustomPropertyFilterApi {
+    definitionId: string
+    kind?: 'custom_property'
+    operator: AccountsTableCustomPropertyOperatorApi
+    /** Values interpreted according to the custom property definition's display type. */
+    values?: (string | number | boolean)[] | null
+}
+
+export interface AccountsTableSearchFilterApi {
+    kind?: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilterApi {
+    kind?: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilterApi {
+    kind?: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: number[]
+}
+
+export const AccountsTableAssignedFilterApiValue = {
+    kind: 'assigned',
+} as const
+export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
+
+export const AccountsTableUnassignedFilterApiValue = {
+    kind: 'unassigned',
+} as const
+export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
+
+export interface AccountsTableAccountIdFilterApi {
+    accountId: string
+    kind?: 'account_id'
+}
+
+export const AccountsTableCountMetricApiValue = {
+    kind: 'count',
+} as const
+export type AccountsTableCountMetricApi = typeof AccountsTableCountMetricApiValue
+
+export type AccountsTableAggregationApi = (typeof AccountsTableAggregationApi)[keyof typeof AccountsTableAggregationApi]
+
+export const AccountsTableAggregationApi = {
+    Sum: 'sum',
+    Avg: 'avg',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+} as const
+
+export interface AccountsTableAggregateMetricApi {
+    aggregation: AccountsTableAggregationApi
+    column: AccountsTableCustomPropertyColumnApi
+    kind?: 'aggregate'
+    scale?: number | null
+}
+
+export type AccountsTableThresholdOperatorApi =
+    (typeof AccountsTableThresholdOperatorApi)[keyof typeof AccountsTableThresholdOperatorApi]
+
+export const AccountsTableThresholdOperatorApi = {
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    Exact: 'exact',
+    IsNot: 'is_not',
+} as const
+
+export interface AccountsTableCountThresholdMetricApi {
+    column: AccountsTableCustomPropertyColumnApi
+    kind?: 'count_threshold'
+    operator: AccountsTableThresholdOperatorApi
+    value: number
+}
+
+export type AccountsTableCustomPropertyDisplayTypeApi =
+    (typeof AccountsTableCustomPropertyDisplayTypeApi)[keyof typeof AccountsTableCustomPropertyDisplayTypeApi]
+
+export const AccountsTableCustomPropertyDisplayTypeApi = {
+    Text: 'text',
+    Link: 'link',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+    Select: 'select',
+} as const
+
+export interface AccountsTableCustomPropertyOptionApi {
+    color: string
+    id?: string | null
+    label: string
+}
+
+export interface AccountsTableCustomPropertySourceApi {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyDefinitionApi {
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayTypeApi
+    has_workflow_reference: boolean
+    id: string
+    is_big_number?: boolean | null
+    is_canonical: boolean
+    name: string
+    options?: AccountsTableCustomPropertyOptionApi[] | null
+    source?: AccountsTableCustomPropertySourceApi | null
+}
+
+export interface AccountsTableRelationshipDefinitionApi {
+    description?: string | null
+    id: string
+    is_controlled: boolean
+    is_single_holder?: boolean | null
+    name: string
+}
+
+export interface AccountsTableCustomPropertyHistoryPointApi {
+    timestamp: string
+    value: number
+}
+
+/**
+ * Requested direct Account fields, keyed by their typed field reference.
+ */
+export type AccountsTableRowApiAccountFields = { [key: string]: string | null }
+
+/**
+ * Current values keyed by requested custom property definition ID.
+ */
+export type AccountsTableRowApiCustomProperties = { [key: string]: string | number | boolean | null }
+
+/**
+ * Numeric write history keyed by requested custom property definition ID.
+ */
+export type AccountsTableRowApiCustomPropertyHistory = { [key: string]: AccountsTableCustomPropertyHistoryPointApi[] }
+
+/**
+ * Active assignee user IDs keyed by requested relationship definition ID.
+ */
+export type AccountsTableRowApiRelationships = { [key: string]: number[] }
+
+export interface AccountsTableRowApi {
+    /** Requested direct Account fields, keyed by their typed field reference. */
+    accountFields: AccountsTableRowApiAccountFields
+    /** Current values keyed by requested custom property definition ID. */
+    customProperties: AccountsTableRowApiCustomProperties
+    /** Numeric write history keyed by requested custom property definition ID. */
+    customPropertyHistory: AccountsTableRowApiCustomPropertyHistory
+    externalId?: string | null
+    id: string
+    /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+    logoDomain?: string | null
+    name: string
+    /** Number of linked internal notes. Omitted when the request does not select the note count. */
+    noteCount?: number | null
+    /** Active assignee user IDs keyed by requested relationship definition ID. */
+    relationships: AccountsTableRowApiRelationships
+    /** Sorted tag names. Omitted when the request does not select tags. */
+    tags?: string[] | null
+}
+
+export interface AccountsTableQueryResponseApi {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore: boolean
+    /** Generated HogQL query. */
+    hogql?: string | null
+    kind?: 'AccountsTableQuery'
+    limit: number
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: AccountsTableRowApi[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | BreakdownNotAppliedWarningApi)[] | null
+}
+
+export type AccountsTableSortDirectionApi =
+    (typeof AccountsTableSortDirectionApi)[keyof typeof AccountsTableSortDirectionApi]
+
+export const AccountsTableSortDirectionApi = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const
+
+export interface AccountsTableSortApi {
+    /** A typed column that supports server-side sorting. */
+    column:
+        | AccountsTableAccountFieldColumnApi
+        | AccountsTableTagsColumnApi
+        | AccountsTableNoteCountColumnApi
+        | AccountsTableRelationshipColumnApi
+        | AccountsTableCustomPropertyColumnApi
+    direction: AccountsTableSortDirectionApi
+}
+
+export interface AccountsTableQueryApi {
+    /** Columns to load for each account. Account identity fields are always returned. */
+    columns: (
+        | AccountsTableAccountFieldColumnApi
+        | AccountsTableTagsColumnApi
+        | AccountsTableNoteCountColumnApi
+        | AccountsTableRelationshipColumnApi
+        | AccountsTableCustomPropertyColumnApi
+        | AccountsTableCustomPropertyHistoryColumnApi
+    )[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?:
+        | (
+              | AccountsTableAccountFieldFilterApi
+              | AccountsTableRelationshipFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[][]
+        | null
+    /** Filters are combined with AND. Values within tag and assignment filters use OR. */
+    filters?:
+        | (
+              | AccountsTableSearchFilterApi
+              | AccountsTableTagsFilterApi
+              | AccountsTableAssignedToFilterApi
+              | AccountsTableAssignedFilterApi
+              | AccountsTableUnassignedFilterApi
+              | AccountsTableRelationshipFilterApi
+              | AccountsTableAccountIdFilterApi
+              | AccountsTableAccountFieldFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[]
+        | null
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
+    ignoreMissingDefinitions?: boolean | null
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
+    kind?: 'AccountsTableQuery'
+    limit?: number | null
+    /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
+    metrics?:
+        | (AccountsTableCountMetricApi | AccountsTableAggregateMetricApi | AccountsTableCountThresholdMetricApi)[]
+        | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    response?: AccountsTableQueryResponseApi | null
+    sort?: AccountsTableSortApi | null
+    tags?: QueryLogTagsApi | null
+    useDefaultColumns?: boolean | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
 
 export type RefreshTypeApi = (typeof RefreshTypeApi)[keyof typeof RefreshTypeApi]
 
@@ -2382,6 +2934,17 @@ export const AnnouncementStatusEnumApi = {
     Sent: 'sent',
     PartiallyFailed: 'partially_failed',
     Failed: 'failed',
+} as const
+
+/**
+ * * `bot` - SupportHog
+ * * `user` - The person who created it
+ */
+export type AnnouncementSendAsEnumApi = (typeof AnnouncementSendAsEnumApi)[keyof typeof AnnouncementSendAsEnumApi]
+
+export const AnnouncementSendAsEnumApi = {
+    Bot: 'bot',
+    User: 'user',
 } as const
 
 /**
@@ -2435,6 +2998,13 @@ export interface AnnouncementApi {
      * * `partially_failed` - Partially failed
      * * `failed` - Failed */
     readonly status: AnnouncementStatusEnumApi
+    /** Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).
+     *
+     * * `bot` - SupportHog
+     * * `user` - The person who created it */
+    send_as?: AnnouncementSendAsEnumApi
+    /** Slack display name the message was posted under when send_as is 'user'; empty otherwise. */
+    readonly sender_display_name: string
     /** Number of channels this announcement targets. */
     readonly total_channels: number
     /** Number of channels the message was successfully delivered to. */
@@ -2768,7 +3338,7 @@ export interface CustomPropertySourceApi {
     source_column?: string | null
     /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
     column_property_map?: unknown
-    /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+    /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
     column_descriptions?: unknown
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
@@ -3007,8 +3577,8 @@ export interface PaginatedCustomPropertySourceListApi {
 }
 
 /**
- * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
- * they are intentionally absent — only these reach the facade's update.
+ * Writable fields for updating a source. Binding and definition fields are create-only, so they
+ * are intentionally absent — only these reach the facade's update.
  */
 export interface CustomPropertySourceUpdateApi {
     /**
@@ -3021,13 +3591,17 @@ export interface CustomPropertySourceUpdateApi {
      * @maxLength 400
      */
     key_column?: string
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+    column_property_map?: unknown
+    /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
+    column_descriptions?: unknown
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
 
 /**
- * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
- * they are intentionally absent — only these reach the facade's update.
+ * Writable fields for updating a source. Binding and definition fields are create-only, so they
+ * are intentionally absent — only these reach the facade's update.
  */
 export interface PatchedCustomPropertySourceUpdateApi {
     /**
@@ -3040,6 +3614,10 @@ export interface PatchedCustomPropertySourceUpdateApi {
      * @maxLength 400
      */
     key_column?: string
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+    column_property_map?: unknown
+    /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
+    column_descriptions?: unknown
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
@@ -3062,13 +3640,13 @@ export const CustomPropertySyncTriggerResponseStatusEnumApi = {
  * Response of the person/group-property sync/backfill trigger actions.
  */
 export interface CustomPropertySyncTriggerResponseApi {
-    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill was in flight and a latest-state follow-up was queued).
      *
      * * `triggered` - triggered
      * * `started` - started
      * * `already_running` - already_running */
     status: CustomPropertySyncTriggerResponseStatusEnumApi
-    /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+    /** Backfill only: true when a run was already in flight and this call queued its follow-up. */
     already_running?: boolean
 }
 
@@ -3309,6 +3887,23 @@ export interface CustomerTaskUpdateApi {
      */
     account_id?: string | null
     /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+    /**
      * Replacement task name.
      * @maxLength 400
      */
@@ -3318,6 +3913,14 @@ export interface CustomerTaskUpdateApi {
      * @nullable
      */
     description?: string | null
+}
+
+export interface PatchedCustomerTaskUpdateApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
     /**
      * Replacement assignee ID, or null to unassign.
      * @nullable
@@ -3335,14 +3938,6 @@ export interface CustomerTaskUpdateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
-}
-
-export interface PatchedCustomerTaskUpdateApi {
-    /**
-     * UUID of a visible account, or null to remove the account link.
-     * @nullable
-     */
-    account_id?: string | null
     /**
      * Replacement task name.
      * @maxLength 400
@@ -3353,23 +3948,6 @@ export interface PatchedCustomerTaskUpdateApi {
      * @nullable
      */
     description?: string | null
-    /**
-     * Replacement assignee ID, or null to unassign.
-     * @nullable
-     */
-    assigned_to_id?: number | null
-    /**
-     * Replacement ISO 8601 deadline, or null to clear it.
-     * @nullable
-     */
-    due_at?: string | null
-    /** Replacement task status.
-     *
-     * * `open` - Open
-     * * `in_progress` - In progress
-     * * `completed` - Completed
-     * * `canceled` - Canceled */
-    status?: CustomerTaskStatusEnumApi
 }
 
 /**
@@ -3440,6 +4018,54 @@ export interface CustomerTaskActivityPageApi {
     readonly previous: string | null
     /** Activities in this page. */
     readonly results: readonly CustomerTaskActivityApi[]
+}
+
+export interface CustomerTaskBulkPatchApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+    /** Archive tasks when true, or restore them when false. */
+    archived?: boolean
+}
+
+export interface CustomerTaskBulkUpdateApi {
+    /**
+     * UUIDs of up to 100 tasks to update together.
+     * @minItems 1
+     * @maxItems 100
+     */
+    task_ids: string[]
+    /** Changes to apply to every selected task. */
+    updates: CustomerTaskBulkPatchApi
+}
+
+export interface CustomerTaskBulkUpdateResultApi {
+    /** Number of tasks changed by this batch. */
+    readonly updated_count: number
+}
+
+export interface CustomerTaskBulkUpdateErrorApi {
+    /** Reason the batch could not be updated. */
+    readonly detail: string
 }
 
 /**
@@ -4336,22 +4962,28 @@ export interface PatchedGroupUsageMetricApi {
 /**
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
+ * * `account_field` - Account field
  */
-export type PinnedAccountPropertyKindEnumApi =
-    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
 
-export const PinnedAccountPropertyKindEnumApi = {
+export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
+    AccountField: 'account_field',
 } as const
 
 export interface PinnedAccountPropertyApi {
-    /** Definition type for this pinned account property.
+    /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
      *
      * * `custom_property` - Custom property
-     * * `relationship` - Relationship */
-    kind: PinnedAccountPropertyKindEnumApi
-    /** Team-scoped custom property or relationship definition UUID. */
+     * * `relationship` - Relationship
+     * * `account_field` - Account field */
+    kind: AccountPropertyPinKindEnumApi
+    /**
+     * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+     * @maxLength 64
+     */
     id: string
 }
 
@@ -4378,11 +5010,25 @@ export interface TaskDigestPreferencesApi {
     cadence: TaskDigestCadenceEnumApi
 }
 
+export interface AccountDetailTabsConfigApi {
+    /** Tab identifiers in the user's preferred order. */
+    ordered_tab_ids: string[]
+    /** Tab identifiers hidden from the tab strip. */
+    hidden_tab_ids: string[]
+    /**
+     * Tab identifier opened by default. Null uses the first available system tab.
+     * @nullable
+     */
+    default_tab_id: string | null
+}
+
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
     /** Task digest email preferences. Disabled until the user turns the digest on. */
     readonly task_digest: TaskDigestPreferencesApi
+    /** Personal order, visibility, and default for account tabs. */
+    readonly account_detail_tabs: AccountDetailTabsConfigApi
 }
 
 export interface TaskDigestPreferencesUpdateApi {
@@ -4402,6 +5048,8 @@ export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     pinned_properties?: PinnedAccountPropertyApi[]
     /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
     task_digest?: TaskDigestPreferencesUpdateApi
+    /** Complete personal account tab configuration. Omit to keep it unchanged. */
+    account_detail_tabs?: AccountDetailTabsConfigApi
 }
 
 export type CustomerAnalyticsExternalAccountRetrieveParams = {
@@ -4410,6 +5058,8 @@ export type CustomerAnalyticsExternalAccountRetrieveParams = {
      */
     external_id: string
 }
+
+export type CustomerAnalyticsExternalAccountCreate400 = { [key: string]: unknown }
 
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {
     /**
@@ -4454,6 +5104,7 @@ export type AccountNotesListParams = {
     created_by?: number[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4461,14 +5112,46 @@ export type AccountNotesListParams = {
      */
     offset?: number
     /**
+     * Sort order. Defaults to '-last_modified_at'.
+     */
+    ordering?: string
+    /**
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Only return notes that carry any of the listed tags.
+     */
+    tags?: string
 }
 
 export type AccountRelationshipDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: AccountRelationshipDefinitionsListPagination
+}
+
+export type AccountRelationshipDefinitionsListPagination =
+    (typeof AccountRelationshipDefinitionsListPagination)[keyof typeof AccountRelationshipDefinitionsListPagination]
+
+export const AccountRelationshipDefinitionsListPagination = {
+    None: 'none',
+} as const
+
+export type AccountTrackRulesRunsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4477,15 +5160,11 @@ export type AccountRelationshipDefinitionsListParams = {
     offset?: number
 }
 
-export type AccountTrackRulesRunsListParams = {
+export type AccountViewsDestroyParams = {
     /**
-     * Number of results to return per page.
+     * Version returned by the last read.
      */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+    version: number
 }
 
 export type AccountsListParams = {
@@ -4493,6 +5172,10 @@ export type AccountsListParams = {
      * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean
+    /**
+     * When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.
+     */
+    inactive_last?: boolean
     /**
      * Include churned accounts. Churned accounts are hidden by default.
      */
@@ -4503,6 +5186,7 @@ export type AccountsListParams = {
     include_ignored?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4525,6 +5209,10 @@ export type AccountsListParams = {
 
 export type AccountsNotebooksListParams = {
     /**
+     * Only return notebooks created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[]
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -4533,13 +5221,17 @@ export type AccountsNotebooksListParams = {
      */
     offset?: number
     /**
-     * Sort by creation date or author. Defaults to '-created_at'.
+     * Sort by creation date, last modification, author or title. Defaults to '-created_at'.
      */
     ordering?: string
     /**
      * Full-text search across notebook title and content.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Returns notebooks that carry any of the listed tags.
+     */
+    tags?: string
 }
 
 export type AccountsRelationshipsListParams = {
@@ -4549,9 +5241,59 @@ export type AccountsRelationshipsListParams = {
     include_history?: boolean
 }
 
+export type AccountsPersonsRetrieveParams = {
+    /**
+     * JSON array of person property filters with key, operator, value, and type="person". Filters use AND.
+     */
+    filters?: string
+    /**
+     * Maximum persons per page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of matching persons to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * JSON array of selected person property keys. Example: ["email", "name"].
+     */
+    properties?: string
+    /**
+     * Search name, email, person ID, or distinct ID.
+     * @maxLength 1000
+     */
+    search?: string
+    /**
+     * Sort by id, display_name, account_first_seen, account_last_seen, or a selected property key.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    sort_column?: string
+    /**
+     * Sort direction. Person ID breaks ties.
+     *
+     * * `asc` - Ascending
+     * * `desc` - Descending
+     * @minLength 1
+     */
+    sort_direction?: AccountsPersonsRetrieveSortDirection
+}
+
+export type AccountsPersonsRetrieveSortDirection =
+    (typeof AccountsPersonsRetrieveSortDirection)[keyof typeof AccountsPersonsRetrieveSortDirection]
+
+export const AccountsPersonsRetrieveSortDirection = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const
+
 export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4563,6 +5305,7 @@ export type AccountsEmailThreadsListParams = {
 export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
@@ -4574,6 +5317,7 @@ export type AccountsEmailThreadMessagesListParams = {
 export type AccountsMeetingsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4589,6 +5333,7 @@ export type AccountsMeetingsListParams = {
 export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4600,6 +5345,7 @@ export type AccountsSummariesListParams = {
 export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
@@ -4620,6 +5366,7 @@ export type AccountsByExternalIdRetrieveParams = {
 export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4631,13 +5378,25 @@ export type AnnouncementsListParams = {
 export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: CustomPropertyDefinitionsListPagination
 }
+
+export type CustomPropertyDefinitionsListPagination =
+    (typeof CustomPropertyDefinitionsListPagination)[keyof typeof CustomPropertyDefinitionsListPagination]
+
+export const CustomPropertyDefinitionsListPagination = {
+    None: 'none',
+} as const
 
 export type CustomPropertyDefinitionsValuesRetrieveParams = {
     /**
@@ -4653,6 +5412,7 @@ export type CustomPropertyDefinitionsValuesRetrieveParams = {
 export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4664,6 +5424,7 @@ export type CustomPropertySourcesListParams = {
 export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4679,6 +5440,7 @@ export type CustomPropertySourcesRunsListParams = {
 export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4690,6 +5452,7 @@ export type CustomerJourneysListParams = {
 export type CustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4713,7 +5476,7 @@ export type CustomerTasksListParams = {
      */
     archive_state?: CustomerTasksListArchiveState
     /**
-     * Filter by me, unassigned, or one user ID.
+     * Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.
      * @minLength 1
      */
     assigned_to?: string
@@ -4822,6 +5585,7 @@ export type FeatureRequestsListParams = {
     created_by_ids?: number[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

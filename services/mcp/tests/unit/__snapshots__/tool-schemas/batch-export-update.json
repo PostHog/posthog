@@ -156,7 +156,7 @@
                     "description": "Request shape for creating or updating a PostgreSQL batch-export destination.",
                     "properties": {
                         "config": {
-                            "description": "Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "description": "Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the\nnon-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.",
                             "properties": {
                                 "database": {
                                     "description": "PostgreSQL database name to connect to.",
@@ -410,7 +410,7 @@
                     "description": "Request shape for creating or updating a Redshift batch-export destination.",
                     "properties": {
                         "config": {
-                            "description": "Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
+                            "description": "Typed configuration for a Redshift batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
                             "properties": {
                                 "copy_inputs": {
                                     "description": "S3 staging configuration, required when mode is 'COPY'.",
@@ -424,42 +424,13 @@
                                                 {
                                                     "description": "ARN of an IAM role attached to the Redshift cluster.",
                                                     "type": "string"
-                                                },
-                                                {
-                                                    "properties": {
-                                                        "aws_access_key_id": {
-                                                            "type": "string"
-                                                        },
-                                                        "aws_secret_access_key": {
-                                                            "type": "string"
-                                                        }
-                                                    },
-                                                    "required": ["aws_access_key_id", "aws_secret_access_key"],
-                                                    "type": "object"
                                                 }
                                             ],
-                                            "description": "Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration."
+                                            "description": "Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID."
                                         },
                                         "bucket_credentials": {
-                                            "anyOf": [
-                                                {
-                                                    "description": "ID of an aws-s3-kind Integration.",
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "properties": {
-                                                        "aws_access_key_id": {
-                                                            "type": "string"
-                                                        },
-                                                        "aws_secret_access_key": {
-                                                            "type": "string"
-                                                        }
-                                                    },
-                                                    "required": ["aws_access_key_id", "aws_secret_access_key"],
-                                                    "type": "object"
-                                                }
-                                            ],
-                                            "description": "Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration."
+                                            "description": "AWS S3 integration ID used to stage files in the S3 bucket.",
+                                            "type": "number"
                                         },
                                         "region_name": {
                                             "description": "AWS region of the staging S3 bucket.",
@@ -847,6 +818,17 @@
                                 }
                             ]
                         },
+                        "materializeRepeatedCTEs": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag."
+                        },
                         "mergeFederatedAggregateJoins": {
                             "anyOf": [
                                 {
@@ -857,6 +839,17 @@
                                 }
                             ],
                             "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap"
+                        },
+                        "negatedPersonFiltersNotIn": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN."
                         },
                         "optimizeJoinedFilters": {
                             "anyOf": [
@@ -897,6 +890,17 @@
                                 }
                             ],
                             "description": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip."
+                        },
+                        "personIdPushdown": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
                         },
                         "personsArgMaxVersion": {
                             "anyOf": [
@@ -1011,6 +1015,17 @@
                                 }
                             ]
                         },
+                        "sessionTimestampBufferMinutes": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range."
+                        },
                         "timings": {
                             "anyOf": [
                                 {
@@ -1041,6 +1056,17 @@
                                     "type": "null"
                                 }
                             ]
+                        },
+                        "useNewEventsSchema": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                         },
                         "usePreaggregatedIntermediateResults": {
                             "anyOf": [
@@ -1091,7 +1117,7 @@
                     "type": "null"
                 }
             ],
-            "description": "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+            "description": "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
         },
         "hogql_query": {
             "anyOf": [
@@ -1102,10 +1128,15 @@
                     "type": "null"
                 }
             ],
-            "description": "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            "description": "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'."
         },
         "id": {
             "description": "A UUID string identifying this batch export.",
+            "type": "string"
+        },
+        "incremental_mode": {
+            "description": "How this batch export handles incremental updates.\n\n* `APPEND` - Append\n* `MERGE` - Merge",
+            "enum": ["APPEND", "MERGE"],
             "type": "string"
         },
         "interval": {
@@ -1152,6 +1183,20 @@
             "description": "Whether the batch export is paused.",
             "type": "boolean"
         },
+        "primary_key": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
+        },
         "timezone": {
             "anyOf": [
                 {
@@ -1162,6 +1207,20 @@
                 }
             ],
             "description": "IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries."
+        },
+        "version_key": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export."
         }
     },
     "required": ["id"],

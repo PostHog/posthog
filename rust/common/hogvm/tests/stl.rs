@@ -116,6 +116,18 @@ fn crypto_and_encoding_known_answers() {
 }
 
 #[test]
+fn hogql_sha1_returns_lowercase_hex_or_null() {
+    for (input, expected) in [
+        ("abc", "a9993e364706816aba3e25717850c26c9cd0d89d"),
+        ("", "da39a3ee5e6b4b0d3255bfef95601890afd80709"),
+        ("🦔", "b1495135295ac36752f6579e93ba02140604590f"),
+    ] {
+        assert_eq!(call_str("sha1", input), json!(expected));
+    }
+    assert_eq!(run(call("sha1", &[vec![json!(31)]])), Value::Null);
+}
+
+#[test]
 fn hmac_sha1_matches_rfc_2202_vectors() {
     // RFC 2202 HMAC-SHA1 test vectors. A two-element chain is a plain HMAC of key and message, so
     // these pin the sha1 dependency and the chain wiring to the standard answers.
@@ -179,6 +191,70 @@ fn hmac_sha1_chain_rekeys_and_encodes() {
     assert_eq!(
         run(call("sha1HmacChain", &[data()])),
         run(call("sha1HmacChainHex", &[data()]))
+    );
+}
+
+#[test]
+fn hmac_sha256_base64_key_matches_svix() {
+    // Known answer from the Svix webhook verification docs. The key decodes to bytes that are not
+    // valid UTF-8, so this fails if the key is read as a string.
+    let key = || str_lit("MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw");
+    let payload = || str_lit("msg_p5jXN8AQM9LWM0D4loKWxJek.1614265330.{\"test\": 2432232314}");
+    assert_eq!(
+        run(call(
+            "sha256HmacBase64Key",
+            &[key(), payload(), str_lit("base64")]
+        )),
+        json!("g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=")
+    );
+    assert_eq!(
+        run(call(
+            "sha256HmacBase64Key",
+            &[str_lit("YWI"), str_lit("data")]
+        )),
+        run(call(
+            "sha256HmacBase64Key",
+            &[str_lit("YWI="), str_lit("data")]
+        ))
+    );
+}
+
+#[test]
+fn ed25519_verify_matches_rfc8032() {
+    // RFC 8032 section 7.1, test 2: the message is the single byte 0x72 ("r").
+    let key = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
+    let sig = "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00";
+    let key_b64 = "PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw=";
+    let sig_b64 =
+        "kqAJqfDUyrhyDoILX2QlQKKye1QWUD+Ps3YiI+vbadoIWsHkPhWZbkWPNhPQ8R2MOHsurrQwKu6wDSkWErsMAA==";
+    let cases: &[(&str, &[&str], bool)] = &[
+        ("valid hex", &["r", sig, key], true),
+        ("valid base64", &["r", sig_b64, key_b64, "base64"], true),
+        ("tampered message", &["s", sig, key], false),
+        ("short key", &["r", sig, &key[..62]], false),
+        ("not hex", &["r", sig, &format!("zz{}", &key[2..])], false),
+        (
+            "junk base64",
+            &["r", &format!("!!!{sig_b64}"), key_b64, "base64"],
+            false,
+        ),
+    ];
+    for (name, args, expected) in cases {
+        let args: Vec<_> = args.iter().map(|a| str_lit(a)).collect();
+        assert_eq!(run(call("ed25519Verify", &args)), json!(expected), "{name}");
+    }
+
+    let mut bc = vec![json!("_H"), json!(1)];
+    bc.extend(call(
+        "ed25519Verify",
+        &[str_lit("r"), str_lit(sig), str_lit(key), int_lit(0)],
+    ));
+    bc.push(json!(OP_RETURN));
+    let ctx = ExecutionContext::with_defaults(Program::new(bc).expect("valid program"))
+        .with_globals(json!({}));
+    assert!(
+        sync_execute(&ctx, false).is_err(),
+        "a non-string encoding errors, as in Python and TS"
     );
 }
 

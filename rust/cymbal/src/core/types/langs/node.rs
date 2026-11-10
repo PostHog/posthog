@@ -2,6 +2,7 @@ use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
+    metric_consts::SOURCEMAP_IGNORED_FRAME,
     sanitize_string,
     symbolication::symbol_store::{
         chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog,
@@ -86,11 +87,18 @@ impl RawNodeFrame {
             let chunk_ref = OrChunkId::ChunkId(chunk_id);
             let sourcemap = catalog.lookup(team_id, chunk_ref).await?;
             let smc = sourcemap.get_smc();
-            // Note: javascript stack frame lines are 1-indexed, so we have to subtract 1
-            if let Some(location) =
-                smc.lookup(SourcePosition::new(location.line - 1, location.column))
-            {
-                Ok(Frame::from((self, location, context_lines)))
+            // JS stack frame lines and columns are 1-based, but the sourcemap cache is 0-based
+            let generated_position = SourcePosition::new(
+                location.line.saturating_sub(1),
+                location.column.saturating_sub(1),
+            );
+            if let Some(location) = smc.lookup(generated_position) {
+                let mut frame = Frame::from((self, location, context_lines));
+                if sourcemap.is_source_ignored(generated_position) {
+                    frame.in_app = false;
+                    metrics::counter!(SOURCEMAP_IGNORED_FRAME, "runtime" => "node").increment(1);
+                }
+                Ok(frame)
             } else {
                 Err(JsResolveErr::TokenNotFound(
                     self.function.clone(),
@@ -223,8 +231,8 @@ impl From<(&RawNodeFrame, SourceLocation<'_>, usize)> for Frame {
         let mut res = Self {
             frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
-            line: Some(location.line()),
-            column: Some(location.column()),
+            line: Some(location.line() + 1),
+            column: Some(location.column() + 1),
             source: location
                 .file()
                 .and_then(|f| f.name())
@@ -325,7 +333,76 @@ fn is_dependency_source(source: &str) -> bool {
 
 #[cfg(test)]
 mod test {
+    use crate::symbolication::symbol_store::sourcemap::test_support::source_map_catalog;
+
     use super::RawNodeFrame;
+
+    fn resolvable_frame(column: u32) -> RawNodeFrame {
+        serde_json::from_value(serde_json::json!({
+            "filename": "bundle.js",
+            "function": "minified",
+            "lineno": 1,
+            "colno": column,
+            "chunk_id": "test-chunk",
+            "in_app": true,
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn source_map_ignore_list_demotes_only_ignored_sources() {
+        let catalog = source_map_catalog();
+
+        let vendor = resolvable_frame(1)
+            .resolve_frame(1, &catalog, 0)
+            .await
+            .unwrap();
+        assert!(vendor.resolved);
+        assert_eq!(vendor.source.as_deref(), Some("vendor.js"));
+        assert!(!vendor.in_app);
+
+        let app = resolvable_frame(11)
+            .resolve_frame(1, &catalog, 0)
+            .await
+            .unwrap();
+        assert!(app.resolved);
+        assert_eq!(app.source.as_deref(), Some("app.js"));
+        assert!(app.in_app);
+    }
+
+    #[tokio::test]
+    async fn resolves_1_based_frame_positions_to_1_based_source_positions() {
+        let catalog = source_map_catalog();
+
+        for (column, expected_source) in [(10, "vendor.js"), (11, "app.js")] {
+            let frame = resolvable_frame(column)
+                .resolve_frame(1, &catalog, 1)
+                .await
+                .unwrap();
+            assert_eq!(frame.source.as_deref(), Some(expected_source), "{column}");
+            assert_eq!((frame.line, frame.column), (Some(1), Some(1)), "{column}");
+            assert_eq!(frame.context.as_ref().unwrap().line.number, 1, "{column}");
+        }
+    }
+
+    #[tokio::test]
+    async fn frames_without_a_chunk_id_keep_their_captured_line() {
+        let catalog = source_map_catalog();
+        let raw: RawNodeFrame = serde_json::from_value(serde_json::json!({
+            "filename": "dist/widget.js",
+            "function": "renderWidget",
+            "lineno": 42,
+            "colno": 7,
+            "context_line": "renderWidget()",
+        }))
+        .unwrap();
+
+        let frame = raw.resolve_frame(1, &catalog, 1).await.unwrap();
+        assert_eq!(frame.line, Some(42));
+        assert_eq!(frame.column, None);
+        assert_eq!(frame.source.as_deref(), Some("dist/widget.js"));
+        assert_eq!(frame.context.as_ref().unwrap().line.number, 42);
+    }
 
     #[test]
     fn frame_id_distinguishes_columns_on_the_same_line() {

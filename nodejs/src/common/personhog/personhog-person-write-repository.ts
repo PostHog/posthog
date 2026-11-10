@@ -52,6 +52,19 @@ export class PersonHogPersonWriteRepository {
         )
     }
 
+    /** Person ids only; confirm each person through `fetchPersonById` before trusting it. */
+    resolvePersonIdsByDistinctIds(
+        keys: DistinctIdKey[],
+        callerTag?: string
+    ): Promise<{ teamId: number; distinctId: string; personId: string | null }[]> {
+        const method = 'resolvePersonIdsByDistinctIds'
+        return withRetry(
+            () => timedGrpc(this.clientLabel, method, () => this.identity.getPersonIdsByDistinctIds(keys, callerTag)),
+            this.clientLabel,
+            method
+        )
+    }
+
     /** Leader-routed strong person read; null when deleted or merged away. */
     fetchPersonById(teamId: number, personId: string, callerTag?: string): Promise<InternalPerson | null> {
         const method = 'fetchPersonById'

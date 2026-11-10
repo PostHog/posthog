@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { sanitizeInsight, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
@@ -10,8 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { isNodeWithSource } from '~/queries/schema/node-guards'
 import { Node } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { insightsViewedCreate } from 'products/product_analytics/frontend/generated/api'
@@ -20,7 +21,6 @@ import type { DataNode } from '../../queries/schema/schema-general'
 import type { InsightModel } from '../../types'
 import { insightLogic, insightOverridesPresent } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
-import { keyForInsightLogicProps } from './sharedUtils'
 
 function reportInsightViewed(
     insightModel: Partial<InsightModel>,

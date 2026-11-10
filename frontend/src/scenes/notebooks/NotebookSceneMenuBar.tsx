@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { IconCopy, IconDownload, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
 
+import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -23,7 +24,7 @@ import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
-import { isKernelUiEnabled } from './utils'
+import { isJupyterModeAvailable, isKernelUiEnabled } from './utils'
 
 const RESOURCE_TYPE = 'notebook'
 
@@ -40,12 +41,14 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { notebook, showHistory, isLocalOnly, content, showVariables } = useValues(logic)
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
-    const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables } = useActions(notebookSettingsLogic)
+    const { isMarkdownExpanded, showKernelInfo, isJupyterMode } = useValues(notebookSettingsLogic)
+    const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables, setIsJupyterMode } =
+        useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const canDelete = !isLocalOnly && !notebook?.is_template
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
     const showKernelToggle = isKernelUiEnabled(featureFlags) && isMarkdownNotebookContent(content)
+    const showJupyterModeToggle = isJupyterModeAvailable(featureFlags) && isMarkdownNotebookContent(content)
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
@@ -102,6 +105,7 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                     <IconCopy />
                     Duplicate
                 </SceneMenuBarItem>
+                <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
                 <SceneMenuBarSeparator />
                 <SceneMenuBarCheckboxItem
                     checked={showHistory}
@@ -135,6 +139,15 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                         data-attr={`${RESOURCE_TYPE}-menubar-variables`}
                     >
                         Variables
+                    </SceneMenuBarCheckboxItem>
+                )}
+                {showJupyterModeToggle && (
+                    <SceneMenuBarCheckboxItem
+                        checked={isJupyterMode}
+                        onCheckedChange={(checked) => setIsJupyterMode(checked)}
+                        data-attr={`${RESOURCE_TYPE}-menubar-jupyter-mode`}
+                    >
+                        Jupyter mode
                     </SceneMenuBarCheckboxItem>
                 )}
                 <SceneMenuBarSeparator />

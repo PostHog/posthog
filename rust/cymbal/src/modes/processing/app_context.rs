@@ -52,6 +52,7 @@ pub struct AppContext {
     // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
     // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
     pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
+    pub drop_code_variables_team_ids: Arc<HashSet<i32>>,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
@@ -180,6 +181,9 @@ impl AppContext {
         let rate_limiter = build_rate_limiter(config).await?;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
+        let drop_code_variables_team_ids = Arc::new(parse_strict_team_id_list(
+            &config.drop_code_variables_team_ids,
+        )?);
 
         Ok(Self {
             health_registry,
@@ -194,6 +198,7 @@ impl AppContext {
             issue_buckets_heal_gate: HealGate::new(),
             rate_limiter,
             rate_limiter_enabled_team_ids,
+            drop_code_variables_team_ids,
             issue_cache,
             release_cache,
             remote_resolution,
@@ -251,6 +256,20 @@ fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
     )
 }
 
+/// A typo must stop startup, because a skipped entry would silently leave that team out.
+fn parse_strict_team_id_list(value: &str) -> Result<HashSet<i32>, UnhandledError> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            entry.parse::<i32>().map_err(|_| {
+                UnhandledError::Other(format!("invalid team id {entry:?} in team id list"))
+            })
+        })
+        .collect()
+}
+
 async fn build_remote_resolution(
     config: &ProcessingConfig,
 ) -> Result<(Option<RemoteResolutionContext>, Option<JoinHandle<()>>), UnhandledError> {
@@ -283,4 +302,27 @@ async fn build_remote_resolution(
         Some(RemoteResolutionContext::new(pool, remote_config)),
         Some(refresh_task),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strict_team_id_list_parses_valid_input() {
+        for (input, expected) in [("", vec![]), ("2", vec![2]), (" 2, 3 ,", vec![2, 3])] {
+            assert_eq!(
+                parse_strict_team_id_list(input).unwrap(),
+                expected.into_iter().collect::<HashSet<i32>>(),
+                "input {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn strict_team_id_list_rejects_a_typo() {
+        for input in ["2,x3", "2;3", "two"] {
+            assert!(parse_strict_team_id_list(input).is_err(), "input {input:?}");
+        }
+    }
 }

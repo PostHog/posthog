@@ -35,7 +35,6 @@ import {
     type SourceWizardLogicProps,
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
-import { CDC_SOURCE_TYPES } from '../../cdc'
 import { CredentialAccountSelector } from './CredentialAccountSelector'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
@@ -51,6 +50,8 @@ const NO_OP_SET_VALUE = (): void => undefined
 export interface SourceFormProps {
     sourceConfig: SourceConfigResponseApi
     showPrefix?: boolean
+    /** Another source of this type already has no prefix, so the API rejects a new one without a prefix. */
+    prefixRequired?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
     showDirectQueryToggle?: boolean
@@ -65,6 +66,8 @@ export interface SourceFormProps {
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
     /** Where the OAuth authorize flow returns to — for hosts other than the wizard (e.g. the connect page). */
     oauthRedirectUrl?: string
+    /** Payload values the user may not change, nested like the payload. Their fields render read-only. */
+    lockedValues?: Record<string, any>
 }
 
 /** How a new source will be queried: synced only, synced + live queries, or live only. */
@@ -141,23 +144,33 @@ export function SourceAccessMethodSelector({
     )
 }
 
+export const LOCKED_FIELD_REASON = 'Set by the migration. To change it, set up a new source instead.'
+
+const isPlainObject = (value: unknown): value is Record<string, any> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+
 export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfigResponseApi,
     lastValue?: any,
     isUpdateMode?: boolean,
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
-    oauthRedirectUrl?: string
+    oauthRedirectUrl?: string,
+    // The locked values at this level of the payload.
+    locked?: Record<string, any>
 ): JSX.Element => {
     // Hidden fields stay in the config tree (their stored values parse and prefill) but never render.
     if ('hidden' in field && field.hidden) {
         return <React.Fragment key={field.name} />
     }
+    const lockedLeaf = !!locked && field.name in locked && !isPlainObject(locked[field.name])
+    const lockedGroup = isPlainObject(locked?.[field.name]) ? locked?.[field.name] : undefined
 
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
-        if (isUpdateMode) {
+        // Parsing a connection string overwrites the other fields, locked ones included.
+        if (isUpdateMode || (locked && Object.keys(locked).length > 0)) {
             return <React.Fragment key={field.name} />
         }
         return (
@@ -235,7 +248,11 @@ export const sourceFieldToElement = (
                     return (
                         <>
                             {!!field.caption && <p className="mb-0">{field.caption}</p>}
-                            <LemonSwitch checked={isEnabled} onChange={onChange} />
+                            <LemonSwitch
+                                checked={isEnabled}
+                                onChange={onChange}
+                                disabledReason={lockedGroup?.enabled !== undefined ? LOCKED_FIELD_REASON : undefined}
+                            />
                             {isEnabled && (
                                 <Group name={field.name}>
                                     {field.fields.map((field) =>
@@ -245,7 +262,8 @@ export const sourceFieldToElement = (
                                             lastValue?.[field.name],
                                             isUpdateMode,
                                             setSourceConnectionDetailsValue,
-                                            oauthRedirectUrl
+                                            oauthRedirectUrl,
+                                            lockedGroup
                                         )
                                     )}
                                 </Group>
@@ -276,6 +294,7 @@ export const sourceFieldToElement = (
                         options={field.options.map((option) => ({ key: option.value, label: option.label }))}
                         value={toArray(value === undefined || value === null ? lastValue?.[field.name] : value)}
                         onChange={onChange}
+                        disabled={lockedLeaf}
                     />
                 )}
             </LemonField>
@@ -295,9 +314,11 @@ export const sourceFieldToElement = (
                         lastValue?.[optionField.name],
                         isUpdateMode,
                         setSourceConnectionDetailsValue,
-                        oauthRedirectUrl
+                        oauthRedirectUrl,
+                        lockedGroup
                     )
                 )
+        const selectionLocked = hasOptionFields ? lockedGroup?.selection !== undefined : lockedLeaf
 
         return (
             <LemonField
@@ -315,6 +336,7 @@ export const sourceFieldToElement = (
                                 field.defaultValue
                             }
                             onChange={onChange}
+                            disabledReason={selectionLocked ? LOCKED_FIELD_REASON : undefined}
                         />
                         <Group name={field.name}>{getOptions(value)}</Group>
                     </>
@@ -339,6 +361,7 @@ export const sourceFieldToElement = (
                         minRows={4}
                         value={value || ''}
                         onChange={onChange}
+                        disabled={lockedLeaf}
                     />
                 )}
             </LemonField>
@@ -413,6 +436,7 @@ export const sourceFieldToElement = (
                 fieldName={field.name}
                 fieldLabel={field.label}
                 credentialFields={field.credentialFields}
+                integrationField={field.integrationField ?? undefined}
                 sourceType={sourceConfig.name}
                 placeholder={field.placeholder ?? undefined}
                 caption={field.caption ?? undefined}
@@ -444,7 +468,8 @@ export const sourceFieldToElement = (
             lastValue,
             isUpdateMode,
             setSourceConnectionDetailsValue,
-            oauthRedirectUrl
+            oauthRedirectUrl,
+            locked
         )
     }
 
@@ -468,6 +493,7 @@ export const sourceFieldToElement = (
                     type={inputField.type as 'text'}
                     value={value || ''}
                     onChange={onChange}
+                    disabledReason={lockedLeaf ? LOCKED_FIELD_REASON : undefined}
                 />
             )}
         </LemonField>
@@ -632,7 +658,7 @@ function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
                                 <div>
                                     <div className="flex items-center gap-2 mb-1">
                                         <h4 className="mb-0 text-base font-semibold">Change data capture (CDC)</h4>
-                                        <LemonTag type="completion">Alpha</LemonTag>
+                                        <LemonTag type="completion">Beta</LemonTag>
                                     </div>
                                     <p className="text-sm text-secondary mb-2">
                                         Real-time sync via PostgreSQL logical replication. Captures inserts, updates,
@@ -823,6 +849,7 @@ export default function SourceFormContainer(props: SourceFormProps): JSX.Element
 export function SourceFormComponent({
     sourceConfig,
     showPrefix = true,
+    prefixRequired = false,
     showDescription,
     showAccessMethodSelector = true,
     showDirectQueryToggle = false,
@@ -834,6 +861,7 @@ export function SourceFormComponent({
     sourceWizardLogicProps,
     setSourceConnectionDetailsValue: setSourceConnectionDetailsValueOverride,
     oauthRedirectUrl,
+    lockedValues,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -1019,21 +1047,26 @@ export function SourceFormComponent({
                                 jobInputs?.[field.name],
                                 isUpdateMode,
                                 setSourceConnectionDetailsValue,
-                                oauthRedirectUrl
+                                oauthRedirectUrl,
+                                lockedValues
                             )
                         )
                 )}
             </Group>
             {!isUpdateMode &&
                 showCdcConfig &&
-                CDC_SOURCE_TYPES.includes(sourceConfig.name) &&
+                !!sourceConfig.cdcEngine &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
                 selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
-                    label="Table name prefix (optional)"
-                    help="Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
+                    label={prefixRequired ? 'Table name prefix' : 'Table name prefix (optional)'}
+                    help={
+                        prefixRequired
+                            ? `You already have a ${sourceConfig.label ?? sourceConfig.name} source without a prefix. Add one so this connection's tables don't clash with it.`
+                            : "Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
+                    }
                 >
                     {({ value, onChange }) => {
                         const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''

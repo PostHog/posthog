@@ -112,9 +112,9 @@ RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
 FROM debian:bookworm-slim AS runtime
 
 # AWS RDS global CA bundle — all root and intermediate CAs for TLS verification.
-# To update: download the bundle, recompute the hash with sha256sum, and replace both values.
+# To update: download the bundle, recompute the hash with sha256sum, and replace the value below.
 #   curl -fsS "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" | sha256sum
-ARG RDS_CA_BUNDLE_SHA256=e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3
+ARG RDS_CA_BUNDLE_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

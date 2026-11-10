@@ -14,9 +14,11 @@ export const CONVERSATIONS_LOGIC_KEY = 'conversationsSettings'
 
 const VALID_SETTING_IDS = new Set<SettingId>([
     'conversations-general',
-    'conversations-notifications',
     'conversations-ai',
+    'conversations-learn-from-support',
+    'conversations-notifications',
     'conversations-imports',
+    'conversations-macros',
 ])
 
 const DEFAULT_SETTING_ID: SettingId = 'conversations-general'

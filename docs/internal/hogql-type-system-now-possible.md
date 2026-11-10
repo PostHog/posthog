@@ -284,6 +284,13 @@ This gives projection pushdown, CTE consumers, and future strict validation a mo
 
 ## Diagnostics
 
+`HogQLMetadata` accepts `includeOutputTypes: true` to return `output_columns`, an ordered list of `{ name, type }` objects.
+Names follow query execution's HogQL labels. Types use the inferred runtime representation, including nullable wrappers and unified set-query types.
+This adds a type-resolution pass without executing the query. Callers that omit the option do not pay for that pass.
+These requests use the Python resolver because the language service does not provide output type inference.
+Inference is best effort: invalid queries or failed inference have no output schema, and unresolved expressions can have `Unknown` types.
+Runtime result types remain authoritative; consumers must validate inferred bindings against returned columns before applying them.
+
 `posthog/hogql/type_diagnostics.py` adds several developer-facing entry points.
 
 `resolve_with_type_diagnostics(...)` returns a resolved AST plus a `TypeDiagnosticReport`.

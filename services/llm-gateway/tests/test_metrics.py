@@ -83,45 +83,39 @@ class TestMetricsExport:
 
 class TestMetricsRecording:
     def test_rate_limit_exceeded_increments_without_user_id(self) -> None:
-        initial_value = RATE_LIMIT_EXCEEDED.labels(scope="burst", product="llm_gateway")._value.get()
-        RATE_LIMIT_EXCEEDED.labels(scope="burst", product="llm_gateway").inc()
-        assert RATE_LIMIT_EXCEEDED.labels(scope="burst", product="llm_gateway")._value.get() == initial_value + 1
+        initial_value = RATE_LIMIT_EXCEEDED.labels(scope="burst", product="django")._value.get()
+        RATE_LIMIT_EXCEEDED.labels(scope="burst", product="django").inc()
+        assert RATE_LIMIT_EXCEEDED.labels(scope="burst", product="django")._value.get() == initial_value + 1
 
     def test_provider_errors_tracks_error_types(self) -> None:
         initial_value = PROVIDER_ERRORS.labels(
-            provider="anthropic", error_type="TimeoutError", product="llm_gateway"
+            provider="anthropic", error_type="TimeoutError", product="django"
         )._value.get()
-        PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError", product="llm_gateway").inc()
+        PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError", product="django").inc()
         assert (
-            PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError", product="llm_gateway")._value.get()
+            PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError", product="django")._value.get()
             == initial_value + 1
         )
 
     def test_active_streams_can_increment_and_decrement(self) -> None:
-        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway").set(0)
-        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway").inc()
-        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway")._value.get() == 1
-        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway").dec()
-        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway")._value.get() == 0
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="django").set(0)
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="django").inc()
+        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="django")._value.get() == 1
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="django").dec()
+        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="django")._value.get() == 0
 
     def test_concurrent_requests_can_increment_and_decrement(self) -> None:
-        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway").set(0)
-        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway").inc()
-        assert (
-            CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway")._value.get() == 1
-        )
-        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway").dec()
-        assert (
-            CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway")._value.get() == 0
-        )
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="django").set(0)
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="django").inc()
+        assert CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="django")._value.get() == 1
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="django").dec()
+        assert CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="django")._value.get() == 0
 
     def test_streaming_client_disconnect_increments(self) -> None:
-        initial = STREAMING_CLIENT_DISCONNECT.labels(
-            provider="openai", model="gpt-4", product="llm_gateway"
-        )._value.get()
-        STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4", product="llm_gateway").inc()
+        initial = STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4", product="django")._value.get()
+        STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4", product="django").inc()
         assert (
-            STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4", product="llm_gateway")._value.get()
+            STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4", product="django")._value.get()
             == initial + 1
         )
 
@@ -132,24 +126,24 @@ class TestMetricsRecording:
         assert DB_POOL_SIZE.labels(state="active")._value.get() == 3
 
     def test_tokens_counter_accepts_large_values(self) -> None:
-        initial = TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="llm_gateway")._value.get()
-        TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="llm_gateway").inc(100000)
+        initial = TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="django")._value.get()
+        TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="django").inc(100000)
         assert (
-            TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="llm_gateway")._value.get()
+            TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="django")._value.get()
             == initial + 100000
         )
 
     def test_request_latency_histogram_observes_values(self) -> None:
-        REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false", product="llm_gateway").observe(0.5)
-        REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false", product="llm_gateway").observe(1.5)
+        REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false", product="django").observe(0.5)
+        REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false", product="django").observe(1.5)
 
     def test_llm_response_time_histogram_observes_values(self) -> None:
-        LLM_RESPONSE_TIME.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.25)
-        LLM_RESPONSE_TIME.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(2.5)
+        LLM_RESPONSE_TIME.labels(provider="anthropic", model="claude-3", product="django").observe(0.25)
+        LLM_RESPONSE_TIME.labels(provider="anthropic", model="claude-3", product="django").observe(2.5)
 
     def test_llm_time_to_first_token_histogram_observes_values(self) -> None:
-        LLM_TIME_TO_FIRST_TOKEN.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.15)
-        LLM_TIME_TO_FIRST_TOKEN.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.75)
+        LLM_TIME_TO_FIRST_TOKEN.labels(provider="anthropic", model="claude-3", product="django").observe(0.15)
+        LLM_TIME_TO_FIRST_TOKEN.labels(provider="anthropic", model="claude-3", product="django").observe(0.75)
 
     def test_callback_success_increments(self) -> None:
         initial = CALLBACK_SUCCESS.labels(callback="test_callback")._value.get()

@@ -11,11 +11,17 @@ holds public application metadata only: the same name and logo the consent scree
 """
 
 import json
+from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
 from django.http import HttpRequest, HttpResponse
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.models.user import OnboardingSkippedReason
+
+if TYPE_CHECKING:
+    from posthog.models import Organization, User
 
 PENDING_OAUTH_CONNECTION_COOKIE = "ph_pending_oauth_connection"
 
@@ -123,3 +129,19 @@ def clear_pending_oauth_connection_cookie(request: HttpRequest, response: HttpRe
 
 def read_pending_oauth_connection(request: HttpRequest) -> PendingOAuthConnection | None:
     return PendingOAuthConnection.from_cookie_value(request.COOKIES.get(PENDING_OAUTH_CONNECTION_COOKIE))
+
+
+def apply_connector_signup_onboarding_skip(user: "User", organization: "Organization") -> None:
+    """Keep an account created through an OAuth connector out of in-app onboarding.
+
+    The person starts from inside the connecting application and goes back to it after
+    consent, so they never see the onboarding flow the app would otherwise send them to.
+    The skip is pinned to the signup organization, so another organization the person
+    joins later still shows onboarding.
+    """
+    user.onboarding_skipped_at = timezone.now()
+    user.onboarding_skipped_reason = OnboardingSkippedReason.CONNECTOR
+    user.onboarding_skipped_organization_id = organization.id
+    user.save(
+        update_fields=["onboarding_skipped_at", "onboarding_skipped_reason", "onboarding_skipped_organization_id"]
+    )

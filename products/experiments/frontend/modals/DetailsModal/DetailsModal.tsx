@@ -2,13 +2,13 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { ResultDetails } from 'scenes/experiments/MetricsView/new/ResultDetails'
 
-import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 interface DetailsModalProps {
     isOpen: boolean
     onClose: () => void
-    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentMetric
     result: any
     experiment: Experiment
 }
@@ -26,12 +26,7 @@ export function DetailsModal({ isOpen, onClose, metric, result, experiment }: De
                 </LemonButton>
             }
         >
-            <ResultDetails
-                result={result}
-                experiment={experiment}
-                metric={metric as ExperimentMetric}
-                surface="details_modal"
-            />
+            <ResultDetails result={result} experiment={experiment} metric={metric} surface="details_modal" />
         </LemonModal>
     )
 }

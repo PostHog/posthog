@@ -124,6 +124,12 @@ describe('dashboardVisualizationOptions', () => {
 
     describe('sqlQueryForVisualizationPicker', () => {
         it.each([
+            {
+                label: 'BI worksheets change chart types in their builder',
+                query: { ...sqlQuery, kind: NodeKind.BIVisualizationNode } as Node,
+                canPersist: true,
+                expected: null,
+            },
             { label: 'SQL insight gets the picker', query: sqlQuery as Node, canPersist: true, expected: sqlQuery },
             {
                 label: 'a trends insight gets nothing, since its chart type carries query side effects',
@@ -315,8 +321,8 @@ describe('dashboardVisualizationOptions', () => {
             )
             const view = render(displayOptionsElement(result.current))
 
-            expect(await screen.findByText('Right Y-axis')).toBeInTheDocument()
-            expect(screen.getByText('Goals')).toBeInTheDocument()
+            expect(await screen.findByText('X-axis')).toBeInTheDocument()
+            expect(screen.getByText('Goal lines')).toBeInTheDocument()
 
             rerender({
                 ...baseProps,
@@ -328,8 +334,8 @@ describe('dashboardVisualizationOptions', () => {
             view.rerender(displayOptionsElement(result.current))
 
             expect(await screen.findByText('Show on slices')).toBeInTheDocument()
-            expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
-            expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+            expect(screen.queryByText('X-axis')).not.toBeInTheDocument()
+            expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
         })
 
         it('routes display setting changes through SQL-safe persistence', async () => {
@@ -411,7 +417,10 @@ describe('dashboardVisualizationOptions', () => {
             ).toBe(displayLabel && 'label' in displayLabel ? displayLabel.label : null)
             view.rerender(displayOptionsElement(result.current))
             expect(screen.getByLabelText('Show legend')).toBeChecked()
-            await userEvent.click(screen.getByLabelText('Show annotations'))
+            await userEvent.click(
+                view.container.querySelector('[data-attr="data-visualization-show-annotations"]') as HTMLElement
+            )
+            await userEvent.click(await screen.findByText('All'))
 
             expect(persistSqlDisplayOptions).toHaveBeenLastCalledWith(
                 expect.objectContaining({

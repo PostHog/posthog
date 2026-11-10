@@ -65,10 +65,14 @@ export const BOOKKEEPING_KINDS = new Set([
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** Whether a key segment is a report UUID, which the ledger resolves to that report's title. */
-export function isReportUuid(segment: string): boolean {
-    return UUID_PATTERN.test(segment)
-}
+/**
+ * Kinds whose topic segment names a report: the per-report bookkeeping a scout or the pipeline
+ * writes. A UUID alone does not make a report reference, because other kinds also put a UUID in
+ * the topic (`noise:<uuid>:…` and `baseline:<uuid>:…` name other entities), and a key with no
+ * recognized kind can start with one (`<uuid>:pattern:…`). Each id the ledger takes for a
+ * report costs one request to the reports endpoint, which answers 404 for every other kind of id.
+ */
+const REPORT_TOPIC_KINDS = new Set(['judged', 'report', 'reported', 'followup', 'addressed', 'already_addressed'])
 
 /** The note's kind, or null when the key's first segment is not one the fleet uses as a kind. */
 export function scratchpadKindOf(key: string): string | null {
@@ -85,4 +89,14 @@ export function scratchpadTopicOf(key: string): string | null {
     const segments = key.split(':')
     const topic = scratchpadKindOf(key) ? segments[1] : segments[0]
     return topic || null
+}
+
+/** The report a key belongs to, which the ledger resolves to that report's title, or null. */
+export function scratchpadReportIdOf(key: string): string | null {
+    const kind = scratchpadKindOf(key)
+    if (kind === null || !REPORT_TOPIC_KINDS.has(kind)) {
+        return null
+    }
+    const topic = scratchpadTopicOf(key)
+    return topic && UUID_PATTERN.test(topic) ? topic : null
 }

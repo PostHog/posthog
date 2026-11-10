@@ -1,27 +1,18 @@
 import { useValues, useActions } from 'kea'
 
-import { IconClock, IconDecisionTree, IconInfo, IconList } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
-import { urls } from 'scenes/urls'
 
-import type { HogFlowEditorLayout } from './hogflows/hogFlowEditorLogic'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 type WorkflowStatusBarProps = WorkflowLogicProps & {
-    editorLayout: HogFlowEditorLayout
-    showEditorLayoutToggle: boolean
-    onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
+    commands: JSX.Element
 }
 
-export function WorkflowStatusBar({
-    editorLayout,
-    showEditorLayoutToggle,
-    onEditorLayoutChange,
-    ...props
-}: WorkflowStatusBarProps): JSX.Element | null {
+export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps): JSX.Element | null {
     const logic = workflowLogic(props)
     const {
         originalWorkflow,
@@ -45,29 +36,8 @@ export function WorkflowStatusBar({
     const isEditingDraftOfLive = isActive && (hasStagedDraft || hasUnsavedChanges)
 
     return (
-        <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-surface-secondary rounded-t-md flex-wrap">
+        <div className="@container/workflow-status flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-surface-secondary rounded-t-md flex-wrap">
             <div className="flex items-center gap-3 min-w-0">
-                {showEditorLayoutToggle && (
-                    <LemonSegmentedButton
-                        value={editorLayout}
-                        onChange={onEditorLayoutChange}
-                        size="small"
-                        options={[
-                            {
-                                value: 'simple',
-                                icon: <IconList />,
-                                tooltip: 'List view',
-                                'data-attr': 'workflow-switch-to-simple-view',
-                            },
-                            {
-                                value: 'advanced',
-                                icon: <IconDecisionTree />,
-                                tooltip: 'Graph view',
-                                'data-attr': 'workflow-switch-to-advanced-view',
-                            },
-                        ]}
-                    />
-                )}
                 {showWorkflowStatus &&
                     (isEditingDraftOfLive ? (
                         <LemonTag type="warning">Editing draft</LemonTag>
@@ -83,9 +53,10 @@ export function WorkflowStatusBar({
                             : 'Changes you make save as a draft.'}
                     </span>
                 )}
+                {commands}
             </div>
             {/* Interactive controls sit right-anchored with variable-width text leftmost, so the
-                toggle and History never shift as the narration or the timestamp changes. */}
+                toggle never shifts as the narration or the timestamp changes. */}
             {showWorkflowStatus && historyWorkflowId && (
                 <div className="flex items-center gap-3 shrink-0">
                     {autoSaveEnabled && showSaving ? (
@@ -113,15 +84,6 @@ export function WorkflowStatusBar({
                             <IconInfo className="text-tertiary size-4" />
                         </Tooltip>
                     </span>
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={<IconClock />}
-                        to={urls.workflow(historyWorkflowId, 'history')}
-                        tooltip="See and restore previous versions"
-                    >
-                        History
-                    </LemonButton>
                 </div>
             )}
         </div>

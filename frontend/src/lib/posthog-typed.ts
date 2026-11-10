@@ -645,6 +645,9 @@ interface EventSchemas {
     '@@d3l9r': Record<string, any>
     'Daisy Cole': Record<string, any>
     'Dario Renner': Record<string, any>
+    'dashboard activity summary viewed': {
+        dashboard_id?: number
+    }
     'dashboard analyzed': Record<string, any>
     'dashboard created': Record<string, any>
     'dashboard created during onboarding': Record<string, any>
@@ -3212,16 +3215,6 @@ interface EventSchemas {
     'renewal pipeline closed won': Record<string, any>
     'renewal pipeline onboarding': Record<string, any>
     'renewal pipeline onboarding complete': Record<string, any>
-    'replay vision analysis nudge dismissed': {
-        analyzed_count?: number
-    }
-    'replay vision analysis nudge shown': {
-        analyzed_count?: number
-    }
-    'replay vision analysis nudge submitted': {
-        analyzed_count?: number
-        goal_length?: number
-    }
     'replayer error swallowed': Record<string, any>
     'report ingestion third party plugin installed': Record<string, any>
     'resource access level updated': Record<string, any>

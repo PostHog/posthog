@@ -16,6 +16,7 @@ import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyDefinition,
+    PropertyFilterRow,
     PropertyFilterValue,
     PropertyGroupFilter,
     PropertyOperator,
@@ -26,7 +27,7 @@ export interface PropertyFilterBaseProps {
 }
 
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
-    propertyFilters?: AnyPropertyFilter[] | null
+    propertyFilters?: PropertyFilterRow[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
     sendAllKeyUpdates?: boolean
 }
@@ -38,7 +39,7 @@ export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
-    filters: AnyPropertyFilter[]
+    filters: PropertyFilterRow[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
     filterIndex: number
     eventNames?: string[]
@@ -52,7 +53,7 @@ export interface PropertyFilterInternalProps {
     index: number
     onComplete: () => void
     disablePopover: boolean
-    filters: AnyPropertyFilter[]
+    filters: PropertyFilterRow[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
     editable?: boolean
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
@@ -78,12 +79,6 @@ export interface PropertyFilterInternalProps {
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
-    /**
-     * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
-     * (the default) renders a button. Only has an effect on the rebuild menu
-     * (`TAXONOMIC_FILTER_MENU_REBUILD`).
-     */
-    triggerVariant?: 'button' | 'input'
     /**
      * Statically known value suggestions per property key, replacing API-fetched ones.
      * Return an empty array to disable suggestions for a key, or null to fall back

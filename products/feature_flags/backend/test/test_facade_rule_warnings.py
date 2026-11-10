@@ -13,7 +13,10 @@ from products.feature_flags.backend.facade.config_validation import (
     Predicate,
     RolloutMissPolicy,
     ValidatedConfig,
+    ValidatedHoldout,
     ValidatedRule,
+    ValidatedVariant,
+    canonical_value,
 )
 from products.feature_flags.backend.facade.rule_warnings import (
     ConfigReview,
@@ -44,14 +47,16 @@ PLAN_SET_NEGATED = Predicate(key="plan", operator="is_set", value="null", negati
 COUNTRY_NOT_SET = Predicate(key="country", operator="is_not_set", value="null", negation=False)
 
 
-def targeted(rule_id: str, value: bool = True, *predicates: Predicate) -> ValidatedRule:
-    return ValidatedRule(id=rule_id, rule_type="targeted_release", predicates=frozenset(predicates), value=value)
+def targeted(rule_id: str, value: Any = True, *predicates: Predicate) -> ValidatedRule:
+    return ValidatedRule(
+        id=rule_id, rule_type="targeted_release", predicates=frozenset(predicates), value=canonical_value(value)
+    )
 
 
 def rollout(
     rule_id: str,
     percentage: int | float | str,
-    value: bool = True,
+    value: Any = True,
     *predicates: Predicate,
     seed: str = SEED,
     miss: RolloutMissPolicy = "continue",
@@ -60,15 +65,46 @@ def rollout(
         id=rule_id,
         rule_type="percentage_rollout",
         predicates=frozenset(predicates),
-        value=value,
+        value=canonical_value(value),
         rollout_percentage=Decimal(str(percentage)),
         on_rollout_miss=miss,
         seed=seed,
     )
 
 
-def cfg(*rules: ValidatedRule, default: bool | None = False) -> ValidatedConfig:
-    return ValidatedConfig(default_value=default, rules=rules)
+def split(
+    rule_id: str,
+    percentage: int | float | str = 100,
+    *predicates: Predicate,
+    values: tuple[Any, ...] = ("blue", "green"),
+    seed: str = SEED,
+    miss: RolloutMissPolicy = "continue",
+    paused: bool = False,
+    holdout: int | None = None,
+    weights: tuple[int, ...] | None = None,
+) -> ValidatedRule:
+    shares: tuple[Decimal | int, ...] = weights or (Decimal(100) / len(values),) * len(values)
+    return ValidatedRule(
+        id=rule_id,
+        rule_type="experiment",
+        predicates=frozenset(predicates),
+        value=None,
+        rollout_percentage=Decimal(str(percentage)),
+        on_rollout_miss=miss,
+        seed=seed,
+        paused=paused,
+        variants=tuple(
+            ValidatedVariant(key=f"arm_{index}", weight=Decimal(weight), value=canonical_value(value))
+            for index, (value, weight) in enumerate(zip(values, shares))
+        ),
+        holdout=None
+        if holdout is None
+        else ValidatedHoldout(exclusion_percentage=Decimal(holdout), seed=f"{seed}-holdout"),
+    )
+
+
+def cfg(*rules: ValidatedRule, default: Any = False) -> ValidatedConfig:
+    return ValidatedConfig(default_value=None if default is None else canonical_value(default), rules=rules)
 
 
 def codes(warnings: tuple[ManagementWarning, ...]) -> list[tuple[str, str | None]]:
@@ -280,6 +316,77 @@ class TestConfigWarnings:
         assert config_warnings(config) == ()
 
 
+class TestExperimentRuleWarnings:
+    @parameterized.expand(
+        [
+            ("full_split_blocks_lower", cfg(split(A), targeted(B, "red")), [(UNREACHABLE, "filters.rules[1]")]),
+            (
+                "paused_split_is_terminal",
+                cfg(split(A, 30, paused=True), targeted(B, "red")),
+                [(UNREACHABLE, "filters.rules[1]")],
+            ),
+            (
+                "holdout_is_terminal",
+                cfg(split(A, holdout=10), targeted(B, "red")),
+                [(UNREACHABLE, "filters.rules[1]")],
+            ),
+            (
+                "return_default_miss_is_terminal",
+                cfg(split(A, 30, miss="return_default"), targeted(B, "red")),
+                [(UNREACHABLE, "filters.rules[1]")],
+            ),
+            ("partial_split_continues_to_a_different_value", cfg(split(A, 30), targeted(B, "red")), []),
+            (
+                "partial_split_continues_to_a_variant_value",
+                cfg(split(A, 30), targeted(B, "green")),
+                [(EXTENDS, "filters.rules[1]")],
+            ),
+            ("paused_split_has_no_rollout_to_extend", cfg(split(A, 30, PRO, paused=True), targeted(B, "green")), []),
+            (
+                "zero_weight_variant_serves_nothing",
+                cfg(split(A, 30, weights=(100, 0)), targeted(B, "green")),
+                [],
+            ),
+            (
+                "partial_rollout_continues_to_a_split_serving_its_value",
+                cfg(rollout(A, 30, "green", seed=OTHER_SEED), split(B)),
+                [(EXTENDS, "filters.rules[1]")],
+            ),
+            ("narrower_split_is_inconclusive", cfg(split(A, 100, PRO), targeted(B, "red")), []),
+            (
+                # The rollout above takes the same hash share, so the split enrolls nobody new.
+                "same_seed_rollout_above_leaves_the_split_nobody",
+                cfg(rollout(A, 40, "red"), split(B, 40, values=("red", "blue")), targeted(C, "red")),
+                [(EXTENDS, "filters.rules[2]")],
+            ),
+        ]
+    )
+    def test_experiment_rules_take_part_in_the_walk(
+        self, _name: str, config: ValidatedConfig, expected: list[tuple[str, str]]
+    ) -> None:
+        assert codes(config_warnings(config)) == expected
+
+    def test_variant_values_are_compared_like_rule_values(self) -> None:
+        current = cfg(split(A, values=("red", "red")), targeted(B, "green"))
+        proposed = cfg(targeted(B, "green"), split(A, values=("red", "red")))
+        assert codes(reorder_warnings(current, proposed)) == [(REORDER, "filters.rules[0]")]
+        # Equal-valued arms serve one value, so swapping them with an equal targeted rule changes nothing.
+        current = cfg(split(A, values=("red", "red")), targeted(B, "red"))
+        proposed = cfg(targeted(B, "red"), split(A, values=("red", "red")))
+        assert reorder_warnings(current, proposed) == ()
+
+    @parameterized.expand(
+        [
+            # Only the held-out share gets the default, so only it changes value.
+            ("holdout_serves_the_default", split(A, values=("red", "red"), holdout=10), targeted(B, "red")),
+            # Only the second arm differs from the targeted rule, and the split enrolls half.
+            ("later_arm_of_a_partial_split", split(A, 50, values=("green", "red")), targeted(B, "green")),
+        ]
+    )
+    def test_swapping_reaches_part_of_a_split(self, _name: str, upper: ValidatedRule, lower: ValidatedRule) -> None:
+        assert codes(reorder_warnings(cfg(upper, lower), cfg(lower, upper))) == [(REORDER, "filters.rules[0]")]
+
+
 class TestReorderWarnings:
     @parameterized.expand(
         [
@@ -465,6 +572,32 @@ class TestReviewConfig:
             True,
             True,
         ]
+
+    @parameterized.expand(
+        [
+            ("string_same", "string", "compact", "compact", True),
+            ("string_different", "string", "compact", "wide", False),
+            ("number_integral_float", "number", 2, 2.0, True),
+            ("number_different", "number", 2, 2.5, False),
+            ("object_key_order", "object", {"a": 1, "b": [True]}, {"b": [True], "a": 1.0}, True),
+            ("object_true_is_not_one", "object", {"a": True}, {"a": 1}, False),
+        ]
+    )
+    def test_typed_values_are_compared_as_json(
+        self, _name: str, return_type: str, upper: Any, lower: Any, same_value: bool
+    ) -> None:
+        document = {**deepcopy(ROLLOUT_DOCUMENT), "return_type": return_type, "default_value": None}
+        document["rules"] = document["rules"][:2]
+        document["rules"][0]["value"] = upper
+        document["rules"][1]["value"] = lower
+        assert codes(review_config(document, limits=LIMITS).warnings) == (
+            [(EXTENDS, "filters.rules[1]")] if same_value else []
+        )
+        reordered = {**document, "rules": document["rules"][::-1]}
+        current = review_config(document, limits=LIMITS).config
+        assert (
+            REORDER in [code for code, _ in codes(review_config(reordered, limits=LIMITS, current=current).warnings)]
+        ) != same_value
 
     def test_invalid_candidate_raises_before_any_warning(self) -> None:
         with pytest.raises(ConfigValidationError):

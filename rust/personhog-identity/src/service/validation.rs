@@ -2,6 +2,8 @@ use tonic::Status;
 
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
+use crate::lifecycle::validation::is_team_id_valid;
+
 /// Request-shape limits, sourced from service configuration.
 #[derive(Debug, Clone)]
 pub struct RequestLimits {
@@ -36,7 +38,7 @@ pub(crate) fn rejected(reason: &'static str, message: impl Into<String>) -> Stat
 /// another tenant's rows.
 #[allow(clippy::result_large_err)]
 pub fn validate_team_id(team_id: i64) -> Result<(), Status> {
-    if team_id <= 0 || team_id > i32::MAX as i64 {
+    if !is_team_id_valid(team_id) {
         return Err(rejected(
             "team_id",
             "team_id must be a positive 32-bit integer",
@@ -61,10 +63,7 @@ pub fn validate_entry(
     limits: &RequestLimits,
     entry: &GetOrCreatePersonEntry,
 ) -> Result<(), Status> {
-    // The persons DB stores team_id as int4 and the storage layer narrows
-    // with `as i32` — an unchecked value above i32::MAX would wrap and read
-    // or write another tenant's rows.
-    if entry.team_id <= 0 || entry.team_id > i32::MAX as i64 {
+    if !is_team_id_valid(entry.team_id) {
         return Err(rejected(
             "team_id",
             "team_id must be a positive 32-bit integer",
