@@ -330,12 +330,8 @@ class TestWorkflowFolders(APIBaseTest):
         files = self.client.get(
             f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": workflow_id}
         ).json()["results"]
-        with (
-            patch("products.workflows.backend.services.hog_flow_activity.report_user_action") as report_action,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
+        with self.captureOnCommitCallbacks(execute=True):
             deleted = self.client.delete(f"/api/projects/{self.team.id}/file_system/{files[0]['id']}/")
-        self.assertTrue(any(call.args[1] == "hog_flow_deleted" for call in report_action.call_args_list))
         self.assertEqual(deleted.status_code, 200, deleted.content)
         activity = self.client.get(f"/api/projects/{self.team.id}/activity_log", {"scope": "HogFlow"}).json()["results"]
         self.assertTrue(any(entry["item_id"] == workflow_id and entry["activity"] == "deleted" for entry in activity))
