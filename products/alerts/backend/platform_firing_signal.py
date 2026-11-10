@@ -6,6 +6,7 @@ emits the signal after the record (`prepare_platform_firing_signals`), through t
 own gates, cap and payload.
 """
 
+import hashlib
 from dataclasses import replace
 from datetime import timedelta
 from functools import partial
@@ -32,10 +33,16 @@ from products.alerts.backend.platform_firing_signal_detail import (
     FIRING_SIGNAL_REQUESTED_KEY,
     FiringSignalRequest,
 )
-from products.alerts.backend.platform_insight_alert import insight_of
+from products.alerts.backend.platform_insight_alert import (
+    alert_from_platform,
+    evaluation_alert,
+    insight_of,
+    legacy_alert,
+)
 from products.alerts_platform.backend.facade import api as platform
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    GroupOutcome,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationView,
     SourceBatchEvaluation,
@@ -53,8 +60,9 @@ _INTERRUPTION_SLOT_WAIT_SECONDS: Final = 10.0
 
 
 def with_firing_signal(check: PlatformAlertCheckInput, evaluation: SourceBatchEvaluation) -> SourceBatchEvaluation:
-    """The evaluation, with a firing that starts an episode the agent never investigates marked for
-    its inbox signal. Only an owned check, because the insight stack signals for the rest.
+    """The evaluation, with each firing that starts an episode the agent never investigates marked for
+    its inbox signal. A breakdown alert marks every value whose firing starts its own episode. Only an
+    owned check, because the insight stack signals for the rest.
 
     Reads no history, so a slow read can never hold back the check. A firing after errors is marked
     as such, and the emit activity decides whether the errors interrupted an earlier firing.
@@ -62,39 +70,40 @@ def with_firing_signal(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     if not check.owned_by_platform or len(evaluation.outcomes) != 1:
         return evaluation
     outcome = evaluation.outcomes[0]
-    if outcome.skipped or len(outcome.groups) != 1:
+    if outcome.skipped:
         return evaluation
-    group = outcome.groups[0]
-    episode = group.firing_episode
-    if group.new_state != PlatformAlertState.FIRING.value or episode is None or episode.ended:
+    starting = {group.grouping_key for group in outcome.groups if _starts_episode(check, group)}
+    if not starting:
         return evaluation
-    if group.muted_notification:
-        # The insight stack runs no check while an alert is snoozed, so a muted firing files nothing.
-        return evaluation
-    previous_state = check.instance().state
-    if previous_state == PlatformAlertState.FIRING.value:
-        return evaluation
-    if _investigated(check.team_id, check.legacy_configuration_id):
+    if len(outcome.groups) == 1 and _agent_investigates(evaluation_alert(check)):
         return evaluation
     if not signals_every_firing(check.team_id):
         return evaluation
-    detail = {**group.source_detail, FIRING_SIGNAL_REQUESTED_KEY: str(check.destination_alert_id)}
-    if previous_state == PlatformAlertState.ERRORED.value:
-        detail[FIRING_SIGNAL_AFTER_ERRORS_KEY] = True
-    group = replace(group, source_detail=detail)
-    return replace(evaluation, outcomes=(replace(outcome, groups=(group,)),))
-
-
-def _investigated(team_id: int, legacy_configuration_id: UUID | None) -> bool:
-    """Whether the investigation agent decides this alert's firings. It runs only for an alert that
-    still has an insight stack row, so an alert with none is never investigated."""
-    if legacy_configuration_id is None:
-        return False
-    alert = (
-        AlertConfiguration.objects.filter(team_id=team_id, id=legacy_configuration_id)
-        .only("id", "investigation_agent_enabled", "detector_config")
-        .first()
+    groups = tuple(
+        _requesting_signal(check, group) if group.grouping_key in starting else group for group in outcome.groups
     )
+    return replace(evaluation, outcomes=(replace(outcome, groups=groups),))
+
+
+def _starts_episode(check: PlatformAlertCheckInput, group: GroupOutcome) -> bool:
+    episode = group.firing_episode
+    if group.new_state != PlatformAlertState.FIRING.value or episode is None or episode.ended:
+        return False
+    # The insight stack runs no check while an alert is snoozed, so a muted firing files nothing.
+    return not group.muted_notification and check.instance(group.grouping_key).state != PlatformAlertState.FIRING.value
+
+
+def _requesting_signal(check: PlatformAlertCheckInput, group: GroupOutcome) -> GroupOutcome:
+    detail = {**group.source_detail, FIRING_SIGNAL_REQUESTED_KEY: str(check.destination_alert_id)}
+    if check.instance(group.grouping_key).state == PlatformAlertState.ERRORED.value:
+        detail[FIRING_SIGNAL_AFTER_ERRORS_KEY] = True
+    return replace(group, source_detail=detail)
+
+
+def _agent_investigates(alert: AlertConfiguration | None) -> bool:
+    """Whether the investigation agent decides this alert's firings, and files their signal after its
+    verdict. The alert is the one the check evaluates: its insight stack row, or one built from the
+    platform alert. The agent takes only a check with one group (`with_investigation`)."""
     return alert is not None and investigates(alert, firing=True)
 
 
@@ -147,10 +156,9 @@ def prepare_platform_firing_signals(requests: tuple[FiringSignalRequest, ...]) -
             found = _firing_alert(request)
             if found is None:
                 continue
-            alert, legacy_configuration_id = found
+            alert, configuration = found
             firing = FiringStart(
-                # The platform's id for the episode, so a retried emission keeps the same source id.
-                check_id=f"{request.configuration_id}:{request.episode_started_at.isoformat()}",
+                check_id=_episode_id(request),
                 started_at=request.episode_started_at,
                 triggered_dates=request.triggered_dates,
             )
@@ -158,7 +166,8 @@ def prepare_platform_firing_signals(requests: tuple[FiringSignalRequest, ...]) -
                 alert,
                 firing,
                 breaches=list(request.breaches),
-                investigated=_investigated(request.team_id, legacy_configuration_id),
+                investigated=request.investigable
+                and _agent_investigates(_evaluated_alert(request.team_id, configuration)),
                 resumes_interrupted_episode=partial(_resumes_after_errors, request),
             )
         except Exception:
@@ -169,8 +178,27 @@ def prepare_platform_firing_signals(requests: tuple[FiringSignalRequest, ...]) -
     return signals
 
 
-def _firing_alert(request: FiringSignalRequest) -> tuple[FiringAlert, UUID | None] | None:
-    """The alert as the gates read it, and its insight stack row's id, or None when it no longer signals."""
+def _episode_id(request: FiringSignalRequest) -> str:
+    """The platform's id for the episode, so a retried emission keeps the same source id. A breakdown
+    value's adds a digest of its key, so each value's episode gets its own id at a bounded length."""
+    episode = request.episode_started_at.isoformat()
+    if not request.grouping_key:
+        return f"{request.configuration_id}:{episode}"
+    digest = hashlib.sha256(request.grouping_key.encode("utf-8", "surrogatepass")).hexdigest()[:16]
+    return f"{request.configuration_id}:{digest}:{episode}"
+
+
+def _evaluated_alert(team_id: int, configuration: PlatformAlertConfigurationView) -> AlertConfiguration | None:
+    """The alert a check of `configuration` evaluates, as `evaluation_alert` reads it for a check."""
+    if configuration.legacy_configuration_id is None:
+        return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
+    return legacy_alert(team_id=team_id, alert_id=configuration.legacy_configuration_id)
+
+
+def _firing_alert(
+    request: FiringSignalRequest,
+) -> tuple[FiringAlert, PlatformAlertConfigurationView] | None:
+    """The alert as the gates read it, and its configuration, or None when it no longer signals."""
     configuration = platform.get_configuration(
         team_id=request.team_id,
         source_kinds=[SourceKind.INSIGHT.value],
@@ -191,17 +219,18 @@ def _firing_alert(request: FiringSignalRequest) -> tuple[FiringAlert, UUID | Non
         insight=insight,
         detector_config=condition.get("detector"),
     )
-    return alert, configuration.legacy_configuration_id
+    return alert, configuration
 
 
 def _records_firing(configuration: PlatformAlertConfigurationView, request: FiringSignalRequest) -> bool:
-    """Whether the alert holds the firing the request names, unmuted. A record skips a check whose
-    alert was snoozed or edited while it ran, and its request must then file nothing."""
+    """Whether the alert's instance for the request's group holds the firing it names, unmuted. A record
+    skips a check whose alert was snoozed or edited while it ran, and its request must then file nothing."""
     now = timezone.now()
     if configuration.snooze_until is not None and configuration.snooze_until > now:
         return False
     return any(
-        instance.state == PlatformAlertState.FIRING.value
+        instance.grouping_key == request.grouping_key
+        and instance.state == PlatformAlertState.FIRING.value
         and instance.firing_started_at == request.episode_started_at
         and (instance.snooze_until is None or instance.snooze_until <= now)
         for instance in configuration.alerts
