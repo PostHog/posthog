@@ -221,7 +221,7 @@ class OrganizationPersonalApiKeys:
         user_record = RECORD_TYPES["user"]
         blocks: list[Notice | Table] = [
             Table(
-                columns=("Key", "Value", "Owner", "Works in", "Last used"),
+                columns=("Key", "Value", "Owner", "Works in", "Last used", "Last rolled"),
                 rows=tuple(
                     Row(
                         cells=(
@@ -232,6 +232,13 @@ class OrganizationPersonalApiKeys:
                             Cell(
                                 text=key.last_used_at.strftime("%b %-d, %Y") if key.last_used_at else "Never",
                                 muted=key.last_used_at is None,
+                            ),
+                            # The time of day is shown so staff can confirm a roll they ran a moment ago.
+                            Cell(
+                                text=key.last_rolled_at.strftime("%b %-d, %Y, %H:%M UTC")
+                                if key.last_rolled_at
+                                else "Never",
+                                muted=key.last_rolled_at is None,
                             ),
                         )
                     )
