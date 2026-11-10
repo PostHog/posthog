@@ -84,7 +84,7 @@ export interface MetricCardProps {
 /** @deprecated Use the composable `Metric` from `@posthog/quill-components/metric`. */
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
     return (
-        <ChartErrorBoundary onError={props.onError}>
+        <ChartErrorBoundary onError={props.onError} resetKey={props.data ?? props.value}>
             <MetricCardInner {...props} />
         </ChartErrorBoundary>
     )

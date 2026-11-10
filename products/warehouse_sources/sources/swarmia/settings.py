@@ -3,12 +3,15 @@ from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
-# Swarmia's Export API returns time-windowed aggregate reports (CSV), not paginated entity lists.
-# Each endpoint is synced by iterating fixed, complete windows (ISO weeks, calendar months, or
-# years) so a row's identity — its window bounds plus its grouping columns — is stable across runs.
+# Swarmia's report APIs (v0 Export API as CSV, v1 built-in reports as JSON) return time-windowed
+# aggregates, not paginated entity lists. Each report is synced by iterating fixed, complete windows
+# (ISO weeks, calendar months, or years) so a row's identity — its window bounds plus its grouping
+# columns — is stable across runs. `teams` is the one plain lookup list, fetched in one request.
 
-WindowStyle = Literal["week", "month", "year"]
-TimeframeParamStyle = Literal["date_range", "month", "year"]
+WindowStyle = Literal["week", "month", "year", "none"]
+TimeframeParamStyle = Literal["date_range", "timeframe", "month", "year", "none"]
+ApiVersion = Literal["v0", "v1"]
+ResponseFormat = Literal["csv", "json"]
 
 _END_DATE_INCREMENTAL: list[IncrementalField] = [
     {
@@ -25,9 +28,16 @@ class SwarmiaEndpointConfig:
     name: str
     path: str
     window: WindowStyle
-    # How the window is passed to the API: startDate/endDate (YYYY-MM-DD), month=YYYY-MM, or year=YYYY.
+    # How the window is passed to the API: startDate/endDate (YYYY-MM-DD), timeframe.start/timeframe.end
+    # (v1 reports), month=YYYY-MM, or year=YYYY.
     timeframe_param: TimeframeParamStyle
     primary_keys: list[str]
+    api_version: ApiVersion = "v0"
+    response_format: ResponseFormat = "csv"
+    # v1 built-in reports require a revision; pinning one keeps the column set stable.
+    revision: Optional[str] = None
+    # Key of the row list in a JSON response.
+    rows_key: str = "rows"
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # How far back the first sync (or a full refresh) reaches, in days.
     default_lookback_days: int = 365
@@ -106,6 +116,44 @@ SWARMIA_ENDPOINTS: dict[str, SwarmiaEndpointConfig] = {
         primary_keys=["month", "author_id", "issue_key"],
         default_lookback_days=730,
         description="Effort report (FTE per author per issue), one row per author per issue per complete calendar month. Full refresh only: Swarmia regenerates FTE data for past months",
+    ),
+    "teams": SwarmiaEndpointConfig(
+        name="teams",
+        path="/teams",
+        window="none",
+        timeframe_param="none",
+        primary_keys=["id"],
+        response_format="json",
+        rows_key="teams",
+        description="Current teams with their parent team, external IDs, Jira and Linear mappings, admins, and members. Needs a token with the Teams scope",
+    ),
+    "code_metrics": SwarmiaEndpointConfig(
+        name="code_metrics",
+        path="/reports/metrics/code",
+        window="week",
+        timeframe_param="timeframe",
+        primary_keys=["start_date", "end_date", "team_id"],
+        api_version="v1",
+        response_format="json",
+        revision="2",
+        incremental_fields=_END_DATE_INCREMENTAL,
+        partition_key="start_date",
+        default_incremental_lookback_seconds=14 * 24 * 60 * 60,
+        description="Per-team code metrics from the v1 reports API (cycle time, review rate, merged PRs, batch size, FTE, merged PRs per FTE), one row per team per complete ISO week",
+    ),
+    "ai_adoption": SwarmiaEndpointConfig(
+        name="ai_adoption",
+        path="/reports/ai/adoption/users-and-licenses",
+        window="week",
+        timeframe_param="timeframe",
+        primary_keys=["start_date", "end_date", "team_id"],
+        api_version="v1",
+        response_format="json",
+        revision="1",
+        incremental_fields=_END_DATE_INCREMENTAL,
+        partition_key="start_date",
+        default_incremental_lookback_seconds=14 * 24 * 60 * 60,
+        description="Per-team AI coding assistant adoption (licensed users, active users, enabled rate), one row per team per complete ISO week",
     ),
 }
 

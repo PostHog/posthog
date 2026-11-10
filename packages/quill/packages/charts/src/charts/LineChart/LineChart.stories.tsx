@@ -335,6 +335,19 @@ export const LogScale: Story = {
     },
 }
 
+/** A log axis cannot place zero or a negative value, so the line breaks there. */
+export const LogScaleWithZero: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'lat', label: 'Latency', color: '', data: [1, 10, 100, 0, 100, 10, 1] }]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={{ ...BASIC, yScaleType: 'log' }} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 /** Two series with very different magnitudes plotted against independent y-axes. */
 export const DualYAxis: Story = {
     render: () => {
