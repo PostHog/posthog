@@ -134,6 +134,7 @@ jobs:
                     - { package: common, lane: parallel, shard: 1, shard_count: 1 }
                     - { package: ingestion-common, lane: parallel, shard: 1, shard_count: 1 }
                     - { package: replay-storage, lane: parallel, shard: 1, shard_count: 1 }
+                    - { package: hog-engine, lane: parallel, shard: 1, shard_count: 1 }
                     - { package: ingestion, lane: parallel, shard: 1, shard_count: 3 }
                     - { package: ingestion, lane: parallel, shard: 2, shard_count: 3 }
                     - { package: ingestion, lane: parallel, shard: 3, shard_count: 3 }
@@ -141,7 +142,6 @@ jobs:
                     - { package: ingestion, lane: serial, shard: 2, shard_count: 2 }
                     - { package: ingestion, lane: postgres-parity, shard: 1, shard_count: 1 }
                     - { package: ai-research, lane: parallel, shard: 1, shard_count: 1 }
-                    - { package: ai-research, lane: serial, shard: 1, shard_count: 1 }
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -210,7 +210,7 @@ jobs:
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/ingestion/node/junit
                   JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.package }}-${{ matrix.lane }}-${{ matrix.shard }}.xml
                   HOG_BYTECODE_CACHE_REQUIRED: 'true'
-                  HOG_BYTECODE_CACHE_DIR: ${{ github.workspace }}/ingestion/node/packages/ingestion/tests/fixtures/hog-bytecode
+                  HOG_BYTECODE_CACHE_DIR: ${{ github.workspace }}/${{ matrix.package == 'hog-engine' && 'nodejs/packages/hog-engine' || 'ingestion/node/packages/ingestion' }}/tests/fixtures/hog-bytecode
               run: |
                   if [ "${{ matrix.package }}" = "common" ]; then
                       pnpm --filter=@posthog/node-common test
@@ -218,6 +218,8 @@ jobs:
                       pnpm --filter=@posthog/ingestion-common test
                   elif [ "${{ matrix.package }}" = "replay-storage" ]; then
                       pnpm --filter=@posthog/replay-storage test
+                  elif [ "${{ matrix.package }}" = "hog-engine" ]; then
+                      pnpm --filter=@posthog/hog-engine test
                   elif [ "${{ matrix.package }}" = "ai-research" ]; then
                       pnpm --filter=@posthog/ingestion-ai-research test:${{ matrix.lane }}
                   else
