@@ -819,13 +819,6 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
-    # TODO: actions presentation wave — the moved ActionViewSet is still a ModelViewSet over the Action model
-    # (tags, object access levels, folder placement), and its reference counts read cdp and cohorts rows
-    # directly. Thin it to parse -> facade -> serialize and delete each entry.
-    # backend:contract-check stays off until this list is empty.
-    "products.actions.backend.presentation.views.action -> products.actions.backend.models.action",
-    "products.actions.backend.presentation.views.action -> products.cdp.backend.models.hog_functions.hog_function",
-    "products.actions.backend.presentation.views.action -> products.cohorts.backend.models.cohort",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
