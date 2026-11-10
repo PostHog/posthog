@@ -1165,6 +1165,10 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"repository": "Signal report tasks resolve their repository server-side."}
             )
+        # Task keeps a plain id for this connection, and create and update set the fields by name.
+        if "repository_integration" in attrs:
+            repository_integration = attrs.pop("repository_integration")
+            attrs["repository_integration_id"] = repository_integration.id if repository_integration else None
         return attrs
 
     def _validate_gitlab_task(self, attrs: dict[str, Any], repositories: list[str]) -> None:
