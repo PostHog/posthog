@@ -28,6 +28,7 @@ from products.batch_exports.backend.temporal.monitoring import (
 )
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     create_clickhouse_tables_and_views,
+    drop_clickhouse_kafka_tables,
     truncate_events,
 )
 from products.batch_exports.backend.tests.temporal.utils.models import (
@@ -46,6 +47,8 @@ GENERATE_TEST_DATA_START = GENERATE_TEST_DATA_END - dt.timedelta(hours=1)
 @pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="module")
 async def clickhouse_db_setup(clickhouse_client):
     await create_clickhouse_tables_and_views(clickhouse_client)
+    yield
+    await drop_clickhouse_kafka_tables(clickhouse_client)
 
 
 @pytest_asyncio.fixture(autouse=True)
