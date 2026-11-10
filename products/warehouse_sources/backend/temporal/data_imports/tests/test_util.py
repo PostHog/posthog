@@ -18,6 +18,7 @@ import psycopg
 import botocore.exceptions
 import deltalake.exceptions
 from parameterized import parameterized
+from s3fs.errors import translate_boto_error
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
     S3OperationError,
     _is_transient_s3_connection_error,
+    _rm_with_per_object_fallback,
     prepare_s3_files_for_querying,
     retry_internal_db_operation,
     with_internal_db_retries,
@@ -595,7 +597,7 @@ class TestDoubleBufferedQueryFolders:
 
         assert folder == _SLOT_A
         assert self._copied(s3) == {f"{_JOB_URI}/{_SLOT_A}/p2"}
-        s3._rm.assert_awaited_once_with([f"s3://{_JOB_KEY}/{_SLOT_A}/stale"])
+        s3._rm.assert_awaited_once_with([f"s3://{_JOB_KEY}/{_SLOT_A}/stale"], recursive=False)
 
     @parameterized.expand(
         [
@@ -991,6 +993,66 @@ async def test_delete_folder_reports_once_per_call_when_every_old_folder_fails()
     assert isinstance(captured, S3OperationError)
     assert captured.__cause__ is delete_error
     assert properties == {"failed_folder_deletes": len(stale), "folder_deletes": len(stale)}
+
+
+def _bulk_delete_rejected_error() -> OSError:
+    return translate_boto_error(
+        botocore.exceptions.ClientError(
+            {"Error": {"Code": "MissingArgument", "Message": "Missing Some Required Arguments."}}, "DeleteObjects"
+        )
+    )
+
+
+@parameterized.expand(
+    [
+        ("recursive_folder", "bucket/job/my_table__query_1", True),
+        ("list_of_files", ["bucket/job/my_table__query_1/a.parquet", "bucket/job/my_table__query_1/b.parquet"], False),
+    ]
+)
+@pytest.mark.asyncio
+async def test_rm_deletes_each_object_when_the_store_rejects_delete_objects(
+    name: str, path: str | list[str], recursive: bool
+) -> None:
+    keys = ["bucket/job/my_table__query_1/a.parquet", "bucket/job/my_table__query_1/b.parquet"]
+    s3 = _fake_s3(
+        _rm=AsyncMock(side_effect=_bulk_delete_rejected_error()),
+        _find=AsyncMock(return_value=keys),
+        _rm_file=AsyncMock(),
+    )
+
+    await _rm_with_per_object_fallback(s3, path, recursive=recursive)
+
+    assert sorted(call.args[0] for call in s3._rm_file.await_args_list) == keys
+
+
+@pytest.mark.asyncio
+async def test_delete_folder_deletes_each_object_when_the_store_rejects_delete_objects() -> None:
+    # A store that requires Content-MD5 on DeleteObjects rejects every batch delete botocore sends,
+    # so without the per-object fallback no old query folder is ever removed and each later sync
+    # reports the same folders again.
+    stale = f"my_table__query_{_stale_epoch()}"
+    stale_files = [f"{_JOB_KEY}/{stale}/part-0.parquet", f"{_JOB_KEY}/{stale}/part-1.parquet"]
+    s3 = _fake_s3(
+        _ls=AsyncMock(return_value=_job_folder_listing(stale)),
+        _rm=AsyncMock(side_effect=_bulk_delete_rejected_error()),
+        _find=AsyncMock(return_value=stale_files),
+        _rm_file=AsyncMock(),
+    )
+
+    with (
+        patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+        patch(f"{_UTIL_MODULE}.capture_exception") as mock_capture_exception,
+    ):
+        await prepare_s3_files_for_querying(
+            folder_path="job",
+            table_name="my_table",
+            file_uris=[],
+            existing_queryable_folder="my_table__query_current",
+            delete_existing=True,
+        )
+
+    assert sorted(call.args[0] for call in s3._rm_file.await_args_list) == stale_files
+    mock_capture_exception.assert_not_called()
 
 
 @pytest.mark.asyncio

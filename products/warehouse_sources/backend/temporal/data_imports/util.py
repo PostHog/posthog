@@ -90,6 +90,32 @@ def _is_s3_throttling_error(error: BaseException) -> bool:
     return _s3_error_code(error) in _S3_THROTTLING_ERROR_CODES
 
 
+# botocore signs every DeleteObjects request with a CRC32 checksum header and no Content-MD5, even
+# under request_checksum_calculation="when_required", because the S3 service model marks the
+# operation as checksum-required. Some S3-compatible stores still require Content-MD5 on a batch
+# delete, so they reject each one with MissingArgument and every folder s3fs deletes stays in place.
+# DeleteObject has no checksum requirement, so on that error the keys are deleted one at a time.
+_BULK_DELETE_REJECTED_ERROR_CODES = frozenset({"MissingArgument"})
+_PER_OBJECT_DELETE_CONCURRENCY = 10
+
+
+async def _rm_with_per_object_fallback(s3: "S3FileSystem", path: str | list[str], recursive: bool = False) -> None:
+    try:
+        await s3._rm(path, recursive=recursive)
+        return
+    except OSError as e:
+        if _s3_error_code(e) not in _BULK_DELETE_REJECTED_ERROR_CODES:
+            raise
+    keys = await s3._find(path) if isinstance(path, str) else path
+    semaphore = asyncio.Semaphore(_PER_OBJECT_DELETE_CONCURRENCY)
+
+    async def delete_key(key: str) -> None:
+        async with semaphore:
+            await s3._rm_file(key)
+
+    await asyncio.gather(*(delete_key(key) for key in keys))
+
+
 class S3OperationError(Exception):
     """An operation on PostHog's own data-warehouse bucket failed for a reason a retry cannot fix.
 
@@ -434,7 +460,7 @@ async def _delete_stale_standby_files(
     while True:
         delete_attempt += 1
         try:
-            await s3._rm(stale_files)
+            await _rm_with_per_object_fallback(s3, stale_files)
             return
         except FileNotFoundError:
             # Already gone, which is the state this delete wanted.
@@ -728,7 +754,7 @@ async def prepare_s3_files_for_querying(
                     while True:
                         delete_attempt += 1
                         try:
-                            await s3._rm(file, recursive=True)
+                            await _rm_with_per_object_fallback(s3, file, recursive=True)
                             return None
                         except FileNotFoundError:
                             # The folder is already gone: another sync's cleanup pass took it, or an
