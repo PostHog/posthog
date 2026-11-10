@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import csv
+import sys
 import json
 import errno
+import signal
 import hashlib
 import subprocess
 from collections.abc import Callable
@@ -494,6 +496,56 @@ class TestCoderConfig:
         with pytest.raises(RuntimeError, match="stdout pipe was not opened"):
             coder._run_build(["coder", "start", "devbox-test-user"])
 
+    @pytest.mark.parametrize(
+        "signum, expected, terminal_closes",
+        [
+            (signal.SIGINT, KeyboardInterrupt, False),
+            (signal.SIGTERM, SystemExit, False),
+            (signal.SIGHUP, SystemExit, False),
+            (signal.SIGHUP, SystemExit, True),
+        ],
+    )
+    def test_run_build_interrupts_coder_when_hogli_is_stopped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        signum: int,
+        expected: type[BaseException],
+        terminal_closes: bool,
+    ) -> None:
+        canceled_marker = tmp_path / "canceled"
+        fake_coder = (
+            "import os, signal, sys, time\n"
+            "def cancel(*_):\n"
+            f"    os.kill(os.getppid(), {int(signum)})\n"
+            f"    open({str(canceled_marker)!r}, 'w').close()\n"
+            "    sys.exit(1)\n"
+            "signal.signal(signal.SIGINT, cancel)\n"
+            "print('ready', flush=True)\n"
+            "time.sleep(30)\n"
+        )
+        monkeypatch.setattr(coder, "_resolve_coder", lambda args: [sys.executable, "-c", fake_coder])
+        real_echo = coder.click.echo
+        terminal_closed = False
+
+        def echo_then_signal(message: object = None, **kwargs: Any) -> None:
+            nonlocal terminal_closed
+            if terminal_closed:
+                raise OSError(errno.EIO, "Input/output error")
+            real_echo(message, **kwargs)
+            if message == "ready\n":
+                terminal_closed = terminal_closes
+                os.kill(os.getpid(), signum)
+
+        monkeypatch.setattr(coder.click, "echo", echo_then_signal)
+
+        with pytest.raises(expected) as raised:
+            coder._run_build(["coder", "create", "devbox-test-user"], verbose=True)
+
+        assert canceled_marker.exists()
+        if expected is SystemExit:
+            assert raised.value.code == 128 + signum
+
 
 class TestCoderVersion:
     """Test Coder CLI version pinning and mismatch warnings."""
@@ -599,7 +651,7 @@ class TestCoderVersion:
     def test_ensure_coder_authenticated_points_at_a_terminal_without_stdin(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
+        monkeypatch.setattr(coder, "_coder_whoami", lambda: subprocess.CompletedProcess([], 1, "", ""))
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
@@ -610,10 +662,137 @@ class TestCoderVersion:
 
         monkeypatch.setattr(coder, "_run", boom)
 
+        monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+
         with pytest.raises(SystemExit):
             coder.ensure_coder_authenticated()
 
-        assert "Run `coder login https://coder.example.com` in a terminal" in capsys.readouterr().out
+        output = capsys.readouterr().out
+        assert "Run `coder login https://coder.example.com` in a terminal" in output
+        assert "CODER_SESSION_TOKEN" in output
+        assert "CODER_URL to https://coder.example.com" in output
+
+    @pytest.mark.parametrize("entrypoint", ["ensure_runtime_ready", "get_username"])
+    def test_runtime_login_failures_name_the_token_variables_without_a_terminal(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str
+    ) -> None:
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "_run", lambda args, **kwargs: subprocess.CompletedProcess(args, 1, "", ""))
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: False)
+        monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+
+        with pytest.raises(SystemExit):
+            getattr(coder, entrypoint)()
+
+        output = capsys.readouterr().out
+        assert "Run `hogli devbox:setup`." in output
+        assert "CODER_SESSION_TOKEN" in output
+        assert "CODER_URL to https://coder.example.com" in output
+
+    @pytest.mark.parametrize("entrypoint", ["ensure_coder_authenticated", "ensure_runtime_ready", "get_username"])
+    @pytest.mark.parametrize("coder_url_set", [True, False])
+    def test_env_token_login_failure_shows_the_coder_error_instead_of_a_login_prompt(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        entrypoint: str,
+        coder_url_set: bool,
+    ) -> None:
+        coder_error = "error: You are signed out or your session has expired. Please sign in again to continue."
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "expired-example-token")
+        if coder_url_set:
+            monkeypatch.setenv("CODER_URL", "https://coder.example.com")
+        else:
+            monkeypatch.delenv("CODER_URL", raising=False)
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            assert args[1] != "login", "coder login refuses to run while CODER_SESSION_TOKEN is set"
+            return subprocess.CompletedProcess(
+                args, 1, "", f"{coder_error}\nSuggestion: Try logging in using 'coder login'.\n"
+            )
+
+        monkeypatch.setattr(coder, "_run", fake_run)
+
+        with pytest.raises(SystemExit):
+            getattr(coder, entrypoint)()
+
+        output = capsys.readouterr().out
+        assert coder_error in output
+        assert "rejected" not in output
+        set_url_hint = "Set CODER_URL to https://coder.example.com"
+        assert (set_url_hint in output) is not coder_url_set
+        if not coder_url_set:
+            assert output.index(set_url_hint) < output.index(coder_error)
+        assert "unset CODER_SESSION_TOKEN to use the login stored on disk" in output
+        assert "expired-example-token" not in output
+
+    def test_unreachable_coder_is_not_blamed_on_the_env_token(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "_run", lambda args, **kwargs: subprocess.CompletedProcess(args, 1, "", ""))
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: coder._fail("Coder is unreachable."))
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "example-token")
+
+        with pytest.raises(SystemExit):
+            coder.get_username()
+
+        output = capsys.readouterr().out
+        assert "Coder is unreachable." in output
+        assert "CODER_SESSION_TOKEN" not in output
+
+    @pytest.mark.parametrize(
+        "stored_url, expect_note",
+        [
+            (None, True),
+            ("https://coder.example.com", False),
+            ("https://other.example.com", True),
+            ("https://unresponsive.example.com", True),
+        ],
+    )
+    def test_setup_notes_when_the_login_lives_only_in_the_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        stored_url: str | None,
+        expect_note: bool,
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "example-token")
+        monkeypatch.setenv("CODER_URL", "https://coder.example.com")
+        stored_session_sent_to: list[str] = []
+
+        def fake_coder(args: list[str], env: dict[str, str] | None = None, **kwargs: Any):
+            environ = os.environ if env is None else env
+            target = environ.get("CODER_URL") or stored_url
+            if target == "https://unresponsive.example.com":
+                assert kwargs.get("timeout"), "a probe without a timeout hangs setup"
+                raise subprocess.TimeoutExpired(args, float(kwargs["timeout"]))
+            if "CODER_SESSION_TOKEN" not in environ and stored_url and target != stored_url:
+                stored_session_sent_to.append(target or "")
+            logged_in = target is not None and ("CODER_SESSION_TOKEN" in environ or stored_url is not None)
+            return subprocess.CompletedProcess(args, 0 if logged_in else 1, json.dumps([{"url": target}]), "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_coder)
+
+        coder.ensure_coder_authenticated()
+
+        output = capsys.readouterr().out
+        assert "Coder login is ready." in output
+        assert ("coder login --use-token-as-session https://coder.example.com" in output) is expect_note
+        assert "example-token" not in output.replace("CODER_SESSION_TOKEN", "")
+        assert stored_session_sent_to == []
 
     @pytest.mark.parametrize("user_bin_on_path", [True, False])
     def test_ensure_coder_on_path(
@@ -4556,6 +4735,9 @@ class TestConfigSshArgs:
     @staticmethod
     def _csv_decode(field: str) -> str:
         return next(csv.reader([field]))[0]
+
+    def test_disables_coder_autostart_over_ssh(self) -> None:
+        assert "--disable-autostart" in coder._config_ssh_args(identity_agent_socket=None)
 
     def test_omits_identity_agent_when_socket_is_none(self) -> None:
         args = coder._config_ssh_args(identity_agent_socket=None)
