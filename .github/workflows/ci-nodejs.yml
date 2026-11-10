@@ -297,7 +297,9 @@ jobs:
               env:
                   NODE_FULL: ${{ steps.filter.outputs.node_full }}
                   NODE_SRC: ${{ steps.filter.outputs.node_src }}
-                  NODE_SRC_FILES: ${{ steps.filter.outputs.node_src_files }}
+                  # Only when the list can narrow the run: a tree-wide change lists more paths
+                  # than one environment variable may hold, and bash never starts.
+                  NODE_SRC_FILES: ${{ steps.filter.outputs.node_full != 'true' && steps.filter.outputs.node_src_files || '' }}
                   # Through env, not inline: a branch name is author-controlled.
                   HEAD_REF: ${{ github.head_ref }}
               run: |

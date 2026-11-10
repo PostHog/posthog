@@ -168,6 +168,18 @@ jobs:
             - name: Check for breaking changes
               if: ${{ !cancelled() }}
               run: |
+                  # A baseline from before ingestion's protos moved out of proto/ still holds
+                  # them there; compare each package against where it was. Remove once master
+                  # carries ingestion/proto.
+                  if [ -d ingestion/proto ] && [ ! -d .proto-baseline/ingestion/proto ]; then
+                      mkdir -p .proto-baseline/ingestion/proto
+                      for pkg in ingestion/proto/*/; do
+                          name=$(basename "$pkg")
+                          if [ -d ".proto-baseline/proto/$name" ]; then
+                              mv ".proto-baseline/proto/$name" .proto-baseline/ingestion/proto/
+                          fi
+                      done
+                  fi
                   buf breaking proto/ --against .proto-baseline/proto/
                   if [ -d .proto-baseline/ingestion/proto ]; then
                       buf breaking ingestion/proto/ --against .proto-baseline/ingestion/proto/
