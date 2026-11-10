@@ -17,13 +17,13 @@ from posthog.hogql.test.utils import pretty_print_response_in_tests
 
 from posthog.uuidt import UUIDT
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 
 
 def _create_action_with_property(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
-    action = Action.objects.create(
+    action = create_action(
         team=team,
         name=name,
         steps_json=[
@@ -76,7 +76,7 @@ class TestAction(BaseTest, QueryMatchingTest):
         random_uuid = self._create_random_events()
         action = _create_action(team=self.team, name=random_uuid)
         response = execute_hogql_query(
-            f"SELECT event FROM events WHERE matchesAction({action.pk})",
+            f"SELECT event FROM events WHERE matchesAction({action.id})",
             self.team,
         )
         assert response.results is not None

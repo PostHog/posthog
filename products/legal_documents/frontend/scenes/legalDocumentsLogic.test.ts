@@ -2,32 +2,21 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
-import { defaultPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { BillingPlan, BillingType, StartupProgramLabel } from '~/types'
+import { AvailableFeature, BillingType, StartupProgramLabel } from '~/types'
 
 import { legalDocumentsLogic } from './legalDocumentsLogic'
 
-function billingFor(startupProgramLabel: StartupProgramLabel | null, boostSubscribed: boolean): BillingType {
+function billingFor(startupProgramLabel: StartupProgramLabel | null, onBoostTrial: boolean): BillingType {
     return {
         ...billingJson,
         startup_program_label: startupProgramLabel,
-        products: billingJson.products.map((product) =>
-            product.type === 'platform_and_support'
-                ? {
-                      ...product,
-                      addons: defaultPlatformAddons.map((addon) => ({
-                          ...addon,
-                          subscribed: boostSubscribed && addon.type === BillingPlan.Boost,
-                      })),
-                  }
-                : product
-        ),
+        trial: onBoostTrial ? { type: 'autosubscribe', status: 'active', target: 'boost', expires_at: '' } : undefined,
     }
 }
 
@@ -44,15 +33,30 @@ describe('legalDocumentsLogic', () => {
     })
 
     it.each([
-        ['Startup', StartupProgramLabel.Startup, true, false, 'startup_program'],
-        ['Startup while impersonated', StartupProgramLabel.Startup, true, true, null],
-        ['Startup while impersonated but no add-on', StartupProgramLabel.Startup, false, true, 'no_qualifying_addon'],
-        ['YC', StartupProgramLabel.YC, true, false, null],
-        ['no program', null, true, false, null],
-        ['no program without an add-on', null, false, false, 'no_qualifying_addon'],
-    ])('resolves baaBlockReason for a %s org', async (_name, label, boostSubscribed, impersonated, expected) => {
-        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_impersonated: impersonated })
-        billingLogic.actions.loadBillingSuccess(billingFor(label, boostSubscribed))
+        ['Startup', StartupProgramLabel.Startup, true, false, false, 'startup_program'],
+        ['Startup while impersonated', StartupProgramLabel.Startup, true, false, true, null],
+        [
+            'Startup while impersonated but not entitled',
+            StartupProgramLabel.Startup,
+            false,
+            false,
+            true,
+            'no_qualifying_addon',
+        ],
+        ['YC', StartupProgramLabel.YC, true, false, false, null],
+        ['no program', null, true, false, false, null],
+        ['no program without the entitlement', null, false, false, false, 'no_qualifying_addon'],
+        ['add-on trial', null, true, true, false, 'no_qualifying_addon'],
+    ])('resolves baaBlockReason for a %s org', async (_name, label, entitled, onBoostTrial, impersonated, expected) => {
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            is_impersonated: impersonated,
+            organization: {
+                ...MOCK_DEFAULT_USER.organization!,
+                available_product_features: entitled ? [{ key: AvailableFeature.HIPAA_BAA, name: 'HIPAA BAA' }] : [],
+            },
+        })
+        billingLogic.actions.loadBillingSuccess(billingFor(label, onBoostTrial))
         const logic = legalDocumentsLogic()
         logic.mount()
 

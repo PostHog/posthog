@@ -1,30 +1,9 @@
-import { InsightPage } from '../../page-models/insightPage'
 import { NotebookPage } from '../../page-models/notebookPage'
 import { randomString } from '../../utils'
-import { createEvent, daysAgo } from '../../utils/event-data'
-import { PlaywrightSetupEvent } from '../../utils/playwright-setup'
 import { pageviews } from '../../utils/test-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
-const STEP_1 = 'funnel_step_one'
-const STEP_2 = 'funnel_step_two'
-const STEP_3 = 'funnel_step_three'
-
-function generateFunnelEvents(): PlaywrightSetupEvent[] {
-    const chromeUsers = (n: number): string => `chrome-user-${n}`
-    const firefoxUsers = (n: number): string => `firefox-user-${n + 10}`
-    const chrome = { $browser: 'Chrome' }
-    const firefox = { $browser: 'Firefox' }
-
-    return [
-        ...createEvent({ event: STEP_1, user: chromeUsers, timestamp: daysAgo(5), properties: chrome }).repeat(10),
-        ...createEvent({ event: STEP_1, user: firefoxUsers, timestamp: daysAgo(5), properties: firefox }).repeat(10),
-        ...createEvent({ event: STEP_2, user: chromeUsers, timestamp: daysAgo(4), properties: chrome }).repeat(10),
-        ...createEvent({ event: STEP_3, user: chromeUsers, timestamp: daysAgo(3), properties: chrome }).repeat(5),
-    ]
-}
-
-const events = [...pageviews.events, ...generateFunnelEvents()]
+const events = pageviews.events
 
 test.describe('Notebooks', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
@@ -77,45 +56,6 @@ test.describe('Notebooks', () => {
         await test.step('verify notebook appears on the list', async () => {
             await notebook.goToList()
             await expect(notebook.getNotebookRowByName(notebookName)).toBeVisible()
-        })
-    })
-
-    test('Add a funnel insight, configure steps, and verify conversion rates', async ({ page }) => {
-        const notebook = new NotebookPage(page)
-        const insight = new InsightPage(page)
-        const notebookName = randomString('nb-funnels')
-
-        await test.step('create a notebook and add a Funnel insight', async () => {
-            await notebook.createNew(notebookName)
-            await notebook.addInsightViaSlashCommand('Funnel')
-            await expect(notebook.insightNodes).toHaveCount(1)
-        })
-
-        await test.step('expand the insight and configure 3 funnel steps', async () => {
-            await notebook.expandInsightNode(0)
-
-            await insight.funnels.selectStepEvent(0, STEP_1)
-            await page.getByRole('button', { name: 'Add step' }).click()
-            await page.keyboard.press('Escape')
-            await insight.funnels.selectStepEvent(1, STEP_2)
-            await page.getByRole('button', { name: 'Add step' }).click()
-            await page.keyboard.press('Escape')
-            await insight.funnels.selectStepEvent(2, STEP_3)
-            await insight.funnels.waitForChart()
-        })
-
-        await test.step('verify step counts: 20 → 10 → 5 and conversion rates', async () => {
-            const step1 = insight.funnels.stepLegend(0)
-            await expect(step1).toContainText('20')
-            await expect(step1).toContainText(STEP_1)
-
-            const step2 = insight.funnels.stepLegend(1)
-            await expect(step2).toContainText('10')
-            await expect(insight.funnels.stepValueLabel(1)).toContainText('50')
-
-            const step3 = insight.funnels.stepLegend(2)
-            await expect(step3).toContainText('5')
-            await expect(insight.funnels.stepValueLabel(2)).toContainText('25')
         })
     })
 

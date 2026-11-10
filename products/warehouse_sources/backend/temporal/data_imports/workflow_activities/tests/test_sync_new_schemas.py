@@ -21,8 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 def _patch_common(source_mock, schemas_created=None, source_api_version=None, merge_error=None):
     """Patch DB + registry so the activity runs without a database or real source."""
     existing_source = mock.MagicMock(
-        source_type="GoogleAds", job_inputs={"k": "v"}, deleted=False, api_version=source_api_version
+        source_type="GoogleAds",
+        job_inputs={"k": "v"},
+        credentials_integration_id=None,
+        deleted=False,
+        api_version=source_api_version,
     )
+    # The store asks the source class where its OAuth pointer is. A MagicMock answer is not an integration id.
+    source_mock.in_use_oauth_slot.return_value = None
     existing_source.merge_connection_metadata.side_effect = merge_error
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = True
@@ -48,7 +54,7 @@ def _patch_db(source_type, *, source_exists=True):
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = source_exists
     objects.get.return_value = mock.MagicMock(
-        source_type=source_type, job_inputs={"k": "v"}, deleted=False, api_version=None
+        source_type=source_type, job_inputs={"k": "v"}, credentials_integration_id=None, deleted=False, api_version=None
     )
     return objects
 
@@ -71,11 +77,11 @@ def test_deleted_source_drops_the_schedule_and_completes():
     sync_schemas.assert_not_called()
 
 
-def test_source_type_outside_the_enum_is_skipped():
-    # A stored source type this build's enum does not carry (one dropped from the enum while rows
-    # still referenced it, or one created by web code before every worker carries it) cannot be
-    # synced by any code path here. Resolving it must not fail the activity, or the one row keeps
-    # failing every discovery run for good.
+def test_source_type_the_registry_does_not_know_is_skipped():
+    # A stored source type this build does not register (one removed while rows still referenced
+    # it, one created by web code before every worker carries it, or a vendor module that failed to
+    # import) cannot be synced by any code path here. Resolving it must not fail the activity, or the
+    # one row keeps failing every discovery run for good.
     objects = _patch_db("NotARealSourceType")
 
     with (
@@ -83,11 +89,10 @@ def test_source_type_outside_the_enum_is_skipped():
         mock.patch.object(module.ExternalDataSource, "objects", objects),
         mock.patch.object(module, "delete_discover_schemas_schedule") as delete_schedule,
         mock.patch.object(module, "sync_old_schemas_with_new_schemas") as sync_schemas,
-        mock.patch.object(module.SourceRegistry, "get_source") as get_source,
+        mock.patch.object(module.SourceRegistry, "get_source", side_effect=ValueError("Unknown source type")),
     ):
         sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id="src", team_id=1))
 
-    get_source.assert_not_called()
     sync_schemas.assert_not_called()
     # The value can become known again on a newer worker, so the schedule has to survive.
     delete_schedule.assert_not_called()

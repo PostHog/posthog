@@ -124,6 +124,8 @@ export const INGESTION_WARNING_TYPES = {
     replay_lib_version_too_old: { category: 'replay', severity: 'info' },
     message_contained_no_valid_rrweb_events: { category: 'replay', severity: 'warning' },
     message_timestamp_diff_too_large: { category: 'replay', severity: 'warning' },
+    message_window_id_too_long: { category: 'replay', severity: 'error' },
+    message_too_many_events: { category: 'replay', severity: 'error' },
     // Capture's replay endpoint (/s), which validates the $snapshot envelope before
     // the batch is collapsed into one $snapshot_items message. Distinguished from the
     // three above by `source: capture` and `path: replay` — those describe conditions

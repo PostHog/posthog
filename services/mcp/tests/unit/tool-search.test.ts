@@ -32,6 +32,21 @@ describe('tool-search', () => {
         it('returns nothing when no token matches any field', () => {
             expect(searchToolsRanked(TOOLS, 'nonexistent-token')).toEqual([])
         })
+
+        it('matches search keywords above a tool that only mentions the word in its description', () => {
+            const tools: SearchableTool[] = [
+                { name: 'logs-query', title: 'Query logs', description: 'Query logs, also from a Prometheus exporter' },
+                {
+                    name: 'query-metrics',
+                    title: 'Query metrics',
+                    description: 'Query time series',
+                    searchKeywords: ['prometheus', 'promql', 'grafana'],
+                },
+            ]
+            expect(searchToolsRanked(tools, 'prometheus').map((r) => r.name)).toEqual(['query-metrics', 'logs-query'])
+            expect(searchToolsRanked(tools, 'grafana promql').map((r) => r.name)).toEqual(['query-metrics'])
+            expect(searchToolsRegex(tools, 'prom.?ql').map((t) => t.name)).toEqual(['query-metrics'])
+        })
     })
 
     describe('searchToolsRegex', () => {
@@ -41,6 +56,24 @@ describe('tool-search', () => {
 
         it('matches every feature-flag tool', () => {
             expect(searchToolsRegex(TOOLS, 'feature-flag').map((t) => t.name)).toEqual(['feature-flag-get-all'])
+        })
+
+        it('puts a name match ahead of a tool that only mentions the term in prose', () => {
+            // `search persons-` reaches cohort tools through their descriptions. Catalog order
+            // listed them first, so the tools the search named came back below them.
+            const tools: SearchableTool[] = [
+                { name: 'cohorts-create', title: 'Create cohort', description: 'Build a cohort of persons-.' },
+                { name: 'persons-list', title: 'List persons', description: 'List people in the project.' },
+            ]
+
+            expect(searchToolsRegex(tools, 'persons-').map((t) => t.name)).toEqual(['persons-list', 'cohorts-create'])
+        })
+
+        it('keeps catalog order between two tools that match on the same field', () => {
+            expect(searchToolsRegex(TOOLS, 'dashboard-').map((t) => t.name)).toEqual([
+                'dashboard-create',
+                'dashboard-get-all',
+            ])
         })
 
         it('throws on an invalid regex so callers can surface their own message', () => {

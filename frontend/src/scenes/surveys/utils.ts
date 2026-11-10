@@ -6,6 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import {
     INTRO_SCREEN_PAGE_INDEX,
     MAX_ITERATION_COUNT,
@@ -20,7 +21,6 @@ import { urls } from 'scenes/urls'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import {
     BasicSurveyQuestion,

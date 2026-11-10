@@ -1,18 +1,40 @@
+from collections.abc import Collection
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from django.db.models import Q, QuerySet
 
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.dataclasses import frozen
+
 from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
-from products.data_modeling.backend.facade.models import NodeType
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, NodeType
+from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+    from products.data_modeling.backend.facade.api import SavedQueryFrequencyBounds
 
 DELETE_DENIED = "Deleting data models requires data warehouse write access."
+EDIT_DENIED = "Editing data models requires data warehouse write access."
+VIEW_EDIT_DENIED = "You need edit access to this view."
+TABLE_EDIT_DENIED = "You need edit access to this table."
+
+
+def _as_uuid(value: str) -> UUID | None:
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
+
+
+@frozen
+class ReadableResources:
+    saved_query_ids: frozenset[str]
+    warehouse_table_ids: frozenset[UUID]
 
 
 class MetricNodeVisibilityMixin:
@@ -24,6 +46,60 @@ class MetricNodeVisibilityMixin:
         warehouse RBAC has to be re-applied by hand (warehouse_view inherits warehouse_objects)."""
         if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level=level):
             raise PermissionDenied(message)
+
+    def _require_view_edit_access(self, *saved_queries: "DataWarehouseSavedQuery | None") -> None:
+        """The resource check above passes a member who holds a deny rule on one view, so a write to a
+        node or edge of that view also checks the view itself."""
+        for saved_query in saved_queries:
+            if saved_query is not None and not self.user_access_control.check_access_level_for_object(
+                saved_query, "editor"
+            ):
+                raise PermissionDenied(VIEW_EDIT_DENIED)
+
+    def _readable_resources(
+        self, saved_query_ids: Collection[str], warehouse_table_ids: Collection[UUID]
+    ) -> ReadableResources:
+        """The views and tables this caller may read. Every read of a node's name or text goes through here."""
+        readable_views: set[str] = set()
+        if saved_query_ids:
+            creators = DataWarehouseSavedQuery.objects.filter(id__in=saved_query_ids, team_id=self.team.pk).values_list(
+                "id", "created_by_id"
+            )
+            levels = self.user_access_control.bulk_object_access_levels(
+                "warehouse_view", [(str(pk), created_by) for pk, created_by in creators]
+            )
+            readable_views = {saved_query_id for saved_query_id, level in levels.items() if level not in (None, "none")}
+        return ReadableResources(
+            saved_query_ids=frozenset(readable_views),
+            warehouse_table_ids=allowed_table_ids(self.team.pk, self.user_access_control, ids=warehouse_table_ids),
+        )
+
+    def _readable_node_names(self, resolved: "SavedQueryFrequencyBounds") -> dict[str, str]:
+        """The names in a lineage this caller may read, keyed by node id.
+
+        Fails closed and withholds the node id along with the name, as the saved-query surfaces do: a
+        view under a `none` grant must not be named, or counted, by the cadence of a view beside it. A
+        node that resolves to no resource (one that predates the origin stamp) is withheld too.
+        """
+        visible: dict[str, str] = {}
+        node_ids_by_saved_query: dict[str, list[str]] = {}
+        node_ids_by_table: dict[UUID, list[str]] = {}
+        for node_id, identity in resolved.identities.items():
+            if node_id not in resolved.names:
+                continue
+            if identity.is_posthog_table:
+                visible[node_id] = resolved.names[node_id]  # events, persons and friends: readable by anyone
+            elif identity.saved_query_id is not None:
+                node_ids_by_saved_query.setdefault(identity.saved_query_id, []).append(node_id)
+            elif identity.warehouse_table_id is not None and (table_id := _as_uuid(identity.warehouse_table_id)):
+                node_ids_by_table.setdefault(table_id, []).append(node_id)
+
+        readable = self._readable_resources(node_ids_by_saved_query.keys(), node_ids_by_table.keys())
+        for saved_query_id in readable.saved_query_ids:
+            visible.update({node_id: resolved.names[node_id] for node_id in node_ids_by_saved_query[saved_query_id]})
+        for table_id in readable.warehouse_table_ids:
+            visible.update({node_id: resolved.names[node_id] for node_id in node_ids_by_table[table_id]})
+        return visible
 
     def _metric_nodes_hidden(self) -> bool:
         return not self.user_access_control.check_access_level_for_resource("data_catalog", required_level="viewer")

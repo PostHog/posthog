@@ -16,6 +16,8 @@ export interface _SummaryApi {
     product: string
     /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
     total_cost_usd: number
+    /** Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount. */
+    billable_cost_usd: number
     /** Total $ai_generation + $ai_embedding events captured across every product. */
     event_count: number
     /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
@@ -34,6 +36,8 @@ export interface _ProductBreakdownRowApi {
     event_count: number
     /** Total cost in USD for this product over the lookback window. */
     cost_usd: number
+    /** Whether this product is eligible for PostHog AI or Desktop credit billing, independent of event-level billing rules. */
+    billable: boolean
 }
 
 export interface _ProductBreakdownApi {
@@ -480,7 +484,20 @@ export interface OfflineExperimentReadApi {
     prompt_version: string | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineExperimentPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -725,7 +742,7 @@ export interface OfflineResultCellApi {
      * * `expired` - Expired */
     payload_state: PayloadStateEnumApi
     /**
-     * Payload retention deadline; cleanup is not yet enabled.
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
      * @nullable
      */
     payload_expires_at: string | null
@@ -782,7 +799,7 @@ export interface OfflineItemReadApi {
      * * `expired` - Expired */
     payload_state: PayloadStateEnumApi
     /**
-     * Payload retention deadline; cleanup is not yet enabled.
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
      * @nullable
      */
     payload_expires_at: string | null
@@ -943,7 +960,20 @@ export interface OfflineScorerVersionReadApi {
     config: ScoreDefinitionConfigApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineItemPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -1052,7 +1082,7 @@ export interface OfflineResultReadApi {
      * * `expired` - Expired */
     payload_state: PayloadStateEnumApi
     /**
-     * Payload retention deadline; cleanup is not yet enabled.
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
      * @nullable
      */
     payload_expires_at: string | null
@@ -1060,7 +1090,20 @@ export interface OfflineResultReadApi {
     scorer: OfflineScorerVersionReadApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineResultPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -1198,7 +1241,20 @@ export interface OfflineScorerSummaryApi {
     categories: OfflineCategorySummaryApi[]
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineSummaryPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -1348,7 +1404,20 @@ export interface OfflineHistoryPointApi {
     summary: OfflineScorerSummaryApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineHistoryPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -1431,6 +1500,27 @@ export interface TraceApi {
     git: TraceGitApi | null
 }
 
+export interface TraceClusterApi {
+    /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
+    runId: string
+    /** When the run finished. */
+    runAt: string
+    /** The clustering job the run belongs to, null for a run without a job. */
+    jobId: string | null
+    jobName: string | null
+    /** The cluster's id within its run. -1 is the run's outliers. */
+    clusterId: number
+    title: string | null
+    description: string | null
+    /** The trace fit no cluster in this run. */
+    isOutlier: boolean
+}
+
+export interface TraceClustersApi {
+    /** The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. Manual runs are left out. Clusters come before outliers, then newest first. */
+    clusters: TraceClusterApi[]
+}
+
 export type TraceEvaluationResultOutcomeEnumApi =
     (typeof TraceEvaluationResultOutcomeEnumApi)[keyof typeof TraceEvaluationResultOutcomeEnumApi]
 
@@ -1490,44 +1580,32 @@ export interface TraceEvaluationResultsApi {
     summary: TraceEvaluationSummaryApi
 }
 
-export interface TraceFeedbackScoreApi {
-    id: string
-    name: string | null
-    /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
-    value: string
-    /** The tree node the score targets: the step's event uuid, or the trace id for a trace-level score. */
-    nodeId: string
-    timestamp: string
+export interface TraceExportCreateApi {
+    /** When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table. */
+    timestamp_hint?: string
 }
 
-export interface TraceFeedbackTextApi {
-    kind: 'text'
-    id: string
-    text: string
-    /** The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback. */
-    nodeId: string
-    timestamp: string
-}
+export type ExportStatusEnumApi = (typeof ExportStatusEnumApi)[keyof typeof ExportStatusEnumApi]
 
-export interface TraceFeedbackSummaryApi {
-    /** Scores plus responses. */
-    total: number
-}
+export const ExportStatusEnumApi = {
+    Pending: 'pending',
+    Complete: 'complete',
+    Failed: 'failed',
+} as const
 
-export interface TraceFeedbackApi {
-    /** Oldest first. */
-    scores: TraceFeedbackScoreApi[]
-    /** What users said, oldest first. */
-    responses: TraceFeedbackTextApi[]
-    summary: TraceFeedbackSummaryApi
-}
-
-export interface TraceNodeMetadataApi {
-    provider: string | null
-    temperature: number | null
-    sessionId: string | null
-    promptName: string | null
-    promptVersion: number | null
+export interface TraceExportApi {
+    /** The export id, used to read its status and download the file. */
+    id: number
+    /** Whether the file is still being written, ready, or failed. */
+    status: ExportStatusEnumApi
+    /** The name the downloaded JSON file gets. */
+    filename: string
+    /** When the export was requested. */
+    createdAt: string
+    /** When the file is deleted. */
+    expiresAfter: string | null
+    /** Why the export failed, null unless status is failed. */
+    exception: string | null
 }
 
 export interface TraceNodeIOKeysApi {
@@ -1551,12 +1629,299 @@ export interface TraceNodeEventApi {
     ioKeys: TraceNodeIOKeysApi
 }
 
+export interface TraceNodeRawApi {
+    /** The node id: the event's uuid, or the trace id for the root node. */
+    id: string
+    kind: TraceNodeKindEnumApi
+    /** The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event. */
+    event: TraceNodeEventApi | null
+}
+
+export interface TraceExportFileApi {
+    /** The trace as the trace endpoint returns it. */
+    trace: TraceApi
+    /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
+    truncated: boolean
+    /** Every node with its event as ingested: the root first, then the tree in pre-order. */
+    nodes: TraceNodeRawApi[]
+}
+
+export interface TraceExportErrorApi {
+    /** Why the file cannot be downloaded yet. */
+    detail: string
+}
+
+export interface TraceFeedbackScoreApi {
+    id: string
+    name: string | null
+    /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
+    value: string
+    /** The tree node the score targets: the step's event uuid, or the trace id for a trace-level score. */
+    nodeId: string
+    timestamp: string
+}
+
+export interface TraceFeedbackTextApi {
+    kind: 'text'
+    id: string
+    text: string
+    /** The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback. */
+    nodeId: string
+    timestamp: string
+}
+
+export interface TraceSurveyApi {
+    id: string
+    /** Null when the survey no longer exists. */
+    name: string | null
+}
+
+export interface TraceThumbsAnswerApi {
+    kind: 'thumbs'
+    question: string
+    up: boolean
+}
+
+export interface TraceRatingAnswerApi {
+    kind: 'rating'
+    question: string
+    value: string
+    scale: number | null
+    lowerLabel: string | null
+    upperLabel: string | null
+}
+
+export interface TraceChoiceAnswerApi {
+    kind: 'choice'
+    question: string
+    choices: string[]
+}
+
+export interface TraceTextAnswerApi {
+    kind: 'text'
+    question: string
+    text: string
+}
+
+/**
+ * Why the answers cannot be shown: the survey was deleted, or it has no questions.
+ */
+export type TraceSurveyResponseApiUnavailable =
+    | (typeof TraceSurveyResponseApiUnavailable)[keyof typeof TraceSurveyResponseApiUnavailable]
+    | null
+
+export const TraceSurveyResponseApiUnavailable = {
+    SurveyNotFound: 'survey_not_found',
+    NoQuestions: 'no_questions',
+} as const
+
+export interface TraceSurveyResponseApi {
+    kind: 'survey'
+    id: string
+    /** The tree node the response targets: the trace id, as a survey response covers the whole trace. */
+    nodeId: string
+    timestamp: string
+    survey: TraceSurveyApi
+    answers: (TraceThumbsAnswerApi | TraceRatingAnswerApi | TraceChoiceAnswerApi | TraceTextAnswerApi)[]
+    /** False when the user left the survey before its end. */
+    complete: boolean
+    /** Why the answers cannot be shown: the survey was deleted, or it has no questions. */
+    unavailable: TraceSurveyResponseApiUnavailable
+}
+
+export interface TraceUnansweredSurveyApi {
+    survey: TraceSurveyApi
+    /** When the survey was first shown. */
+    timestamp: string
+}
+
+export type SurveyResponsesStatusEnumApi =
+    (typeof SurveyResponsesStatusEnumApi)[keyof typeof SurveyResponsesStatusEnumApi]
+
+export const SurveyResponsesStatusEnumApi = {
+    Ok: 'ok',
+    Failed: 'failed',
+    NotPermitted: 'not_permitted',
+} as const
+
+export interface TraceFeedbackSummaryApi {
+    /** Scores plus responses. */
+    total: number
+    /** Thumbs up answers to 2-point survey rating questions. */
+    thumbsUp: number
+    /** Thumbs down answers to 2-point survey rating questions. */
+    thumbsDown: number
+}
+
+export interface TraceFeedbackApi {
+    /** Oldest first. */
+    scores: TraceFeedbackScoreApi[]
+    /** What users said, oldest first. */
+    responses: (TraceFeedbackTextApi | TraceSurveyResponseApi)[]
+    /** Surveys shown with the trace and not answered, oldest first. */
+    unanswered: TraceUnansweredSurveyApi[]
+    /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
+    surveyResponsesStatus: SurveyResponsesStatusEnumApi
+    summary: TraceFeedbackSummaryApi
+}
+
+export interface TraceNodeMetadataApi {
+    provider: string | null
+    temperature: number | null
+    sessionId: string | null
+    promptName: string | null
+    promptVersion: number | null
+}
+
+export interface TraceNodeDetailEventApi {
+    name: string
+    uuid: string
+    timestamp: string
+}
+
+export type TraceMessageRoleEnumApi = (typeof TraceMessageRoleEnumApi)[keyof typeof TraceMessageRoleEnumApi]
+
+export const TraceMessageRoleEnumApi = {
+    System: 'system',
+    User: 'user',
+    Assistant: 'assistant',
+    Tool: 'tool',
+} as const
+
+export interface TraceTextPartApi {
+    kind: 'text'
+    /** The text of the message, as captured. */
+    text: string
+}
+
+export interface TraceThinkingPartApi {
+    kind: 'thinking'
+    /** The model's reasoning text. */
+    text: string
+}
+
+export interface TraceToolCallPartApi {
+    kind: 'toolCall'
+    /** The name of the called tool, or an empty string when the event has none. */
+    name: string
+    /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+    args: unknown
+    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+    result: unknown
+}
+
+export type TraceAttachmentMediaTypeApi = (typeof TraceAttachmentMediaTypeApi)[keyof typeof TraceAttachmentMediaTypeApi]
+
+export const TraceAttachmentMediaTypeApi = {
+    Image: 'image',
+    Audio: 'audio',
+    Video: 'video',
+    File: 'file',
+} as const
+
+export interface TraceAttachmentPartApi {
+    kind: 'attachment'
+    /** The kind of media, which decides how it is shown. */
+    mediaType: TraceAttachmentMediaTypeApi
+    /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
+    name: string | null
+    /** The MIME type, such as `image/png`, or null when it is not known. */
+    mimeType: string | null
+    /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
+    url: string | null
+}
+
+export interface TraceMessageApi {
+    /** An id that is unique within the node, made of the node id, the side and a position. */
+    id: string
+    role: TraceMessageRoleEnumApi
+    /** The message's text, reasoning, tool calls and attachments, in order. */
+    parts: (TraceTextPartApi | TraceThinkingPartApi | TraceToolCallPartApi | TraceAttachmentPartApi)[]
+    /** Whether the message is a tool message, or holds only reasoning and tool calls. */
+    isInternal: boolean
+    /** The id of the node whose input or output holds this message, or null when it is not known. */
+    sourceNodeId: string | null
+}
+
+export interface TraceMessagesSideApi {
+    kind: 'messages'
+    /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
+    messages: TraceMessageApi[]
+}
+
+export interface TraceJsonSideApi {
+    kind: 'json'
+    /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+    value: unknown
+}
+
+export interface TraceNodeContentApi {
+    /** The node's input, as messages or as JSON. */
+    input: TraceMessagesSideApi | TraceJsonSideApi
+    /** The node's output, as messages or as JSON. */
+    output: TraceMessagesSideApi | TraceJsonSideApi
+}
+
 export interface TraceNodeDetailApi {
     id: string
     kind: TraceNodeKindEnumApi
     error: string | null
     metadata: TraceNodeMetadataApi
-    event: TraceNodeEventApi | null
+    event: TraceNodeDetailEventApi | null
+    /** The node's input and output, ready to render. */
+    content: TraceNodeContentApi
+}
+
+export interface TracePullRequestApi {
+    /** The owner of the pull request's repository. */
+    repoOwner: string
+    /** The name of the pull request's repository. */
+    repoName: string
+    /** The pull request number. */
+    number: number
+    /** The pull request title, or null when the synced data has none. */
+    title: string | null
+}
+
+export interface TracePullRequestLookupApi {
+    /** The pull request the trace's git branch belongs to, ranked by engineering analytics, or null when the trace has no branch, the project has no GitHub source, or no pull request matches. */
+    pullRequest: TracePullRequestApi | null
+}
+
+export interface TraceHumanReviewScoreApi {
+    /** The scorer's name. */
+    name: string
+    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+    value: string
+    /** The scorer's name and the score together, such as `Tone: 4.5`. */
+    label: string
+}
+
+export interface TraceHumanReviewApi {
+    /** The display name of whoever last saved the review, or null when that user was removed. */
+    reviewedBy: string | null
+    /** When the review was last saved. */
+    reviewedAt: string
+    /** The reviewer's reasoning, if any. */
+    comment: string | null
+    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+    scores: TraceHumanReviewScoreApi[]
+}
+
+export interface TraceReviewQueueAssignmentApi {
+    /** The review queue's id. */
+    id: string
+    /** The review queue's name. */
+    name: string
+    /** The queue item that holds the trace, for moving or removing it. */
+    itemId: string
+}
+
+export interface TraceReviewStatusApi {
+    /** The trace's human review, or null when it has none or the user may not see it. */
+    review: TraceHumanReviewApi | null
+    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+    queue: TraceReviewQueueAssignmentApi | null
 }
 
 export interface TraceSearchMatchApi {
@@ -1630,6 +1995,21 @@ export interface TraceSummaryApi {
 export interface TraceSummaryRequestApi {
     /** Replace a ready summary with a new one. A pending summary is never replaced. */
     regenerate?: boolean
+}
+
+export interface TraceAvailabilityRequestApi {
+    /**
+     * Application and evaluator trace IDs to check without loading trace contents.
+     * @minItems 1
+     * @maxItems 2
+     * @items.maxLength 255
+     */
+    trace_ids: string[]
+}
+
+export interface TraceAvailabilityApi {
+    /** Requested trace IDs readable from AI events or the shared events table. */
+    available_trace_ids: string[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -1846,6 +2226,13 @@ export interface DatasetReadApi {
     readonly tags: readonly string[]
     readonly archived: boolean
     /**
+     * Earliest cleanup time if the dataset remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether the dataset is within seven days of expiry. */
+    readonly expiring_soon: boolean
+    /**
      * Latest dataset revision, or null before the first item is added.
      * @nullable
      */
@@ -1937,20 +2324,11 @@ export interface DatasetExportCreateApi {
     revision?: number
 }
 
-export type DatasetExportReadStatusEnumApi =
-    (typeof DatasetExportReadStatusEnumApi)[keyof typeof DatasetExportReadStatusEnumApi]
-
-export const DatasetExportReadStatusEnumApi = {
-    Pending: 'pending',
-    Complete: 'complete',
-    Failed: 'failed',
-} as const
-
 export interface DatasetExportReadApi {
     /** Export ID used to check status and download the file. */
     readonly id: number
     /** Current export state: pending, complete, or failed. */
-    readonly status: DatasetExportReadStatusEnumApi
+    readonly status: ExportStatusEnumApi
     /** Immutable dataset revision included in the export. */
     readonly dataset_revision: number
     /** Generated JSONL filename. */
@@ -1971,6 +2349,33 @@ export interface DatasetExportErrorApi {
     detail: string
 }
 
+export interface DatasetExtendRetentionApi {
+    /**
+     * Revision to extend along with its dataset. Omit to extend only the dataset.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export interface DatasetRetentionEntryApi {
+    /** Dataset to open or extend. */
+    readonly dataset_id: string
+    /** Name of the dataset. */
+    readonly dataset_name: string
+    /** Whether the dataset is archived. */
+    readonly dataset_archived: boolean
+    /**
+     * Historical revision number, or null for a dataset.
+     * @nullable
+     */
+    readonly revision: number | null
+    /**
+     * Earliest cleanup time if this dataset or revision remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+}
+
 export interface DatasetRevisionReadApi {
     readonly id: string
     /** Dataset this revision belongs to. */
@@ -1980,6 +2385,13 @@ export interface DatasetRevisionReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the revision. */
     readonly team_id: number
+    /**
+     * Earliest expiry time of this dataset snapshot if unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether this snapshot is within seven days of expiry. */
+    readonly expiring_soon: boolean
 }
 
 export interface PaginatedDatasetRevisionReadListApi {
@@ -1989,6 +2401,17 @@ export interface PaginatedDatasetRevisionReadListApi {
     /** @nullable */
     previous?: string | null
     results: DatasetRevisionReadApi[]
+}
+
+export interface DatasetRetentionReadApi {
+    /** Accessible active and archived datasets within seven days of expiry. */
+    readonly datasets_count: number
+    /** Accessible older revisions within seven days of expiry, excluding the latest revision. */
+    readonly revisions_count: number
+    /** Total expiring entries of the requested kind. */
+    readonly count: number
+    /** Expiring entries, ordered by earliest cleanup time. */
+    readonly results: readonly DatasetRetentionEntryApi[]
 }
 
 export interface EvaluationDirectoryApi {
@@ -2240,6 +2663,13 @@ export type EvaluationApiEvaluationConfig =
            * @nullable
            */
           judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. */
+          include_media?: boolean
+          /**
+           * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+           * @nullable
+           */
+          reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null
       }
     | {
           /**
@@ -2569,6 +2999,13 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @nullable
            */
           judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. */
+          include_media?: boolean
+          /**
+           * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+           * @nullable
+           */
+          reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null
       }
     | {
           /**
@@ -2974,7 +3411,7 @@ export interface PassRateOverviewEntryApi {
 }
 
 export interface PassRateOverviewApi {
-    /** Enabled pass rate evaluations, lowest rate first. */
+    /** Pass rate evaluations with results in the period, paused ones included, lowest rate first. */
     entries: PassRateOverviewEntryApi[]
     /** Median of the per-evaluation pass rates without low evidence. */
     median: number | null
@@ -2997,7 +3434,7 @@ export interface EvaluationsOverviewApi {
     /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
     buckets: string[]
     evaluations: EvaluationResultApi[]
-    /** Totals over the enabled evaluations. */
+    /** Totals over every evaluation's results in the period, paused ones included. */
     totals: OverviewTotalsApi
     passRateOverview: PassRateOverviewApi
 }
@@ -4103,6 +4540,59 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface ProviderKeyDependentEvaluationApi {
+    /** Evaluation ID. */
+    id: string
+    /** Evaluation name. */
+    name: string
+    /** Model configuration that pins this key. Absent for evaluations on the active key. */
+    model_configuration_id?: string
+    /** Whether the evaluation is running. */
+    enabled: boolean
+    /**
+     * Why the system turned the evaluation off, such as provider_key_quota_exceeded.
+     * @nullable
+     */
+    status_reason: string | null
+}
+
+export interface ProviderKeyAlternativeApi {
+    /** Provider key ID. */
+    id: string
+    /** Provider key name. */
+    name: string
+    /** Provider of the key. */
+    provider: string
+}
+
+export interface ProviderKeyDependentConfigsApi {
+    /** Evaluations whose model configuration pins this key. */
+    evaluations: ProviderKeyDependentEvaluationApi[]
+    /** Working keys for the same provider that could replace this one. */
+    alternative_keys: ProviderKeyAlternativeApi[]
+    /** Errored evaluations with no pinned key, which run on this key while it is the project's active key. */
+    active_key_evaluations: ProviderKeyDependentEvaluationApi[]
+}
+
+export interface LLMProxyModelInfoApi {
+    /** Provider-specific model identifier. */
+    id: string
+    /** Model display name. */
+    name: string
+    /** Provider display name. */
+    provider: string
+    /** Description of the model. */
+    description: string
+    /** Whether the provider recommends this model. */
+    is_recommended: boolean
+    /** Whether this model supports decision questions. */
+    supports_decisions?: boolean
+    /** Whether this model supports chat completions with written reasoning. */
+    supports_chat?: boolean
+    /** Whether an evaluation judge can set a reasoning level for this model. */
+    supports_reasoning?: boolean
+}
+
 export interface ReviewQueueItemApi {
     readonly id: string
     /** Review queue ID that currently owns this pending trace. */
@@ -4326,7 +4816,20 @@ export interface ScoreDefinitionVersionApi {
     readonly created_by: UserBasicApi | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ScoreDefinitionVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total immutable versions for this scorer. */
     count: number
     /**
@@ -5617,6 +6120,32 @@ export type AiObservabilityTracesRetrieveParams = {
     timestamp_hint?: string
 }
 
+export type AiObservabilityTracesClustersRetrieveParams = {
+    /**
+     * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
+     */
+    created_at: string
+}
+
+export type AiObservabilityTracesExportsContentRetrieveParams = {
+    /**
+     * What the file is read for. Only a download is recorded as one.
+     *
+     * * `download` - Download
+     * * `copy` - Copy
+     * @minLength 1
+     */
+    purpose?: AiObservabilityTracesExportsContentRetrievePurpose
+}
+
+export type AiObservabilityTracesExportsContentRetrievePurpose =
+    (typeof AiObservabilityTracesExportsContentRetrievePurpose)[keyof typeof AiObservabilityTracesExportsContentRetrievePurpose]
+
+export const AiObservabilityTracesExportsContentRetrievePurpose = {
+    Download: 'download',
+    Copy: 'copy',
+} as const
+
 export type AiObservabilityTracesFeedbackRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
@@ -5625,6 +6154,20 @@ export type AiObservabilityTracesFeedbackRetrieveParams = {
 }
 
 export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesNodesRawRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesPullRequestRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -5662,6 +6205,7 @@ export type DatasetItemsListParams = {
     dataset: string
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number
     /**
@@ -5721,6 +6265,7 @@ export type DatasetItemsPartialUpdateBody = {
 export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -5742,6 +6287,7 @@ export type DatasetsListParams = {
     id__in?: string[]
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -5787,6 +6333,7 @@ export const DatasetsListTagMatch = {
 export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -5794,6 +6341,36 @@ export type DatasetsRevisionsListParams = {
      */
     offset?: number
 }
+
+export type DatasetsRetentionRetrieveParams = {
+    /**
+     * Whether to return expiring datasets or older revisions. Counts always include both.
+     *
+     * * `datasets` - Datasets
+     * * `revisions` - Older revisions
+     * @minLength 1
+     */
+    kind?: DatasetsRetentionRetrieveKind
+    /**
+     * Maximum entries to return, up to 50.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Number of expiring entries to skip.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type DatasetsRetentionRetrieveKind =
+    (typeof DatasetsRetentionRetrieveKind)[keyof typeof DatasetsRetentionRetrieveKind]
+
+export const DatasetsRetentionRetrieveKind = {
+    Datasets: 'datasets',
+    Revisions: 'revisions',
+} as const
 
 export type EvaluationsListParams = {
     /**

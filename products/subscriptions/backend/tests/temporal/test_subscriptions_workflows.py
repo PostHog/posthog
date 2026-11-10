@@ -799,6 +799,96 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "label, exception_types, send_error, expected_raise, expected_status, expected_enabled",
+    [
+        # No chart rendered, so the delivery is recorded as failed even though the email carried the reason.
+        ("owner_left", ["CreatorLeftOrganizationError"], None, None, "failed", False),
+        (
+            "owner_lost_access_to_every_tile",
+            ["TableAccessDeniedError", "TableAccessDeniedError"],
+            None,
+            None,
+            "failed",
+            False,
+        ),
+        # One denied tile still delivers the dashboard, with that tile showing why.
+        ("owner_lost_access_to_one_tile", ["TableAccessDeniedError", None], None, None, "partial", True),
+        # A permanent bounce raises out of the send, and the disable must still happen.
+        (
+            "owner_left_and_email_bounces",
+            ["CreatorLeftOrganizationError"],
+            EmailDeliveryError("permanent rejection"),
+            ApplicationError,
+            None,
+            False,
+        ),
+        # A transient failure is retried by Temporal, so the retry delivers the reason before any disable.
+        (
+            "owner_left_and_send_fails_transiently",
+            ["CreatorLeftOrganizationError"],
+            ConnectionError("smtp unreachable"),
+            ConnectionError,
+            None,
+            True,
+        ),
+    ],
+)
+async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owner_cannot_run_it(
+    team, user, label, exception_types, send_error, expected_raise, expected_status, expected_enabled
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"own-{label[:5]}", name="owner")
+    asset_ids = []
+    for index, exception_type in enumerate(exception_types):
+        asset = await sync_to_async(ExportedAsset.objects.create)(
+            team=team,
+            insight=insight,
+            export_format="image/png",
+            content_location=None if exception_type else f"s3://bucket/{label}-{index}.png",
+            exception="denied" if exception_type else None,
+            exception_type=exception_type,
+        )
+        asset_ids.append(asset.id)
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="email",
+        target_value="reader@example.com",
+        enabled=True,
+    )
+
+    with (
+        patch(
+            "products.subscriptions.backend.temporal.activities.send_email_subscription_report",
+            side_effect=send_error,
+        ) as send_report,
+        patch(
+            "products.subscriptions.backend.logic.auto_disable.send_notifications_for_disabled_subscription"
+        ) as send_disabled_email,
+        patch("products.subscriptions.backend.logic.auto_disable.create_notification") as create_notification,
+    ):
+        run = ActivityEnvironment().run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id, exported_asset_ids=asset_ids, total_insight_count=len(asset_ids)
+            ),
+        )
+        if expected_raise is not None:
+            with pytest.raises(expected_raise):
+                await run
+        else:
+            result = await run
+            assert result.recipient_results[0].status == expected_status
+
+    send_report.assert_called_once()
+    send_disabled_email.assert_not_called()
+    create_notification.assert_not_called()
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is expected_enabled
+
+
+@pytest.mark.asyncio
 async def test_no_assets_does_not_auto_disable(team, user):
     """Empty `assets` at delivery time is a transient export-pipeline failure
     (genuine deletion is filtered upstream). Subscription stays enabled, the next
@@ -2536,13 +2626,22 @@ async def test_generate_ai_report_consent_revoked_aborts_and_auto_disables(team,
     assert sub.enabled is False
 
 
-async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team, user):
+@pytest.mark.parametrize("creator_left_org", [False, True])
+async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team, user, creator_left_org):
     await _set_ai_consent(team, True)
     sub = await _create_ai_subscription(team, user)
     delivery = await _create_ai_delivery(sub)
+    if creator_left_org:
+        # The real report builder refuses before any LLM call, so the planner below must stay unused.
+        await sync_to_async(
+            OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).delete
+        )()
 
     with (
-        patch(_GENERATE_REPORT, side_effect=PromptRejectedError("Prompt is empty.")),
+        patch(
+            "products.subscriptions.backend.temporal.ai_subscription.delivery.generate_ai_report",
+            side_effect=PromptRejectedError("Prompt is empty."),
+        ) as generate_report,
         patch("products.subscriptions.backend.logic.auto_disable.send_notifications_for_disabled_subscription"),
     ):
         result = await ActivityEnvironment().run(
@@ -2550,6 +2649,7 @@ async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team,
         )
 
     assert result.aborted is True
+    assert generate_report.called is (not creator_left_org)
     # The PromptRejectedError detail must reach the delivery record, not be swallowed.
     assert any(r.error and r.error.get("type") == "PromptRejectedError" for r in result.recipient_results), (
         "prompt-rejected abort must carry the rejection detail in recipient_results"

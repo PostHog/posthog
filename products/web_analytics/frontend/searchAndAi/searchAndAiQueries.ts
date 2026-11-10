@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { escapeDottedHogQLIdentifier, escapeHogQLString } from 'lib/utils/hogql'
 import { percentage } from 'lib/utils/numbers'
 import { BOT_ANALYTICS_EVENTS, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import type { DateFilterState } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -20,7 +21,6 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapeHogQLString } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { AiAssistantRow } from './AiAssistantList'
@@ -38,7 +38,7 @@ export const AI_VIEW = `${HUMAN_VIEW} AND session.$channel_type = 'AI'`
 export const CRAWLER =
     "`$virt_is_bot` = true AND `$virt_bot_name` != '' AND `$virt_traffic_category` IN ('ai_crawler', 'ai_assistant', 'ai_search')"
 
-export const AI_CHANNEL_FILTER: WebAnalyticsPropertyFilters[number] = {
+const AI_CHANNEL_FILTER: WebAnalyticsPropertyFilters[number] = {
     key: '$channel_type',
     value: ['AI'],
     operator: PropertyOperator.Exact,
@@ -56,7 +56,7 @@ export const AI_CRAWLER_FILTERS: WebAnalyticsPropertyFilters = [
     },
 ]
 
-export const aiCrawlerRequestSeries = (customName: string): GroupNode => ({
+const aiCrawlerRequestSeries = (customName: string): GroupNode => ({
     kind: NodeKind.GroupNode,
     name: BOT_ANALYTICS_EVENTS.join(', '),
     custom_name: customName,
@@ -171,7 +171,8 @@ export const buildBreakdownQuery = (
     metric: PagePerformanceMetric,
     page: string,
     window: PagePerformanceWindow,
-    pathExpr: string
+    pathExpr: string,
+    groupByAssistant: boolean = false
 ): string | null => {
     const { cur } = windowPredicates(window)
     const pageMatch = `${pageKeyExpr(pathExpr)} = ${escapeHogQLString(page)}`
@@ -179,7 +180,7 @@ export const buildBreakdownQuery = (
     if (metric === 'llm_referrals') {
         return `
 SELECT
-    coalesce(nullIf(session.$entry_referring_domain, ''), '(direct)') AS "Assistant",
+    ${groupByAssistant ? AI_ASSISTANT_EXPR : "coalesce(nullIf(session.$entry_referring_domain, ''), '(direct)')"} AS "Assistant",
     uniq(person_id) AS "Visitors"
 FROM events
 WHERE and(${AI_VIEW}, ${pageMatch}, (${cur}), {filters})

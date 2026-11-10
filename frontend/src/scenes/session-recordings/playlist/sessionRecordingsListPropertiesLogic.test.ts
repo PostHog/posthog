@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { sessionRecordingPinnedPropertiesLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingPinnedPropertiesLogic'
@@ -159,6 +160,31 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         expect(logic.values).toMatchObject({
             recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
         })
+    })
+
+    it('lets overlapping batches land without requesting an in-flight session again', async () => {
+        const issuedQueries: string[] = []
+        const pending: (() => void)[] = []
+        useQueryMocks((query) => {
+            issuedQueries.push(query)
+            return new Promise((resolve) => {
+                pending.push(() =>
+                    resolve({ results: [S1_BASE_ROW, S2_BASE_ROW].filter((row) => query.includes(`'${row[0]}'`)) })
+                )
+            })
+        })
+
+        logic.actions.loadPropertiesForSessions([mockSessons[0]])
+        await waitFor(() => expect(issuedQueries).toHaveLength(1))
+        logic.actions.maybeLoadPropertiesForSessions(mockSessons)
+        await waitFor(() => expect(issuedQueries).toHaveLength(2))
+        expect(issuedQueries[1]).not.toContain("'s1'")
+
+        await expectLogic(logic, () => {
+            pending.forEach((resolve) => resolve())
+        }).toDispatchActions(['loadPropertiesForSessionsSuccess', 'loadPropertiesForSessionsSuccess'])
+
+        expect(logic.values.recordingPropertiesById).toMatchObject(EXPECTED_RECORDING_PROPERTIES_BY_ID)
     })
 
     it('fetches pinned session properties alongside the base properties', async () => {

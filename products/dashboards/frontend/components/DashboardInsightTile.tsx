@@ -1,7 +1,7 @@
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
-import { useActions } from 'kea'
-import { forwardRef, memo, useEffect, useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { forwardRef, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import { useInView } from 'react-intersection-observer'
 
@@ -11,13 +11,17 @@ import { InsightCard, InsightCardProps } from 'lib/components/Cards/InsightCard/
 import { InsightVisualizationSkeleton } from 'lib/components/Cards/InsightCard/InsightVisualizationSkeleton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dateRangeZoomEnd, hasTimeComponent } from 'scenes/insights/insightVizDataLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import type { DashboardTile, InsightModel } from '~/types'
 import { DashboardPlacement } from '~/types'
 
+import { cropInsightToZoom } from '../zoomPreview'
 import { queueDashboardInsightMount } from './dashboardInsightMountQueue'
+import { type MountedTileHandle, trackMountedDashboardTile } from './dashboardMountedTiles'
 
 type DashboardInsightTileProps = InsightCardProps &
     Pick<HTMLAttributes<HTMLDivElement>, 'onMouseDown' | 'onMouseUp' | 'onTouchStart' | 'onTouchEnd'> & {
@@ -26,6 +30,8 @@ type DashboardInsightTileProps = InsightCardProps &
     }
 
 const MemoizedInsightCard = memo(InsightCard)
+const MOUNT_MARGIN = '500px'
+const UNMOUNT_MARGIN = '1500px'
 
 export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightTileProps>(function DashboardInsightTile(
     {
@@ -44,24 +50,51 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
     },
     ref
 ): JSX.Element {
-    const { updateTileColor, toggleTileDescription, duplicateTile, refreshDashboardItem, setTileOverride } =
-        useActions(dashboardLogic)
+    const {
+        updateTileColor,
+        toggleTileDescription,
+        duplicateTile,
+        refreshDashboardItem,
+        setTileOverride,
+        zoomDateRange,
+    } = useActions(dashboardLogic)
+    const { zoomPreview, layoutEditMode } = useValues(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { tile, insight } = cardProps
     const [keepMountedForOverlay, setKeepMountedForOverlay] = useState(false)
     const [cardMounted, setCardMounted] = useState(false)
     const exportPlacement = cardProps.placement === DashboardPlacement.Export
     const { ref: visibilityRef, inView } = useInView({
-        rootMargin: '500px',
+        rootMargin: MOUNT_MARGIN,
         initialInView: exportPlacement,
-        skip: exportPlacement || cardMounted,
+        skip: exportPlacement,
     })
-    const mergedRefs = useMergeRefs([ref, visibilityRef])
+    // A wider band than the mount margin, so a tile at the edge does not mount and unmount on small scrolls.
+    const { ref: keepRef, inView: withinKeepBand } = useInView({
+        rootMargin: UNMOUNT_MARGIN,
+        initialInView: true,
+        skip: exportPlacement,
+    })
+    const mergedRefs = useMergeRefs([ref, visibilityRef, keepRef])
     useEffect(() => {
         if (inView && !cardMounted) {
             return queueDashboardInsightMount(() => setCardMounted(true))
         }
     }, [inView, cardMounted])
+    const mountedTileRef = useRef<MountedTileHandle | null>(null)
+    useEffect(() => {
+        if (cardMounted && !exportPlacement) {
+            const handle = trackMountedDashboardTile(() => setCardMounted(false))
+            mountedTileRef.current = handle
+            return () => {
+                handle.untrack()
+                mountedTileRef.current = null
+            }
+        }
+    }, [cardMounted, exportPlacement])
+    useEffect(() => {
+        mountedTileRef.current?.setReleasable(!withinKeepBand && !keepMountedForOverlay)
+    }, [cardMounted, withinKeepBand, keepMountedForOverlay])
     const sharedView = isSharedView()
     const tileActions = useMemo(() => {
         const refresh = (updatedInsight?: InsightModel): void => {
@@ -87,6 +120,34 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         setTileOverride,
         renameInsight,
     ])
+    const zoomInterval =
+        isInsightVizNode(insight.query) && 'interval' in insight.query.source
+            ? insight.query.source.interval
+            : undefined
+    const zoomQueryKind = isInsightVizNode(insight.query) ? insight.query.source.kind : undefined
+    const overrides = tile.filters_overrides
+    // A tile with its own dates ignores the dashboard's, so zooming it would change every tile but this one.
+    const tileOwnsDates = !!(overrides?.date_from || overrides?.date_to || overrides?.ignoreDashboardFilters)
+    // Off while editing the layout, where a drag on the tile moves it rather than selecting a range.
+    const onDateRangeZoom = useMemo(
+        () =>
+            cardProps.placement === DashboardPlacement.Dashboard && !layoutEditMode && !tileOwnsDates
+                ? (dateFrom: string, dateTo: string): void =>
+                      zoomDateRange(
+                          dateFrom,
+                          dateRangeZoomEnd(dateTo, zoomInterval),
+                          hasTimeComponent(dateFrom),
+                          zoomQueryKind
+                      )
+                : undefined,
+        [cardProps.placement, layoutEditMode, tileOwnsDates, zoomInterval, zoomQueryKind, zoomDateRange]
+    )
+    const displayedInsight = useMemo(() => {
+        const dateRange = isInsightVizNode(insight.query) ? insight.query.source.dateRange : undefined
+        const resultsMatchZoom =
+            dateRange?.date_from === zoomPreview?.dateFrom && dateRange?.date_to === zoomPreview?.dateTo
+        return zoomPreview && !tileOwnsDates && !resultsMatchZoom ? cropInsightToZoom(insight, zoomPreview) : insight
+    }, [insight, zoomPreview, tileOwnsDates])
     const gridClasses = className?.split(' ') ?? []
     const interactionActive = gridClasses.includes('resizing') || gridClasses.includes('react-draggable-dragging')
     const shouldMountCard = cardMounted || exportPlacement || interactionActive || keepMountedForOverlay
@@ -105,6 +166,8 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
                 <MemoizedInsightCard
                     {...cardProps}
                     {...tileActions}
+                    insight={displayedInsight}
+                    onDateRangeZoom={onDateRangeZoom}
                     keepMountedDuringInteraction={interactionActive}
                     onOverlayVisibilityChange={setKeepMountedForOverlay}
                     renderVizWhenMounted

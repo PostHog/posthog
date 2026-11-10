@@ -8,6 +8,7 @@ import os
 import uuid
 import asyncio
 import datetime as dt
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -25,6 +26,11 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     SnowflakeTable,
     SnowflakeType,
     SnowflakeWarehouseUsageError,
+)
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    ParquetStreamTransformer,
+    PipelineTransformer,
+    SchemaTransformer,
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import SKIP_IF_MISSING_REQUIRED_ENV_VARS
 
@@ -158,6 +164,7 @@ async def test_table(snowflake_client, database, schema, table_name):
             SnowflakeField("id", SnowflakeType("INTEGER", False), pa.int64(), True),
             SnowflakeField("text", SnowflakeType("TEXT", False), pa.string(), True),
             SnowflakeField("amount", SnowflakeType("NUMBER", False, 38, 2), pa.decimal128(38, 2), True),
+            SnowflakeField.from_arrow_field(pa.field("native_uuid", pa.uuid())),
         ),
         parents=(database, schema),
     )
@@ -295,9 +302,29 @@ async def test_copy_loaded_files_to_snowflake_table_only_works_on_stage_prefix(
     text = ["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"]
     n_legs = pa.array(ids)
     animals = pa.array(text)
-    table = pa.Table.from_arrays([n_legs, animals], names=["id", "text"])
+    uuid_values = [
+        "00112233-4455-4677-8899-aabbccddeeff",
+        None,
+        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        "00000000-0000-0000-0000-000000000000",
+        "01900000-1234-7abc-8def-0123456789ab",
+        "00112233-4455-4677-8899-aabbccddeeff",
+    ]
+    uuids = pa.array([uuid.UUID(value).bytes if value is not None else None for value in uuid_values], type=pa.uuid())
+    table = pa.Table.from_arrays([n_legs, animals, uuids], names=["id", "text", "native_uuid"])
+
+    async def record_batches() -> AsyncIterator[pa.RecordBatch]:
+        for batch in table.to_batches(max_chunksize=2):
+            yield batch
+
+    destination = await snowflake_client.get_table(test_table)
+    assert destination["native_uuid"].data_type == pa.uuid()
+    transformer = PipelineTransformer(
+        transformers=(SchemaTransformer(table=destination), ParquetStreamTransformer(compression="zstd"))
+    )
     file_like = NamedBytesIO(b"", name="test_file")
-    pq.write_table(table, file_like)
+    async for chunk in transformer.iter(record_batches()):
+        file_like.write(chunk.data)
 
     file_like.seek(0)
     await snowflake_client.put_file_to_snowflake_table_stage(file_like, test_table)
@@ -327,6 +354,9 @@ async def test_copy_loaded_files_to_snowflake_table_only_works_on_stage_prefix(
 
     assert sorted(data["id"]) == sorted(ids)
     assert sorted(data["text"]) == sorted(text)
+    uuid_column = next(index for index, field in enumerate(metadata) if field.name == "native_uuid")
+    text_column = next(index for index, field in enumerate(metadata) if field.name == "text")
+    assert {row[text_column]: row[uuid_column] for row in rows} == dict(zip(text, uuid_values))
 
     # Check that first prefix file should still be there
     result = await snowflake_client.execute_async_query(

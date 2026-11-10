@@ -1,18 +1,23 @@
 import type {
+    TraceAttachmentPartApi,
     TraceEvaluationResultOutcomeEnumApi,
     TraceFeedbackScoreApi,
     TraceFeedbackTextApi,
+    TraceMessageApi,
     TraceNodeApi,
+    TraceNodeContentApi,
     TraceNodeDetailApi,
+    TraceNodeRawApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
     TraceSummaryContentApi,
+    TraceSurveyResponseApi,
+    TraceUnansweredSurveyApi,
 } from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
-
-export type TraceViewChoice = 'new' | 'legacy'
+export type TraceOpeningMode = 'summary' | null
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
@@ -29,34 +34,27 @@ export type NodeLoad =
     | { status: 'ready'; node: TraceNodeDetailApi }
     | { status: 'error'; failure: LoadFailure }
 
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
+export type RawLoad =
+    | { status: 'loading' }
+    | { status: 'ready'; raw: TraceNodeRawApi }
+    | { status: 'error'; failure: LoadFailure }
 
-export type AttachmentMediaType = 'image' | 'audio' | 'video' | 'file'
+export type MessageRole = TraceMessageApi['role']
 
-export type MessagePart =
-    | { kind: 'text'; text: string }
-    | { kind: 'thinking'; text: string }
-    | { kind: 'toolCall'; name: string; args: unknown; result?: unknown; isError?: boolean }
-    | {
-          kind: 'attachment'
-          mediaType: AttachmentMediaType
-          name: string | null
-          mimeType: string | null
-          url: string | null
-      }
+/** Which messages of a step open first: from the last user message on, or all of them. */
+export type MessagesOpening = 'lastTurn' | 'everything'
 
-export interface ThreadMessage {
-    id: string
-    role: MessageRole
-    parts: MessagePart[]
-    isInternal: boolean
-    sourceNodeId: string | null
-}
+export type AttachmentMediaType = TraceAttachmentPartApi['mediaType']
+
+export type MessagePart = TraceMessageApi['parts'][number]
+
+export type ThreadMessage = TraceMessageApi
 
 export interface ConversationTurn {
     id: string
     timestamp: string
-    messages: ThreadMessage[]
+    input: NodeSideContent
+    output: NodeSideContent
     error: string | null
 }
 
@@ -65,11 +63,14 @@ export type ConversationState =
     | { status: 'error'; message: string }
     | { status: 'ready'; turns: ConversationTurn[]; activeTurnId: string | null }
 
+export type NodeSideContent = TraceNodeContentApi['input']
+
 export type NodeContent =
-    | { kind: 'messages'; input: ThreadMessage[]; output: ThreadMessage[] }
-    | { kind: 'io'; input: unknown; output: unknown }
+    | { kind: 'loaded'; input: NodeSideContent; output: NodeSideContent }
     | { kind: 'loading' }
     | { kind: 'error'; message: string }
+
+export type LoadedNodeContent = Extract<NodeContent, { kind: 'loaded' }>
 
 export interface NodeProperties {
     timestamp: string | null
@@ -126,6 +127,12 @@ export interface LabeledLink {
     href: string
 }
 
+export interface GitPullRequestLink {
+    number: number
+    title: string | null
+    href: string
+}
+
 export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 export type TraceSearchFailure = 'too_slow' | 'failed'
@@ -166,18 +173,29 @@ export interface FeedbackPlacement {
 
 export type FeedbackScoreRow = TraceFeedbackScoreApi & FeedbackPlacement
 
-export type FeedbackResponseItem = TraceFeedbackTextApi & FeedbackPlacement
+/** Survey responses link to the whole trace, so their `step` is always null. */
+export type FeedbackResponseItem = (TraceFeedbackTextApi | TraceSurveyResponseApi) & FeedbackPlacement
+
+export type SurveyAnswer = TraceSurveyResponseApi['answers'][number]
 
 export type FeedbackModeState =
     | { status: 'loading' }
     | { status: 'error' }
-    | { status: 'ready'; scores: FeedbackScoreRow[]; responses: FeedbackResponseItem[] }
+    | {
+          status: 'ready'
+          scores: FeedbackScoreRow[]
+          responses: FeedbackResponseItem[]
+          unanswered: TraceUnansweredSurveyApi[]
+          surveysFailed: boolean
+      }
 
 export interface FeedbackChipData {
     total: number
+    thumbsUp: number
+    thumbsDown: number
 }
 
 export interface StepFeedback {
     scores: TraceFeedbackScoreApi[]
-    textCount: number
+    responseCount: number
 }

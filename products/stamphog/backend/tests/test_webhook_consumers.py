@@ -17,6 +17,7 @@ WEBHOOK_PATH = "/webhooks/stamphog/github"
 
 PULL_REQUEST_DELAY = "products.stamphog.backend.facade.tasks.process_pull_request_event.delay"
 INSTALLATION_DELAY = "products.stamphog.backend.facade.tasks.process_installation_event.delay"
+ROUTING_DELAY = "products.stamphog.backend.facade.tasks.route_pull_request_reviewers.delay"
 
 
 def _signature(body: bytes, secret: str) -> str:
@@ -48,25 +49,36 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("pull_request", PULL_REQUEST_DELAY, INSTALLATION_DELAY),
-            ("installation", INSTALLATION_DELAY, PULL_REQUEST_DELAY),
-            ("installation_repositories", INSTALLATION_DELAY, PULL_REQUEST_DELAY),
+            ("pull_request", "opened", PULL_REQUEST_DELAY, INSTALLATION_DELAY, True),
+            ("pull_request", "ready_for_review", PULL_REQUEST_DELAY, INSTALLATION_DELAY, True),
+            ("pull_request", "synchronize", PULL_REQUEST_DELAY, INSTALLATION_DELAY, False),
+            ("installation", "opened", INSTALLATION_DELAY, PULL_REQUEST_DELAY, False),
+            ("installation_repositories", "opened", INSTALLATION_DELAY, PULL_REQUEST_DELAY, False),
         ]
     )
     def test_a_verified_delivery_enqueues_the_task_that_event_routes_to(
-        self, event: str, expected_task: str, other_task: str
+        self, event: str, action: str, expected_task: str, other_task: str, routes: bool
     ) -> None:
-        body = json.dumps({"action": "opened"}).encode("utf-8")
+        body = json.dumps({"action": action}).encode("utf-8")
 
-        with patch(expected_task) as expected_delay, patch(other_task) as other_delay:
+        with (
+            patch(expected_task) as expected_delay,
+            patch(other_task) as other_delay,
+            patch(ROUTING_DELAY) as routing_delay,
+        ):
             response = self._post(body, event=event, signature=_signature(body, WEBHOOK_SECRET))
 
         assert response.status_code == 202
-        expected_delay.assert_called_once_with(payload={"action": "opened"}, delivery_id="delivery-1")
+        expected_delay.assert_called_once_with(payload={"action": action}, delivery_id="delivery-1")
         other_delay.assert_not_called()
+        # Routing is its own consumer, queued only for the actions that ask for reviews.
+        assert routing_delay.call_count == (1 if routes else 0)
 
+    @patch(ROUTING_DELAY)
     @patch(PULL_REQUEST_DELAY)
-    def test_a_redelivery_reaches_the_task_again_because_the_consumer_opts_out_of_dedup(self, mock_delay) -> None:
+    def test_a_redelivery_reaches_the_task_again_because_the_consumer_opts_out_of_dedup(
+        self, mock_delay, mock_routing_delay
+    ) -> None:
         body = json.dumps({"action": "opened"}).encode("utf-8")
 
         for _ in range(2):
@@ -75,6 +87,7 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
         # The task keys its resume path on the delivery id, so GitHub's redelivery is how a run
         # that never finished gets picked up. An ingress dedup mark would hold that off for 24 h.
         assert mock_delay.call_count == 2
+        assert mock_routing_delay.call_count == 2
 
     @patch(PULL_REQUEST_DELAY)
     @patch(INSTALLATION_DELAY)

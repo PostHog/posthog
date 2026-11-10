@@ -95,10 +95,13 @@ class TraceNodeMetadata(Contract):
     prompt_version: float | None
 
 
-class TraceNodeEvent(Contract):
+class TraceNodeDetailEvent(Contract):
     name: str
     uuid: str
     timestamp: datetime
+
+
+class TraceNodeEvent(TraceNodeDetailEvent):
     properties: dict[str, Any] = Field(
         description="The event's properties as ingested, including its input and output values."
     )
@@ -107,12 +110,105 @@ class TraceNodeEvent(Contract):
     )
 
 
+TraceMessageRole = Literal["system", "user", "assistant", "tool"]
+# Unlike a bare Literal, a type alias becomes an OpenAPI component named after the alias. A bare Literal would take a
+# name derived from the field, `MediaTypeEnum`, which any other `media_type` field could collide with.
+type TraceAttachmentMediaType = Literal["image", "audio", "video", "file"]
+
+
+class TraceTextPart(Contract):
+    kind: Literal["text"]
+    text: str = Field(description="The text of the message, as captured.")
+
+
+class TraceThinkingPart(Contract):
+    kind: Literal["thinking"]
+    text: str = Field(description="The model's reasoning text.")
+
+
+class TraceToolCallPart(Contract):
+    kind: Literal["toolCall"]
+    name: str = Field(description="The name of the called tool, or an empty string when the event has none.")
+    args: Any = Field(
+        description="The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured."
+    )
+    result: Any | None = Field(
+        description="The content of the tool message that answers this call, parsed from JSON text when no number "
+        "loses precision in a browser. Null when no tool message answers the call."
+    )
+
+
+class TraceAttachmentPart(Contract):
+    kind: Literal["attachment"]
+    media_type: TraceAttachmentMediaType = Field(description="The kind of media, which decides how it is shown.")
+    name: str | None = Field(
+        description="The file name, or the content item's type for an item that is not known media. Null otherwise."
+    )
+    mime_type: str | None = Field(description="The MIME type, such as `image/png`, or null when it is not known.")
+    url: str | None = Field(
+        description="A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded "
+        "media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted."
+    )
+
+
+TraceMessagePart = Annotated[
+    TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart, Field(discriminator="kind")
+]
+
+
+class TraceMessage(Contract):
+    id: str = Field(description="An id that is unique within the node, made of the node id, the side and a position.")
+    role: TraceMessageRole
+    parts: list[TraceMessagePart] = Field(
+        description="The message's text, reasoning, tool calls and attachments, in order."
+    )
+    is_internal: bool = Field(
+        description="Whether the message is a tool message, or holds only reasoning and tool calls."
+    )
+    source_node_id: str | None = Field(
+        description="The id of the node whose input or output holds this message, or null when it is not known."
+    )
+
+
+class TraceMessagesSide(Contract):
+    kind: Literal["messages"]
+    messages: list[TraceMessage] = Field(
+        description="The conversation, normalized from the provider's format by the built-in parsers and the "
+        "project's custom parsers."
+    )
+
+
+class TraceJsonSide(Contract):
+    kind: Literal["json"]
+    value: Any = Field(
+        description="The side's value as captured, for a side that is not a conversation or that could not be "
+        "normalized."
+    )
+
+
+TraceSideContent = Annotated[TraceMessagesSide | TraceJsonSide, Field(discriminator="kind")]
+
+
+class TraceNodeContent(Contract):
+    input: TraceSideContent = Field(description="The node's input, as messages or as JSON.")
+    output: TraceSideContent = Field(description="The node's output, as messages or as JSON.")
+
+
 class TraceNodeDetail(Contract):
     id: str
     kind: TraceNodeKind
     error: str | None
     metadata: TraceNodeMetadata
-    event: TraceNodeEvent | None
+    event: TraceNodeDetailEvent | None
+    content: TraceNodeContent = Field(description="The node's input and output, ready to render.")
+
+
+class TraceNodeRaw(Contract):
+    id: str = Field(description="The node id: the event's uuid, or the trace id for the root node.")
+    kind: TraceNodeKind
+    event: TraceNodeEvent | None = Field(
+        description="The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event."
+    )
 
 
 class EvaluationPassFilters(Contract):
@@ -169,6 +265,26 @@ class TraceEvaluationResults(Contract):
     summary: TraceEvaluationSummary
 
 
+class TraceCluster(Contract):
+    run_id: str = Field(
+        description="The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id."
+    )
+    run_at: datetime = Field(description="When the run finished.")
+    job_id: str | None = Field(description="The clustering job the run belongs to, null for a run without a job.")
+    job_name: str | None
+    cluster_id: int = Field(description="The cluster's id within its run. -1 is the run's outliers.")
+    title: str | None
+    description: str | None
+    is_outlier: bool = Field(description="The trace fit no cluster in this run.")
+
+
+class TraceClusters(Contract):
+    clusters: list[TraceCluster] = Field(
+        description="The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. "
+        "Manual runs are left out. Clusters come before outliers, then newest first."
+    )
+
+
 class TraceFeedbackScore(Contract):
     id: str
     name: str | None
@@ -191,14 +307,121 @@ class TraceFeedbackText(Contract):
     timestamp: datetime
 
 
+class TraceSurvey(Contract):
+    id: str
+    name: str | None = Field(description="Null when the survey no longer exists.")
+
+
+class TraceThumbsAnswer(Contract):
+    kind: Literal["thumbs"]
+    question: str
+    up: bool
+
+
+class TraceRatingAnswer(Contract):
+    kind: Literal["rating"]
+    question: str
+    value: str
+    scale: int | None
+    lower_label: str | None
+    upper_label: str | None
+
+
+class TraceChoiceAnswer(Contract):
+    kind: Literal["choice"]
+    question: str
+    choices: list[str]
+
+
+class TraceTextAnswer(Contract):
+    kind: Literal["text"]
+    question: str
+    text: str
+
+
+TraceSurveyAnswer = Annotated[
+    TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer, Field(discriminator="kind")
+]
+
+
+class TraceSurveyResponse(Contract):
+    kind: Literal["survey"]
+    id: str
+    node_id: str = Field(
+        description="The tree node the response targets: the trace id, as a survey response covers the whole trace."
+    )
+    timestamp: datetime
+    survey: TraceSurvey
+    answers: list[TraceSurveyAnswer]
+    complete: bool = Field(description="False when the user left the survey before its end.")
+    unavailable: Literal["survey_not_found", "no_questions"] | None = Field(
+        description="Why the answers cannot be shown: the survey was deleted, or it has no questions."
+    )
+
+
+class TraceUnansweredSurvey(Contract):
+    survey: TraceSurvey
+    timestamp: datetime = Field(description="When the survey was first shown.")
+
+
+TraceSurveyResponsesStatus = Literal["ok", "failed", "not_permitted"]
+
+
+TraceFeedbackResponse = Annotated[TraceFeedbackText | TraceSurveyResponse, Field(discriminator="kind")]
+
+
 class TraceFeedbackSummary(Contract):
     total: int = Field(description="Scores plus responses.")
+    thumbs_up: int = Field(description="Thumbs up answers to 2-point survey rating questions.")
+    thumbs_down: int = Field(description="Thumbs down answers to 2-point survey rating questions.")
 
 
 class TraceFeedback(Contract):
     scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
-    responses: list[TraceFeedbackText] = Field(description="What users said, oldest first.")
+    responses: list[TraceFeedbackResponse] = Field(description="What users said, oldest first.")
+    unanswered: list[TraceUnansweredSurvey] = Field(
+        description="Surveys shown with the trace and not answered, oldest first."
+    )
+    survey_responses_status: TraceSurveyResponsesStatus = Field(
+        description="ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes."
+    )
     summary: TraceFeedbackSummary
+
+
+class TraceHumanReviewScore(Contract):
+    name: str = Field(description="The scorer's name.")
+    value: str = Field(
+        description="The saved score as a reviewer reads it: option labels joined by commas, a number, or the "
+        "scorer's yes or no label."
+    )
+    label: str = Field(description="The scorer's name and the score together, such as `Tone: 4.5`.")
+
+
+class TraceHumanReview(Contract):
+    reviewed_by: str | None = Field(
+        description="The display name of whoever last saved the review, or null when that user was removed."
+    )
+    reviewed_at: datetime = Field(description="When the review was last saved.")
+    comment: str | None = Field(description="The reviewer's reasoning, if any.")
+    scores: list[TraceHumanReviewScore] = Field(
+        description="Ordered by scorer name. Empty when the review only marks the trace as reviewed."
+    )
+
+
+class TraceReviewQueueAssignment(Contract):
+    id: str = Field(description="The review queue's id.")
+    name: str = Field(description="The review queue's name.")
+    item_id: str = Field(description="The queue item that holds the trace, for moving or removing it.")
+
+
+class TraceReviewStatus(Contract):
+    review: TraceHumanReview | None = Field(
+        description="The trace's human review, or null when it has none or the user may not see it."
+    )
+    queue: TraceReviewQueueAssignment | None = Field(
+        description="The review queue the trace waits in, or null when it waits in none the user may see. Saving a review "
+        "normally takes the trace out of its queue."
+    )
 
 
 class TraceSearchMatch(Contract):
@@ -271,6 +494,44 @@ class TraceSummaryRun:
     was_sampled: bool
     distinct_id: str
     groups: dict[str, str]
+
+
+class TracePullRequest(Contract):
+    repo_owner: str = Field(description="The owner of the pull request's repository.")
+    repo_name: str = Field(description="The name of the pull request's repository.")
+    number: int = Field(description="The pull request number.")
+    title: str | None = Field(description="The pull request title, or null when the synced data has none.")
+
+
+class TracePullRequestLookup(Contract):
+    pull_request: TracePullRequest | None = Field(
+        description="The pull request the trace's git branch belongs to, ranked by engineering analytics, or null "
+        "when the trace has no branch, the project has no GitHub source, or no pull request matches."
+    )
+
+
+TraceExportStatus = Literal["pending", "complete", "failed"]
+TRACE_EXPORT_STATUSES: tuple[TraceExportStatus, ...] = get_args(TraceExportStatus)
+
+
+class TraceExport(Contract):
+    id: int = Field(description="The export id, used to read its status and download the file.")
+    status: TraceExportStatus = Field(description="Whether the file is still being written, ready, or failed.")
+    filename: str = Field(description="The name the downloaded JSON file gets.")
+    created_at: datetime = Field(description="When the export was requested.")
+    expires_after: datetime | None = Field(description="When the file is deleted.")
+    exception: str | None = Field(description="Why the export failed, null unless status is failed.")
+
+
+class TraceExportFile(Contract):
+    trace: Trace = Field(description="The trace as the trace endpoint returns it.")
+    truncated: bool = Field(
+        description="True when the trace has more events than an export reads. The file then holds the earliest "
+        "events only, and leaves out the later steps."
+    )
+    nodes: list[TraceNodeRaw] = Field(
+        description="Every node with its event as ingested: the root first, then the tree in pre-order."
+    )
 
 
 AttentionReason = Literal["errored", "silent", "worse"]
@@ -395,7 +656,9 @@ class PassRateOverviewEntry(Contract):
 
 
 class PassRateOverview(Contract):
-    entries: list[PassRateOverviewEntry] = Field(description="Enabled pass rate evaluations, lowest rate first.")
+    entries: list[PassRateOverviewEntry] = Field(
+        description="Pass rate evaluations with results in the period, paused ones included, lowest rate first."
+    )
     median: float | None = Field(description="Median of the per-evaluation pass rates without low evidence.")
     median_comparison: PeriodComparison | None = Field(
         description="Median pass rate in each period, over evaluations with results in both. Null when none has."
@@ -435,7 +698,9 @@ class EvaluationsOverview(OverviewPeriodFields):
         "bucket can start before `start`."
     )
     evaluations: list[EvaluationResult]
-    totals: OverviewTotals = Field(description="Totals over the enabled evaluations.")
+    totals: OverviewTotals = Field(
+        description="Totals over every evaluation's results in the period, paused ones included."
+    )
     pass_rate_overview: PassRateOverview
 
 

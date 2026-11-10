@@ -47,10 +47,11 @@ When a feature flag request is processed, the Rust service increments Redis coun
 
 The service stores counts in Redis hashes using time-bucketed fields:
 
-| Request Type     | Team Key                                      | SDK Key                                                      |
-| ---------------- | --------------------------------------------- | ------------------------------------------------------------ |
-| `/decide`        | `posthog:decide_requests:{team_id}`           | `posthog:decide_requests:sdk:{team_id}:{sdk_name}`           |
-| Local evaluation | `posthog:local_evaluation_requests:{team_id}` | `posthog:local_evaluation_requests:sdk:{team_id}:{sdk_name}` |
+| Request Type           | Team Key                                                   | SDK Key                                                                   |
+| ---------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `/decide`              | `posthog:decide_requests:{team_id}`                        | `posthog:decide_requests:sdk:{team_id}:{sdk_name}`                        |
+| Local evaluation (200) | `posthog:local_evaluation_requests:{team_id}`              | `posthog:local_evaluation_requests:sdk:{team_id}:{sdk_name}`              |
+| Local evaluation (304) | `posthog:local_evaluation_not_modified_requests:{team_id}` | `posthog:local_evaluation_not_modified_requests:sdk:{team_id}:{sdk_name}` |
 
 ### Time bucketing
 
@@ -93,7 +94,13 @@ Rust's `/flags/definitions` endpoint enforces billing quotas. When a team exceed
 }
 ```
 
-The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag comparison and cache fetch. If the quota is exceeded, all requests (including conditional ones) return HTTP 402 — no 304 is issued while a team is over quota. Requests that pass the quota check but result in a 304 (ETag match) are not counted toward billing usage, matching Django's behavior.
+The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag comparison and cache fetch. If the quota is exceeded, all requests (including conditional ones) return HTTP 402 — no 304 is issued while a team is over quota.
+
+### Conditional requests (ETag)
+
+A request that passes the quota check and results in a 304 (ETag match) is counted on the separate `local_evaluation_not_modified_requests` counter. The usage report bills these at 1 unit each, the same as a `/decide` request, instead of the 10 units a full local evaluation response costs. The usage record key is `feature_flag_local_evaluation_not_modified_requests`, apart from `feature_flag_requests`, because each key has its own usage counter and a shared key would count a 304 twice.
+
+A 304 for definitions that hold only survey or product tour flags is not billed, the same as a 200. The service memoizes per team and ETag whether the definitions hold a billable flag, so it reads the payload once per pod per ETag rather than on every poll. The memo is sized by `DEFINITIONS_BILLABLE_CACHE_CAPACITY` and an entry lives for `DEFINITIONS_BILLABLE_CACHE_TTL_SECONDS` (default one hour), which bounds how long a wrong answer can last. Only a payload served from Redis decides, because an S3 copy can lag the ETag by a version. A payload that came from S3, failed to read, or took longer than 500 ms leaves that poll unbilled, and the miss is remembered for 30 seconds so a degraded payload tier is not hammered by every poll. These unbilled polls show as `flags_flag_definitions_not_modified_billing_total{outcome="unknown"}`, which is why the 304 billing counter can run below the ETag hit counter.
 
 ### SDK tracking
 
@@ -105,6 +112,7 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-node`         | Server-side Node.js     |
 | `posthog-python`       | Python SDK              |
 | `posthog-php`          | PHP SDK                 |
+| `posthog-laravel`      | Laravel SDK             |
 | `posthog-ruby`         | Ruby SDK                |
 | `posthog-go`           | Go SDK                  |
 | `posthog-java`         | Java SDK                |
@@ -115,6 +123,30 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-react-native` | React Native SDK        |
 | `posthog-flutter`      | Flutter SDK             |
 | `other`                | Unknown or unrecognized |
+
+### Django flag list endpoint
+
+The Django flag list endpoint counts each request made with a personal API key as a local evaluation request.
+This applies to `/api/feature_flag/` and to `/api/projects/:project_id/feature_flags/`.
+Browser-session and unauthenticated requests are not counted.
+
+Each counted request increments two Redis hashes in one pipelined round trip:
+
+- The legacy team counter, `posthog:local_evaluation_requests:{team_id}`, which the 30-minute aggregation reads.
+- `posthog:django_local_evaluation_usage`, which holds one per-team count of the requests that Django served.
+
+The second hash exists because the Rust definitions service also writes to the legacy team counter and reports its own usage records.
+
+Every minute, `report_django_local_evaluation_usage_task` reads and deletes `posthog:django_local_evaluation_usage` in one Redis transaction.
+It then sends one `feature_flag_local_evaluation_requests` record per team as the `feature-flags-django` producer.
+The task sends at most 500 records in each request, because usage ingestion rejects a request above its batch limit.
+The task runs on the `feature_flags_long_running` queue, so a stalled usage-ingestion service cannot delay the cache rebuilds on the `feature_flags` queue.
+
+The workers on that queue need `USAGE_INGESTION_ADDR` with an explicit port, and an enabled `USAGE_INGESTION_REPORT_TEAMS` allowlist.
+The Python gRPC client connects to port 443 when the address has no port, but the usage-ingestion Service listens on port 80.
+The task discards counts for teams that the allowlist does not enable.
+Delivery is best effort: the shared usage-ingestion client logs a failed send, and the task does not put the counts back.
+Usage records from before this task omit the requests that Django served. [Step 4](#step-4-usage-report-generation) lists this gap with the other gaps that keep a counter off `realtime`.
 
 ### Redis pipelining
 
@@ -161,7 +193,13 @@ sender.add_periodic_task(
 
 ### Aggregation process
 
-For each team (excluding internal metrics and demo teams):
+The task reads the teams 1,000 at a time, excluding internal metrics and demo teams.
+For each batch, one pipelined `EXISTS` call finds the teams that have a team key for any request type.
+The task skips the teams with no team key.
+Those teams also have no SDK keys, because the service writes the SDK key in the same pipeline as the team key.
+When the `EXISTS` call fails, the task reports the error and exports every team in that batch.
+
+For each team with a team key:
 
 1. **Acquire distributed lock**: `posthog:decide_analytics:lock:{team_id}` with 60-second timeout
 2. **Extract counters**: Read all time buckets except the current one (still being filled)
@@ -185,10 +223,11 @@ The aggregation task emits events to PostHog's internal analytics instance.
 
 ### Event types
 
-| Event Name               | Description                                    |
-| ------------------------ | ---------------------------------------------- |
-| `decide usage`           | Counts from `/decide` endpoint requests        |
-| `local evaluation usage` | Counts from local evaluation endpoint requests |
+| Event Name                            | Description                                             |
+| ------------------------------------- | ------------------------------------------------------- |
+| `decide usage`                        | Counts from `/decide` endpoint requests                 |
+| `local evaluation usage`              | Counts from local evaluation requests answered with 200 |
+| `local evaluation not modified usage` | Counts from local evaluation requests answered with 304 |
 
 ### Event properties
 
@@ -228,24 +267,17 @@ The usage report task queries ClickHouse for aggregated billing data.
 **Source file:** `posthog/tasks/usage_report.py`
 
 Daily reports, usage reports v2, and quota limiting read the billed request counters through `posthog.usage_counters.UsageCounterService`.
-Each counter's feature flag selects `legacy`, `both`, or `realtime`.
-A counter in `RECORD_REALTIME_BLOCKERS` resolves `realtime` to `both` until its producer discrepancy is resolved or confirmed as intended billing behavior.
-All record-backed counters are guarded for the initial comparison rollout.
-These guards cover event, enhanced-person, and exception timestamp attribution, Django local-evaluation requests, replay sessions, and workflow invocations.
-Feature-flag request records use Rust flush time, while legacy billing events use the later Celery export time.
-That counter remains guarded until cutover reconciles requests across those dates.
-CDP and workflow dispatches use independent flush-time clocks for legacy app metrics and usage records.
-Their counters remain guarded until cutover reconciles dispatches across those dates.
-They also cover producer gaps in the exemptions for product-tour survey responses, wallet-billed AI gateway events, and sponsored relay events.
-Guarded counters still collect comparisons while legacy totals remain authoritative.
+The daily report and quota limiting always query billing events.
+Only usage reports v2 reads the counter feature flags.
+There, each counter's feature flag selects `legacy`, `both`, or `realtime`.
 `legacy` queries billing events. `both` queries billing events and `billing_usage_records`, and keeps the legacy count authoritative.
-`realtime` uses the usage record count. A report for a complete day also queries billing events, for the comparison. Each caller states whether its period is a complete day. The daily report and finalized usage reports v2 runs pass a complete day. Intraday usage reports v2 runs and quota limiting pass a partial day and skip that query.
+`realtime` uses the usage record count. A finalized run covers a complete day and also queries billing events, for the comparison. An intraday run covers a partial day and skips that query.
 Reports retain both totals in `counter_comparisons` for every counter that ran both queries. Both totals count each team under its current organization, the same as the report fields. A failed comparison query omits that counter's pair. A failure in a query needed for normal report fields still fails the report.
 The usage record query checks units separately for each usage key and discards all totals for a key with incompatible units.
 A mismatch in a comparison-only source omits that counter's pair and records a shadow validation failure; other counters remain available.
 A mismatch in a source used for a realtime total fails the report.
 Removing the complete-day legacy query will be a later code change.
-The mode selects the authoritative count for every caller and time window.
+The mode selects the authoritative count for finalized and intraday runs.
 Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
 Usage reports v2 saves each completed legacy query in S3 under its workflow run.
 Each legacy counter runs in its own activity, sharing the workflow's four-query limit with other queries.
@@ -254,22 +286,35 @@ The counter-report activity reads those checkpoints before its shared usage-reco
 Cancellation stops the counter worker between queries and before checkpoint or report writes; an in-flight query or write can still finish.
 Usage reports v2 records query latency and failures under the existing query names, plus `usage_records` for the shared scan and `usage_counters` for the combined activity.
 A failed counter activity or remaining query fails the workflow without waiting for the other queries to finish.
-Quota runs log resolved sources as `usage_counter_sources` and successful comparisons as `usage_counter_comparison`.
-Each comparison includes both totals, the number of differing teams, and the sum of absolute differences, so opposite discrepancies cannot cancel each other out.
 Missing-organization diagnostics use size-bounded events. Temporal runs their capture and flush outside the event loop.
+
+Usage records still differ from the legacy queries for every counter.
+Set a counter's flag to `realtime` only after a change removes its gap below.
+The team can also agree to bill the usage record count with the gap.
+
+- Events, enhanced person events, and exceptions: usage records use capture time, and the legacy queries use the event timestamp. The switch must not count an event on both dates or on neither date.
+- Feature flag requests: usage records use the flush time of the Rust flags service. The legacy query uses the later Celery export time.
+- Feature flag local evaluation 304 requests: the same clock difference as feature flag requests.
+- Feature flag local evaluation requests: usage records from before [#118814](https://github.com/PostHog/posthog/pull/118814) omit the requests that the Django feature flag list endpoint served. Compare both producers over a complete window before you switch this counter.
+- CDP invocations and workflow emails, push, and SMS: usage records and app metrics flush on separate clocks. Each source can put one dispatch on a different date.
+- Workflow invocations: the legacy query counts fetch and push dispatches. Before [#118809](https://github.com/PostHog/posthog/pull/118809), a push dispatch wrote only a `workflow_push_sent` record, so `workflow_billable_invocations` held only fetches. Now a push dispatch writes both records. The clock difference above also applies.
+- Web and mobile recordings: the replay pipeline marks a session as seen before it parses the first message. When that message fails, the later messages of the session bill nothing. The fix is [#121613](https://github.com/PostHog/posthog/pull/121613), which bills each saved session once.
+- Survey responses: usage records include product tour responses, which the legacy query exempts.
+- AI events: usage records do not apply the legacy exemptions for wallet-billed gateway events and sponsored relay events.
 
 ### Billable calculation
 
-Local evaluation requests are weighted 10x compared to decide requests:
+Local evaluation requests that return full flag definitions are weighted 10x compared to decide requests. Local evaluation requests answered with 304 are weighted like decide requests:
 
 ```python
 billable_feature_flag_requests_count_in_period = (
     decide_requests_count_in_period
     + (local_evaluation_requests_count_in_period * 10)
+    + local_evaluation_not_modified_requests_count_in_period
 )
 ```
 
-This reflects the higher resource cost of local evaluation requests, which return full flag definitions rather than just evaluation results.
+This reflects the higher resource cost of full local evaluation responses, which return full flag definitions rather than just evaluation results.
 
 ### Token validation
 
@@ -288,6 +333,7 @@ AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token
 | Distributed lock                 | Prevent concurrent processing of the same team's data                              |
 | Redis pipelining                 | Minimize network round-trips for better performance                                |
 | 10x local evaluation weight      | Local evaluation returns full flag definitions, requiring more server resources    |
+| 1x weight for 304 responses      | A 304 serves no definitions payload, so it costs the same as a `/decide` request   |
 | Selective billing                | Survey and product tour flags are internal features, not customer-billable         |
 | SDK breakdown for analytics only | Billing charges per request regardless of SDK; breakdown is for internal analytics |
 
@@ -299,7 +345,7 @@ The feature flags **Usage** tab shows the existing billing events grouped by SDK
 - Remote evaluation combines `/flags` and legacy `/decide` traffic.
 - Local evaluation combines `/flags/definitions` and its legacy alias.
 - Counts include billable requests only. They are not raw HTTP traffic totals.
-- Local evaluation requests contribute 10 billing units each.
+- A full local evaluation response contributes 10 billing units. A 304 contributes 1.
 - The SDK breakdown comes from the request user-agent and unknown SDKs appear as `other`.
 - Aggregation means recent usage can take approximately 30 minutes to appear. Hourly buckets use aggregation event time, so they approximate rather than preserve exact request time.
 

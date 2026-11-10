@@ -65,6 +65,7 @@ export function EvaluationAgentActions(): JSX.Element | null {
                 actions={[{ key: 'prompt', label: 'prompt', buildPrompt: () => prompt }]}
                 labelMode="destination"
                 appearance="lemon"
+                excludeAgentKeys={['posthog-code']}
                 onRun={({ agentKey }) => reportAgentOpened(SURFACE_KEY, 'card', agentKey)}
                 data-attr="mcp-hint-card-agent-button"
             />

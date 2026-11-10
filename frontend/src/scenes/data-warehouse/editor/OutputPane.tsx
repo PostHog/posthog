@@ -32,15 +32,15 @@ import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTab
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { type ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -399,7 +399,11 @@ function SplitOutputToggle({ splitView, onClick }: SplitOutputToggleProps): JSX.
             size="small"
             icon={splitView ? <IconScreen /> : <IconColumns />}
             onClick={onClick}
-            tooltip={splitView ? 'Show one output at a time' : 'Show results and visualization side by side'}
+            tooltip={
+                splitView
+                    ? 'Exit split view and show only the results'
+                    : 'Split view: show the results and the visualization side by side'
+            }
             data-attr="sql-editor-output-split-toggle"
         />
     )
@@ -653,7 +657,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         visualizationProps: visualizationLogic.props,
         tabId: tabId || '',
     })
-    const { choosingChart, statusMessage } = useValues(chartRecommendationLogic)
+    const { choosingChart } = useValues(chartRecommendationLogic)
     const { skipRecommendation } = useActions(chartRecommendationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
@@ -997,13 +1001,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 outputContent
             )}
             <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
-                <div className="flex flex-wrap items-center gap-x-4">
+                <div className="flex min-h-4 flex-wrap items-center gap-x-4">
                     {response && !responseError ? <LoadPreviewText localResponse={response} /> : null}
-                    {statusMessage ? (
-                        <span className="text-xs text-muted" role="status" data-attr="sql-editor-chart-status">
-                            {statusMessage}
-                        </span>
-                    ) : null}
                 </div>
                 <div className="flex items-center gap-4">
                     <ElapsedTime />

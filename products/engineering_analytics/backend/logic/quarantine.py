@@ -37,7 +37,8 @@ import structlog
 from posthog.hogql import ast
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -267,11 +268,12 @@ def _most_active_repo(
     # Raises GitHubSourceNotConnectedError when the team has no source (caught upstream and turned
     # into available=false) or ValueError for a bad source_id (propagated to a 4xx by the view).
     curated = _curated.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
-    sql = _REPO_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+    date_from = datetime.now(UTC) - timedelta(days=30)
+    sql = _REPO_SELECT.replace("__RUNS_SOURCE__", curated.run_source(since=date_from))
     response = curated.run(
         sql,
         query_type="engineering_analytics.quarantine_repo",
-        placeholders={"date_from": ast.Constant(value=datetime.now(UTC) - timedelta(days=30))},
+        placeholders={"date_from": ast.Constant(value=date_from)},
     )
     if not response.results:
         return None
@@ -510,7 +512,7 @@ def _resolve_write_target(
             "connect it as a GitHub source to quarantine there."
         )
 
-    integration_row = Integration.objects.filter(team=team, kind="github").first()
+    integration_row = IntegrationManager.github.oauth.find(team.id)
     if integration_row is None:
         raise QuarantineWriteError("Connect a GitHub integration with write access to quarantine tests from here.")
     github = GitHubIntegration(integration_row, source="ci_quarantine", priority=Priority.CRITICAL)

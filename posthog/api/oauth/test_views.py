@@ -28,7 +28,7 @@ from redis.exceptions import RedisError
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
-from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
+from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS, refresh_cimd_metadata_task
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
@@ -49,7 +49,9 @@ from posthog.models.oauth import (
     revoke_oauth_session,
 )
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
@@ -82,9 +84,14 @@ def private_pem_to_public_pem(private_key_pem: str) -> str:
     return public_pem(private_key.public_key())
 
 
+MCP_RESOURCE_PARAM = "&resource=https%3A%2F%2Fmcp.posthog.com%2Fmcp"
+
+
 class TestOAuthAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+        # Celery runs the stale-cache CIMD refresh inline, and it would fetch the partner URL over the network.
+        self.enterContext(patch.object(refresh_cimd_metadata_task, "delay"))
 
         self.confidential_application = OAuthApplication.objects.create(
             name="Test Confidential App",
@@ -328,6 +335,113 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
         self.assertTrue(resolution["was_defaulted"])
 
+    @parameterized.expand(
+        [
+            (
+                "step_up_first_connection",
+                True,
+                "openid insight:write batch_export:write comment:write",
+                ["batch_export:read", "insight:write", "openid"],
+            ),
+            (
+                "no_step_up",
+                False,
+                "openid insight:write batch_export:write comment:write",
+                ["batch_export:write", "comment:write", "insight:write", "openid"],
+            ),
+            ("step_up_nothing_in_default_set", True, "openid comment:write", ["comment:write", "openid"]),
+        ]
+    )
+    def test_mcp_authorize_narrows_the_first_connection_of_a_step_up_app(
+        self, _name, supports_step_up, requested, expected
+    ):
+        self.confidential_application.supports_step_up = supports_step_up
+        self.confidential_application.save()
+
+        response = self.client.get(
+            f"{self.base_authorization_url}&scope={quote(requested)}&resource=https%3A%2F%2Fmcp.posthog.com%2Fmcp"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resolution = response.context["posthog_app_context"]["oauth_scope_resolution"]
+        self.assertEqual(sorted(resolution["scopes"]), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "step_up",
+                True,
+                MCP_RESOURCE_PARAM,
+                "comment:write insight:write openid",
+                ["comment:write", "insight:write", "openid"],
+                ["insight:write", "openid"],
+                {"openid", "insight:write", "comment:write"},
+            ),
+            ("no_step_up", False, MCP_RESOURCE_PARAM, "comment:write", ["comment:write"], None, {"comment:write"}),
+            ("step_up_outside_mcp", True, "", "comment:write", ["comment:write"], None, {"comment:write"}),
+            # A tampered form still gets nothing outside the app's ceiling.
+            (
+                "step_up_tampered_form",
+                True,
+                MCP_RESOURCE_PARAM,
+                "comment:write insight:write openid llm_gateway:read",
+                ["comment:write", "insight:write", "openid"],
+                ["insight:write", "openid"],
+                {"openid", "insight:write", "comment:write"},
+            ),
+        ]
+    )
+    @time_machine.travel("2026-03-01 12:00:00", tick=False)
+    def test_mcp_reauthorize_keeps_prior_scopes_and_preselects_the_prior_projects_for_a_step_up_app(
+        self,
+        _name,
+        supports_step_up,
+        resource_param,
+        submitted_scope,
+        expected_consent,
+        expected_already_granted,
+        expected_token_scopes,
+    ):
+        self.confidential_application.supports_step_up = supports_step_up
+        self.confidential_application.save()
+        expired_access_token = OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="pha_prior_grant",
+            expires=timezone.now() - timedelta(hours=1),
+            # `llm_gateway:read` sits outside the app's ceiling, as after the ceiling shrank.
+            scope="openid insight:write llm_gateway:read",
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="prior_refresh_token",
+            access_token=expired_access_token,
+        )
+
+        consent = self.client.get(f"{self.base_authorization_url}&scope={quote('comment:write')}{resource_param}")
+        authorize = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "scope": submitted_scope,
+                "access_level": OAuthApplicationAccessLevel.TEAM.value,
+                "scoped_teams": [self.team.id],
+            },
+        )
+        code = authorize.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
+
+        resolution = consent.context["posthog_app_context"]["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], expected_consent)
+        self.assertEqual(resolution.get("already_granted_scopes"), expected_already_granted)
+        self.assertEqual(
+            resolution.get("earlier_access"),
+            {"scoped_teams": [self.team.id], "scoped_organizations": []} if expected_already_granted else None,
+        )
+        self.assertEqual(set(token["scope"].split()), expected_token_scopes)
+
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
         mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
@@ -540,6 +654,101 @@ class TestOAuthAPI(APIBaseTest):
         expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
+
+    @parameterized.expand(
+        [
+            ("organization_blocked", "organization", "203.0.113.1", True, True, 403),
+            ("organization_allowed", "organization", "192.0.2.1", True, True, 200),
+            ("team_blocked", "team", "203.0.113.1", True, True, 403),
+            ("team_allowed", "team", "192.0.2.1", True, True, 200),
+            ("all_blocked", "all", "203.0.113.1", True, True, 403),
+            ("all_allowed", "all", "192.0.2.1", True, True, 200),
+            ("unrelated_policy", "organization", "203.0.113.1", False, True, 200),
+            ("declined", "organization", "203.0.113.1", True, False, 200),
+            ("auto_org_blocked", "organization", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_org_allowed", "organization", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_team_blocked", "team", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_team_allowed", "team", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_all_blocked", "all", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_all_allowed", "all", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_unrelated", "organization", "203.0.113.1", False, True, 302, "auto"),
+            ("auto_mixed_blocked", "mixed", "203.0.113.1", True, True, 403, "auto"),
+            ("first_party_blocked", "organization", "203.0.113.1", True, True, 403, "first_party"),
+            ("first_party_allowed", "organization", "192.0.2.1", True, True, 302, "first_party"),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False)
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_authorize_checks_grant_ip_policy(
+        self,
+        _name: str,
+        access_level: str,
+        client_ip: str,
+        target_restricted: bool,
+        allow: bool,
+        expected_status: int,
+        approval_path: str = "consent",
+    ) -> None:
+        restricted_org, _, restricted_team = Organization.objects.bootstrap(self.user, name="Restricted organization")
+        OrganizationIPRestrictions.objects.create(
+            organization=restricted_org, enabled=True, ip_restrictions=["192.0.2.0/24"]
+        )
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
+        target_org = restricted_org if target_restricted else self.organization
+        target_team = restricted_team if target_restricted else self.team
+        body = {
+            **self.base_authorization_post_body,
+            "allow": allow,
+            "access_level": access_level,
+            "scoped_organizations": [str(target_org.id)] if access_level == "organization" else [],
+            "scoped_teams": [target_team.id] if access_level == "team" else [],
+        }
+        grants_before = OAuthGrant.objects.count()
+
+        if approval_path == "consent":
+            response = self.client.post("/oauth/authorize/", body, REMOTE_ADDR=client_ip)
+        else:
+            if approval_path == "first_party":
+                self.confidential_application.is_first_party = True
+                self.confidential_application.save()
+                body["scoped_organizations"] = [
+                    str(org_id) for org_id in self.user.organizations.values_list("id", flat=True)
+                ]
+            else:
+                if access_level == "mixed":
+                    body["scoped_organizations"] = [str(restricted_org.id)]
+                    body["scoped_teams"] = [self.team.id]
+                elif access_level == "organization":
+                    body["scoped_teams"] = None
+                elif access_level == "team":
+                    body["scoped_organizations"] = None
+                OAuthAccessToken.objects.create(
+                    application=self.confidential_application,
+                    user=self.user,
+                    token="existing_ip_policy_token",
+                    expires=timezone.now() + timedelta(hours=1),
+                    scope="openid",
+                    scoped_organizations=body["scoped_organizations"],
+                    scoped_teams=body["scoped_teams"],
+                )
+            response = self.client.get(
+                self.base_authorization_url + "&scope=openid&approval_prompt=auto", REMOTE_ADDR=client_ip
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 403:
+            self.assertContains(response, "ip_not_allowed", status_code=403)
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
+        elif allow:
+            redirect_to = response.json()["redirect_to"] if approval_path == "consent" else response["Location"]
+            grant = OAuthGrant.objects.get(code=parse_qs(urlparse(redirect_to).query)["code"][0])
+            self.assertEqual(grant.scoped_organizations, body["scoped_organizations"])
+            self.assertEqual(grant.scoped_teams, body["scoped_teams"])
+        else:
+            self.assertIn("error=access_denied", response.json()["redirect_to"])
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
 
     @parameterized.expand(
         [
@@ -1835,6 +2044,24 @@ class TestOAuthAPI(APIBaseTest):
 
             refresh_token = refresh_response.json()["refresh_token"]
 
+    @parameterized.expand([("rotating", False), ("non_rotating", True)])
+    def test_supports_step_up_is_copied_from_the_app_at_every_mint(self, _name, is_dcr_client):
+        self.confidential_application.is_dcr_client = is_dcr_client
+        self.confidential_application.supports_step_up = True
+        self.confidential_application.save()
+
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
+
+        self.assertTrue(OAuthAccessToken.objects.get(token=token_response["access_token"]).supports_step_up)
+
+        self.confidential_application.supports_step_up = False
+        self.confidential_application.save()
+        refreshed = self._refresh(token_response["refresh_token"])
+
+        self.assertFalse(OAuthAccessToken.objects.get(token=refreshed["access_token"]).supports_step_up)
+
     def _create_refreshable_token_pair(self, scope: str) -> OAuthRefreshToken:
         suffix = scope.replace(" ", "_").replace("*", "star").replace(":", "_")
         access_token = OAuthAccessToken.objects.create(
@@ -2477,6 +2704,69 @@ class TestOAuthAPI(APIBaseTest):
         response = self.post("/oauth/token/", token_data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_request")
+
+    @parameterized.expand(
+        [
+            ("get_header_allowed", "get", "header", "192.0.2.1", True, False, 200),
+            ("get_header_blocked", "get", "header", "203.0.113.1", True, False, 403),
+            ("post_header_allowed", "post", "header", "192.0.2.1", True, False, 200),
+            ("post_header_blocked", "post", "header", "203.0.113.1", True, False, 403),
+            ("get_query_blocked", "get", "query", "203.0.113.1", True, False, 403),
+            ("post_body_allowed", "post", "body", "192.0.2.1", True, False, 200),
+            ("post_body_blocked", "post", "body", "203.0.113.1", True, False, 403),
+            ("disabled_policy", "get", "header", "203.0.113.1", False, False, 200),
+            ("staff_impersonation", "get", "header", "203.0.113.1", True, True, 200),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False)
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_userinfo_checks_token_principal_ip_policy(
+        self,
+        _name: str,
+        method: str,
+        transport: str,
+        client_ip: str,
+        enabled: bool,
+        impersonated: bool,
+        expected_status: int,
+    ) -> None:
+        self.client.logout()
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization, enabled=enabled, ip_restrictions=["192.0.2.0/24"]
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.confidential_application,
+            token="userinfo_policy_test_token",
+            scope="openid profile email",
+            expires=timezone.now() + timedelta(hours=1),
+            impersonated_by=User.objects.create_user(
+                email="userinfo-staff@example.com", first_name="Verifier", password=None, is_staff=True
+            )
+            if impersonated
+            else None,
+        )
+        headers = {"Authorization": f"Bearer {token.token}"} if transport == "header" else {}
+        data = {"access_token": token.token} if transport in ("query", "body") else {}
+        if method == "post":
+            response = self.client.post(
+                "/oauth/userinfo/",
+                data=urlencode(data),
+                content_type="application/x-www-form-urlencoded",
+                headers=headers,
+                REMOTE_ADDR=client_ip,
+            )
+        else:
+            response = self.client.get("/oauth/userinfo/", data, headers=headers, REMOTE_ADDR=client_ip)
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == 200:
+            self.assertEqual(response.json()["sub"], str(self.user.uuid))
+            self.assertEqual(response.json()["email"], self.user.email)
+        else:
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+            self.assertNotIn("email", response.json())
+            self.assertNotIn("sub", response.json())
 
     def test_userinfo_endpoint_requires_valid_token(self):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
@@ -4335,11 +4625,14 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
-    @parameterized.expand([True, False])
-    def test_self_introspection_succeeds_without_introspection_scope(self, impersonated: bool) -> None:
+    @parameterized.expand([(True, False), (False, True)])
+    def test_self_introspection_succeeds_without_introspection_scope(
+        self, impersonated: bool, supports_step_up: bool
+    ) -> None:
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
         access_token.impersonated_by = self.user if impersonated else None
-        access_token.save(update_fields=["impersonated_by"])
+        access_token.supports_step_up = supports_step_up
+        access_token.save(update_fields=["impersonated_by", "supports_step_up"])
 
         response = self.post(
             "/oauth/introspect/",
@@ -4352,6 +4645,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
         self.assertEqual(data["is_impersonated"], impersonated)
+        self.assertEqual(data["supports_step_up"], supports_step_up)
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
@@ -5662,6 +5956,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
             "issuer",
             "authorization_endpoint",
             "token_endpoint",
+            "device_authorization_endpoint",
             "revocation_endpoint",
             "introspection_endpoint",
             "userinfo_endpoint",
@@ -5682,7 +5977,13 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertEqual(metadata["response_types_supported"], ["code"])
         self.assertEqual(
             metadata["grant_types_supported"],
-            ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            [
+                "authorization_code",
+                "refresh_token",
+                "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+                "urn:ietf:params:oauth:grant-type:device_code",
+            ],
         )
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])

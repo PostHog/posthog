@@ -1,6 +1,6 @@
 import uuid
 import dataclasses
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_sy
     SyncWarehousePersonPropertiesWorkflow,
     sync_warehouse_person_properties_activity,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import SyncResult
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_sync_job"
 
@@ -91,7 +92,7 @@ async def _backfill_activity_killed_by_worker_shutdown(inputs: PersonPropertyBac
 
 
 @pytest.mark.parametrize(
-    "workflow_cls,replaced_activity,killed_activity,real_activities,inputs,expected_job_id",
+    "workflow_cls,replaced_activity,killed_activity,real_activities,inputs,expected_job_id,expected_next_step",
     [
         (
             SyncWarehousePersonPropertiesWorkflow,
@@ -109,6 +110,7 @@ async def _backfill_activity_killed_by_worker_shutdown(inputs: PersonPropertyBac
                 saved_query_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
             ),
             "job-1",
+            "Run a Backfill to deliver any rows left by the interrupted sync.",
         ),
         (
             BackfillWarehousePersonPropertiesWorkflow,
@@ -124,11 +126,12 @@ async def _backfill_activity_killed_by_worker_shutdown(inputs: PersonPropertyBac
                 saved_query_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
             ),
             None,
+            "Click Backfill to continue from where it stopped.",
         ),
     ],
 )
 async def test_run_is_marked_failed_when_the_activity_dies_without_its_own_handler(
-    workflow_cls, replaced_activity, killed_activity, real_activities, inputs, expected_job_id
+    workflow_cls, replaced_activity, killed_activity, real_activities, inputs, expected_job_id, expected_next_step
 ) -> None:
     recorded: list[PersonPropertySyncRunRecord] = []
     source = PersonPropertySyncSource(
@@ -162,6 +165,7 @@ async def test_run_is_marked_failed_when_the_activity_dies_without_its_own_handl
     assert failed[0].source_id == source.source_id
     assert failed[0].job_id == expected_job_id
     assert (failed[0].error or "").startswith("This run was interrupted before it finished.")
+    assert (failed[0].error or "").endswith(expected_next_step)
     assert failed[0].finished_at
     assert failed[0].count_failure is False
 
@@ -343,3 +347,40 @@ async def test_sync_activity_deadline_leaves_time_to_record_the_failure_before_t
     # The recorder needs up to 3 attempts of 5 minutes after the sync activity gives up.
     deadline = scheduled[0].schedule_to_close_timeout.ToTimedelta()
     assert timedelta(0) < deadline <= timedelta(hours=6) - timedelta(minutes=15)
+
+
+@patch(f"{MODULE}.record_completed_runs", new_callable=AsyncMock)
+@patch(f"{MODULE}.record_started_runs", new_callable=AsyncMock)
+@patch(f"{MODULE}.run_person_property_sync", new_callable=AsyncMock)
+@patch(f"{MODULE}.Heartbeater")
+async def test_a_retried_run_keeps_the_time_it_was_first_scheduled(
+    mock_heartbeater_cls: MagicMock,
+    mock_run_sync: AsyncMock,
+    mock_record_started: AsyncMock,
+    mock_record_completed: AsyncMock,
+) -> None:
+    mock_heartbeater_cls.return_value.__aenter__ = AsyncMock(return_value=None)
+    mock_heartbeater_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_run_sync.return_value = SyncResult()
+    first_scheduled = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+    environment = ActivityEnvironment()
+    environment.info = dataclasses.replace(
+        environment.info,
+        attempt=2,
+        scheduled_time=first_scheduled,
+        current_attempt_scheduled_time=first_scheduled + timedelta(minutes=40),
+    )
+    inputs = PersonPropertySyncActivityInputs(
+        team_id=1,
+        schema_id=uuid.uuid4(),
+        source_id=uuid.uuid4(),
+        job_id="job-retried",
+        source_type="Stripe",
+        schema_name="public.charges",
+        last_synced_at=None,
+    )
+
+    await environment.run(sync_warehouse_person_properties_activity, inputs)
+
+    assert mock_record_started.await_args_list[0].kwargs["started_at"] == first_scheduled.isoformat()
+    assert mock_record_completed.await_args_list[0].kwargs["started_at"] == first_scheduled.isoformat()

@@ -13,7 +13,8 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action, get_actions
+from products.actions.backend.facade.contracts import Action
 from products.cohorts.backend.models.cohort import Cohort
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
@@ -277,8 +278,9 @@ def _build_action_filter_expr(filter: dict, actions: dict[int, Action], team: Te
         action_id = int(filter["id"])
         action = actions.get(action_id)
         if not action:
-            action = Action.objects.get(id=action_id, team__project_id=team.project_id)
-        return action_to_expr(action)
+            return action_to_expr(get_action(action_id=action_id, project_id=team.project_id))
+        # Callers fetched these with their team joined, so reuse the team rather than read it once per action.
+        return action_to_expr(action, team=team)
     except KeyError:
         return parse_expr("1 = 2")  # No events match
 
@@ -445,12 +447,7 @@ def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[
 
     if actions is None:
         # If not provided as an optimization we fetch all actions
-        # nosemgrep: idor-lookup-without-team (already scoped by team__project_id)
-        actions_list = (
-            Action.objects.select_related("team")
-            .filter(team__project_id=team.project_id)
-            .filter(id__in=filter_action_ids(filters))
-        )
+        actions_list = get_actions(project_id=team.project_id, action_ids=filter_action_ids(filters))
         actions = {action.id: action for action in actions_list}
 
     return hog_function_filters_to_expr(filters, team, actions)

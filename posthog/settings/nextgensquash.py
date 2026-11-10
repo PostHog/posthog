@@ -16,4 +16,7 @@ NEXTGENSQUASH = {
     # The generated finalize files import these idempotent operations at
     # migrate time, so they stay in this repo instead of the package.
     "OPERATIONS_MODULE": "posthog.migration_helpers.squash_idempotent",
+    # Every dependency entry an install removed to break a cycle, across all squashes.
+    # The migrate command reads it to stop databases that would replay those files.
+    "REMOVED_DEPENDENCIES_FILE": "posthog/migration_helpers/removed_migration_dependencies.json",
 }

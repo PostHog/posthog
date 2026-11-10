@@ -10,23 +10,19 @@ from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.engineering_analytics.backend.logic.census import collect_repo_census, emit_census_events
+from products.engineering_analytics.backend.logic.enrollment import enrolled_sources
 from products.engineering_analytics.backend.logic.sources import list_github_sources
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
-# Fan-out across every team with a GitHub source: cross-team by design, and the model still
-# uses a plain manager, so there is no unscoped() to declare it with.
+# Fan-out across every enrolled team with a GitHub source: cross-team by design, and the model
+# still uses a plain manager, so there is no unscoped() to declare it with.
 @skip_team_scope_audit
 def emit_test_ownership_census() -> None:
-    team_ids = (
-        ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB, deleted=False)
-        .values_list("team_id", flat=True)
-        .distinct()
-    )
+    team_ids = enrolled_sources(ExternalDataSourceType.GITHUB).values_list("team_id", flat=True).distinct()
     for team_id in team_ids:
         emit_team_test_census.delay(team_id=team_id)
 

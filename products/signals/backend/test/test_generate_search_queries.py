@@ -77,6 +77,8 @@ async def test_activity_preserves_only_signals_that_exhaust_refusal_attempts(ref
     )
     with (
         patch("products.signals.backend.temporal.llm.build_async_anthropic_client", return_value=client),
+        patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
         patch("products.signals.backend.temporal.refusal_review.object_storage.read", return_value=None),
         patch("products.signals.backend.temporal.refusal_review.object_storage.write"),
         patch("products.signals.backend.temporal.refusal_review.object_storage.delete"),

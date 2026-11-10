@@ -11,7 +11,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
-from rest_framework import exceptions, pagination, serializers, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -19,6 +19,8 @@ from rest_framework.response import Response
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.integration import take_slack_channels_info_budget
+from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
@@ -26,6 +28,7 @@ from posthog.comment.access import task_comment_target_is_accessible
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
@@ -46,9 +49,10 @@ from posthog.models.comment.utils import (
     produce_discussion_mention_events,
     send_mention_notifications,
 )
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import is_scout_sandbox_request
+from posthog.slack.channels import is_shared_channel
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
@@ -647,12 +651,31 @@ class CommentErrorSerializer(serializers.Serializer):
     error_type = serializers.CharField(required=False, help_text="Stable machine-readable identifier for the failure.")
 
 
-class CommentPagination(pagination.CursorPagination):
+class CommentPagination(StableCursorPagination):
     # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
     # resolving ties with an offset. That offset is reproducible only when rows sharing a
     # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
     ordering = ("-created_at", "-id")
     page_size = 100
+
+    def paginate_queryset(self, queryset: Any, request: Request, view: Any = None) -> list[Any] | None:
+        self.is_first_page = self.cursor_query_param not in request.query_params
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_paginated_response(self, data: Any) -> Response:
+        # A short first page holds every row, so the total needs no query over the whole set.
+        if self.is_first_page and len(data) < self.page_size:
+            count = len(data)
+        else:
+            count = self.count_rows()
+        return Response(
+            {
+                "count": count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
+                "results": data,
+            }
+        )
 
 
 class CommentListQueryParamsSerializer(serializers.Serializer):
@@ -745,6 +768,16 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     pagination_class = CommentPagination
     scope_object = "comment"
     scope_object_read_actions = ["list", "retrieve", "thread", "count"]
+    # A custom action missing here resolves to no required scope, and a scoped token is then refused
+    # even with comment:write.
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "send_to_slack",
+    ]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         """Ticket-scoped comments require ticket API scope access instead of comment access.
@@ -1191,14 +1224,19 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         serializer = CommentSerializer(comment, context=self.get_serializer_context())
         return Response(serializer.data)
 
-    def _resolve_slack_channel_name(self, integration: Integration, channel_id: str, user: User) -> str:
+    def _resolve_slack_channel_name(
+        self, integration: IntegrationRecord, channel_id: str, user: User, *, workspace_only: bool
+    ) -> str:
         """Resolve the target channel server-side — the caller-supplied id is never paired with a
         caller-supplied label. Private channels are restricted to the workspace connector (matching
         the channel picker, which hides them from everyone else) and their names are never persisted,
-        since the stored name is shown to every reader of the discussion.
+        since the stored name is shown to every reader of the discussion. With `workspace_only`, a
+        channel shared with another Slack workspace is refused too: ticket discussions are internal
+        notes about a customer, and that customer can be a member of a shared channel.
         """
         client = SlackIntegration(integration).client
         client.timeout = 10  # keep a slow Slack workspace from pinning the request worker
+        take_slack_channels_info_budget(integration.id)
         try:
             channel = client.conversations_info(channel=channel_id)["channel"]
         except SlackApiError as e:
@@ -1208,6 +1246,11 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         # guard and let any member mirror a discussion into someone's DMs with the bot.
         if channel.get("is_im") or channel.get("is_mpim"):
             raise exceptions.ValidationError("Discussions can only be sent to Slack channels, not direct messages")
+        if workspace_only and is_shared_channel(channel):
+            raise exceptions.ValidationError(
+                "Ticket discussions can't be sent to a Slack channel shared with another workspace. "
+                "Pick a channel only your workspace can access."
+            )
         if channel.get("is_private"):
             if integration.created_by_id != user.id:
                 raise exceptions.PermissionDenied(
@@ -1215,6 +1258,27 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 )
             return ""
         return channel.get("name") or ""
+
+    @staticmethod
+    def _existing_mirror_response(slack_thread: CommentSlackThread, channel_id: str) -> Response | None:
+        """Answer a send for a discussion that already has a mirror row, without calling Slack.
+
+        A posted mirror is idempotent: the same channel returns the mapping with no re-post, and
+        another channel is a 400 that names the existing one. A reservation with no posted root is
+        a send still in flight (409) until STALE_SLACK_RESERVATION_GRACE passes. After that it is a
+        crashed send, and None tells the caller to adopt it. send_to_slack calls this before the
+        channel lookup too, so a re-send spends no Slack call and no lookup budget.
+        """
+        if slack_thread.slack_thread_ts:
+            if slack_thread.slack_channel_id != channel_id:
+                raise exceptions.ValidationError(
+                    "This discussion is already mirrored to Slack channel "
+                    f"{slack_thread.slack_channel_id} — a discussion can only sync to one thread"
+                )
+            return Response(CommentSlackThreadSerializer(slack_thread).data)
+        if timezone.now() - slack_thread.created_at < STALE_SLACK_RESERVATION_GRACE:
+            raise Conflict("This discussion is already being sent to Slack — try again shortly")
+        return None
 
     @extend_schema(
         request=SendCommentToSlackSerializer,
@@ -1224,14 +1288,17 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             "replies) as a new Slack thread; later replies on either side sync across. A discussion "
             "mirrors to exactly one Slack thread: re-calling with the same channel returns the "
             "existing mirror; a different channel is a 400 naming the existing one. 409 while a "
-            "concurrent send is in flight. 404 when the feature is not enabled for the team."
+            "concurrent send is in flight. 404 when the feature is not enabled for the team. "
+            "Only the person who started a ticket discussion can send it (403), and it cannot go to "
+            "a channel shared with another Slack workspace (400). "
+            "429 when the Slack integration has made too many channel lookups in the last minute."
         ),
     )
     @action(methods=["POST"], detail=True)
     def send_to_slack(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         if not self._slack_mirror_flag_enabled():
-            raise exceptions.NotFound()
+            raise exceptions.NotFound("Sending discussions to Slack isn't available for your account yet.")
 
         comment = self.get_object()
         if comment.source_comment_id is not None:
@@ -1241,17 +1308,32 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if comment.scope in OBSERVATION_COMMENT_SCOPES:
             # A Slack channel has no observation access check, in either direction.
             raise exceptions.ValidationError("Replay Vision observation notes cannot be sent to Slack")
+        is_ticket_discussion = comment.scope in TICKET_COMMENT_SCOPES
+        if is_ticket_discussion:
+            if is_scout_sandbox_request(request):
+                raise exceptions.PermissionDenied("Scouts can't send ticket discussions to Slack.")
+            if comment.created_by_id != request.user.pk:
+                raise exceptions.PermissionDenied(
+                    "Only the person who started this discussion can send it to Slack. Ask them to send it."
+                )
 
         params = SendCommentToSlackSerializer(data=request.data)
         params.is_valid(raise_exception=True)
         integration_id = params.validated_data["integration_id"]
         channel_id = params.validated_data["channel_id"]
 
-        integration = Integration.objects.filter(team=team, id=integration_id, kind="slack").first()
-        if integration is None:
+        try:
+            integration = IntegrationManager.slack.oauth.get(team.id, integration_id)
+        except IntegrationNotFound:
             raise exceptions.ValidationError("Slack integration not found")
 
-        channel_name = self._resolve_slack_channel_name(integration, channel_id, cast(User, request.user))
+        existing = CommentSlackThread.objects.for_team(team.id).filter(source_comment=comment).first()
+        if existing is not None and (response := self._existing_mirror_response(existing, channel_id)):
+            return response
+
+        channel_name = self._resolve_slack_channel_name(
+            integration, channel_id, cast(User, request.user), workspace_only=is_ticket_discussion
+        )
 
         # Reserve the mapping before posting: a discussion mirrors to exactly one Slack thread (1:1),
         # and the source_comment OneToOne makes this get_or_create race-safe — a double-click can't
@@ -1262,7 +1344,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             defaults={
                 "scope": comment.scope,
                 "item_id": comment.item_id,
-                "integration": integration,
+                "integration_id": integration.id,
                 "slack_channel_id": channel_id,
                 "slack_channel_name": channel_name,
                 "slack_team_id": integration.integration_id,
@@ -1270,21 +1352,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             },
         )
         if not created:
-            if slack_thread.slack_thread_ts:
-                if slack_thread.slack_channel_id != channel_id:
-                    raise exceptions.ValidationError(
-                        "This discussion is already mirrored to Slack channel "
-                        f"{slack_thread.slack_channel_id} — a discussion can only sync to one thread"
-                    )
-                # Idempotent: already mirrored to this channel — return the mapping, no re-post.
-                return Response(CommentSlackThreadSerializer(slack_thread).data)
-            if timezone.now() - slack_thread.created_at < STALE_SLACK_RESERVATION_GRACE:
-                # Another request holds the reservation and its root post is still in flight.
-                raise Conflict("This discussion is already being sent to Slack — try again shortly")
+            if response := self._existing_mirror_response(slack_thread, channel_id):
+                return response
             # A reservation this old with no root message is a crashed send that would otherwise
             # block the discussion forever. Adopt it and retry the post; resetting created_at
             # re-bounds the reply backfill to this attempt.
-            slack_thread.integration = integration
+            slack_thread.integration_id = integration.id
             slack_thread.slack_channel_id = channel_id
             slack_thread.slack_channel_name = channel_name
             slack_thread.slack_team_id = integration.integration_id
