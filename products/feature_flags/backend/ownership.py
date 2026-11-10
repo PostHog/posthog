@@ -37,11 +37,8 @@ _OWNER_LABELS = {
 # so the default manager would report that flag as free while a tour still holds it, and
 # unarchiving the tour would then produce the second owner this module exists to prevent.
 #
-# Experiments need the opposite correction. `Experiment.objects` keeps soft-deleted rows, and a
-# deleted experiment is hidden from every other reader of the flag, so the default manager locks
-# the flag to an experiment nobody can open to unlink it. `live_objects` leaves such a flag free,
-# and experiments' `_validate_update_payload` refuses to restore the experiment after another
-# product adopts the flag.
+# Experiments need the opposite correction, because `Experiment.objects` keeps soft-deleted rows
+# and a deleted experiment leaves no page where a user could unlink its flag.
 _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
     ("experiment_set", FLAG_OWNER_EXPERIMENT, "live_objects"),
     ("surveys_targeting_flag", FLAG_OWNER_SURVEY, None),

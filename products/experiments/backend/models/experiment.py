@@ -181,9 +181,8 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     # The immutable first-start snapshot preserves the rule and relevant flag context after winner shipping.
     feature_flag_rule_snapshot = models.JSONField(null=True, blank=True)
 
-    # Django puts a locally declared manager ahead of an inherited one, so without this line
-    # `live_objects` becomes the default manager and hides soft-deleted rows from the readers,
-    # such as restore, that must still see them.
+    # Django puts a locally declared manager first, so without this line `live_objects` becomes
+    # the default manager and hides soft-deleted rows from readers such as restore.
     objects = RootTeamManager()  # type: ignore[misc]
     live_objects = LiveExperimentManager()
 
