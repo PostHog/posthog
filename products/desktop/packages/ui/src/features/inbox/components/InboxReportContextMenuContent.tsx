@@ -73,10 +73,11 @@ export function InboxReportContextMenuContent({
   } = useReportTasks(report.id, report.status);
   const continuableTask = findContinuableImplementationTask(reportTasks);
   const cloudRepository = extractRepoSelectionRepository(artefacts?.results);
-  const { createPrReport, isCreatingPr } = useCreatePrReport({
+  const { createPrReport, isCreatingPr, claimDialog } = useCreatePrReport({
     reportId: report.id,
     reportTitle: report.title,
     cloudRepository,
+    claim: report,
     surface: "context_menu",
   });
 
@@ -157,6 +158,8 @@ export function InboxReportContextMenuContent({
                   disabled={isCreatingPr}
                   onClick={() => {
                     fireAction("create_pr", { has_feedback: false });
+                    // A claim can open a confirmation, which must keep focus.
+                    openedDialogRef.current = true;
                     void createPrReport();
                   }}
                 >
@@ -262,6 +265,7 @@ export function InboxReportContextMenuContent({
       </ContextMenuContent>
       {resolve.dialog}
       {dismiss.dialog}
+      {claimDialog}
     </>
   );
 }

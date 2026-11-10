@@ -250,10 +250,11 @@ export function ReportVerdictBanner({
     [queryClient, rememberStartedTask, report],
   );
 
-  const { createPrReport, isCreatingPr } = useCreatePrReport({
+  const { createPrReport, isCreatingPr, claimDialog } = useCreatePrReport({
     reportId: report.id,
     reportTitle: report.title ?? null,
     cloudRepository,
+    claim: report,
     surface,
     triageId,
     onTaskCreated: handleImplementationStarted,
@@ -655,6 +656,7 @@ export function ReportVerdictBanner({
         {actionsRow}
         {resolveDialog}
         {dismissDialog}
+        {claimDialog}
       </>
     );
   }
@@ -680,6 +682,7 @@ export function ReportVerdictBanner({
     >
       {actionsRow}
       {dismissDialog}
+      {claimDialog}
     </ReportVerdictCallout>
   );
 }
