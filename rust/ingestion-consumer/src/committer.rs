@@ -298,6 +298,7 @@ mod tests {
 
     struct FakeClient {
         replies: Mutex<VecDeque<Reply>>,
+        reject_once_replies_run_out: bool,
         calls: Mutex<Vec<HashMap<TopicPartition, Offset>>>,
         started: UnboundedSender<()>,
     }
@@ -306,12 +307,13 @@ mod tests {
         fn commit_sync(&self, offsets: &HashMap<TopicPartition, Offset>) -> Result<(), KafkaError> {
             self.calls.lock().unwrap().push(offsets.clone());
             let _ = self.started.send(());
-            let mut reply = self
-                .replies
-                .lock()
-                .unwrap()
-                .pop_front()
-                .unwrap_or(Reply::Accept);
+            let mut reply = self.replies.lock().unwrap().pop_front().unwrap_or(
+                if self.reject_once_replies_run_out {
+                    Reply::Reject
+                } else {
+                    Reply::Accept
+                },
+            );
             while let Reply::Hold(release) = reply {
                 reply = release.recv().expect("the test releases a held commit");
             }
@@ -336,9 +338,18 @@ mod tests {
 
     impl Fixture {
         fn with_replies(replies: Vec<Reply>) -> Self {
+            Self::start(replies, false)
+        }
+
+        fn rejecting_every_commit() -> Self {
+            Self::start(vec![], true)
+        }
+
+        fn start(replies: Vec<Reply>, reject_once_replies_run_out: bool) -> Self {
             let (started_tx, started) = unbounded_channel();
             let client = Arc::new(FakeClient {
                 replies: Mutex::new(replies.into()),
+                reject_once_replies_run_out,
                 calls: Mutex::new(Vec::new()),
                 started: started_tx,
             });
@@ -378,6 +389,15 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_submitted_offset_is_committed_and_the_flush_returns() {
+        let fixture = Fixture::with_replies(vec![]);
+        fixture.committer.submit(&offsets(&[(0, 1), (1, 2)]));
+
+        assert!(fixture.committer.flush_all(FLUSH).await);
+        assert_eq!(fixture.calls(), vec![offsets(&[(0, 1), (1, 2)])]);
+    }
+
+    #[tokio::test]
     async fn offsets_queued_during_a_commit_go_out_together_in_the_next_one() {
         let (mut fixture, release) = Fixture::holding_the_first_commit(vec![]);
         fixture.committer.submit(&offsets(&[(0, 1)]));
@@ -412,20 +432,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_forgotten_partition_is_not_committed_again() {
-        let (mut fixture, release) = Fixture::holding_the_first_commit(vec![]);
-        fixture.committer.submit(&offsets(&[(0, 1), (1, 1)]));
-        fixture.wait_for_a_commit_to_start().await;
+    async fn a_flush_times_out_while_the_broker_keeps_rejecting() {
+        let fixture = Fixture::rejecting_every_commit();
+        fixture.committer.submit(&offsets(&[(0, 1)]));
 
-        fixture.committer.submit(&offsets(&[(0, 2)]));
-        fixture.committer.forget(&[p(0)]);
-        release.send(Reply::Reject).unwrap();
-
-        assert!(fixture.committer.flush_all(FLUSH).await);
-        assert_eq!(
-            fixture.calls(),
-            vec![offsets(&[(0, 1), (1, 1)]), offsets(&[(1, 1)])]
-        );
+        assert!(!fixture.committer.flush_all(Duration::from_millis(50)).await);
+        let calls = fixture.calls();
+        assert!(calls.len() > 1, "the committer keeps retrying");
+        assert!(calls.iter().all(|call| *call == offsets(&[(0, 1)])));
     }
 
     #[tokio::test]
@@ -460,5 +474,33 @@ mod tests {
         fixture.committer.submit(&offsets(&[(0, 2)]));
         assert!(!fixture.committer.flush_all(FLUSH).await);
         assert_eq!(fixture.calls(), vec![offsets(&[(0, 1)])]);
+    }
+
+    struct ForgetCase {
+        in_flight_reply: Reply,
+        calls: Vec<HashMap<TopicPartition, Offset>>,
+    }
+
+    #[rstest::rstest]
+    #[case::in_flight_commit_accepted(ForgetCase {
+        in_flight_reply: Reply::Accept,
+        calls: vec![offsets(&[(0, 1), (1, 1)])],
+    })]
+    #[case::in_flight_commit_rejected(ForgetCase {
+        in_flight_reply: Reply::Reject,
+        calls: vec![offsets(&[(0, 1), (1, 1)]), offsets(&[(1, 1)])],
+    })]
+    #[tokio::test]
+    async fn a_forgotten_partition_gets_no_further_commits(#[case] case: ForgetCase) {
+        let (mut fixture, release) = Fixture::holding_the_first_commit(vec![]);
+        fixture.committer.submit(&offsets(&[(0, 1), (1, 1)]));
+        fixture.wait_for_a_commit_to_start().await;
+
+        fixture.committer.submit(&offsets(&[(0, 2)]));
+        fixture.committer.forget(&[p(0)]);
+        release.send(case.in_flight_reply).unwrap();
+
+        assert!(fixture.committer.flush_all(FLUSH).await);
+        assert_eq!(fixture.calls(), case.calls);
     }
 }
