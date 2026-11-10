@@ -28,6 +28,12 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.logic.feature_tips.state import get_state, set_tips_enabled
+from products.slack_app.backend.logic.interview_recruitment import (
+    INTERVIEW_BOOK_ACTION_ID,
+    INVITE_MESSAGE,
+    book_button,
+    invite_section,
+)
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -490,6 +496,7 @@ class TestRenderHomeView:
             own_plan=OwnPlanState(connected=True, settings_url="https://app.example.com/settings"),
             thread_join_mode=ThreadJoinMode.ASK_PER_THREAD,
             feature_tips_enabled=auto_model_choice,
+            interview_invite=invite_section(INVITE_MESSAGE, book_button(1, "home")),
         )
 
     @pytest.mark.parametrize(
@@ -517,7 +524,7 @@ class TestRenderHomeView:
         # Equality both ways: an unroutable control fails on the left, and a card that
         # stopped rendering fails on the right instead of passing a subset check trivially.
         # Unlink only renders once an account is linked, which this fixture deliberately isn't.
-        assert set(_action_ids(view)) == HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}
+        assert set(_action_ids(view)) == (HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}) | {INTERVIEW_BOOK_ACTION_ID}
 
     @pytest.mark.parametrize("auto_model_choice", [False, True])
     def test_every_option_stays_within_the_limits_slack_enforces(self, auto_model_choice):

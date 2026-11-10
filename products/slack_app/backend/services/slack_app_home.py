@@ -553,7 +553,11 @@ def render_home_view(
     if interview_invite is not None:
         blocks.append({"type": "divider"})
         blocks.append(_section_title("💬 Talk to the team"))
-        blocks.append(interview_invite)
+        invite_block = dict(interview_invite)
+        invite_button = invite_block.pop("accessory", None)
+        blocks.append(invite_block)
+        if invite_button:
+            blocks.append({"type": "actions", "elements": [invite_button]})
 
     # Section 7 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
@@ -1073,6 +1077,7 @@ def _multiplayer_section_blocks(mode: ThreadJoinMode | None, *, uses_own_plan: b
         )
         blocks.append({"type": "actions", "elements": [select]})
     if uses_own_plan:
+        blocks.append(_subsection_label("ChatGPT plan"))
         blocks.append(
             {
                 "type": "context",

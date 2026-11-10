@@ -175,6 +175,8 @@ Model and account buttons sit below their details, aligned with the other contro
 Linked accounts show their connection status in text.
 Use project default clears the personal model choice for Slack, PostHog Desktop, and the task composer.
 Workspace project and channel welcome controls appear only for Slack workspace admins.
+The Home tab also keeps the Talk to the team invitation and the task list with its filters, refresh, links, and pagination.
+Use sample tasks and an interview invitation when you preview the full Home tab. Admin previews must also include workspace activity.
 
 > The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
 > The `search:read.private`, `search:read.im`, and `search:read.mpim` user scopes let the dev Slack MCP connection search private channels, DMs, and group DMs. Existing connections keep their old scopes until the person disconnects and connects again.
