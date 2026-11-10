@@ -1,16 +1,22 @@
+from functools import partial
 from io import StringIO
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.db import connection
+from django.db import OperationalError, connection, transaction
 from django.utils import timezone
 
+import psycopg.errors
 from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.event_definitions.backend.logic.definition_metadata import (
+    batch_definition_metadata_copies,
+    copy_definition_metadata,
+)
 from products.event_definitions.backend.models import EventDefinitionMetadata, PropertyDefinitionMetadata
 
 from ee.models.event_definition import EnterpriseEventDefinition
@@ -20,6 +26,13 @@ _KINDS = [
     ("event", EnterpriseEventDefinition, EventDefinitionMetadata),
     ("property", EnterprisePropertyDefinition, PropertyDefinitionMetadata),
 ]
+
+
+def _django_deadlock_error() -> OperationalError:
+    """A deadlock as Django raises it: its OperationalError wraps the psycopg error."""
+    error = OperationalError("deadlock detected")
+    error.__cause__ = psycopg.errors.DeadlockDetected("deadlock detected")
+    return error
 
 
 class TestDefinitionMetadataCopy(BaseTest):
@@ -87,6 +100,30 @@ class TestDefinitionMetadataCopy(BaseTest):
         assert EnterpriseEventDefinition.objects.get(pk=definition.pk).description == "Kept"
         capture.assert_called_once()
 
+    def test_saves_in_a_batch_copy_in_one_statement_per_kind_after_the_commit(self):
+        with (
+            patch(
+                "products.event_definitions.backend.logic.definition_metadata.copy_definition_metadata",
+                wraps=copy_definition_metadata,
+            ) as copy,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            with transaction.atomic(), batch_definition_metadata_copies():
+                events = [EnterpriseEventDefinition.objects.create(team=self.team, name=f"e_{i}") for i in range(3)]
+                prop = EnterprisePropertyDefinition.objects.create(team=self.team, name="plan")
+                copy.assert_not_called()
+
+        assert sorted((kind, len(ids)) for kind, ids in (call.args for call in copy.call_args_list)) == [
+            ("event", 3),
+            ("property", 1),
+        ]
+        assert self._metadata(PropertyDefinitionMetadata, prop.pk)
+        assert all(self._metadata(EventDefinitionMetadata, event.pk) for event in events)
+
+    @parameterized.expand(_KINDS)
+    def test_django_reads_through_the_unscoped_manager(self, _kind, _enterprise_model, metadata_model):
+        assert metadata_model._default_manager.name == "all_teams"
+
     @parameterized.expand(_KINDS)
     def test_backfill_copies_earlier_rows_in_batches_and_resumes(self, kind, enterprise_model, metadata_model):
         ids = sorted(str(enterprise_model.objects.create(team=self.team, name=f"name_{i}").pk) for i in range(3))
@@ -105,3 +142,26 @@ class TestDefinitionMetadataCopy(BaseTest):
         rerun = StringIO()
         call_command("backfill_definition_metadata", **{**options, "stdout": rerun})
         assert "0 rows changed" in rerun.getvalue().splitlines()[-1]
+
+    @parameterized.expand(
+        [
+            ("deadlock", _django_deadlock_error(), 2, None),
+            ("not transient", ValueError("bad batch"), 1, ValueError),
+        ]
+    )
+    def test_backfill_retries_a_batch_only_after_a_transient_error(self, _name, error, calls, raised):
+        EnterpriseEventDefinition.objects.create(team=self.team, name="signed_up")
+        with patch(
+            "products.event_definitions.backend.management.commands.backfill_definition_metadata.copy_definition_metadata",
+            side_effect=[error, 1],
+        ) as copy:
+            run = partial(
+                call_command, "backfill_definition_metadata", kind="event", sleep_seconds=0, stdout=StringIO()
+            )
+            if raised:
+                with self.assertRaises(raised):
+                    run()
+            else:
+                run()
+
+        assert copy.call_count == calls

@@ -6,8 +6,11 @@ command copies the rows that were saved before. The copy reads the definition ta
 key, for the team_id, and never writes or locks them.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal
 from uuid import UUID
 
@@ -51,7 +54,8 @@ class _MetadataCopy:
         current = ", ".join(f"metadata.{column}" for column in written)
         incoming = ", ".join(f"EXCLUDED.{column}" for column in written)
         # FOR SHARE makes a save of one of these ee rows wait until this statement commits, so the copy
-        # of an older save never lands after the copy of a newer one. It locks the ee rows only.
+        # of an older save never lands after the copy of a newer one. It locks the ee rows only, in id
+        # order: a bulk edit saves in id order too, so the two never wait on each other in a cycle.
         # The IS DISTINCT FROM check skips unchanged rows, so the row count of a rerun shows the drift.
         return f"""
             INSERT INTO {self.metadata_table} AS metadata ({self.link_column}, team_id, {insert_columns})
@@ -59,6 +63,7 @@ class _MetadataCopy:
             FROM {self.enterprise_table} ee
             JOIN {self.definition_table} definition ON definition.id = ee.{self.enterprise_link_column}
             WHERE ee.{self.enterprise_link_column} = ANY(%s::uuid[])
+            ORDER BY ee.{self.enterprise_link_column}
             FOR SHARE OF ee
             ON CONFLICT ({self.link_column}) DO UPDATE SET {updates}
             WHERE ({current}) IS DISTINCT FROM ({incoming})
@@ -102,6 +107,12 @@ def copy_definition_metadata(kind: DefinitionKind, definition_ids: Sequence[UUID
         return cursor.rowcount
 
 
+# The ids that saves collect inside `batch_definition_metadata_copies`, by kind
+_batched_copies: ContextVar[dict[DefinitionKind, list[str]] | None] = ContextVar(
+    "definition_metadata_batched_copies", default=None
+)
+
+
 def copy_definition_metadata_on_commit(kind: DefinitionKind, definition_id: UUID | str) -> None:
     """Copy one ee row once its save commits.
 
@@ -109,16 +120,43 @@ def copy_definition_metadata_on_commit(kind: DefinitionKind, definition_id: UUID
     waits for the copy. A failed copy must not fail the edit, because the ee row is still the source
     of truth and the backfill repairs the copy.
     """
-    transaction.on_commit(lambda: _copy_and_log_failure(kind, definition_id))
+    batch = _batched_copies.get()
+    if batch is not None:
+        batch.setdefault(kind, []).append(str(definition_id))
+        return
+    transaction.on_commit(partial(_copy_and_log_failure, kind, [definition_id]))
 
 
-def _copy_and_log_failure(kind: DefinitionKind, definition_id: UUID | str) -> None:
+@contextmanager
+def batch_definition_metadata_copies() -> Iterator[None]:
+    """Copy the definitions saved in this block in one statement per kind, not one per save.
+
+    Use it inside the transaction of a bulk edit: the copy runs when that transaction commits. A save
+    that rolls back to a savepoint leaves its id in the batch, which is safe, because the copy reads
+    the committed ee row.
+    """
+    batch: dict[DefinitionKind, list[str]] = {}
+    token = _batched_copies.set(batch)
+    try:
+        yield
+    finally:
+        _batched_copies.reset(token)
+    for kind, definition_ids in batch.items():
+        transaction.on_commit(partial(_copy_and_log_failure, kind, definition_ids))
+
+
+def _copy_and_log_failure(kind: DefinitionKind, definition_ids: Sequence[UUID | str]) -> None:
     try:
         # The atomic block keeps a failed statement out of an enclosing transaction, as in tests
         with transaction.atomic():
-            copy_definition_metadata(kind, [definition_id])
+            copy_definition_metadata(kind, definition_ids)
     except Exception as error:
-        logger.exception("definition_metadata_copy_failed", kind=kind, definition_id=str(definition_id))
+        logger.exception(
+            "definition_metadata_copy_failed",
+            kind=kind,
+            definition_count=len(definition_ids),
+            first_definition_id=str(definition_ids[0]),
+        )
         capture_exception(error)
 
 

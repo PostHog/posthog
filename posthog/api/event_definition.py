@@ -73,6 +73,7 @@ from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.event_definitions.backend.logic.definition_metadata import batch_definition_metadata_copies
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
@@ -962,8 +963,10 @@ class EventDefinitionViewSet(
         # One transaction for the whole batch: if any event fails part-way the write rolls back
         # entirely, so the caller never has to reason about a half-applied set. Activity logs are
         # transaction-aware and defer to commit, so they roll back with it too.
-        with transaction.atomic():
-            for obj_id in validated_ids:
+        # The saves go in id order, the order in which the metadata copy locks the rows, so a backfill
+        # batch and this edit can't deadlock. They copy to the metadata table in one statement.
+        with transaction.atomic(), batch_definition_metadata_copies():
+            for obj_id in sorted(validated_ids):
                 if obj_id not in found_ids:
                     continue
                 if bool(verified_by_id.get(obj_id, False)) == verified:

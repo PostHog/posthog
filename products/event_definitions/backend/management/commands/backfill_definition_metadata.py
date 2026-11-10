@@ -4,11 +4,16 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.settings import EE_AVAILABLE
+from posthog.temporal.common.db_errors import is_transient_db_error
 
 from products.event_definitions.backend.logic.definition_metadata import (
+    DefinitionKind,
     copy_definition_metadata,
     next_enterprise_definition_ids,
 )
+
+# A batch that fails with a transient error (a deadlock with an edit, a failover) runs again
+MAX_BATCH_ATTEMPTS = 3
 
 
 class Command(BaseCommand):
@@ -38,10 +43,21 @@ class Command(BaseCommand):
             ids = next_enterprise_definition_ids(kind, after=after, limit=options["batch_size"])
             if not ids:
                 break
-            changed += copy_definition_metadata(kind, ids)
+            changed += self._copy_batch(kind, ids, sleep_seconds=options["sleep_seconds"])
             batches += 1
             after = ids[-1]
             self.stdout.write(f"batch {batches}: {changed} rows changed, last id {after}")
             time.sleep(options["sleep_seconds"])
 
         self.stdout.write(f"done: {batches} batches, {changed} rows changed, last id {after}")
+
+    def _copy_batch(self, kind: DefinitionKind, ids: list[str], *, sleep_seconds: float) -> int:
+        for attempt in range(1, MAX_BATCH_ATTEMPTS + 1):
+            try:
+                return copy_definition_metadata(kind, ids)
+            except Exception as error:
+                if attempt == MAX_BATCH_ATTEMPTS or not is_transient_db_error(error):
+                    raise
+                self.stdout.write(f"batch after {ids[0]} failed ({error}), attempt {attempt} of {MAX_BATCH_ATTEMPTS}")
+                time.sleep(sleep_seconds)
+        raise AssertionError("unreachable")
