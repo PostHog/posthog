@@ -21,16 +21,20 @@ const OTHER_RESTORED_SETTINGS = [
     ['has_enriched_analytics', 'Enriched analytics'],
 ] as const
 
-export function FeatureFlagRestoreVersionPreview({ flag, target }: FeatureFlagRestoreVersionPreviewProps): JSX.Element {
-    const hasRunningExperiment = (flag.experiment_set_metadata ?? []).some((experiment) => experiment.is_running)
-    const nameChanges = (target.name ?? '') !== (flag.name ?? '')
-    const otherChanges = [
+function otherRestoredChanges(flag: FeatureFlagType, target: FeatureFlagVersionResponseApi): string[] {
+    return [
         ...(objectsEqual(target.filters?.multivariate ?? null, flag.filters.multivariate ?? null) ? [] : ['Variants']),
         ...(objectsEqual(target.filters?.payloads ?? {}, flag.filters.payloads ?? {}) ? [] : ['Payloads']),
         ...OTHER_RESTORED_SETTINGS.filter(([field]) => (target[field] || null) !== (flag[field] || null)).map(
             ([, label]) => label
         ),
     ]
+}
+
+export function FeatureFlagRestoreVersionPreview({ flag, target }: FeatureFlagRestoreVersionPreviewProps): JSX.Element {
+    const hasRunningExperiment = (flag.experiment_set_metadata ?? []).some((experiment) => experiment.is_running)
+    const nameChanges = (target.name ?? '') !== (flag.name ?? '')
+    const otherChanges = otherRestoredChanges(flag, target)
 
     return (
         <div className="flex flex-col gap-3">

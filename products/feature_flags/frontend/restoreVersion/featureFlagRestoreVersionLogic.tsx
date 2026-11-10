@@ -91,14 +91,14 @@ export const featureFlagRestoreVersionLogic = kea<featureFlagRestoreVersionLogic
             try {
                 target = await featureFlagsVersionsRetrieve(String(values.currentProjectId), props.flagId, version)
             } catch (error: any) {
-                if (logic.isMounted()) {
+                if (featureFlagRestoreVersionLogic.isMounted(props)) {
                     actions.setBusyVersion(null)
                     lemonToast.error(error?.detail || `Couldn't load version ${version}. Try again in a moment.`)
                 }
                 return
             }
             // The person left the flag while the version loaded, so there is no page to preview it on.
-            if (!logic.isMounted()) {
+            if (!featureFlagRestoreVersionLogic.isMounted(props)) {
                 return
             }
             actions.setBusyVersion(null)
@@ -150,7 +150,7 @@ export const featureFlagRestoreVersionLogic = kea<featureFlagRestoreVersionLogic
             activityLogLogic
                 .findMounted({ scope: ActivityScope.FEATURE_FLAG, id: props.flagId })
                 ?.actions.fetchActivity()
-            if (logic.isMounted()) {
+            if (featureFlagRestoreVersionLogic.isMounted(props)) {
                 actions.setBusyVersion(null)
                 actions.loadFeatureFlag()
             }
