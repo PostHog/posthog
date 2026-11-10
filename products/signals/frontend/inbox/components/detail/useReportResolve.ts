@@ -1,11 +1,11 @@
 import { useState } from 'react'
 
+import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { hasOpenImplementationPr } from '../../utils/reportActions'
 import { setReportState } from '../../utils/writeTimeout'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
 
