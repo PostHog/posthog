@@ -52,7 +52,7 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
         const { display: _display, ...rest } = props.query
         return rest
     }, [props.query])
-    const dataKey = metricsDataNodeKey('MetricsQueryNode', dataQuery)
+    const dataKey = metricsDataNodeKey('MetricsQueryNode', dataQuery, props.context.insightProps)
     const language = queryLanguage(props.query)
 
     // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.

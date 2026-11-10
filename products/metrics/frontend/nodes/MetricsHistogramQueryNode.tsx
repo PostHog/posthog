@@ -43,7 +43,7 @@ export function MetricsHistogramQueryNode(props: {
     refreshCount?: number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const key = metricsDataNodeKey('MetricsHistogramQueryNode', props.query)
+    const key = metricsDataNodeKey('MetricsHistogramQueryNode', props.query, props.context.insightProps)
     // A dashboard tile passes its saved insight, whose `result` cannot hold a heatmap. Then the node loads the query.
     const cachedHistogram =
         typeof props.cachedResults === 'object' && props.cachedResults !== null && 'times' in props.cachedResults

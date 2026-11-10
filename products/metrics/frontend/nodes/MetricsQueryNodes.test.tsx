@@ -71,4 +71,15 @@ describe('metrics query nodes', () => {
         await waitFor(() => expect(container.querySelector('.Spinner')).toBeNull())
         expect(queryCalls).toBe(1)
     })
+
+    it('saved insights with the same query keep separate logics', async () => {
+        const { container } = render(
+            <>
+                <Query query={METRICS_QUERY} readOnly context={{ insightProps: { dashboardItemId: 'tile-a' } }} />
+                <Query query={METRICS_QUERY} readOnly context={{ insightProps: { dashboardItemId: 'tile-b' } }} />
+            </>
+        )
+        await waitFor(() => expect(container.querySelector('.Spinner')).toBeNull())
+        expect(queryCalls).toBe(2)
+    })
 })
