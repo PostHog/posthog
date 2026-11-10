@@ -3,6 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
+import { AddressInfo, Socket, connect, createServer as createTcpServer } from 'node:net'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -1636,13 +1637,37 @@ describe('EmailService', () => {
                     'test-capture-engagement-events'
                 )
             }
-            const postgresThatFailsWhile = (failing: () => boolean): PostgresRouter =>
-                ({
-                    query: (...args: Parameters<PostgresRouter['query']>) =>
-                        failing()
-                            ? Promise.reject(new Error('Connection terminated unexpectedly'))
-                            : hub.postgres.query(...args),
-                }) as unknown as PostgresRouter
+            const postgresThatDropsConnectionsWhile = async (
+                dropping: () => boolean
+            ): Promise<{ postgres: PostgresRouter; close: () => Promise<void> }> => {
+                const upstream = new URL(hub.DATABASE_URL)
+                const sockets = new Set<Socket>()
+                const server = createTcpServer((client) => {
+                    const database = connect(Number(upstream.port || 5432), upstream.hostname)
+                    for (const socket of [client, database]) {
+                        sockets.add(socket)
+                        socket.on('error', () => undefined)
+                        socket.on('close', () => {
+                            client.destroy()
+                            database.destroy()
+                        })
+                    }
+                    client.on('data', (chunk: Buffer) => (dropping() ? client.destroy() : database.write(chunk)))
+                    database.pipe(client)
+                })
+                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+                const url = new URL(upstream)
+                url.host = `127.0.0.1:${(server.address() as AddressInfo).port}`
+                const postgres = new PostgresRouter({ DATABASE_URL: url.toString(), POSTGRES_CONNECTION_POOL_SIZE: 1 })
+                return {
+                    postgres,
+                    close: async () => {
+                        await postgres.end()
+                        sockets.forEach((socket) => socket.destroy())
+                        await new Promise((resolve) => server.close(resolve))
+                    },
+                }
+            }
             const untilDue = async (due: DateTime): Promise<void> => {
                 await new Promise((resolve) => setTimeout(resolve, Math.max(0, due.toMillis() - Date.now() + 50)))
             }
@@ -1726,16 +1751,15 @@ describe('EmailService', () => {
                     ['could not look up the tier', true],
                 ])('charges it once when the first try %s', async (_name, tierLookupFails) => {
                     let firstTry = true
-                    const emailService = sender({
-                        teamDailyCap: 2,
-                        teamConfigDb: postgresThatFailsWhile(() => firstTry && tierLookupFails),
-                    })
+                    const teamConfigDb = await postgresThatDropsConnectionsWhile(() => firstTry && tierLookupFails)
+                    const emailService = sender({ teamDailyCap: 2, teamConfigDb: teamConfigDb.postgres })
                     bucket.answer = 'refuse'
 
                     const retried = await emailService.executeSendEmail(invocation)
                     firstTry = false
                     bucket.answer = 'pass'
                     const result = await emailService.executeSendEmail(retried.invocation)
+                    await teamConfigDb.close()
 
                     expect(retried.finished).toBe(false)
                     expect(result.error).toBeUndefined()
@@ -1752,11 +1776,11 @@ describe('EmailService', () => {
                     const retried = await emailService.executeSendEmail(invocation)
                     bucket.answer = 'pass'
                     const paced = await emailService.executeSendEmail(retried.invocation)
+                    expect(paced.finished).toBe(false)
+                    expect(paced.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
                     await untilDue(paced.invocation.queueScheduledAt!)
                     const result = await emailService.executeSendEmail(paced.invocation)
 
-                    expect(paced.finished).toBe(false)
-                    expect(paced.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now() - 1000)
                     expect(ses.deliveredTo(recipient)).toEqual([
                         { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
                     ])
