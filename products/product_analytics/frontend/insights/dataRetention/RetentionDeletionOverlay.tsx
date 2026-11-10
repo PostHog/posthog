@@ -8,6 +8,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { dataRetentionBannerLogic } from './dataRetentionBannerLogic'
 import { lastDeletedBucket } from './lastDeletedBucket'
+import { type RetentionDeletionChart, showsRetentionDeletion } from './showsRetentionDeletion'
 
 const TAG_INSET = 8
 const MIN_TAG_WIDTH = 120
@@ -34,7 +35,7 @@ function centerBetween(center: number, min: number, max: number): string {
     return `translateX(clamp(${min}px, calc(${center}px - 50%), calc(${max}px - 100%)))`
 }
 
-export function RetentionDeletionOverlay(): JSX.Element | null {
+export function RetentionDeletionOverlay(chart: RetentionDeletionChart): JSX.Element | null {
     const { retention, deletionCutoffLabel } = useValues(dataRetentionBannerLogic)
     const { labels, scales, dimensions } = useChartLayout()
     const { x: xScale, extent: bandWidth } = scales
@@ -46,7 +47,7 @@ export function RetentionDeletionOverlay(): JSX.Element | null {
     )
 
     const { plotLeft, plotTop, plotWidth, plotHeight, width, height } = dimensions
-    if (edgeX === null || !deletionCutoffLabel) {
+    if (edgeX === null || !deletionCutoffLabel || !showsRetentionDeletion(chart)) {
         return null
     }
     const plotRight = plotLeft + plotWidth

@@ -78,7 +78,7 @@ function LineChart(): JSX.Element {
     return (
         <Stage>
             <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={theme} config={CONFIG}>
-                <RetentionDeletionOverlay />
+                <RetentionDeletionOverlay isStickiness={false} querySource={null} compareFilter={null} />
             </TimeSeriesLineChart>
         </Stage>
     )
@@ -89,7 +89,7 @@ function BarChart(): JSX.Element {
     return (
         <Stage>
             <TimeSeriesBarChart series={SERIES} labels={LABELS} theme={theme} config={CONFIG}>
-                <RetentionDeletionOverlay />
+                <RetentionDeletionOverlay isStickiness={false} querySource={null} compareFilter={null} />
             </TimeSeriesBarChart>
         </Stage>
     )
