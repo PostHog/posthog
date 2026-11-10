@@ -1,19 +1,15 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.db.models import Q
 from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.activity_logging.activity_log import ActivityLog, Trigger, common_field_exclusions, field_exclusions
+from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
 
 from products.feature_flags.backend.facade.config import detect_config_format, is_v1_config
-from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-if TYPE_CHECKING:
-    from posthog.models.team.team import Team
 
 
 class VersionNotFound(Exception):
@@ -308,40 +304,51 @@ def reconstruct_flag_at_timestamp(
     return reconstruct_flag_at_version(flag, target_version, team_id)
 
 
-def restore_payload(flag: FeatureFlag, reconstructed: dict[str, Any]) -> dict[str, Any]:
+# Filter keys that other features own: early access features set the enrollment, and experiments
+# attach and detach the holdout. A restore keeps their current values, so it never brings back an
+# enrollment or a holdout that the owning feature has removed since.
+_EXTERNALLY_OWNED_FILTER_KEYS = ("feature_enrollment", "super_groups", "holdout", "holdout_groups")
+
+
+def _restored_filters(current: dict[str, Any], past: dict[str, Any]) -> dict[str, Any]:
+    restored = {key: value for key, value in past.items() if key not in _EXTERNALLY_OWNED_FILTER_KEYS}
+    restored.update({key: current[key] for key in _EXTERNALLY_OWNED_FILTER_KEYS if key in current})
+    return restored
+
+
+def _restore_payload(flag: FeatureFlag, reconstructed: dict[str, Any]) -> dict[str, Any]:
     """The restorable fields of a reconstructed version that differ from the flag as it is now."""
     current = _extract_tracked_fields(flag)
-    return {
-        field: reconstructed[field]
-        for field in sorted(RESTORABLE_FIELDS)
-        if field in reconstructed and reconstructed[field] != current.get(field)
+    past = {**reconstructed, "filters": _restored_filters(current["filters"] or {}, reconstructed["filters"])}
+    payload = {
+        field: past[field] for field in sorted(RESTORABLE_FIELDS) if field in past and past[field] != current.get(field)
     }
+    if "filters" in payload:
+        # The serializer merges the filters it receives over the stored ones key by key, so a key
+        # the past version did not have goes out empty. Otherwise its current value survives.
+        cleared: dict[str, Any] = {
+            key: {} if key == "payloads" else None for key in current["filters"] or {} if key not in payload["filters"]
+        }
+        payload["filters"] = {**cleared, **payload["filters"]}
+    return payload
 
 
-def restore_flag_version(
-    flag: FeatureFlag,
-    target_version: int,
-    *,
-    team: "Team",
-    user: Any,
-    request: Any | None = None,
-    extra_data: dict | None = None,
-) -> FeatureFlag:
-    """Set a flag's configuration back to a past version through the gated serializer path.
+def build_restore_write(flag: FeatureFlag, target_version: int) -> dict[str, Any]:
+    """The fields to write to set a flag's configuration back to a past version.
 
-    Only the fields in ``RESTORABLE_FIELDS`` are written, so the flag keeps its key, its
-    enabled state and its archived and deleted state. Tags, evaluation contexts and the
-    definitions of the cohorts it targets are not part of a version and stay as they are.
-    ``extra_data`` is merged into the write, for a rollback reason the caller collected.
+    Only the fields in ``RESTORABLE_FIELDS`` that differ from the flag are returned, so the flag
+    keeps its key, its enabled state and its archived and deleted state. Tags, evaluation contexts
+    and the definitions of the cohorts it targets are not part of a version and stay as they are.
+    An empty result means the past version matches the current configuration.
 
-    Returns the flag unchanged, with no write, when the past version matches the current
-    configuration. Raises ``VersionNotFound`` or ``VersionHistoryIncomplete`` when the version
-    cannot be rebuilt, ``ValidationError`` for a flag this cannot restore (archived, encrypted
-    payloads, or a config format other than 1) or for a version that no longer validates, and
-    ``ApprovalRequired`` when a policy gates the write.
+    Raises ``VersionNotFound`` or ``VersionHistoryIncomplete`` when the version cannot be rebuilt,
+    and ``ValidationError`` for a flag this cannot restore (archived, encrypted payloads, or a
+    config format other than 1).
 
-    The caller checks the caller's version against the flag first: this does not take the row
-    lock, so the version check under the lock belongs to the request the caller passes.
+    This function does not lock the row. Call it with the row locked by ``select_for_update``,
+    after you compare the caller's ``version`` with the flag's. Write the result with a
+    ``FlagVersionCheckedWriteRequest`` that carries that version, so the serializer repeats the
+    comparison while it holds the row lock.
     """
     if flag.archived:
         raise ValidationError("Unarchive this flag before restoring a past version.", code="flag_archived")
@@ -364,16 +371,4 @@ def restore_flag_version(
             "Past versions of a flag with encrypted payloads cannot be restored.", code="encrypted_payloads"
         )
 
-    payload = restore_payload(flag, reconstructed)
-    if not payload:
-        return flag
-
-    flag._activity_trigger = Trigger(
-        job_type=VERSION_RESTORE_JOB_TYPE,
-        job_id=str(target_version),
-        payload={"restored_from_version": target_version},
-    )
-    # facade.api imports the flag viewset module, which imports this one.
-    from products.feature_flags.backend.facade.api import update_flag  # noqa: PLC0415
-
-    return update_flag(flag, {**(extra_data or {}), **payload}, team=team, user=user, request=request)
+    return _restore_payload(flag, reconstructed)

@@ -12,6 +12,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { ActivityScope, FeatureFlagType } from '~/types'
 
 import { featureFlagsVersionsRestoreCreate, featureFlagsVersionsRetrieve } from '../generated/api'
+import type { FeatureFlagVersionResponseApi } from '../generated/api.schemas'
 import { FeatureFlagRestoreVersionPreview } from './FeatureFlagRestoreVersionPreview'
 
 export interface FeatureFlagRestoreVersionLogicProps {
@@ -76,8 +77,9 @@ export const featureFlagRestoreVersionLogic = kea<featureFlagRestoreVersionLogic
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners((logic) => ({
         restoreVersion: async ({ version }) => {
+            const { actions, values, props } = logic
             if (values.busyVersion !== null) {
                 return
             }
@@ -85,35 +87,40 @@ export const featureFlagRestoreVersionLogic = kea<featureFlagRestoreVersionLogic
             // The version the preview is computed against. The restore sends it, so a change that
             // lands while the dialog is open is refused instead of being overwritten.
             const currentVersion = values.featureFlag.version ?? 0
+            let target: FeatureFlagVersionResponseApi
             try {
-                const target = await featureFlagsVersionsRetrieve(
-                    String(values.currentProjectId),
-                    props.flagId,
-                    version
-                )
-                posthog.capture('feature flag version restore opened', {
-                    feature_flag_id: props.flagId,
-                    restored_version: version,
-                    versions_back: currentVersion - version,
-                })
-                LemonDialog.open({
-                    title: `Restore version ${version}?`,
-                    width: '40rem',
-                    content: <FeatureFlagRestoreVersionPreview flag={values.featureFlag} target={target} />,
-                    primaryButton: {
-                        children: 'Restore this version',
-                        'data-attr': 'feature-flag-restore-version-confirm',
-                        onClick: () => actions.confirmRestoreVersion(version, currentVersion),
-                    },
-                    secondaryButton: { children: 'Cancel' },
-                })
+                target = await featureFlagsVersionsRetrieve(String(values.currentProjectId), props.flagId, version)
             } catch (error: any) {
-                lemonToast.error(error?.detail || `Couldn't load version ${version}. Try again in a moment.`)
-            } finally {
-                actions.setBusyVersion(null)
+                if (logic.isMounted()) {
+                    actions.setBusyVersion(null)
+                    lemonToast.error(error?.detail || `Couldn't load version ${version}. Try again in a moment.`)
+                }
+                return
             }
+            // The person left the flag while the version loaded, so there is no page to preview it on.
+            if (!logic.isMounted()) {
+                return
+            }
+            actions.setBusyVersion(null)
+            posthog.capture('feature flag version restore opened', {
+                feature_flag_id: props.flagId,
+                restored_version: version,
+                versions_back: currentVersion - version,
+            })
+            LemonDialog.open({
+                title: `Restore version ${version}?`,
+                width: '40rem',
+                content: <FeatureFlagRestoreVersionPreview flag={values.featureFlag} target={target} />,
+                primaryButton: {
+                    children: 'Restore this version',
+                    'data-attr': 'feature-flag-restore-version-confirm',
+                    onClick: () => actions.confirmRestoreVersion(version, currentVersion),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
         },
         confirmRestoreVersion: async ({ version, currentVersion }) => {
+            const { actions, values, props } = logic
             if (values.busyVersion !== null) {
                 return
             }
@@ -129,6 +136,7 @@ export const featureFlagRestoreVersionLogic = kea<featureFlagRestoreVersionLogic
                     versions_back: currentVersion - version,
                 })
             } catch (error: any) {
+                // Both are 409s, so the approval check has to come first.
                 if (isApprovalRequiredError(error)) {
                     handleApprovalRequired(error, 'feature_flag', props.flagId)
                 } else if (error?.status === 409) {
@@ -138,12 +146,13 @@ export const featureFlagRestoreVersionLogic = kea<featureFlagRestoreVersionLogic
                 } else {
                     lemonToast.error(error?.detail || `Couldn't restore version ${version}. Try again in a moment.`)
                 }
-            } finally {
+            }
+            activityLogLogic
+                .findMounted({ scope: ActivityScope.FEATURE_FLAG, id: props.flagId })
+                ?.actions.fetchActivity()
+            if (logic.isMounted()) {
                 actions.setBusyVersion(null)
                 actions.loadFeatureFlag()
-                activityLogLogic
-                    .findMounted({ scope: ActivityScope.FEATURE_FLAG, id: props.flagId })
-                    ?.actions.fetchActivity()
             }
         },
     })),

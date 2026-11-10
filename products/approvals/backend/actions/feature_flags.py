@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from abc import abstractmethod
 from typing import Any, Optional
 from uuid import UUID
@@ -10,6 +11,7 @@ from rest_framework.exceptions import APIException
 
 from posthog.dataclasses import frozen
 from posthog.exceptions import Conflict
+from posthog.models.activity_logging.activity_log import Trigger
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
@@ -94,6 +96,11 @@ def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
         instance = args[0] if args else None
         return instance if isinstance(instance, FeatureFlag) else None
     return view.get_object()
+
+
+def _activity_trigger_of(flag: Optional[FeatureFlag]) -> Optional[dict[str, Any]]:
+    trigger = getattr(flag, "_activity_trigger", None)
+    return dataclasses.asdict(trigger) if isinstance(trigger, Trigger) else None
 
 
 def _flag_target_filter(intent_data: dict[str, Any]) -> dict[str, Any]:
@@ -836,6 +843,9 @@ class UpdateFeatureFlagAction(BaseAction):
                 "updated_at": (flag.updated_at.isoformat() if flag.updated_at else None) if flag is not None else None,
             },
             "skip_opportunistic_filter_cleanup": skip_cleanup,
+            # The trigger lives only on the in-memory flag, for example a version restore, and the
+            # replay loads a fresh row. Without this the audit entry loses what made the change.
+            "activity_trigger": _activity_trigger_of(flag),
         }
 
     @classmethod
@@ -913,6 +923,9 @@ class UpdateFeatureFlagAction(BaseAction):
 
             if context and "request" in context:
                 serializer_context["request"] = context["request"]
+
+            if activity_trigger := validated_intent.get("activity_trigger"):
+                flag._activity_trigger = Trigger(**activity_trigger)
 
             serializer = FeatureFlagSerializer(
                 instance=flag,

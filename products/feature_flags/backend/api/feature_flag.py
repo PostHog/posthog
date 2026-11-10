@@ -74,7 +74,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.ip_restrictions import ip_restrictions_exempt_for_secret_keys
 from posthog.models import Team, User
-from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Detail, Trigger, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
@@ -157,6 +157,7 @@ from products.feature_flags.backend.facade.config import (
     require_v1_config,
 )
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
+from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import (
@@ -191,9 +192,9 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.feature_flags.backend.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
+    build_restore_write,
     reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
-    restore_flag_version,
 )
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -5179,30 +5180,55 @@ class FeatureFlagViewSet(
         approval policy that gates the change opens a change request instead. A restore to a version
         that matches the current configuration writes nothing and returns the flag.
         """
+        from products.feature_flags.backend.facade.api import update_flag
+
+        deleted_hint = "restoring a past version"
         feature_flag: FeatureFlag = self.get_object()
-        rejection = self._deleted_flag_rejection(feature_flag, "restoring a past version")
+        rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
         if rejection is not None:
             return rejection
         version = request.validated_data["version"] or 0
         # Runs before the approval gate so a stale caller never opens a change request for a
         # write the serializer would then refuse under its row lock.
         self._version_precondition(feature_flag, version)
-        rollback_fields = {
-            field: request.validated_data[field] for field in ROLLBACK_REASON_FIELDS if field in request.validated_data
-        }
+        target_version = int(version_number)
+
         try:
-            restored = restore_flag_version(
-                feature_flag,
-                int(version_number),
-                team=self.team,
-                user=request.user,
-                request=FlagVersionCheckedWriteRequest(request, version=version),
-                extra_data=rollback_fields,
-            )
+            with transaction.atomic():
+                # The same sequence as `_rollout_action`: the write is computed from the locked row,
+                # so a change landing after the read is refused rather than answered as a no-op, and
+                # a bulk delete, which leaves `version` untouched, is refused rather than rewritten.
+                locked_flag = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=feature_flag.pk)
+                _carry_loaded_state(feature_flag, locked_flag)
+                rejection = self._deleted_flag_rejection(locked_flag, deleted_hint)
+                if rejection is not None:
+                    return rejection
+                self._version_precondition(locked_flag, version)
+                restore_write = build_restore_write(locked_flag, target_version)
         except VersionNotFound as e:
             return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
         except VersionHistoryIncomplete as e:
             return Response({"detail": str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        # The write leaves the transaction for the reasons `_rollout_action` gives, and takes the
+        # row lock again with the same version check.
+        if not restore_write:
+            return self._lifecycle_response(locked_flag)
+        rollback_reason = {
+            field: request.validated_data[field] for field in ROLLBACK_REASON_FIELDS if field in request.validated_data
+        }
+        locked_flag._activity_trigger = Trigger(
+            job_type=VERSION_RESTORE_JOB_TYPE,
+            job_id=str(target_version),
+            payload={"restored_from_version": target_version},
+        )
+        restored = update_flag(
+            locked_flag,
+            {**rollback_reason, **restore_write},
+            team=self.team,
+            user=request.user,
+            request=FlagVersionCheckedWriteRequest(request, version=version),
+        )
         return self._lifecycle_response(restored)
 
     @validated_request(

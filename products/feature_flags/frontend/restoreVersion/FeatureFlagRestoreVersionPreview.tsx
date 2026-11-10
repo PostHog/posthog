@@ -26,6 +26,7 @@ export function FeatureFlagRestoreVersionPreview({ flag, target }: FeatureFlagRe
     const nameChanges = (target.name ?? '') !== (flag.name ?? '')
     const otherChanges = [
         ...(objectsEqual(target.filters?.multivariate ?? null, flag.filters.multivariate ?? null) ? [] : ['Variants']),
+        ...(objectsEqual(target.filters?.payloads ?? {}, flag.filters.payloads ?? {}) ? [] : ['Payloads']),
         ...OTHER_RESTORED_SETTINGS.filter(([field]) => (target[field] || null) !== (flag[field] || null)).map(
             ([, label]) => label
         ),
@@ -66,7 +67,7 @@ export function FeatureFlagRestoreVersionPreview({ flag, target }: FeatureFlagRe
             )}
             <LemonBanner type="info">
                 These stay as they are now: whether the flag is enabled, its key, tags, evaluation contexts, schedules,
-                and how the cohorts it targets are defined.
+                early access enrollment, experiment holdouts, and how the cohorts it targets are defined.
             </LemonBanner>
         </div>
     )
