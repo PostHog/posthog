@@ -133,7 +133,7 @@ from products.alerts.backend.facade.platform import (
     moved_alert_check_page,
     moved_alert_fired_checks,
     moved_alert_statuses,
-    native_insight_alert,
+    native_insight_alert_view,
     platform_takes_new_alert_with,
     write_moved_alert_edit,
 )
@@ -1909,7 +1909,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert_id = uuid.UUID(str(self.kwargs[self.lookup_url_kwarg or self.lookup_field]))
         except ValueError:
             return None
-        alert = native_insight_alert(self.team_id, alert_id)
+        view = native_insight_alert_view(self.team_id, alert_id)
+        alert = AlertConfiguration.from_platform_view(view, team_id=self.team_id) if view is not None else None
         if alert is None:
             return None
         # The same read gates `safely_get_queryset` applies to a row.

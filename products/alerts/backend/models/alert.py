@@ -259,9 +259,19 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         compare, but it sends nothing for it."""
         return self.owner == PlatformAlertOwner.PLATFORM
 
+    @classmethod
+    def from_platform_view(cls, view: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
+        """An unsaved alert that presents a platform alert with no insight row the way an insight row
+        does, or None when its insight is gone. Its `save` and `delete` raise."""
+        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
+            presented_alert,
+        )
+
+        return presented_alert(view, team_id=team_id)
+
     @property
     def has_no_insight_row(self) -> bool:
-        """Whether `native_insight_alert` built this alert, because only the platform keeps it."""
+        """Whether `from_platform_view` built this alert, because only the platform keeps it."""
         return self._state.adding and self.platform_owned
 
     @property
