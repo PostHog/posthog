@@ -129,6 +129,14 @@ describe('WorkflowsScene', () => {
         await waitFor(() =>
             expect(document.querySelector('[data-attr="workflows-automation-empty-state-guided-setup"]')).not.toBeNull()
         )
+        await userEvent
+            .setup()
+            .click(
+                document.querySelector<HTMLElement>(
+                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                )!
+            )
+        expect(document.querySelector('input[data-attr="workflows-new-folder-name"]')).not.toBeNull()
     })
 
     it('filters the list and writes pills to the URL', async () => {
