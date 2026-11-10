@@ -92,6 +92,22 @@ describe('buildMetricsTableDrilldown', () => {
             { date_from: '-7d', date_to: '-1d' },
             { date_from: '-7d', date_to: '-1d' },
         ],
+        [
+            'a date-only dashboard end through the end of that day',
+            { date_from: '2026-11-01', date_to: '2026-11-01' },
+            { date_from: '2026-11-01', date_to: '2026-11-01T23:59:59' },
+        ],
+        [
+            'an exact dashboard end as given',
+            { date_from: '2026-11-01', date_to: '2026-11-02', explicitDate: true },
+            { date_from: '2026-11-01', date_to: '2026-11-02' },
+        ],
+        ['the last 30 days of an open dashboard range over the limit', { date_from: '-90d' }, { date_from: '-30d' }],
+        [
+            'the last 30 days of a fixed dashboard range over the limit',
+            { date_from: '2026-08-01', date_to: '2026-11-01' },
+            { date_from: '2026-10-02T23:59:59', date_to: '2026-11-01T23:59:59' },
+        ],
     ])('queries %s', (_name, dashboardFilters, expectedDateRange) => {
         const [errors] = buildMetricsTableDrilldown(CONFIG, ['/api/0'], dashboardFilters).charts
 

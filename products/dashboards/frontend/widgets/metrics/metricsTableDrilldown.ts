@@ -25,11 +25,17 @@ export type MetricsTableDrilldown = {
     charts: MetricsTableDrilldownChart[]
 }
 
-export type MetricsTableDrilldownDashboardFilters = Pick<DashboardFilter, 'date_from' | 'date_to' | 'interval'>
+export type MetricsTableDrilldownDashboardFilters = Pick<
+    DashboardFilter,
+    'date_from' | 'date_to' | 'explicitDate' | 'interval'
+>
 
 type DrilldownConfig = Pick<MetricsTableWidgetConfig, 'groupBy' | 'dateRange' | 'interval' | 'columns'>
 
 const DEFAULT_DATE_FROM = '-1h'
+// The metrics query rejects spans over 31 days. A day less leaves room for time zones and daylight saving.
+const MAX_SPAN_DAYS = 30
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 const COUNTER_FUNCTIONS = new Set(['rate', 'increase'])
 
 function escapeRegex(value: string): string {
@@ -103,6 +109,29 @@ function drilldownInterval(
     return (fits ?? INTERVAL_SECONDS[INTERVAL_SECONDS.length - 1])[0]
 }
 
+/** The dashboard range as the metrics query must receive it. That query reads a date-only end as midnight, so a
+ * dashboard end that means the whole day gets its last second. A range longer than the query allows keeps its end
+ * and loses its start. */
+function dashboardDateRange(filters: MetricsTableDrilldownDashboardFilters): {
+    dateFrom: string
+    dateTo: string | null
+} {
+    const dateFrom = filters.date_from ?? DEFAULT_DATE_FROM
+    let dateTo = filters.date_to ?? null
+    if (dateTo && !filters.explicitDate && DATE_ONLY.test(dateTo)) {
+        dateTo = `${dateTo}T23:59:59`
+    }
+    const span = spanSeconds(dateFrom, dateTo)
+    if (span === null || span <= MAX_SPAN_DAYS * 86_400) {
+        return { dateFrom, dateTo }
+    }
+    if (!dateTo) {
+        return { dateFrom: `-${MAX_SPAN_DAYS}d`, dateTo }
+    }
+    const to = dateStringToDayJs(dateTo)
+    return { dateFrom: to ? to.subtract(MAX_SPAN_DAYS, 'day').format('YYYY-MM-DDTHH:mm:ss') : dateFrom, dateTo }
+}
+
 /** The clause the backend runs for a table column, so a full chart shows the same numbers as its row. */
 function columnClause(column: MetricsTableColumn, groupBy: string, keys: string[]): MetricsQueryClause {
     const isCounter = COUNTER_FUNCTIONS.has(column.aggregation)
@@ -127,10 +156,10 @@ export function buildMetricsTableDrilldown(
     keys: string[],
     dashboardFilters?: MetricsTableDrilldownDashboardFilters | null
 ): MetricsTableDrilldown {
-    const hasDashboardRange = !!(dashboardFilters?.date_from || dashboardFilters?.date_to)
-    const dateFrom =
-        (hasDashboardRange ? dashboardFilters?.date_from : config.dateRange?.date_from) ?? DEFAULT_DATE_FROM
-    const dateTo = (hasDashboardRange ? dashboardFilters?.date_to : null) ?? null
+    const { dateFrom, dateTo } =
+        dashboardFilters && (dashboardFilters.date_from || dashboardFilters.date_to)
+            ? dashboardDateRange(dashboardFilters)
+            : { dateFrom: config.dateRange?.date_from ?? DEFAULT_DATE_FROM, dateTo: null }
     const groupBy = config.groupBy
     if (!groupBy || keys.length === 0) {
         return { dateFrom, dateTo, interval: null, charts: [] }
