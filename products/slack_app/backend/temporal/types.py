@@ -15,9 +15,11 @@ from pydantic import BaseModel
 from posthog.dataclasses import frozen
 
 
-@dataclass
+@dataclass(frozen=True)
 class PostHogSlackInboxOnboardingInputs:
     integration_id: int
+    # Absent in workflows started before the field existed.
+    team_id: int | None = None
 
 
 @dataclass(frozen=True)

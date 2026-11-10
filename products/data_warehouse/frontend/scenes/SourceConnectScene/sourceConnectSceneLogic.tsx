@@ -1,10 +1,11 @@
-import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { isUUIDLike } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,9 +18,16 @@ import {
     readJsonFile,
 } from 'products/data_warehouse/frontend/shared/sourceFieldFiles'
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
-import { externalDataSourcesStoreCredentialsCreate } from 'products/warehouse_sources/frontend/generated/api'
+import {
+    externalDataSourcesStoreCredentialsCreate,
+    warehouseMigrationsItemsRetrieve,
+} from 'products/warehouse_sources/frontend/generated/api'
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { SourceCredentialApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type {
+    SourceCredentialApi,
+    WarehouseMigrationCreatorApi,
+    WarehouseMigrationItemApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { getErrorsForFields, resolveConnectErrorMessage } from '../NewSourceScene/sourceWizardLogic'
@@ -54,6 +62,93 @@ const buildCredentialsPayload = async (
     return payload
 }
 
+// pinned: the connect page event names and properties below feed the agent connect funnel, so renaming breaks it.
+const CONNECT_PAGE_VIEWED = 'warehouse source connect page viewed'
+const CONNECT_SUBMITTED = 'warehouse source connect submitted'
+const CONNECT_SAVED = 'warehouse source connection saved'
+const CONNECT_FAILED = 'warehouse source connect failed'
+
+export type ConnectFailureClass = 'invalid_form' | 'file_unreadable' | 'rejected' | 'server_error' | 'network_error'
+
+const LINK_SOURCE_PATTERN = /^[a-z_]{1,32}$/
+
+/** Kinds and flags only: these events never carry what the user typed. */
+function connectEventProperties(
+    searchParams: Record<string, any>,
+    sourceType: string | null | undefined,
+    fromMigration: boolean
+): Record<string, string | boolean | null> {
+    // The connect_link endpoint sets utm_source to the surface that made the link, such as `wizard`.
+    const linkSource = searchParams.utm_source
+    return {
+        source_type: sourceType ?? null,
+        link_source: typeof linkSource === 'string' && LINK_SOURCE_PATTERN.test(linkSource) ? linkSource : null,
+        from_migration: fromMigration,
+    }
+}
+
+function storeFailureProperties(error: any): { error_class: ConnectFailureClass; status_code: number | null } {
+    const status = typeof error?.status === 'number' ? error.status : null
+    if (status === null) {
+        return { error_class: 'network_error', status_code: null }
+    }
+    return { error_class: status >= 500 ? 'server_error' : 'rejected', status_code: status }
+}
+
+const isPlainObject = (value: unknown): value is Record<string, any> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+
+function mergeDeep(base: Record<string, any>, overrides: Record<string, any>): Record<string, any> {
+    const merged = { ...base }
+    for (const [key, value] of Object.entries(overrides)) {
+        merged[key] = isPlainObject(value) && isPlainObject(merged[key]) ? mergeDeep(merged[key], value) : value
+    }
+    return merged
+}
+
+export interface MigrationParams {
+    migrationId: string
+    itemId: string
+}
+
+export interface PrefilledField {
+    label: string
+    value: string
+}
+
+const humanize = (key: string): string => {
+    const words = key.replace(/_/g, ' ')
+    return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** Every prefilled value as a labeled row, using the source's field labels where the config has them. */
+export function prefilledFields(
+    fields: SourceFieldConfig[] | undefined,
+    prefill: Record<string, any>,
+    parents: string[] = []
+): PrefilledField[] {
+    const rows: PrefilledField[] = []
+    for (const [key, value] of Object.entries(prefill)) {
+        const field = fields?.find((candidate) => candidate.name === key)
+        const label = [...parents, field?.label ?? humanize(key)]
+        if (isPlainObject(value)) {
+            const children =
+                field && 'fields' in field
+                    ? field.fields
+                    : field?.type === 'select'
+                      ? (field.options.find((option) => option.value === value.selection)?.fields ?? undefined)
+                      : undefined
+            rows.push(...prefilledFields(children, value, label))
+        } else {
+            rows.push({
+                label: label.join(' › '),
+                value: typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value),
+            })
+        }
+    }
+    return rows
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sourceConnectSceneLogicValues {
     availableSources: Record<string, SourceConfigResponseApi> | null // availableSourcesLogic
@@ -71,6 +166,14 @@ export interface sourceConnectSceneLogicValues {
     isCredentialsFormSubmitting: boolean
     isCredentialsFormValid: boolean
     kind: string | null
+    loadedMigrationItemId: string | null
+    migrationCreator: WarehouseMigrationCreatorApi | null
+    migrationItem: WarehouseMigrationItemApi | null
+    migrationParams: MigrationParams | null
+    migrationPrefill: Record<string, any> | null
+    migrationPrefillLoading: boolean
+    prefillConfirmed: boolean
+    prefilledFieldRows: PrefilledField[]
     showCredentialsFormErrors: boolean
     sourceConfig: SourceConfigResponseApi | null
     storedCredential: SourceCredentialApi | null
@@ -78,6 +181,28 @@ export interface sourceConnectSceneLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sourceConnectSceneLogicActions {
+    clearMigrationPrefill: () => {
+        value: true
+    }
+    clearStoredCredential: () => {
+        value: true
+    }
+    loadMigrationPrefill: (
+        migrationId: string,
+        itemId: string
+    ) => {
+        itemId: string
+        migrationId: string
+    }
+    migrationItemLoaded: (item: WarehouseMigrationItemApi) => {
+        item: WarehouseMigrationItemApi
+    }
+    migrationPrefillFailed: () => {
+        value: true
+    }
+    migrationPrefillLoaded: (itemId: string) => {
+        itemId: string
+    }
     resetCredentialsForm: (values?: Record<string, any>) => {
         values?: Record<string, any>
     }
@@ -96,6 +221,9 @@ export interface sourceConnectSceneLogicActions {
     }
     setKind: (kind: string | null) => {
         kind: string | null
+    }
+    setPrefillConfirmed: (confirmed: boolean) => {
+        confirmed: boolean
     }
     setStoredCredential: (credential: SourceCredentialApi) => {
         credential: SourceCredentialApi
@@ -124,6 +252,12 @@ export interface sourceConnectSceneLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sourceConnectSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        migrationPrefill: (migrationItem: WarehouseMigrationItemApi | null) => Record<string, any> | null
+        migrationCreator: (migrationItem: WarehouseMigrationItemApi | null) => WarehouseMigrationCreatorApi | null
+        prefilledFieldRows: (
+            sourceConfig: SourceConfigResponseApi | null,
+            migrationPrefill: Record<string, any> | null
+        ) => PrefilledField[]
         sourceConfig: (
             availableSources: Record<string, SourceConfigResponseApi> | null,
             kind: string | null
@@ -147,6 +281,13 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
     actions({
         setKind: (kind: string | null) => ({ kind }),
         setStoredCredential: (credential: SourceCredentialApi) => ({ credential }),
+        clearStoredCredential: true,
+        loadMigrationPrefill: (migrationId: string, itemId: string) => ({ migrationId, itemId }),
+        migrationPrefillLoaded: (itemId: string) => ({ itemId }),
+        migrationPrefillFailed: true,
+        clearMigrationPrefill: true,
+        migrationItemLoaded: (item: WarehouseMigrationItemApi) => ({ item }),
+        setPrefillConfirmed: (confirmed: boolean) => ({ confirmed }),
     }),
     reducers({
         kind: [
@@ -159,10 +300,74 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
             null as SourceCredentialApi | null,
             {
                 setStoredCredential: (_, { credential }) => credential,
+                clearStoredCredential: () => null,
+            },
+        ],
+        migrationParams: [
+            null as MigrationParams | null,
+            {
+                loadMigrationPrefill: (_, { migrationId, itemId }) => ({ migrationId, itemId }),
+                clearMigrationPrefill: () => null,
+            },
+        ],
+        migrationPrefillLoading: [
+            false,
+            {
+                loadMigrationPrefill: () => true,
+                migrationPrefillLoaded: () => false,
+                migrationPrefillFailed: () => false,
+                clearMigrationPrefill: () => false,
+            },
+        ],
+        migrationItem: [
+            null as WarehouseMigrationItemApi | null,
+            {
+                loadMigrationPrefill: (state, { itemId }) => (state?.id === itemId ? state : null),
+                migrationItemLoaded: (_, { item }) => item,
+                clearMigrationPrefill: () => null,
+            },
+        ],
+        prefillConfirmed: [
+            false,
+            {
+                setPrefillConfirmed: (_, { confirmed }) => confirmed,
+                migrationItemLoaded: () => false,
+                clearMigrationPrefill: () => false,
+            },
+        ],
+        loadedMigrationItemId: [
+            null as string | null,
+            {
+                // Another item resets the form, so the earlier item counts as not loaded any more.
+                loadMigrationPrefill: (state, { itemId }) => (state === itemId ? state : null),
+                migrationPrefillLoaded: (_, { itemId }) => itemId,
+                clearMigrationPrefill: () => null,
             },
         ],
     }),
     selectors({
+        migrationPrefill: [
+            (s) => [s.migrationItem],
+            (migrationItem: WarehouseMigrationItemApi | null): Record<string, any> | null => {
+                const prefill = migrationItem?.proposal?.prefill
+                return prefill && Object.keys(prefill).length > 0 ? prefill : null
+            },
+        ],
+        migrationCreator: [
+            (s) => [s.migrationItem],
+            (migrationItem: WarehouseMigrationItemApi | null): WarehouseMigrationCreatorApi | null =>
+                migrationItem?.created_by ?? null,
+        ],
+        prefilledFieldRows: [
+            (s) => [s.sourceConfig, s.migrationPrefill],
+            (
+                sourceConfig: SourceConfigResponseApi | null,
+                migrationPrefill: Record<string, any> | null
+            ): PrefilledField[] =>
+                migrationPrefill
+                    ? prefilledFields(sourceConfig?.fields as SourceFieldConfig[] | undefined, migrationPrefill)
+                    : [],
+        ],
         sourceConfig: [
             (s) => [s.availableSources, s.kind],
             (
@@ -208,14 +413,30 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                 if (!values.sourceConfig) {
                     return
                 }
+                // The secret goes to the prefilled server, so the user must confirm that server first.
+                if (values.migrationPrefill && !values.prefillConfirmed) {
+                    return
+                }
+                const eventProperties = connectEventProperties(
+                    router.values.searchParams,
+                    values.sourceConfig.name,
+                    values.migrationParams !== null
+                )
+                posthog.capture(CONNECT_SUBMITTED, eventProperties)
                 let payload: Record<string, any>
                 try {
                     payload = await buildCredentialsPayload(
                         values.sourceConfig.fields,
-                        (formValues.payload ?? {}) as Record<string, any>
+                        // Prefilled values are read-only, and the API rejects a payload that changes one.
+                        mergeDeep((formValues.payload ?? {}) as Record<string, any>, values.migrationPrefill ?? {})
                     )
                 } catch (e: any) {
                     posthog.captureException(e)
+                    posthog.capture(CONNECT_FAILED, {
+                        ...eventProperties,
+                        error_class: 'file_unreadable' satisfies ConnectFailureClass,
+                        status_code: null,
+                    })
                     const fieldName = e instanceof FileUploadParseError ? e.fieldName : null
                     lemonToast.error(
                         fieldName
@@ -229,6 +450,9 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     credential = await externalDataSourcesStoreCredentialsCreate(String(ApiConfig.getCurrentTeamId()), {
                         source_type: values.sourceConfig.name,
                         payload,
+                        ...(values.migrationPrefill && values.migrationItem
+                            ? { migration_item_id: values.migrationItem.id }
+                            : {}),
                     })
                 } catch (e: any) {
                     // The endpoint tests the credentials against a live connection, so a rejection
@@ -236,16 +460,97 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     if (e?.status >= 500) {
                         posthog.captureException(e)
                     }
+                    posthog.capture(CONNECT_FAILED, { ...eventProperties, ...storeFailureProperties(e) })
                     lemonToast.error(resolveConnectErrorMessage(e))
                     return
                 }
+                posthog.capture(CONNECT_SAVED, eventProperties)
                 actions.setStoredCredential(credential)
             },
         },
     })),
-    urlToAction(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        submitCredentialsFormFailure: () => {
+            posthog.capture(CONNECT_FAILED, {
+                ...connectEventProperties(
+                    router.values.searchParams,
+                    values.sourceConfig?.name ?? values.kind,
+                    values.migrationParams !== null
+                ),
+                error_class: 'invalid_form' satisfies ConnectFailureClass,
+                status_code: null,
+            })
+        },
+        loadMigrationPrefill: async ({ migrationId, itemId }, breakpoint) => {
+            // Coming back to the same link must not overwrite what the user typed.
+            if (values.loadedMigrationItemId === itemId) {
+                actions.migrationPrefillLoaded(itemId)
+                return
+            }
+            // A new item: nothing typed or saved for another connection carries over.
+            actions.resetCredentialsForm()
+            actions.clearStoredCredential()
+            let item: Awaited<ReturnType<typeof warehouseMigrationsItemsRetrieve>>
+            try {
+                item = await warehouseMigrationsItemsRetrieve(String(ApiConfig.getCurrentTeamId()), migrationId, itemId)
+            } catch (e: any) {
+                breakpoint()
+                if (values.migrationParams?.itemId !== itemId) {
+                    return
+                }
+                // The user can still fill the form by hand, so only a server error gets reported.
+                if (e?.status >= 500) {
+                    posthog.captureException(e)
+                }
+                actions.migrationPrefillFailed()
+                lemonToast.error("Couldn't load the connection details from Fivetran. You can still fill them in.", {
+                    button: { label: 'Try again', action: () => actions.loadMigrationPrefill(migrationId, itemId) },
+                })
+                return
+            }
+            // A newer link may have replaced this one, or the user left the link, while the request ran.
+            breakpoint()
+            if (values.migrationParams?.itemId !== itemId) {
+                return
+            }
+            actions.migrationItemLoaded(item)
+            const prefill = item.proposal?.prefill
+            if (prefill) {
+                // Deep, so what the user typed for this item while the request ran stays.
+                actions.setCredentialsFormValues({
+                    payload: mergeDeep(values.credentialsForm.payload ?? {}, prefill),
+                })
+            }
+            actions.migrationPrefillLoaded(itemId)
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
         [urls.dataWarehouseSourceConnect()]: (_, searchParams) => {
-            actions.setKind(searchParams.kind ?? null)
+            const kind = searchParams.kind ?? null
+            // A hash change (the side panel opening) runs this again, and must not count as a second visit.
+            const kindChanged = kind !== values.kind
+            actions.setKind(kind)
+            const { migration_id: migrationId, migration_item_id: itemId } = searchParams
+            // Both go into a request path, so anything but an id is ignored.
+            const fromMigration =
+                typeof migrationId === 'string' &&
+                typeof itemId === 'string' &&
+                isUUIDLike(migrationId) &&
+                isUUIDLike(itemId)
+            if (kindChanged) {
+                posthog.capture(
+                    CONNECT_PAGE_VIEWED,
+                    connectEventProperties(searchParams, values.sourceConfig?.name ?? kind, fromMigration)
+                )
+            }
+            if (fromMigration) {
+                actions.loadMigrationPrefill(migrationId, itemId)
+            } else if (values.migrationParams) {
+                // Leaving a migration link: its details and saved credential must not stay on the plain form.
+                actions.resetCredentialsForm()
+                actions.clearStoredCredential()
+                actions.clearMigrationPrefill()
+            }
         },
     })),
 ])

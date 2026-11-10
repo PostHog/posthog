@@ -30,7 +30,7 @@ from django.utils import timezone
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -267,9 +267,13 @@ def clear_workspace_profile_cache(slack_team_id: str) -> int:
     that survive a failed clear age out via the cache TTL.
     """
     try:
-        deleted, _ = SlackUserProfileCache.objects.filter(
-            integration__kind__in=SLACK_INTEGRATION_KINDS, integration__integration_id=slack_team_id
-        ).delete()
+        integration_ids = [
+            row.id
+            for row in IntegrationManager.kinds(*SLACK_INTEGRATION_KINDS, auth_types="any").list_by_external_id(
+                slack_team_id
+            )
+        ]
+        deleted, _ = SlackUserProfileCache.objects.filter(integration_id__in=integration_ids).delete()
     except DatabaseError:
         logger.warning("slack_app_uninstall_profile_cache_clear_failed", slack_team_id=slack_team_id, exc_info=True)
         return 0

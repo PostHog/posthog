@@ -376,6 +376,17 @@ share (enrolment kill switch, daily run budget, Signals quota, daily report limi
 single-flight) live in `backend/scout_harness/run_gates.py`; the workflow path adds a 30-minute
 per-`(team, skill)` cooldown, a backstop that does not have to trust the workflow's masking config.
 
+A workflow fire that the cooldown or the in-flight gate turns away is queued as a
+`SignalScoutPendingTrigger` row (`backend/scout_harness/workflow_trigger_queue.py`), unless the step
+asked to skip it. A lane keeps at most `MAX_PENDING_WORKFLOW_TRIGGERS` fires, drops an exact duplicate
+note, and drops its oldest fire when full. Every other rejection (pause, enrolment, budget, quota,
+missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
+hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
+allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
+per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+(locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
+leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
+
 Findings emitted during the run go through the harness's `emit_signal_*` tools,
 which call `emit_signal()` with `source_product="signals_scout"` and
 `source_type="cross_source_issue"` — from there the signal flows through the same
