@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { ResourceEditedEvent } from '~/types'
@@ -462,6 +463,58 @@ describe('messageTemplateLogic', () => {
             if (editWhileConverting) {
                 expect(logic.values.template.name).toEqual('Renamed while converting')
             }
+        })
+    })
+
+    describe('project tree', () => {
+        const treeEntry = (name: string): Record<string, unknown> => ({
+            id: 'file-1',
+            path: `Unfiled/Email templates/${name}`,
+            type: 'message_template',
+            ref: 'existing-id',
+        })
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': ({ request }) =>
+                        new URL(request.url).searchParams.get('ref') === 'existing-id'
+                            ? [200, { results: [treeEntry('Renamed')], count: 1 }]
+                            : [200, { results: [], count: 0 }],
+                },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'Renamed' },
+                },
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+            projectTreeDataLogic.mount()
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        afterEach(() => {
+            projectTreeDataLogic.unmount()
+        })
+
+        it('shows the new name in the tree once a save lands', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']?.path).toBe(
+                'Unfiled/Email templates/Renamed'
+            )
+        })
+
+        it('removes the template from the tree when it is deleted from the editor', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.deleteTemplate()
+            }).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
         })
     })
 })

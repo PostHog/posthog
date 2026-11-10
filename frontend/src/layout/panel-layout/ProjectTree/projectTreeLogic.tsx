@@ -1797,6 +1797,10 @@ export function refreshTreeItem(type: string, ref: string): void {
     projectTreeDataLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
 }
 
+export function isTreeItemLoaded(type: string, ref: string): boolean {
+    return !!projectTreeDataLogic.findMounted()?.values.itemsByRef[`${type}::${ref}`]
+}
+
 export function deleteFromTree(type: string, ref: string): void {
     projectTreeDataLogic.findMounted()?.actions.deleteTypeAndRef(type, ref)
 }

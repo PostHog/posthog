@@ -547,7 +547,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(reloaded.json()["ref"], workflow_id)
 
 
-class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
+class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self) -> None:
@@ -557,6 +557,33 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
         self.addCleanup(flag.stop)
         self.client = APIClient()
         self.client.force_login(self.user)
+
+    def _refuse_file_rows(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "CREATE FUNCTION refuse_file_row() RETURNS trigger LANGUAGE plpgsql AS "
+                "$$ BEGIN RAISE EXCEPTION 'file row refused'; END $$"
+            )
+            cursor.execute(
+                "CREATE TRIGGER refuse_file_row BEFORE INSERT ON posthog_filesystem "
+                "FOR EACH ROW EXECUTE FUNCTION refuse_file_row()"
+            )
+
+        def drop() -> None:
+            with connection.cursor() as cursor:
+                cursor.execute("DROP TRIGGER IF EXISTS refuse_file_row ON posthog_filesystem")
+                cursor.execute("DROP FUNCTION IF EXISTS refuse_file_row()")
+
+        self.addCleanup(drop)
+
+    def test_a_failed_file_row_keeps_the_created_template(self) -> None:
+        self._refuse_file_rows()
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+
+        created = self.client.post(templates_url, {"name": "Welcome", "type": "email"}, format="json")
+
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(self.client.get(f"{templates_url}{created.json()['id']}/").status_code, 200)
 
     @parameterized.expand(
         [
