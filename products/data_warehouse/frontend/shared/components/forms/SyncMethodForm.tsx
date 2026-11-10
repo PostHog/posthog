@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { forwardRef, useEffect, useId, useImperativeHandle, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
@@ -624,7 +624,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             ? !incrementalSyncSupported.disabled && primaryKeyPicker
             : (radioValue === 'cdc' || radioValue === 'xmin') && replicationKeyRequired && sourcePrimaryKeyNote
     const showsOutputTables =
-        radioValue === 'cdc' || (radioValue === 'incremental' && !!schema.incremental_history_available)
+        radioValue === 'cdc' ||
+        (radioValue === 'incremental' && !incrementalSyncSupported.disabled && !!schema.incremental_history_available)
     const outputTableMode = radioValue === 'cdc' ? cdcTableMode : incrementalTableMode
     // CDC always records every change. An incremental sync can only date a version by a cursor that holds a time.
     const historyDisabledReason =
@@ -791,6 +792,20 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         }
     }
 
+    // The methods render as separate groups for layout, so they share one native name to stay a single
+    // radio group for the keyboard and screen readers.
+    const syncMethodGroupName = useId()
+    const renderMethodGroup = (options: SyncMethodOption[]): JSX.Element => (
+        <LemonRadio
+            radioPosition="top"
+            name={syncMethodGroupName}
+            aria-label="Sync method"
+            value={radioValue}
+            options={options}
+            onChange={setRadioValue}
+        />
+    )
+
     useImperativeHandle(ref, () => ({ triggerSave: handleSave }))
 
     useEffect(() => {
@@ -799,35 +814,21 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
 
     return (
         <>
-            {webhookOptions.length > 0 && (
-                <LemonRadio radioPosition="top" value={radioValue} options={webhookOptions} onChange={setRadioValue} />
-            )}
+            {webhookOptions.length > 0 && renderMethodGroup(webhookOptions)}
             {keyedOptions.length > 0 && (
                 <div className="mb-4 rounded border p-3">
                     <p className="mb-3 text-secondary text-sm">
                         Keeps rows up to date by merging changes into the synced table on its primary key.
                     </p>
-                    <LemonRadio
-                        radioPosition="top"
-                        value={radioValue}
-                        options={keyedOptions}
-                        onChange={setRadioValue}
-                    />
+                    {renderMethodGroup(keyedOptions)}
                     {keyedSettings}
                 </div>
             )}
-            {appendOptions.length > 0 && (
-                <LemonRadio radioPosition="top" value={radioValue} options={appendOptions} onChange={setRadioValue} />
-            )}
+            {appendOptions.length > 0 && renderMethodGroup(appendOptions)}
             {fullRefreshOptions.length > 0 && (
                 <>
                     <LemonDivider className="mb-4" />
-                    <LemonRadio
-                        radioPosition="top"
-                        value={radioValue}
-                        options={fullRefreshOptions}
-                        onChange={setRadioValue}
-                    />
+                    {renderMethodGroup(fullRefreshOptions)}
                 </>
             )}
             {!hideFooter && (
