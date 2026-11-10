@@ -326,9 +326,7 @@ def _float_content(uri):
 @pytest.mark.parametrize(
     "path_name, expected",
     [
-        # MERGE matches -0.0 to the 0.0 row and updates it, key included.
         ("merge", [("-0.0", 2), ("1.5", 1)]),
-        # upsert treats -0.0 as a DISTINCT key: it inserts, and the 0.0 row is untouched.
         ("upsert", [("-0.0", 2), ("0.0", 1), ("1.5", 1)]),
     ],
 )
