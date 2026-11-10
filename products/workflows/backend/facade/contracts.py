@@ -666,12 +666,6 @@ class Workflow:
 
 @frozen
 class WorkflowListRow:
-    """One row of a summary page: a workflow's metadata and type, without the step graph or the staged draft.
-
-    Each set secret input in ``trigger`` is already replaced by the ``{"secret": True}`` presence marker.
-    The other fields read as they do on ``Workflow``.
-    """
-
     id: UUID
     team_id: int
     name: str | None
@@ -684,9 +678,7 @@ class WorkflowListRow:
     updated_at: datetime
     trigger: Any
     user_access_level: str | None
-    # Tag names, sorted.
     tags: tuple[str, ...]
-    # Decided by the same rules as the list's ``type`` filter.
     workflow_type: HogFlowType
     pending_suggestions: int
     suggestions_enabled: bool
