@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
 
+import { surveysShownRecentlyLogic } from './surveysShownRecentlyLogic'
 import { workflowSurveyPickerLogic } from './workflowSurveyPickerLogic'
 import { isLimitedToWorkflowRecipients } from './workflowSurveyTargeting'
 
@@ -27,6 +28,7 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
     const { limitingSurveyId } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const { limitToWorkflowRecipients } = useActions(logic)
+    const { surveysShownRecently } = useValues(surveysShownRecentlyLogic)
 
     if (!IN_APP_SURVEY_TYPES.has(survey.type)) {
         return (
@@ -42,6 +44,12 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
                 <LemonBanner type="warning">
                     Surveys are turned off for this project, so nobody will see this one.{' '}
                     <Link to={urls.settings('environment-surveys', 'surveys-interface')}>Turn them on</Link>
+                </LemonBanner>
+            )}
+            {currentTeam?.surveys_opt_in && surveysShownRecently === false && (
+                <LemonBanner type="warning">
+                    No survey has been shown in this project in the last 30 days. Check that your app loads surveys and
+                    uses a recent PostHog SDK, or people may not see this one.
                 </LemonBanner>
             )}
             {!survey.start_date ? (

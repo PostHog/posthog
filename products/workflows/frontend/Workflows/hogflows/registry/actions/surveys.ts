@@ -12,5 +12,11 @@ registerActionNodeCategory({
             description: 'Show an in-app survey the next time this person opens your app.',
             config: { template_id: 'template-posthog-show-survey', inputs: {} },
         },
+        {
+            type: 'function',
+            name: 'Hide survey',
+            description: 'Stop showing an in-app survey to this person.',
+            config: { template_id: 'template-posthog-hide-survey', inputs: {} },
+        },
     ],
 })
