@@ -57,18 +57,22 @@ const ERRORS: Partial<Record<SkillsError['code'], { code?: string; hint?: string
     usage: { code: 'invalid_learn_command', exitCode: EXIT_USAGE },
 }
 
+export function offlineError(error: SkillsError): HogError {
+    const assets = error.assets ?? []
+    const failures = assets.map((asset) => `\n  ${asset.url}: ${asset.failure}`).join('')
+
+    return new HogError(
+        'skills_offline',
+        `${error.message}${failures}`,
+        'Check your internet connection, then run the command again.',
+        undefined,
+        { assets }
+    )
+}
+
 function toHogError(error: SkillsError): HogError {
     if (error.code === 'offline') {
-        const assets = error.assets ?? []
-        const failures = assets.map((asset) => `\n  ${asset.url}: ${asset.failure}`).join('')
-
-        return new HogError(
-            'skills_offline',
-            `${error.message}${failures}`,
-            'Check your internet connection, then run the command again.',
-            undefined,
-            { assets }
-        )
+        return offlineError(error)
     }
 
     const { code = error.code, hint = DEFAULT_HINT, exitCode } = ERRORS[error.code] ?? {}
@@ -76,7 +80,7 @@ function toHogError(error: SkillsError): HogError {
 }
 
 // A person sees why the skills may be out of date before the skills themselves.
-function printDownloadWarnings(out: Output, assets: readonly SkillAssetStatus[]): void {
+export function printDownloadWarnings(out: Output, assets: readonly SkillAssetStatus[]): void {
     for (const asset of assets) {
         const outcome =
             asset.origin === 'cache' && asset.fetchedAt
