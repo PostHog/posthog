@@ -121,7 +121,6 @@
             );
             stroke: currentColor;
             opacity: 0.6;
-            mask-image: repeating-linear-gradient(to bottom, #000 0 2px, rgb(0 0 0 / 90%) 2px 4px);
             transform-origin: center;
             animation: SpinnerOverlay__think 14s ease-in-out infinite alternate;
 
@@ -132,35 +131,58 @@
                 animation-direction: alternate-reverse;
 
                 .SpinnerOverlay__pulse {
-                    animation-duration: 4.5s;
+                    animation-duration: 12s;
                     animation-delay: -2s;
                 }
             }
         }
 
-        .SpinnerOverlay__haze {
-            stroke-width: 90px;
-            opacity: 0.1;
+        .SpinnerOverlay__facet--secondary {
+            stop-color: hsl(
+                var(--color-brand-secondary-hue),
+                var(--color-brand-secondary-saturation),
+                var(--color-brand-secondary-lightness)
+            );
+        }
+
+        .SpinnerOverlay__facet--accent {
+            stop-color: var(--color-accent);
+        }
+
+        .SpinnerOverlay__facet--highlight {
+            stop-color: var(--color-white);
+        }
+
+        .SpinnerOverlay__glass {
+            stroke-width: 20px;
+            opacity: 0.23;
+        }
+
+        .SpinnerOverlay__reflection {
+            stroke: var(--color-white);
+            stroke-width: 1.5px;
+            stroke-dasharray: 4 1;
+            opacity: 0.55;
         }
 
         .SpinnerOverlay__trace {
-            stroke-width: 3px;
-            opacity: 0.16;
+            stroke-width: 2px;
+            opacity: 0.4;
         }
 
         .SpinnerOverlay__pulse {
             stroke-width: 5px;
             stroke-linecap: round;
-            stroke-dasharray: 1 99;
-            animation: SpinnerOverlay__flow 3s linear -1s infinite;
+            stroke-dasharray: 1 49;
+            animation: SpinnerOverlay__flow 8s linear -2s infinite;
 
             &--head {
                 stroke: color-mix(in oklab, currentColor 70%, var(--color-white));
             }
 
             &--glow {
-                stroke-width: 18px;
-                stroke-dasharray: 2 98;
+                stroke-width: 14px;
+                stroke-dasharray: 2 48;
                 opacity: 0.75;
             }
 
@@ -168,7 +190,7 @@
                 --pulse-offset: 22px;
 
                 stroke-width: 2px;
-                stroke-dasharray: 22 78;
+                stroke-dasharray: 22 28;
                 opacity: 0.12;
             }
 
@@ -176,7 +198,7 @@
                 --pulse-offset: 12px;
 
                 stroke-width: 3px;
-                stroke-dasharray: 12 88;
+                stroke-dasharray: 12 38;
                 opacity: 0.22;
             }
 
@@ -184,7 +206,7 @@
                 --pulse-offset: 5px;
 
                 stroke-width: 4px;
-                stroke-dasharray: 5 95;
+                stroke-dasharray: 5 45;
                 opacity: 0.5;
             }
         }

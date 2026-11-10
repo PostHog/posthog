@@ -116,8 +116,16 @@ export function SpinnerOverlay({
                     >
                         <defs>
                             <filter id={effectId} x="-30%" y="-50%" width="160%" height="200%">
-                                <feGaussianBlur stdDeviation={18} />
+                                <feGaussianBlur stdDeviation={3} />
                             </filter>
+                            <linearGradient id={`${effectId}-glass`} x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0%" className="SpinnerOverlay__facet--secondary" />
+                                <stop offset="35%" className="SpinnerOverlay__facet--accent" />
+                                <stop offset="48%" className="SpinnerOverlay__facet--highlight" />
+                                <stop offset="52%" className="SpinnerOverlay__facet--secondary" />
+                                <stop offset="75%" className="SpinnerOverlay__facet--accent" />
+                                <stop offset="100%" className="SpinnerOverlay__facet--secondary" />
+                            </linearGradient>
                             <path
                                 id={`${effectId}-secondary`}
                                 pathLength={100}
@@ -131,10 +139,15 @@ export function SpinnerOverlay({
                         </defs>
                         <use
                             href={`#${effectId}-secondary`}
-                            className="SpinnerOverlay__haze"
-                            filter={`url(#${effectId})`}
+                            className="SpinnerOverlay__glass"
+                            stroke={`url(#${effectId}-glass)`}
                         />
                         <use href={`#${effectId}-secondary`} className="SpinnerOverlay__trace" />
+                        <use
+                            href={`#${effectId}-secondary`}
+                            className="SpinnerOverlay__reflection"
+                            transform="translate(0 -6)"
+                        />
                         <use
                             href={`#${effectId}-secondary`}
                             className="SpinnerOverlay__pulse SpinnerOverlay__pulse--tail-far"
@@ -165,10 +178,15 @@ export function SpinnerOverlay({
                     >
                         <use
                             href={`#${effectId}-accent`}
-                            className="SpinnerOverlay__haze"
-                            filter={`url(#${effectId})`}
+                            className="SpinnerOverlay__glass"
+                            stroke={`url(#${effectId}-glass)`}
                         />
                         <use href={`#${effectId}-accent`} className="SpinnerOverlay__trace" />
+                        <use
+                            href={`#${effectId}-accent`}
+                            className="SpinnerOverlay__reflection"
+                            transform="translate(0 -6)"
+                        />
                         <use
                             href={`#${effectId}-accent`}
                             className="SpinnerOverlay__pulse SpinnerOverlay__pulse--tail-far"
