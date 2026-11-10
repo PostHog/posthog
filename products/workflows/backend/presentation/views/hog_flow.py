@@ -3716,7 +3716,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             try:
                 validate_file_system_placement(folder, validated.get("name"))
             except serializers.ValidationError as error:
-                raise serializers.ValidationError({"folder": error.detail["_create_in_folder"]})
+                detail = error.detail
+                raise serializers.ValidationError(
+                    {"folder": detail["_create_in_folder"] if isinstance(detail, dict) else detail}
+                )
             validated["_create_in_folder"] = folder
         return validated
 
