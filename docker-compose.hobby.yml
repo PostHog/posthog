@@ -124,6 +124,8 @@ services:
             # Each Celery pool process loads all of Django. Celery starts one per CPU by default,
             # which is more memory than a small host has. Raise it in .env on a larger host.
             WEB_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
+            # The pool children share one copy of Django with the worker parent instead of copying it.
+            GC_FREEZE_BEFORE_POOL_FORK: ${GC_FREEZE_BEFORE_POOL_FORK:-true}
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             # The documented telemetry opt-out. web already receives it; beat and the
