@@ -1,14 +1,11 @@
-from typing import Any
-
 from django.contrib import admin
-from django.core.paginator import Paginator
 from django.db.models import Q, QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
-from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.models import ExternalDataSource
 
 type _FilterChoice = tuple[str, str]
 
@@ -57,7 +54,6 @@ class ExternalDataSourceAdmin(admin.ModelAdmin):
     actions = None
     show_full_result_count = False
     ordering = ("-id",)
-    change_form_template = "admin/data_warehouse/externaldatasource/change_form.html"
     list_display = (
         "id",
         "credential_kind",
@@ -110,10 +106,9 @@ class ExternalDataSourceAdmin(admin.ModelAdmin):
         "deleted_at",
         "created_at",
         "updated_at",
+        "schemas_link",
     )
     fields = readonly_fields
-
-    SCHEMAS_PER_PAGE = 50
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[ExternalDataSource]:
         return (
@@ -123,34 +118,6 @@ class ExternalDataSourceAdmin(admin.ModelAdmin):
             .select_related("team", "team__organization")
             .defer("job_inputs")
         )
-
-    def change_view(
-        self,
-        request: HttpRequest,
-        object_id: str,
-        form_url: str = "",
-        extra_context: dict[str, Any] | None = None,
-    ) -> HttpResponse:
-        extra_context = extra_context or {}
-        source = self.get_object(request, object_id)
-        if source is not None:
-            # A relational source can carry hundreds of schemas, so the list is paginated
-            # instead of rendered as an admin inline, which loads every row at once.
-            schemas = (
-                ExternalDataSchema.objects.filter(source_id=source.pk)
-                .select_related("table")
-                .defer("sync_type_config", "enabled_columns", "row_filters")
-                .order_by("name", "id")
-            )
-            extra_context["schema_page"] = Paginator(schemas, self.SCHEMAS_PER_PAGE).get_page(request.GET.get("page"))
-            # Django admin puts `_changelist_filters` on the change page URL to remember where the
-            # user came from. A bare `?page=` link drops it, so the breadcrumb back to the
-            # changelist loses the filtered position. Carry the rest of the query string over.
-            page_params = request.GET.copy()
-            page_params.pop("page", None)
-            query = page_params.urlencode()
-            extra_context["page_link_prefix"] = f"?{query}&page=" if query else "?page="
-        return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
@@ -177,6 +144,14 @@ class ExternalDataSourceAdmin(admin.ModelAdmin):
         metadata = obj.connection_metadata
         value = metadata.get("lifecycle_generation") if isinstance(metadata, dict) else None
         return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    @admin.display(description="Schemas")
+    def schemas_link(self, obj: ExternalDataSource) -> SafeString:
+        return format_html(
+            '<a href="{}?source={}">Schemas of this source: now in PostHog Admin &#8599;</a>',
+            reverse("admin_console_tool", kwargs={"tool_key": "warehouse-sources"}),
+            obj.pk,
+        )
 
     @admin.display(description="Team")
     def team_link(self, obj: ExternalDataSource) -> SafeString:

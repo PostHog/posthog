@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import posthog from 'posthog-js'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 
@@ -9,6 +8,7 @@ import { slugify } from 'lib/utils/strings'
 import type { InsightEditorFilterGroup, InsightLogicProps } from '~/types'
 
 import { EditorFilterItems } from './EditorFilterItems'
+import { captureEditorGroupToggle } from './editorFilterUtils'
 import { useEditorGroupExpansion } from './useEditorGroupExpansion'
 
 export interface EditorFilterGroupTileProps {
@@ -34,11 +34,7 @@ export function EditorFilterGroupTile({
                     onClick={() => {
                         const newState = !isRowExpanded
                         setIsRowExpanded(newState)
-                        posthog.capture('editor panel section toggled', {
-                            section: title,
-                            action: newState ? 'opened' : 'closed',
-                            query_kind: queryKind,
-                        })
+                        captureEditorGroupToggle(title, newState, queryKind)
                     }}
                     sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
                     title={isRowExpanded ? 'Show less' : 'Show more'}

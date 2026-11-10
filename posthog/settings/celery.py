@@ -4,6 +4,12 @@ from kombu import Exchange, Queue
 
 from posthog.settings.base_variables import TEST
 from posthog.settings.data_stores import REDIS_URL
+from posthog.settings.utils import get_from_env, str_to_bool
+
+# Freeze the worker parent's objects before the prefork pool forks, so the pool children keep sharing
+# that memory instead of copying it on their first garbage collection. Hobby turns it on. The name
+# avoids the CELERY_ prefix, which Celery reads as its own configuration.
+GC_FREEZE_BEFORE_POOL_FORK = get_from_env("GC_FREEZE_BEFORE_POOL_FORK", False, type_cast=str_to_bool)
 
 # Only listen to the default queue "celery", unless overridden via the CLI
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)

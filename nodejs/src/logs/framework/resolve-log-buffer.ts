@@ -78,7 +78,7 @@ async function buildRecordsTransform(
     if (!(await transformer.teamHasTransformations(message.teamId))) {
         return undefined
     }
-    return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
+    return (records) => transformer.transformRecords(message.teamId, records, batchBudget, message.sentAsInternalLogs)
 }
 
 export async function resolveLogBuffer(
@@ -117,7 +117,7 @@ export async function resolveLogBuffer(
         stages.push(makeTransformStage(recordsTransform))
     }
     let shortestRetentionDays =
-        message.internalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
+        message.verifiedAsInternalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
     if (useRetention && retentionRuleSet) {
         stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
         shortestRetentionDays = Math.min(

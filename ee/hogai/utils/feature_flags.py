@@ -1,14 +1,7 @@
-from typing import Literal, cast
-
-import posthoganalytics
-
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 
 from products.business_knowledge.backend.logic import has_feature_flag as bk_has_feature_flag
-
-LlmGatewayVariant = Literal["control", "gateway-anthropic", "gateway-bedrock"]
-_VALID_LLM_GATEWAY_VARIANTS: set[str] = {"control", "gateway-anthropic", "gateway-bedrock"}
 
 
 def is_privacy_mode_enabled(team: Team) -> bool:
@@ -143,22 +136,6 @@ def has_customer_analytics_mode_feature_flag(team: Team, user: User) -> bool:
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
-
-
-def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
-    variant = cast(
-        "str | bool | None",
-        posthoganalytics.get_feature_flag(
-            "phai-llm-gateway-v2",
-            str(user.distinct_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            send_feature_flag_events=False,
-        ),
-    )
-    if isinstance(variant, str) and variant in _VALID_LLM_GATEWAY_VARIANTS:
-        return cast("LlmGatewayVariant", variant)
-    return "control"
 
 
 def has_business_knowledge_feature_flag(team: Team) -> bool:

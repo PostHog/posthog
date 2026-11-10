@@ -9,6 +9,8 @@ from ..facade.contracts import (
     CodeFile,
     FigureMark,
     FigureQuote,
+    HiddenPulseNumber,
+    HiddenPulseNumbers,
     HighlightItem,
     HighlightMetric,
     HighlightMover,
@@ -314,12 +316,46 @@ class PulsePinSerializer(DataclassSerializer):
 
 
 MAX_PINS_IN_REQUEST = 20
+MAX_HIDDEN_IN_REQUEST = 50
+
+
+class HiddenPulseNumberSerializer(DataclassSerializer):
+    key = serializers.CharField(
+        help_text="Key of the hidden number: a key metric setting such as signup_event, or insight:<short_id>."
+    )
+    name = serializers.CharField(help_text="Current name of the number.")
+
+    class Meta:
+        dataclass = HiddenPulseNumber
+
+
+class HiddenPulseNumbersSerializer(DataclassSerializer):
+    hidden = HiddenPulseNumberSerializer(
+        many=True,
+        help_text="Numbers the person hid from the key numbers, oldest first. Numbers the person can no longer see are left out.",
+    )
+
+    class Meta:
+        dataclass = HiddenPulseNumbers
+
+
+class SetHiddenPulseNumbersSerializer(serializers.Serializer):
+    keys = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        max_length=MAX_HIDDEN_IN_REQUEST,
+        help_text=f"Keys of every number to hide, oldest first. Replaces the hidden numbers. At most {MAX_HIDDEN_IN_REQUEST} keys.",
+    )
 
 
 class PulsePinsSerializer(DataclassSerializer):
     pins = PulsePinSerializer(
         many=True,
         help_text=f"Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most {MAX_PINS_IN_REQUEST} entries.",
+    )
+    hidden = HiddenPulseNumberSerializer(
+        many=True,
+        read_only=True,
+        help_text="Numbers the person hid from the key numbers, oldest first. Suggestions skip them. Change them with the hidden numbers endpoint.",
     )
 
     class Meta:

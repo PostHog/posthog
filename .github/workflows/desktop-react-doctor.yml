@@ -38,6 +38,12 @@ jobs:
               with:
                   fetch-depth: 2
                   persist-credentials: false
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      /products/desktop/
+                      /.github/scripts/desktop/react-doctor-comment.mjs
+                  sparse-checkout-cone-mode: false
 
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/create-github-app-token@v3.1.1
@@ -99,6 +105,11 @@ jobs:
                     echo "No changed files; nothing for react-doctor to scan."
                     echo "exit-code=0" >> "$GITHUB_OUTPUT"
                     exit 0
+                  fi
+                  BASELINE_BLOBS="${RUNNER_TEMP}/react-doctor-baseline-blobs.txt"
+                  git rev-list --objects --missing=print "$REACT_DOCTOR_BASE_SHA:products/desktop" | sed -n 's/^?//p' | sort -u > "$BASELINE_BLOBS" || exit 1
+                  if [ -s "$BASELINE_BLOBS" ]; then
+                    git fetch --no-tags --no-write-fetch-head --stdin origin < "$BASELINE_BLOBS" || exit 1
                   fi
                   REPORT="${RUNNER_TEMP}/react-doctor-report.json"
                   status=0

@@ -13,6 +13,21 @@ PAGE_SIZE = 100
 # paging (documented retrieve-operation cap), so log when a detector hits it.
 DETECTOR_EVENTS_RESULT_CAP = 10_000
 
+# The org-wide event search has the same 10,000-result cap per query. Its documented
+# default page size is 1,000.
+EVENT_SEARCH_RESULT_CAP = 10_000
+EVENT_SEARCH_PAGE_SIZE = 1_000
+
+# The Synthetics API pages with page/perPage. 50 is the documented default of the tests
+# list; the maximum is not documented.
+SYNTHETICS_PAGE_SIZE = 50
+# A synthetic_runs sync with no watermark reads this window of runs.
+SYNTHETIC_RUNS_DEFAULT_LOOKBACK_DAYS = 30
+
+# Default merge-sync lookback for synthetic_runs and events. A run still in progress, or an
+# event sent late, can carry a timestamp below the newest row of the previous sync.
+LATE_ROW_LOOKBACK_SECONDS = 3600
+
 # Hard stop for offset paging so a server that ignores `offset` can't loop us forever.
 MAX_OFFSET = 1_000_000
 
@@ -21,6 +36,8 @@ MAX_OFFSET = 1_000_000
 SIGNALFLOW_DEFAULT_LOOKBACK_DAYS = 30
 
 ResponseStyle = Literal["wrapped", "list"]
+# "offset" = offset/limit; "page" = Synthetics page/perPage; "none" = one request.
+Pagination = Literal["offset", "page", "none"]
 
 _TIMESTAMP_INCREMENTAL_FIELD: list[IncrementalField] = [
     {
@@ -39,18 +56,30 @@ class SplunkObservabilityCloudEndpointConfig:
     path: str
     # "wrapped" = {"count": N, "results": [...]}; "list" = bare JSON array.
     response_style: ResponseStyle = "wrapped"
+    # Key that holds the rows of a "wrapped" response.
+    data_key: str = "results"
+    method: Literal["GET", "POST"] = "GET"
+    pagination: Pagination = "offset"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Extra query params sent on every request (e.g. required search queries).
     extra_params: dict[str, str] = field(default_factory=dict)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Fan out one request per detector (path holds a {detector_id} placeholder).
     fan_out_over_detectors: bool = False
+    # Fan out one request series per synthetic test (path holds a {test_id} placeholder).
+    fan_out_over_synthetic_tests: bool = False
+    # Rows come from a time-windowed search that caps each query at 10,000 results
+    # (the org-wide event search, the audit events search).
+    is_event_search: bool = False
+    # Names of the epoch-ms start/end query params of a windowed search.
+    window_params: tuple[str, str] = ("start_time", "end_time")
     # Rows stream from a SignalFlow computation instead of a REST list endpoint.
     uses_signalflow: bool = False
     # Stable datetime field to partition by; only endpoints whose rows are immutable
     # events set this (metadata objects are small enough to skip partitioning).
     partition_key: Optional[str] = None
     should_sync_default: bool = True
+    incremental_lookback_seconds: Optional[int] = None
 
 
 SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpointConfig] = {
@@ -120,6 +149,86 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         primary_keys=["key", "value"],
         extra_params={"query": "key:*"},
         should_sync_default=False,
+    ),
+    # SLO definitions. The search endpoint takes a JSON body of optional filters; an empty
+    # body matches every SLO. Off by default: the search needs the admin or power role,
+    # while every other table works with read_only.
+    "slos": SplunkObservabilityCloudEndpointConfig(
+        name="slos",
+        path="/slo/search",
+        method="POST",
+        should_sync_default=False,
+    ),
+    # Detector alerts and custom events for the whole org. The search needs at least one
+    # filter clause, and every event has an event type, so `sf_eventType:*` matches all.
+    "events": SplunkObservabilityCloudEndpointConfig(
+        name="events",
+        path="/event/find",
+        response_style="list",
+        extra_params={"query": "sf_eventType:*", "order_by": "sf_timestamp"},
+        incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
+        is_event_search=True,
+        partition_key="timestamp",
+        incremental_lookback_seconds=LATE_ROW_LOOKBACK_SECONDS,
+    ),
+    # Who changed what in the org (AUDIT and CUSTOMER_AUDIT categories), sorted by
+    # timestamp ascending by default. Off by default: the token's user needs the
+    # READ_AUDIT_EVENTS capability, and the API answers 404 where the feature is not enabled.
+    "audit_events": SplunkObservabilityCloudEndpointConfig(
+        name="audit_events",
+        path="/audit/events",
+        extra_params={"sortBy": "timestamp"},
+        incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
+        is_event_search=True,
+        window_params=("startTime", "endTime"),
+        partition_key="timestamp",
+        incremental_lookback_seconds=LATE_ROW_LOOKBACK_SECONDS,
+        should_sync_default=False,
+    ),
+    # Role definitions. One unpaged request that only an admin token may make, so off by default.
+    "roles": SplunkObservabilityCloudEndpointConfig(
+        name="roles",
+        path="/role",
+        response_style="list",
+        pagination="none",
+        should_sync_default=False,
+    ),
+    # OpAMP agents and collectors registered with the org. An explicit sort keeps offset
+    # pages stable. Off by default: the API answers 403 where the feature is not enabled.
+    "clients": SplunkObservabilityCloudEndpointConfig(
+        name="clients",
+        path="/fm-service/v1/clients",
+        data_key="clients",
+        primary_keys=["instance_uid"],
+        extra_params={"sort_key": "instance_uid"},
+        should_sync_default=False,
+    ),
+    # Synthetic test definitions; also the parent list of the synthetic_runs fan-out.
+    "synthetic_tests": SplunkObservabilityCloudEndpointConfig(
+        name="synthetic_tests",
+        path="/synthetics/tests",
+        data_key="tests",
+        pagination="page",
+    ),
+    "synthetic_locations": SplunkObservabilityCloudEndpointConfig(
+        name="synthetic_locations",
+        path="/synthetics/locations",
+        data_key="locations",
+        pagination="none",
+    ),
+    # Results of each synthetic test run, windowed by the server-side startTime/endTime
+    # filters. A run id resolves on its own (GET /runs/{id}), but the test id is kept in
+    # the key in case run ids are only unique per test.
+    "synthetic_runs": SplunkObservabilityCloudEndpointConfig(
+        name="synthetic_runs",
+        path="/synthetics/tests/{test_id}/runs",
+        data_key="runs",
+        pagination="page",
+        primary_keys=["testId", "runId"],
+        incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
+        fan_out_over_synthetic_tests=True,
+        partition_key="timestamp",
+        incremental_lookback_seconds=LATE_ROW_LOOKBACK_SECONDS,
     ),
     # Metric datapoints streamed from a SignalFlow computation (SSE), windowed by
     # start/stop epoch-ms params — incremental on the datapoint timestamp. Requires the

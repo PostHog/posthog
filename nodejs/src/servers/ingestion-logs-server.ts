@@ -32,7 +32,10 @@ import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
 import { HogFunctionManagerService } from '../cdp/services/managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '../cdp/services/monitoring/hog-function-monitoring.service'
+import {
+    TransformationsMonitoringConfig,
+    createTransformationsMonitoringService,
+} from '../cdp/services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
@@ -52,6 +55,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  */
 export type IngestionLogsServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
+    TransformationsMonitoringConfig &
     LogsIngestionOutputsConfig &
     KafkaWarpstreamLogsProducerEnvConfig &
     KafkaWarpstreamIngestionProducerEnvConfig &
@@ -145,7 +149,7 @@ export class IngestionLogsServer implements NodeServer {
             this.pubsub,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         )
-        const hogFunctionMonitoring = new HogFunctionMonitoringService(outputs)
+        const hogFunctionMonitoring = createTransformationsMonitoringService(outputs, this.config, teamManager)
 
         const logsTransformer = new LogsTransformerService(hogFunctionManager, hogFunctionMonitoring, {
             siteUrl: this.config.SITE_URL,
@@ -176,7 +180,18 @@ export class IngestionLogsServer implements NodeServer {
                 usageBatch,
             })
             await consumer.start()
-            return consumer.service
+            const service = consumer.service
+            return {
+                ...service,
+                // Drains here rather than in additionalCleanup, which runs after Postgres and the HTTP agents close.
+                onShutdown: async () => {
+                    try {
+                        await service.onShutdown()
+                    } finally {
+                        await hogFunctionMonitoring.stop()
+                    }
+                },
+            }
         })
 
         const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))

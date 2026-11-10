@@ -13,8 +13,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_property_definition import exclude_virtual_properties
-from posthog.models import ActivityLog, EventProperty, Tag
+from posthog.models import ActivityLog, Tag
 
+from products.event_definitions.backend.models import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.models.license import License, LicenseManager
