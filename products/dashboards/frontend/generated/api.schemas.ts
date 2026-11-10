@@ -10503,6 +10503,19 @@ export interface RunInsightsResponseApi {
     results: DashboardTileResultApi[]
 }
 
+export interface DashboardWidgetAppliedDateRangeApi {
+    /**
+     * Start of the dashboard date range the widget used, after the widget's limit. Null means the widget's default start.
+     * @nullable
+     */
+    date_from: string | null
+    /**
+     * End of the dashboard date range the widget used. Null means now.
+     * @nullable
+     */
+    date_to: string | null
+}
+
 export interface DashboardWidgetRunResultApi {
     /** Dashboard tile ID for this widget result. */
     tile_id: number
@@ -10518,6 +10531,10 @@ export interface DashboardWidgetRunResultApi {
      * @nullable
      */
     error: string | null
+    /** The dashboard date range this widget queried instead of its own date range. Null when no dashboard date range applies to the widget. */
+    applied_date_range?: DashboardWidgetAppliedDateRangeApi | null
+    /** Whether any dashboard filter (date range, test accounts, or property filters) changed this widget's query. */
+    dashboard_filters_applied?: boolean
 }
 
 export interface RunWidgetsResponseApi {

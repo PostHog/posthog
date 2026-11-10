@@ -36,6 +36,7 @@ import { DashboardQueryScanBanner } from 'products/dashboards/frontend/Dashboard
 import { DashboardRetentionBanner } from 'products/dashboards/frontend/DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from 'products/dashboards/frontend/dashboardSubscribeNudgeLogic'
 import { DashboardWarehouseSyncBanner } from 'products/dashboards/frontend/DashboardWarehouseSyncBanner'
+import { DashboardWidgetFiltersNotice } from 'products/dashboards/frontend/DashboardWidgetFiltersNotice'
 import { DashboardZoomControl } from 'products/dashboards/frontend/DashboardZoomControl'
 import { EmptyDashboardComponent } from 'products/dashboards/frontend/EmptyDashboardComponent'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -283,6 +284,7 @@ function DashboardScene({
                     <DashboardFlagCalledBanner />
                     <DashboardQueryScanBanner />
                     <DashboardWarehouseSyncBanner />
+                    <DashboardWidgetFiltersNotice />
 
                     <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />

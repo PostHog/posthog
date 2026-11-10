@@ -654,14 +654,21 @@ class TestDashboardRunWidgets(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("saved_dashboard_filters_apply", None, None, ("-30d", "-1d", True, ["$browser"])),
+            (
+                "saved_dashboard_filters_apply",
+                None,
+                None,
+                ("-30d", "-1d", True, ["$browser"]),
+                {"date_from": "-30d", "date_to": "-1d"},
+            ),
             (
                 "request_override_wins_over_saved",
                 {"date_from": "-60d", "date_to": None, "filterTestAccounts": False},
                 None,
                 ("-60d", None, False, ["$browser"]),
+                {"date_from": "-60d", "date_to": None},
             ),
-            ("tile_ignores_dashboard_filters", None, {"ignoreDashboardFilters": True}, ("-7d", None, None, [])),
+            ("tile_ignores_dashboard_filters", None, {"ignoreDashboardFilters": True}, ("-7d", None, None, []), None),
         ]
     )
     @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
@@ -671,6 +678,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         filters_override: dict | None,
         tile_filters_overrides: dict | None,
         expected: tuple[str, str | None, bool | None, list[str]],
+        expected_applied_date_range: dict | None,
         mock_runner_cls: MagicMock,
     ) -> None:
         mock_runner_cls.return_value.calculate.return_value = MagicMock(
@@ -699,7 +707,10 @@ class TestDashboardRunWidgets(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/", params)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertIsNone(response.json()["results"][0]["error"])
+        tile_result = response.json()["results"][0]
+        self.assertIsNone(tile_result["error"])
+        self.assertEqual(tile_result["applied_date_range"], expected_applied_date_range)
+        self.assertEqual(tile_result["dashboard_filters_applied"], expected_applied_date_range is not None)
         query = mock_runner_cls.call_args.kwargs["query"]
         expected_after, expected_before, expected_test_accounts, expected_property_keys = expected
         self.assertEqual(query.after, expected_after)

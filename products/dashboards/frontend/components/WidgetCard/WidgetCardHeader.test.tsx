@@ -25,19 +25,29 @@ describe('WidgetCardHeader', () => {
         expect(container.querySelector('.CardMeta__divider')).toBeTruthy()
     })
 
-    it('derives top heading from catalog header meta', () => {
+    it.each([
+        { name: "the widget's own range", appliedDateRange: null, shown: 'Last 7 days', hidden: 'Last 30 days' },
+        {
+            name: 'the dashboard range that the widget queried',
+            appliedDateRange: { date_from: '-30d', date_to: null },
+            shown: 'Last 30 days',
+            hidden: 'Last 7 days',
+        },
+    ])('derives top heading from catalog header meta with $name', ({ appliedDateRange, shown, hidden }) => {
         render(
             <WidgetCardHeader
                 layout="dashboard_tile"
                 title="Top issues"
                 widgetTypeLabel="Error tracking"
                 config={{ dateRange: { date_from: '-7d' } }}
+                appliedDateRange={appliedDateRange}
                 headerMeta={{ showWidgetType: true, showDateRange: true }}
             />
         )
 
         expect(screen.getByText('Error tracking')).toBeInTheDocument()
-        expect(screen.getByText('Last 7 days')).toBeInTheDocument()
+        expect(screen.getByText(shown)).toBeInTheDocument()
+        expect(screen.queryByText(hidden)).not.toBeInTheDocument()
     })
 
     it('renders an injected per-widget top heading in place of the default date range', () => {

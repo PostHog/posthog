@@ -1,8 +1,12 @@
 import type { ReactNode } from 'react'
 import { useMemo } from 'react'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { dateFilterToText } from 'lib/utils/dateFilters'
+
 import type { QuickFilter } from '~/types'
 
+import type { DashboardWidgetAppliedDateRangeApi } from '../generated/api.schemas'
 import type { WidgetFilterConfigRecord } from '../generated/widget-configs.zod'
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../widget_types/widgetConfigShared'
 
@@ -30,9 +34,26 @@ export function WidgetTileFilterReadOnlyLabel({ name, value }: { name: string; v
     )
 }
 
-export function WidgetDateRangeReadOnlyValue({ dateFrom }: { dateFrom: WidgetDateFromValue }): JSX.Element {
+export function WidgetDateRangeReadOnlyValue({
+    dateFrom,
+    appliedDateRange,
+}: {
+    dateFrom: WidgetDateFromValue
+    appliedDateRange?: DashboardWidgetAppliedDateRangeApi | null
+}): JSX.Element {
     const label = WIDGET_DATE_RANGE_SELECT_OPTIONS.find((option) => option.value === dateFrom)?.label ?? dateFrom
-    return <WidgetTileFilterReadOnlyValue>{label}</WidgetTileFilterReadOnlyValue>
+    if (!appliedDateRange) {
+        return <WidgetTileFilterReadOnlyValue>{label}</WidgetTileFilterReadOnlyValue>
+    }
+    return (
+        <Tooltip title={`The dashboard date range applies to this tile instead of its own (${label}).`}>
+            <span data-attr="dashboard-widget-applied-date-range">
+                <WidgetTileFilterReadOnlyValue>
+                    {dateFilterToText(appliedDateRange.date_from, appliedDateRange.date_to, label)}
+                </WidgetTileFilterReadOnlyValue>
+            </span>
+        </Tooltip>
+    )
 }
 
 function widgetFilterReadOnlyLabel(

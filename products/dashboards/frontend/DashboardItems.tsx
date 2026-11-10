@@ -873,6 +873,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     canEditDashboard={canEditDashboard}
                     isDashboardEditMode={layoutEditMode}
                     result={runResult?.result}
+                    appliedDateRange={runResult?.applied_date_range}
                     error={getDashboardWidgetFetchDisplayError(runResult?.error ?? refreshState?.error)}
                     loading={!!refreshState?.loading}
                     lastFetchedAt={refreshState?.fetchedAt}

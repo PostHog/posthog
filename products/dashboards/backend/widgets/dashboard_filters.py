@@ -42,6 +42,10 @@ class WidgetDashboardFilters:
     def has_date_range(self) -> bool:
         return self.date_from is not None or self.date_to is not None
 
+    @property
+    def is_applied(self) -> bool:
+        return self.has_date_range or self.filter_test_accounts is not None or bool(self.properties)
+
     def resolve_date_range(
         self, config: Mapping[str, Any], default_date_from: str | None
     ) -> tuple[str | None, str | None]:

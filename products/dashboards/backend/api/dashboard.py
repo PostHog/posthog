@@ -411,6 +411,12 @@ def _run_widget_query(
             "tile_id": tile_id,
         },
     ) as slo:
+        dashboard_filters = work_item["dashboard_filters"]
+        applied_date_range = (
+            {"date_from": dashboard_filters.date_from, "date_to": dashboard_filters.date_to}
+            if dashboard_filters.has_date_range
+            else None
+        )
         try:
             query_fn = work_item["query_fn"]
             result = query_fn(
@@ -418,13 +424,15 @@ def _run_widget_query(
                 work_item["config"],
                 user=work_item["user"],
                 include_total_count=False,
-                dashboard_filters=work_item["dashboard_filters"],
+                dashboard_filters=dashboard_filters,
             )
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
                 "result": result,
                 "error": None,
+                "applied_date_range": applied_date_range,
+                "dashboard_filters_applied": dashboard_filters.is_applied,
             }
         except Exception:
             logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
@@ -1294,6 +1302,17 @@ class RunInsightsResponseSerializer(serializers.Serializer):
     )
 
 
+class DashboardWidgetAppliedDateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        allow_null=True,
+        help_text="Start of the dashboard date range the widget used, after the widget's limit. Null means the widget's default start.",
+    )
+    date_to = serializers.CharField(
+        allow_null=True,
+        help_text="End of the dashboard date range the widget used. Null means now.",
+    )
+
+
 class DashboardWidgetRunResultSerializer(serializers.Serializer):
     tile_id = serializers.IntegerField(help_text="Dashboard tile ID for this widget result.")
     widget_type = serializers.CharField(
@@ -1312,6 +1331,18 @@ class DashboardWidgetRunResultSerializer(serializers.Serializer):
     error = serializers.CharField(
         allow_null=True,
         help_text="Error message when the widget could not be run.",
+    )
+    applied_date_range = DashboardWidgetAppliedDateRangeSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "The dashboard date range this widget queried instead of its own date range. Null when no dashboard "
+            "date range applies to the widget."
+        ),
+    )
+    dashboard_filters_applied = serializers.BooleanField(
+        required=False,
+        help_text="Whether any dashboard filter (date range, test accounts, or property filters) changed this widget's query.",
     )
 
 

@@ -19,6 +19,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import type { DashboardWidgetAppliedDateRangeApi } from '../../generated/api.schemas'
 import {
     DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER,
     getDashboardWidgetCatalogEntry,
@@ -56,6 +57,7 @@ type DashboardWidgetItemProps = {
     canEditDashboard?: boolean
     isDashboardEditMode?: boolean
     result: unknown
+    appliedDateRange?: DashboardWidgetAppliedDateRangeApi | null
     loading: boolean
     error?: string | null
     lastFetchedAt?: number
@@ -147,6 +149,7 @@ function DashboardWidgetItemContent({
     isUnknownWidgetType,
     dashboardId,
     result,
+    appliedDateRange,
     loading,
     error,
     lastFetchedAt,
@@ -243,6 +246,7 @@ function DashboardWidgetItemContent({
                 titleHref={titleHref}
                 widgetTypeLabel={widgetTypeLabel}
                 config={widget.config}
+                appliedDateRange={appliedDateRange}
                 headerMeta={headerCatalogEntry.headerMeta}
                 TopHeading={definition?.TopHeading}
                 description={description}
@@ -330,6 +334,7 @@ function DashboardWidgetItemContent({
                     <TileFilters
                         tileId={tile.id}
                         config={widget.config}
+                        appliedDateRange={appliedDateRange}
                         onUpdateConfig={componentProps.onUpdateConfig}
                         canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
                         disabledReason={
@@ -402,6 +407,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             canEditDashboard,
             isDashboardEditMode,
             result,
+            appliedDateRange,
             loading,
             error,
             lastFetchedAt,
@@ -497,6 +503,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     isUnknownWidgetType={isUnknownWidgetType}
                     dashboardId={dashboardId}
                     result={result}
+                    appliedDateRange={appliedDateRange}
                     loading={loading}
                     error={error}
                     lastFetchedAt={lastFetchedAt}
