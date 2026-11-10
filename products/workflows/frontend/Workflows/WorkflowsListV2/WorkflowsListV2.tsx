@@ -4,6 +4,7 @@ import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
+import { AutomationEmptyState } from '../../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../../setupGuide/AutomationSuggestionBanner'
 import { MessagingSetupReminderBanner } from '../../setupGuide/MessagingSetupReminderBanner'
 import { workflowLogic } from '../workflowLogic'
@@ -30,6 +31,8 @@ export function WorkflowsListV2(): JSX.Element {
         hasHealthFilter,
         metricsLoaded,
         shownColumns,
+        filteredRows,
+        isUnfilteredAutomationView,
     } = useValues(workflowsListV2Logic)
     const { setValue, loadWorkflows, loadMetrics } = useActions(workflowsListV2Logic)
     const {
@@ -39,6 +42,7 @@ export function WorkflowsListV2(): JSX.Element {
         folderSearchItems,
         folderMatchesText,
         displayedValue,
+        folderDraft,
     } = useValues(workflowFoldersLogic)
 
     useOnMountEffect(() => {
@@ -48,6 +52,13 @@ export function WorkflowsListV2(): JSX.Element {
 
     const { loadBrowser } = useActions(workflowFoldersLogic)
     const metricsFailed = listLoaded && hasHealthFilter && !metricsLoaded && !metricsLoading
+    // The folder contents hold the inline name field of a new folder, so an open draft keeps them on screen.
+    const showsAutomationSetup =
+        listLoaded &&
+        !folderDraft &&
+        isUnfilteredAutomationView &&
+        filteredRows.length === 0 &&
+        serverSearchStatus !== 'pending'
     const renderLoadError = (): JSX.Element => {
         if (browserLoadFailed) {
             return (
@@ -128,6 +139,8 @@ export function WorkflowsListV2(): JSX.Element {
                             nouns={['workflow', 'workflows']}
                             data-attr="workflows-list-v2-views-loading"
                         />
+                    ) : showsAutomationSetup ? (
+                        <AutomationEmptyState />
                     ) : (
                         <WorkflowFolderContents />
                     )}

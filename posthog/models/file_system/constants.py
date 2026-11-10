@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from django.db.models import Q
 
 from posthog.ph_client import feature_enabled_or_false
+from posthog.utils import flag_identity
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -12,11 +13,17 @@ WORKFLOW_FILE_SYSTEM_TYPES = frozenset({"hog_flow", "message_template"})
 
 
 def workflows_list_v2_enabled(team: "Team", user: "User", *, only_evaluate_locally: bool = False) -> bool:
+    # The browser shows the list from this flag, so the server must evaluate it with the identity the app sends.
+    # Otherwise a project-targeted rollout shows the new list with counts and files from the old one.
+    identity = flag_identity(user, team, team.organization)
+    if identity is None:
+        return False
     return feature_enabled_or_false(
         "workflows-list-v2",
-        user.distinct_id or str(user.pk),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        person_properties={"email": user.email},
+        identity.distinct_id,
+        groups=identity.groups,
+        person_properties=identity.person_properties,
+        group_properties=identity.group_properties,
         only_evaluate_locally=only_evaluate_locally,
         send_feature_flag_events=False,
     )

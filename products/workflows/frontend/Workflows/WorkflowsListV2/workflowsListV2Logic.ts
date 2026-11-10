@@ -207,6 +207,7 @@ export interface workflowsListV2LogicValues {
     filesByRef: Record<string, FileSystemEntry>
     filteredRows: WorkflowListRow[]
     hasHealthFilter: boolean
+    isUnfilteredAutomationView: boolean
     keptSearch: Record<string, string>
     listLoaded: boolean
     loadErrorDetail: string | null
@@ -353,6 +354,7 @@ export interface workflowsListV2LogicMeta {
         filesByRef: (sortedItems: FileSystemEntry[]) => Record<string, FileSystemEntry>
         hasHealthFilter: (value: FacetSearchValue) => boolean
         metricsLoaded: (metrics: WorkflowStatsRowApi[] | null) => boolean
+        isUnfilteredAutomationView: (value: FacetSearchValue) => boolean
         templateTypeFilter: (value: FacetSearchValue) => WorkflowTemplateTypeFilter
         rows: (workflows: HogFlowListSummaryApi[] | null, metrics: WorkflowStatsRowApi[] | null) => WorkflowListRow[]
         listLoaded: (workflows: HogFlowListSummaryApi[] | null) => boolean
@@ -564,6 +566,15 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             (value: FacetSearchValue): boolean => value.filters.some((filter) => filter.facet === 'health'),
         ],
         metricsLoaded: [(s) => [s.metrics], (metrics: WorkflowStatsRowApi[] | null): boolean => metrics !== null],
+        isUnfilteredAutomationView: [
+            (s) => [s.value],
+            (value: FacetSearchValue): boolean =>
+                !value.text &&
+                value.filters.length === 1 &&
+                value.filters[0].facet === 'kind' &&
+                value.filters[0].value === 'automation' &&
+                !value.filters[0].negated,
+        ],
         templateTypeFilter: [
             (s) => [s.value],
             (value: FacetSearchValue): WorkflowTemplateTypeFilter => {
