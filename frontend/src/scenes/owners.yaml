@@ -35,6 +35,11 @@ rules:
     # scene to workflows. Backend counterpart: products/batch_exports/product.yaml.
     - match: '/data-pipelines/batch-exports/'
       owners: batch-exports
+    - match:
+          - '/data-pipelines/TransformationsScene.tsx'
+          - '/data-pipelines/transformationsSceneLogic.ts'
+          - '/data-pipelines/__mocks__/hogFunctionTransformations.json'
+      owners: team-ingestion
     - match: '/data-warehouse/'
       owners: team-data-stack
     - match: '/experiments/'
@@ -51,6 +56,8 @@ rules:
       owners: team-growth
     - match: '/hog-functions/'
       owners: team-workflows
+    - match: '/hog-functions/invocations/TransformationInvocations.tsx'
+      owners: team-ingestion
     - match: '/insights/'
       owners: team-product-analytics
     - match: '/instance/'

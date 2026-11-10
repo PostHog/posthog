@@ -21,6 +21,10 @@ rules:
       owners: team-data-tools
     - match: '/integrations/'
       owners: team-warehouse-sources
+    - match:
+          - '/management/commands/migrate_legacy_geoip_transformations.py'
+          - '/management/commands/test/test_migrate_legacy_geoip_transformations.py'
+      owners: team-ingestion
     - match: '/management/migration_analysis/'
       owners: team-devex
     # Each line acknowledges a risky migration, so one added line lets that migration skip the check.

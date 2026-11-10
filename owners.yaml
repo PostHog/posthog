@@ -96,6 +96,8 @@ rules:
       owners: team-ai-observability
     - match: '/docs/published/handbook/engineering/developing-locally.md'
       owners: team-devex
+    - match: '/frontend/public/transformations/'
+      owners: team-ingestion
     - match:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'

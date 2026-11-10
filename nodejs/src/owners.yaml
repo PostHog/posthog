@@ -5,6 +5,13 @@ rules:
       owners: team-ai-observability
     - match: '/cdp/'
       owners: team-workflows
+    # Hog transformations run in the ingestion hot path.
+    - match:
+          - '/cdp/hog-transformations/'
+          - '/cdp/legacy-plugins/_transformations/'
+          - '/cdp/templates/_transformations/'
+          - '/common/hog-transformations/'
+      owners: team-ingestion
     - match: '/ingestion/'
       owners: team-ingestion
     - match: '/ingestion/pipelines/sessionreplay/'
