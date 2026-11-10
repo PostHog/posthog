@@ -29,14 +29,6 @@ export function SettingsTab(): JSX.Element {
             >
                 <SelfDrivingSection />
             </SettingsSection>
-            {usageEnabled && (
-                <SettingsSection
-                    title="Usage"
-                    description="Recorded usage for scout runs started and signals received in the last 30 days."
-                >
-                    <UsageOverview />
-                </SettingsSection>
-            )}
             <AgentSteeringSection />
             <SettingsSection
                 title="Code access"
@@ -62,6 +54,14 @@ export function SettingsTab(): JSX.Element {
                     }
                 >
                     <InboxUsageWidget />
+                </SettingsSection>
+            )}
+            {usageEnabled && (
+                <SettingsSection
+                    title="Usage"
+                    description="Recorded usage for scout runs started and signals received in the last 30 days."
+                >
+                    <UsageOverview />
                 </SettingsSection>
             )}
         </div>
