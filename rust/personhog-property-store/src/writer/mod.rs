@@ -544,8 +544,7 @@ impl PropertyWriter {
     }
 }
 
-/// Up to `limit` keys of the range, or as many as the scan reached by `deadline`: a slow store
-/// makes smaller batches rather than none, and only a scan that found nothing by then has timed out.
+/// Up to `limit` keys, or those reached by `deadline`: a slow store makes smaller batches, not none.
 async fn scan_keys(
     db: &Db,
     range: std::ops::RangeInclusive<Bytes>,
