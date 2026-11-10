@@ -522,7 +522,9 @@ class TestNodeViewSet(APIBaseTest):
 
     @parameterized.expand([("materialize", {}), ("run", {"direction": "downstream"})])
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_a_manual_run_is_refused_soon_after_the_last_run(self, action, body, mock_sync_connect):
+    def test_a_manual_run_from_a_browser_session_is_not_refused_soon_after_the_last_run(
+        self, action, body, mock_sync_connect
+    ):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         self.view_node.type = NodeType.MAT_VIEW
@@ -540,8 +542,8 @@ class TestNodeViewSet(APIBaseTest):
             body,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
-        mock_client.start_workflow.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        mock_client.start_workflow.assert_called_once()
 
     def test_lineage_returns_subgraph(self):
         response = self.client.get(

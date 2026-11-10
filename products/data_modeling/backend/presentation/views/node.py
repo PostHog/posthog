@@ -13,6 +13,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -788,7 +789,7 @@ class NodeViewSet(
         responses={
             200: NodeRunResponseSerializer,
             429: OpenApiResponse(
-                description="Every view this run would build ran too recently and has not changed since. The Retry-After header gives the wait in seconds."
+                description="Every view this run would build ran too recently and has not changed since. Runs started from the PostHog app have no such limit. The Retry-After header gives the wait in seconds."
             ),
         },
     )
@@ -816,6 +817,7 @@ class NodeViewSet(
                 node.id,
                 direction=body.validated_data["direction"],
                 user=cast(User, req.user),
+                from_browser_session=isinstance(req.successful_authenticator, SessionAuthentication),
                 hidden_types=self._hidden_node_types(),
             )
         except MaterializationForbiddenError as error:
@@ -905,7 +907,7 @@ class NodeViewSet(
             200: OpenApiResponse(description="Materialization started. The response has no body."),
             400: OpenApiResponse(description="The node is not a view, materialized view or endpoint node."),
             429: OpenApiResponse(
-                description="The view's latest run started too recently and the query has not changed since. The Retry-After header gives the wait in seconds."
+                description="The view's latest run started too recently and the query has not changed since. Runs started from the PostHog app have no such limit. The Retry-After header gives the wait in seconds."
             ),
         },
     )
@@ -929,7 +931,11 @@ class NodeViewSet(
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
             try:
-                raise_if_ran_recently(self.team_id, node.saved_query.id)
+                raise_if_ran_recently(
+                    self.team_id,
+                    node.saved_query.id,
+                    from_browser_session=isinstance(req.successful_authenticator, SessionAuthentication),
+                )
             except MaterializationRanRecentlyError as error:
                 raise Throttled(wait=error.retry_after_seconds, detail=str(error))
 

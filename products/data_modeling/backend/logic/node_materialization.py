@@ -147,8 +147,10 @@ def _seconds_until_limit_ends(started_at: datetime, now: datetime) -> int:
     return math.ceil((started_at + MANUAL_RUN_MIN_INTERVAL - now).total_seconds())
 
 
-def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
+def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str, *, from_browser_session: bool) -> None:
     """Refuse a manual run of one view inside the limit. A failed or cancelled latest run can retry at once."""
+    if from_browser_session:
+        return
     now = timezone.now()
     for status, started_at in _latest_runs_inside_limit(
         team_id, {saved_query_id}, now=now, ignored_statuses=frozenset({DataModelingJobStatus.SKIPPED})
@@ -230,16 +232,18 @@ def run_related_node_materializations(
     *,
     direction: MaterializationRunDirection | str,
     user: User,
+    from_browser_session: bool,
     hidden_types: frozenset[str] = frozenset(),
 ) -> list[str]:
     node = _get_node(team_id, node_id)
     node_ids = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
-    built_saved_query_ids = set(
-        Node.objects.filter(team_id=team_id, id__in=node_ids, type__in=DAG_BUILT_NODE_TYPES)
-        .exclude(saved_query__deleted=True)
-        .values_list("saved_query_id", flat=True)
-    )
-    _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
+    if not from_browser_session:
+        built_saved_query_ids = set(
+            Node.objects.filter(team_id=team_id, id__in=node_ids, type__in=DAG_BUILT_NODE_TYPES)
+            .exclude(saved_query__deleted=True)
+            .values_list("saved_query_id", flat=True)
+        )
+        _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
     unsuspend_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids), by="manual_run")

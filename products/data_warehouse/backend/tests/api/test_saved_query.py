@@ -3401,9 +3401,12 @@ class TestSavedQueryRun(APIBaseTest):
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_is_refused_soon_after_the_last_run(
+    def test_run_with_an_api_key_is_refused_soon_after_the_last_run(
         self, _name, runs, query_edited_minutes_ago, expected_status, mock_sync_connect
     ):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['warehouse_view:write'])}"
+        )
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         now = timezone.now()
@@ -3432,6 +3435,30 @@ class TestSavedQueryRun(APIBaseTest):
             mock_client.start_workflow.assert_not_called()
         else:
             mock_client.start_workflow.assert_called_once()
+
+    @parameterized.expand([("single_view", {}), ("with_direction", {"direction": "upstream"})])
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_from_a_browser_session_is_not_refused_soon_after_the_last_run(self, _name, body, mock_sync_connect):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        saved_query, _dag, node = self._make_saved_query_with_node("floored_view")
+        node.type = NodeType.MAT_VIEW
+        node.save(update_fields=["type"])
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            body,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_client.start_workflow.assert_called_once()
 
     @parameterized.expand(
         [
@@ -3470,7 +3497,7 @@ class TestSavedQueryRun(APIBaseTest):
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_with_direction_is_refused_only_when_every_built_view_ran_recently(
+    def test_run_with_direction_and_an_api_key_is_refused_only_when_every_built_view_ran_recently(
         self,
         _name,
         related_started_minutes_ago,
@@ -3481,6 +3508,9 @@ class TestSavedQueryRun(APIBaseTest):
         expected_retry_after,
         mock_sync_connect,
     ):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['warehouse_view:write'])}"
+        )
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         now = timezone.now()
