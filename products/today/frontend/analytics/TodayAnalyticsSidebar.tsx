@@ -163,7 +163,13 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 ),
             }}
             customization={{
-                prompt: 'Help me personalize my Analytics sidebar. Show me what is in it now, then ask me what I want to see there.',
+                prompt:
+                    'Help me personalize my Analytics sidebar for my current work. Start by checking what is already there. ' +
+                    'If I give a specific change, apply it directly and ask only for missing details. Otherwise, ask what ' +
+                    'I need to open most often and which existing sections I want to keep. Prefer removing, reordering, ' +
+                    'and reusing existing links. Do not offer a checklist of things to add or add shortcuts that duplicate ' +
+                    'Pinned, Recents, or By PostHog. Only add live metrics if I ask for them. Keep the menu compact and ' +
+                    'use the supported navigation controls. After saving, briefly explain what changed and how to undo it.',
                 event: 'analytics sidebar customize clicked',
             }}
             dataAttrPrefix="analytics-sidebar"
