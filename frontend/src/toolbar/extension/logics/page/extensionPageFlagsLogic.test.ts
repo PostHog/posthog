@@ -7,7 +7,9 @@ import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { captureElementScreenshot } from '~/toolbar/shared/utils/screenshot'
 import type { CombinedFeatureFlagAndValueType } from '~/types'
 
+import type { PageAgentRequestMessage } from '../../messaging/pageAgentProtocol'
 import { extensionPageFlagsLogic } from './extensionPageFlagsLogic'
+import { jpegDataUrl } from './jpegDataUrl'
 
 jest.mock('~/toolbar/shared/toolbarLogger', () => ({
     toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -47,7 +49,13 @@ describe('extensionPageFlagsLogic', () => {
 
         initKeaTests()
         toolbarConfigLogic
-            .build({ apiURL: 'http://localhost', accessToken: 'token', clientId: 'client', posthog })
+            .build({
+                apiURL: 'http://localhost',
+                accessToken: 'token',
+                clientId: 'client',
+                posthog,
+                source: 'extension',
+            })
             .mount()
         logic = extensionPageFlagsLogic()
         logic.mount()
@@ -83,6 +91,7 @@ describe('extensionPageFlagsLogic', () => {
         await captureStarted
         releaseCapture(new Blob(['off']))
         await waitFor(() => expect(logic.values.comparison).not.toBeNull(), { timeout: SLOW_RUNNER_TIMEOUT_MS })
+        expect(logic.values.pageState.comparingFlagKey).toBeNull()
         expect(persisted.$override_feature_flags).toEqual({})
     })
 
@@ -96,8 +105,39 @@ describe('extensionPageFlagsLogic', () => {
             'data:blob:capture-0',
             'data:blob:capture-1',
         ])
+        const unloadRestores = jest
+            .mocked(window.postMessage)
+            .mock.calls.map(([message]) => (message as PageAgentRequestMessage).request)
+            .filter((request) => request?.method === 'restore-flags-on-unload')
+        expect(unloadRestores).toEqual([
+            { method: 'restore-flags-on-unload', flags: {} },
+            { method: 'restore-flags-on-unload', flags: null },
+        ])
 
         logic.actions.handleCommand({ type: 'close-flag-comparison' })
         expect(logic.values.comparison).toBeNull()
+    })
+
+    test.each([
+        {
+            failure: 'the capture fails',
+            arrange: () => jest.mocked(captureElementScreenshot).mockRejectedValue(new Error('Cross-origin font')),
+        },
+        {
+            failure: 'the data URL conversion fails',
+            arrange: () => {
+                jest.mocked(captureElementScreenshot).mockResolvedValue(new Blob(['page']))
+                jest.mocked(jpegDataUrl).mockRejectedValueOnce(new Error('decode'))
+            },
+        },
+    ])('reports capture_failed and accepts flag changes again when $failure', async ({ arrange }) => {
+        arrange()
+
+        logic.actions.handleCommand({ type: 'compare-flag', flagKey: 'new-checkout' })
+        await waitFor(() => expect(logic.values.pageState.comparisonError).not.toBeNull(), {
+            timeout: SLOW_RUNNER_TIMEOUT_MS,
+        })
+
+        expect(logic.values.pageState).toMatchObject({ comparingFlagKey: null, comparisonError: 'capture_failed' })
     })
 })

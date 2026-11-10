@@ -35,8 +35,9 @@ export function ExtensionFlagComparison(): JSX.Element | null {
                 </span>
             </div>
             <span className="text-xs text-secondary">
-                Before shows the page with the flag off. After shows it with{' '}
-                {onCaptures.length > 1 ? `the ${afterCapture.label} variant` : 'the flag on'}.
+                {`Before shows the page with the flag off. After shows it with ${
+                    onCaptures.length > 1 ? `the ${afterCapture.label} variant` : 'the flag on'
+                }.`}
             </span>
             <FlagComparisonDiff
                 before={beforeCapture}

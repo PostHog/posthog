@@ -330,6 +330,9 @@ export const extensionFlagsLogic = kea<extensionFlagsLogicType>([
                 }
             },
             impersonate: ({ distinctId }) => {
+                if (values.comparingFlagKey) {
+                    return
+                }
                 // The page loads the person's flags from PostHog before it overrides anything, so this doesn't wait.
                 actions.sendCommand({ tool: 'flags', command: { type: 'impersonate-flags', distinctId } })
                 capturePageToolUsed('impersonate-flags')

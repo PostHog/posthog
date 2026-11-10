@@ -297,12 +297,12 @@ Fired when a flag comparison starts capturing the page.
 
 Fired when every capture of a flag comparison succeeds.
 
-| Property      | Type                  | Description                                                                                     |
-| ------------- | --------------------- | ----------------------------------------------------------------------------------------------- |
-| `state_count` | `number`              | Captures the comparison took                                                                    |
-| `identical`   | `boolean`             | `true` when every capture matched the flag-off capture                                          |
-| `duration_ms` | `number`              | Time from the start of the comparison to the last capture                                       |
-| `source`      | `string \| undefined` | `'extension'` when the browser extension ran the comparison. The floating toolbar leaves it out |
+| Property      | Type                  | Description                                                                                                                                                                         |
+| ------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `state_count` | `number`              | Captures the comparison took                                                                                                                                                        |
+| `identical`   | `boolean`             | `true` when every capture matched the flag-off capture                                                                                                                              |
+| `duration_ms` | `number`              | Time from the start of the comparison to the last capture. With `source: 'extension'`, it runs until the panel receives the images, so it also counts their conversion and transfer |
+| `source`      | `string \| undefined` | `'extension'` when the browser extension ran the comparison. The floating toolbar leaves it out                                                                                     |
 
 **Files:** `shared/flags/flagComparisonLogic.ts`, `extension/browser/extensionTelemetry.ts`
 

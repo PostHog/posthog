@@ -28,8 +28,12 @@ export type PageFlagsCommand =
     | { type: 'compare-flag'; flagKey: string }
     | { type: 'close-flag-comparison' }
 
-// These read or end a comparison, so they run while one is in progress. Every other command changes the flags.
+// These never write overrides, so they can't clash with the comparison's restore and run while one is in progress.
 const COMMANDS_DURING_COMPARISON: PageFlagsCommand['type'][] = ['reload-flags', 'close-flag-comparison']
+
+// The side panel shows a capture a few hundred pixels wide, and Chrome refuses a port message over 64 MiB. A full-width
+// capture of a long page costs megabytes per state, so the panel gets a smaller copy.
+const COMPARISON_MAX_WIDTH = 1280
 
 type FilteredFlag = flagsToolbarLogicValues['filteredFlags'][number]
 
@@ -248,7 +252,10 @@ export const extensionPageFlagsLogic = kea<extensionPageFlagsLogicType>([
             restoreFlagsOnUnload(null)
             try {
                 const captures = await Promise.all(
-                    comparison.captures.map(async (capture) => ({ ...capture, url: await jpegDataUrl(capture.url) }))
+                    comparison.captures.map(async (capture) => ({
+                        ...capture,
+                        url: await jpegDataUrl(capture.url, COMPARISON_MAX_WIDTH),
+                    }))
                 )
                 actions.setComparison({ ...comparison, captures })
             } catch {

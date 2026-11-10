@@ -261,9 +261,10 @@ export class PageToolbarHost {
         const comparison = this.flagComparison()
         // Unlike the preview, a closed comparison goes out too, so every panel on the tab closes it.
         if (comparison !== this.lastFlagComparison) {
+            // Set first, so a send that throws isn't retried with the same images on every store change.
+            this.lastFlagComparison = comparison
             this.broadcast({ type: 'flag-comparison', comparison })
         }
-        this.lastFlagComparison = comparison
     }
 
     private screenshotPreview(): string | null {

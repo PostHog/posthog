@@ -134,7 +134,13 @@ export function ExtensionFlagsMenu(): JSX.Element {
                     <LemonButton
                         size="small"
                         type="secondary"
-                        disabledReason={draftDistinctId.trim() ? null : 'Enter a distinct ID'}
+                        disabledReason={
+                            comparingFlagKey
+                                ? 'Wait for the comparison to finish'
+                                : draftDistinctId.trim()
+                                  ? null
+                                  : 'Enter a distinct ID'
+                        }
                         onClick={submitDistinctId}
                     >
                         Load
