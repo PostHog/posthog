@@ -17,7 +17,7 @@ from django.db.models import Q, QuerySet
 
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.contracts import SavedQueryNodeState, SuspensionMarker
+from products.data_modeling.backend.facade.contracts import SavedQueryNodeState, SavedQuerySchedule, SuspensionMarker
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
@@ -40,6 +40,7 @@ from products.data_modeling.backend.logic.freshness import (
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
+from products.data_modeling.backend.logic.saved_query_freshness import saved_query_materialized_at
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
@@ -653,6 +654,36 @@ def scheduled_cadences(
     pins = graph.pinned if pinned is None else pinned
     effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared, pinned=pins)
     return clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=pins)
+
+
+def saved_query_schedules(team_id: int, saved_queries: Iterable[Any]) -> dict[str, SavedQuerySchedule]:
+    """The cadence and next due time of each materialized saved query, keyed by saved query id.
+
+    Batched: one node read and one graph build per DAG for the whole set. Queries that are not
+    materialized, have no DAG node, or whose node the scheduler gives no cadence are absent. When a
+    query holds several nodes the finest cadence wins, since that is how often it is refreshed.
+    """
+    materialized = {str(query.id): query for query in saved_queries if query.is_materialized}
+    if not materialized:
+        return {}
+
+    nodes = list(Node.objects.filter(team_id=team_id, saved_query_id__in=materialized.keys()))
+    cadences = scheduled_cadences_by_node(team_id, {node.dag_id for node in nodes})
+    finest: dict[str, timedelta] = {}
+    for node in nodes:
+        cadence = cadences.get(str(node.id))
+        query_id = str(node.saved_query_id)
+        if cadence is not None and (query_id not in finest or cadence < finest[query_id]):
+            finest[query_id] = cadence
+
+    result: dict[str, SavedQuerySchedule] = {}
+    for query_id, interval in finest.items():
+        materialized_at = saved_query_materialized_at(materialized[query_id])
+        result[query_id] = SavedQuerySchedule(
+            interval=interval,
+            next_run_at=materialized_at + interval if materialized_at is not None else None,
+        )
+    return result
 
 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
