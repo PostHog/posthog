@@ -19,7 +19,6 @@ const STYLESHEET_SOURCES = [
     IncrementalSource.StyleDeclaration,
     IncrementalSource.AdoptedStyleSheet,
 ]
-// Overhang the container, so the blur does not fade to the dark background at the edges.
 const OVERHANG = 0.1
 
 interface AmbientLayer {
@@ -27,7 +26,6 @@ interface AmbientLayer {
     area: Rect
 }
 
-// Two canvases cross-fade, so a page change eases in instead of cutting.
 export function PlayerFrameAmbient(): JSX.Element | null {
     const { player, showAmbientBackground } = useValues(sessionRecordingPlayerLogic)
     const firstCanvas = useRef<HTMLCanvasElement | null>(null)
@@ -44,7 +42,6 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         const sampler = new AmbientFrameSampler()
         let activeCanvas = 0
         let current: AmbientLayer | null = null
-        // Sampling reads layout in the recorded page, so it runs only after something there could have changed.
         let dirty = true
         let observedDocument: Document | null = null
         let lastLayout = ''
@@ -77,10 +74,8 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             activeCanvas = 1 - activeCanvas
         }
 
-        // rrweb replaces the recorded document on every full snapshot, so the observer follows it.
         const observe = (recordedDocument: Document): void => {
-            // rrweb reopens the same document on each full snapshot, and document.open() drops its listeners,
-            // so they are re-added every check. Adding a listener twice is a no-op.
+            // rrweb's document.open() on each full snapshot drops listeners, so they are re-added every check.
             // Neither event bubbles, so they are caught on the way down.
             recordedDocument.addEventListener('scroll', markDirty, true)
             recordedDocument.addEventListener('load', markDirty, true)

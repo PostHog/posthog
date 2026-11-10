@@ -6,7 +6,6 @@ const GRID_COLUMNS = 8
 const MIN_GRID_ROWS = 4
 const MAX_GRID_ROWS = 16
 const MIN_OPAQUE_ALPHA = 0.5
-// Inset from the recording's edge, so a 1px border on the recorded page does not decide the color.
 const EDGE_INSET_PX = 3
 const MAX_EXTENDED_CELLS = 256
 const THUMBNAIL_WIDTH = 16
@@ -53,12 +52,10 @@ export function parseCssColor(value: string): Rgba | null {
     return [Number(match[1]), Number(match[2]), Number(match[3]), alpha]
 }
 
-// A live DOM cannot be redrawn blurred like a video frame, so a coarse grid of sampled colors stands in for it.
 export class AmbientFrameSampler {
     private images = new WeakMap<HTMLImageElement, ImageThumbnail>()
     private backgroundImages = new Map<string, Rgba | null>()
     private scratch: HTMLCanvasElement | null = null
-    // Cleared every sample, because canvases repaint in place and an element's styles can change.
     private canvasesThisSample = new Map<HTMLCanvasElement, Uint8ClampedArray | null>()
     private elementColorsThisSample = new Map<Element, Rgba | null>()
     onBackgroundImageLoad: (() => void) | null = null
@@ -129,7 +126,6 @@ export class AmbientFrameSampler {
         return null
     }
 
-    // Background images are often repeating patterns, so their average color stands in for any point.
     private backgroundImageColor(backgroundImage: string, view: Window & typeof globalThis): Rgba | null {
         if (!backgroundImage || backgroundImage === 'none') {
             return null
@@ -138,11 +134,9 @@ export class AmbientFrameSampler {
         if (cached !== undefined) {
             return cached
         }
-        // A recording with ever-changing image URLs would otherwise grow the cache for the whole session.
         if (this.backgroundImages.size >= MAX_BACKGROUND_IMAGES) {
             this.backgroundImages.clear()
         }
-        // An inline data URI can run to hundreds of kilobytes, which is too much to keep as a key.
         if (backgroundImage.length > MAX_BACKGROUND_IMAGE_LENGTH) {
             return null
         }
@@ -180,7 +174,6 @@ export class AmbientFrameSampler {
         return opaque(rgbaAt(pixels, (row * THUMBNAIL_WIDTH + column) * 4))
     }
 
-    // Failures are cached too, since most recorded images are cross-origin and cannot be read.
     private imagePixels(image: HTMLImageElement): Uint8ClampedArray | null {
         if (!image.complete) {
             return null
@@ -204,7 +197,6 @@ export class AmbientFrameSampler {
 
     private draw(source: HTMLImageElement | HTMLCanvasElement): Uint8ClampedArray | null {
         this.scratch ??= document.createElement('canvas')
-        // Resizing also clears the taint a previous cross-origin draw left behind.
         this.scratch.width = THUMBNAIL_WIDTH
         this.scratch.height = THUMBNAIL_HEIGHT
         const context = this.scratch.getContext('2d', { willReadFrequently: true })
@@ -292,7 +284,6 @@ export function averageColor(colors: (Rgba | null)[]): Rgba | null {
     ]
 }
 
-// A cell-centered grid can land inside a card that stops just short of a colored margin the bars should continue.
 export function edgeAligned(index: number, count: number, length: number): number {
     return EDGE_INSET_PX + (index / (count - 1)) * (length - 2 * EDGE_INSET_PX)
 }

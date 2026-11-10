@@ -14,7 +14,6 @@
         touch-action: pan-x pan-y;
     }
 
-    // Sits behind the frame, so the recording itself covers the middle and only the bars show it.
     .PlayerFrame__ambient {
         position: absolute;
         inset: 0;
@@ -22,7 +21,6 @@
     }
 
     .PlayerFrame__ambient-layer {
-        // The component sets the position and size, so the canvas cells line up with the recording.
         position: absolute;
         filter: blur(40px) saturate(1.2) brightness(0.85);
         opacity: 0;
