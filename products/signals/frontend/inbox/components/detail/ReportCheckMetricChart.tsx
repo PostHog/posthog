@@ -24,6 +24,9 @@ import {
     monitoringChartTargetLines,
     type ReportMonitoringChartWindow,
 } from '../../utils/reportMonitoringChart'
+import { CHART_TIMELINE_HEIGHT, ReportChartMonitoringTimeline } from './ReportChartMonitoringTimeline'
+import { ReportCheckMonitoringTimeline } from './ReportCheckMonitoringTimeline'
+import type { MonitoringTimeline } from './reportCheckObservations'
 import { ReportObservationChart } from './ReportObservationChart'
 
 export function ReportCheckMetricChart({
@@ -34,6 +37,7 @@ export function ReportCheckMetricChart({
     goalBounds,
     version,
     monitoring,
+    timeline,
 }: {
     reportId: string
     metric: ReportMetricApi
@@ -42,6 +46,7 @@ export function ReportCheckMetricChart({
     goalBounds?: { lower: number; upper: number } | null
     version: string
     monitoring?: ReportMonitoringChartWindow
+    timeline?: MonitoringTimeline | null
 }): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const [observedAt] = useState(() => Date.now())
@@ -74,10 +79,20 @@ export function ReportCheckMetricChart({
         return <LemonSkeleton className="h-36 w-full" />
     }
     if (responseError) {
-        return <p className="text-tertiary m-0">Couldn't load the chart. Refresh the page to try again.</p>
+        return (
+            <>
+                <p className="text-tertiary m-0">Couldn't load the chart. Refresh the page to try again.</p>
+                {timeline && <ReportCheckMonitoringTimeline timeline={timeline} />}
+            </>
+        )
     }
     if (!points) {
-        return <p className="text-tertiary m-0">No chart data for this window.</p>
+        return (
+            <>
+                <p className="text-tertiary m-0">No chart data for this window.</p>
+                {timeline && <ReportCheckMonitoringTimeline timeline={timeline} />}
+            </>
+        )
     }
 
     const goal = metric.goal_value
@@ -92,7 +107,10 @@ export function ReportCheckMetricChart({
                 type={reportMetricChartType(metric)}
                 interval={chartQuery.interval}
                 markers={
-                    monitoring ? monitoringChartMarkers(points.labels, monitoring, observedAt, timezone) : undefined
+                    // A chart limited to the observation window starts at Monitoring start, and its strip shows now.
+                    monitoring && !monitoring.endsAt
+                        ? monitoringChartMarkers(points.labels, monitoring, observedAt, timezone)
+                        : undefined
                 }
                 goalLines={
                     monitoring
@@ -107,6 +125,20 @@ export function ReportCheckMetricChart({
                         : undefined
                 }
                 goalValue={!monitoring && goalGrain === 'per_interval' ? (goal ?? undefined) : undefined}
+                footer={
+                    timeline
+                        ? {
+                              node: (
+                                  <ReportChartMonitoringTimeline
+                                      timeline={timeline}
+                                      type={reportMetricChartType(metric)}
+                                      interval={chartQuery.interval ?? 'day'}
+                                  />
+                              ),
+                              height: CHART_TIMELINE_HEIGHT,
+                          }
+                        : undefined
+                }
             />
             {!monitoring && goalGrain === 'whole_window' && targets.length > 0 && (
                 <div className="text-xs text-secondary">

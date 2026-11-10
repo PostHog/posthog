@@ -147,6 +147,49 @@ class IntegrationPatch:
     errors: str | None = None
 
 
+# A value that `CrossTeamFilter.where_in` can compare a config key with.
+ConfigInValue = str | int | float | bool
+
+
+@frozen
+class CrossTeamFilter:
+    """The rows that `list_across_teams` returns. Every field is optional. The fields that are set combine with AND.
+
+    The config filters take named config keys, with the same rules as `find(where=...)`. A key of
+    `where_iexact` can also name one nested key, such as `"account.name"`.
+    """
+
+    # An empty tuple selects no row.
+    team_ids: tuple[int, ...] | None = None
+    exclude_team_ids: tuple[int, ...] = ()
+    # The users who created the rows. An empty tuple selects no row.
+    created_by_ids: tuple[int, ...] | None = None
+    external_id: str | None = None
+    # Config keys compared with these values for equality, the JSON type included.
+    where: Mapping[str, ConfigValue] = dataclasses.field(default_factory=dict)
+    # Config keys that hold one of these values, compared like `where`. An empty tuple selects no row.
+    where_in: Mapping[str, tuple[ConfigInValue, ...]] = dataclasses.field(default_factory=dict)
+    # Config keys that hold this string, ignoring case.
+    where_iexact: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    # A config key that the row has, with any value.
+    has_config_key: str | None = None
+    # Rows come back ordered by id. To read the next page, pass the last id of a page as `after_id`.
+    newest_first: bool = False
+    limit: int | None = None
+    after_id: int | None = None
+
+    def __post_init__(self) -> None:
+        # Callers often pass a list or a queryset of ids. A tuple keeps the filter the same after the call.
+        for name in ("team_ids", "created_by_ids"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, tuple(value))
+        object.__setattr__(self, "exclude_team_ids", tuple(self.exclude_team_ids))
+        object.__setattr__(self, "where_in", {key: tuple(values) for key, values in self.where_in.items()})
+        if self.limit is not None and self.limit < 1:
+            raise ValueError("limit must be 1 or more")
+
+
 @frozen
 class IntegrationUsage:
     """One PostHog object that uses an integration row, such as a warehouse source or a workflow."""
