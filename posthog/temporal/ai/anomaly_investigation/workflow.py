@@ -47,6 +47,7 @@ from products.alerts.backend.facade.contracts import InvestigationRelease
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
+from products.alerts.backend.platform_insight_alert import investigated_alert
 from products.alerts_platform.backend.facade import api as platform
 from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, HeldDeliveryAddress
 from products.alerts_platform.backend.facade.temporal import start_deliveries
@@ -163,7 +164,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     which the workflow starts. An insight stack check delivers from here and returns none."""
     team, alert = await asyncio.gather(
         Team.objects.aget(id=inputs.team_id),
-        sync_to_async(alerts.investigated_alert, thread_sensitive=False)(inputs.team_id, inputs.alert_id),
+        sync_to_async(investigated_alert, thread_sensitive=False)(inputs.team_id, inputs.alert_id),
     )
     if alert is None:
         raise AlertConfiguration.DoesNotExist(f"No insight alert {inputs.alert_id}")
