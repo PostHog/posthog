@@ -100,17 +100,24 @@ describe('wizardRunSidebarLogic', () => {
         expect(logic.values.runDetectedSources.map((source) => source.warehouse_source_type)).toEqual(['Stripe'])
     })
 
-    it('refreshes the detected sources when a run finishes inside the refresh cooldown', async () => {
+    it('refreshes the detected sources when a run finishes, and retries a failed refresh', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const sync = wizardRunSyncLogic({ projectId: '1' })
         sync.actions.runsLoaded([{ ...run('current'), status: 'running' }])
         await expectLogic(logic).toFinishAllListeners()
         const callsWhileRunning = jest.mocked(wizardScansDetectedSourcesRetrieve).mock.calls.length
 
+        jest.mocked(wizardScansDetectedSourcesRetrieve).mockRejectedValueOnce(new Error('offline'))
         sync.actions.runsLoaded([{ ...run('current'), status: 'completed' }])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(jest.mocked(wizardScansDetectedSourcesRetrieve).mock.calls.length).toBe(callsWhileRunning + 1)
+
+        sync.actions.runsLoaded([{ ...run('current'), status: 'completed' }])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(jest.mocked(wizardScansDetectedSourcesRetrieve).mock.calls.length).toBe(callsWhileRunning + 2)
+        expect(logic.values.detectedSources).toHaveLength(2)
     })
 
     it('scopes dismissals to the current project and user', async () => {

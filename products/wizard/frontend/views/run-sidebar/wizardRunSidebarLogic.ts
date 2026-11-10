@@ -165,11 +165,18 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             cache.activeRunIds = activeRunIds
             const now = Date.now()
             const cooledDown = now - (cache.detectedSourcesLoadedAt ?? 0) >= DETECTED_SOURCES_REFRESH_MS
-            if (!runFinished && (activeRunIds.length === 0 || !cooledDown)) {
+            if (!runFinished && !cache.detectedSourcesRetry && (activeRunIds.length === 0 || !cooledDown)) {
                 return
             }
             cache.detectedSourcesLoadedAt = now
             actions.loadDetectedSources()
+        },
+        // A failed refresh retries on the next runs poll until one succeeds.
+        [wizardDetectedSourcesLogic.actionTypes.loadDetectedSourcesFailure]: () => {
+            cache.detectedSourcesRetry = true
+        },
+        [wizardDetectedSourcesLogic.actionTypes.loadDetectedSourcesSuccess]: () => {
+            cache.detectedSourcesRetry = false
         },
         clickDetectedSource: ({ sourceType }) => {
             posthog.capture('wizard detected source clicked', {
