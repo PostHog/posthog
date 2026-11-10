@@ -10,6 +10,7 @@ An internal tool for now: it opens posthog.com docs pull requests for changes me
 
 The knowledge writer is not a security check.
 It assumes what it reads, merged pull requests and their discussion, has already been through a review that would have caught obvious problems.
+So every input that arrives through GitHub is a merged pull request, never an open one.
 It still takes basic measures: a token scoped to the docs repository, a branch the server issues, the path check below, and prompt markers around untrusted text.
 It does not claim to detect or stop a bad actor, and it never runs or validates the code in a page it writes.
 Whether a docs page is safe to build is the docs repository's call.
