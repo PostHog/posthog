@@ -5312,7 +5312,10 @@ email@example.org,
         with time_machine.travel(datetime(2026, 10, 27, 0, 30, tzinfo=UTC), tick=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts",
-                data={"name": "flag callers", "filters": {"properties": {"type": "OR", "values": [criterion]}}},
+                data={
+                    "name": "flag callers",
+                    "filters": {"properties": {"type": "OR", "values": [criterion]}, "filterTestAccounts": True},
+                },
             )
 
         self.assertEqual(response.status_code, 201, response.json())
