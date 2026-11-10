@@ -668,14 +668,14 @@ export class WorkerIngestServer {
             try {
                 await completed.settled
             } catch (error) {
-                this.inFlight.settled(completed.streamId, completed.seq, 'failed', completed.accepted)
+                this.inFlight.onSettled(completed.streamId, completed.seq, 'failed', completed.accepted)
                 this.slots.release()
                 this.fatal(error instanceof Error ? error : new Error(String(error)))
                 return
             }
             // The batch's admission slot frees only once its side effects are
             // durably done, matching the HTTP path's response barrier.
-            this.inFlight.settled(completed.streamId, completed.seq, 'ok', completed.accepted)
+            this.inFlight.onSettled(completed.streamId, completed.seq, 'ok', completed.accepted)
             this.slots.release()
             this.ackCompleted(completed)
         })()
@@ -788,7 +788,7 @@ export class WorkerIngestServer {
             }
         } finally {
             this.streams.delete(stream.id)
-            this.inFlight.streamEnded(stream.id)
+            this.inFlight.onStreamEnded(stream.id)
             grpcStreams.dec()
             this.wake()
         }
@@ -898,7 +898,7 @@ export class WorkerIngestServer {
                         const result = await this.feedGuarded(stream, seq, serialized, budget)
                         if (result.ok) {
                             feedAccepted = true
-                            this.inFlight.fed({
+                            this.inFlight.onFed({
                                 streamId: stream.id,
                                 seq,
                                 consumerId: stream.hello.consumerId,

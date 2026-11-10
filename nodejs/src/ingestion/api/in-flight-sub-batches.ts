@@ -56,7 +56,7 @@ export class InFlightSubBatches {
         return this.stuckTimeoutMs > 0 ? Math.min(this.stuckTimeoutMs / 4, 10_000) : 10_000
     }
 
-    fed(subBatch: FedSubBatch): void {
+    onFed(subBatch: FedSubBatch): void {
         this.entries.set(key(subBatch.streamId, subBatch.seq), {
             subBatch,
             accounting: batchAccepted(subBatch.messages.length),
@@ -64,7 +64,7 @@ export class InFlightSubBatches {
         })
     }
 
-    settled(streamId: number, seq: number, outcome: 'ok' | 'failed', processed: number): void {
+    onSettled(streamId: number, seq: number, outcome: 'ok' | 'failed', processed: number): void {
         const entryKey = key(streamId, seq)
         const entry = this.entries.get(entryKey)
         if (!entry) {
@@ -79,7 +79,7 @@ export class InFlightSubBatches {
         batchReleased(entry.accounting)
     }
 
-    streamEnded(streamId: number): void {
+    onStreamEnded(streamId: number): void {
         for (const entry of this.entries.values()) {
             if (entry.subBatch.streamId === streamId) {
                 entry.streamOpen = false
