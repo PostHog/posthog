@@ -2749,3 +2749,45 @@ button.MarkdownNotebook__component-title:focus-visible {
     clip-path: inset(50%);
     outline: none;
 }
+
+.MarkdownNotebook__columns {
+    container-type: inline-size;
+    min-width: 0;
+}
+
+.MarkdownNotebook__columns-grid {
+    display: grid;
+    grid-template-columns: var(--notebook-column-tracks);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.MarkdownNotebook__column {
+    min-width: 0;
+}
+
+.MarkdownNotebook__columns-toolbar,
+.MarkdownNotebook__column-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.MarkdownNotebook__column-toolbar {
+    justify-content: space-between;
+    color: var(--text-muted);
+}
+
+.MarkdownNotebook--edit .MarkdownNotebook__column {
+    padding: 0.5rem 0 0.5rem 1.5rem;
+    border: 1px dashed var(--border-primary);
+    border-radius: var(--radius);
+}
+
+@container (max-width: 40rem) {
+    .MarkdownNotebook__columns-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

@@ -39,6 +39,10 @@ SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES: frozenset[str] = frozenset(
 SHARED_NOTEBOOK_SUPPORTED_MARKDOWN_COMPONENT_TAGS: frozenset[str] = frozenset(
     {
         "Comment",
+        "Columns",
+        "Column",
+        "ColumnEnd",
+        "ColumnsEnd",
         "Divider",
         "Embed",
         "Image",
@@ -49,6 +53,10 @@ SHARED_NOTEBOOK_SUPPORTED_MARKDOWN_COMPONENT_TAGS: frozenset[str] = frozenset(
 
 _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple[type, ...]]] = {
     "Comment": {"ref": str, "replies": list, "text": str},
+    "Columns": {"widths": list},
+    "Column": {},
+    "ColumnEnd": {},
+    "ColumnsEnd": {},
     "Divider": {},
     "Embed": {"height": (int, float), "src": str, "title": str, "width": (int, float)},
     "Image": {"alt": str, "height": (int, float), "src": str, "title": str, "width": (int, float)},
@@ -211,6 +219,10 @@ def _serialize_markdown_component(tag_name: str, props: dict[str, Any]) -> str:
         for name in _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES[tag_name]
         if name in props
     )
+    if tag_name in {"ColumnEnd", "ColumnsEnd"}:
+        return f"</{tag_name[:-3]}>"
+    if tag_name in {"Column", "Columns"}:
+        return f"<{tag_name}{prop_source}>"
     return f"<{tag_name}{prop_source} />"
 
 
@@ -690,6 +702,13 @@ def _get_markdown_code_block_end(lines: list[str], line_index: int) -> int:
 
 def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[str, str, int] | None:
     first_line = lines[line_index].strip()
+    closing_column = re.fullmatch(r"</(Column|Columns)>", first_line)
+    if closing_column:
+        tag_name = f"{closing_column.group(1)}End"
+        return tag_name, f"<{tag_name} />", line_index + 1
+    if re.fullmatch(r"<(Column|Columns)(\s[^\n]*?)?>", first_line) and not first_line.endswith("/>"):
+        tag_name = "Columns" if first_line.startswith("<Columns") else "Column"
+        return tag_name, f"{first_line[:-1]} />", line_index + 1
     recover_escaped_source = bool(_MARKDOWN_ESCAPED_COMPONENT_START_REGEX.match(first_line))
     if recover_escaped_source:
         first_line = _unescape_markdown_inline_source(first_line)

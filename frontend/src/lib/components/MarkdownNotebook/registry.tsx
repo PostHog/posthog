@@ -16,8 +16,10 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
+import { COLUMN_LAYOUT_TAGS } from './columnLayout'
 import { wasNotebookNodeJustInserted } from './freshlyInserted'
 import { sanitizeNotebookLinkHref } from './markdown'
+import { NotebookColumnBoundary } from './NotebookColumnBoundary'
 import {
     NotebookComponentDefinition,
     NotebookComponentBlockNode,
@@ -64,6 +66,18 @@ export function getMarkdownNotebookComponentDefaultProps(
 
 export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry {
     return createMarkdownNotebookRegistry([
+        ...COLUMN_LAYOUT_TAGS.map((tagName) =>
+            makeDefinition({
+                tagName,
+                label: tagName === 'Columns' ? 'Columns' : 'Column boundary',
+                category: 'Text',
+                description: 'Text and charts side by side',
+                ViewComponent: NotebookColumnBoundary,
+                hideModeActions: true,
+                editableTitle: false,
+                ...(tagName === 'Columns' ? { insertCommand: { aliases: ['layout', 'side by side'] } } : {}),
+            })
+        ),
         makeQueryDefinition(),
         makeDefinition({
             tagName: 'Image',

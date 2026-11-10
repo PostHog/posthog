@@ -39,6 +39,13 @@ const LazyCodeEditor = lazyWithRetry(() =>
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
+    isInsideNotebookColumns,
+    groupNotebookColumns,
+    makeColumnsNodes,
+    resizeNotebookColumns,
+    isColumnLayoutNode,
+} from './columnLayout'
+import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
     CANVAS_COMPONENT_PANEL_VISIBILITY,
@@ -49,6 +56,7 @@ import {
     withPersistedComponentPanelProps,
 } from './componentPanels'
 import type { NotebookComponentRunHandler } from './componentRunHandlers'
+import type { MarkdownNotebookVisualGroup } from './documentModel'
 import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
@@ -206,6 +214,7 @@ import {
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
+import { NotebookColumns } from './NotebookColumns'
 import { installNotebookTextSelection } from './notebookTextSelection'
 import {
     NotebookOperation,
@@ -2347,6 +2356,9 @@ function MarkdownNotebookEditor({
                 return false
             }
 
+            if (isColumnLayoutNode(previousNode)) {
+                return true
+            }
             const isEmptyTextBlock = !getInlineText(node.children).length
 
             if (previousNode.type === 'list') {
@@ -2810,6 +2822,16 @@ function MarkdownNotebookEditor({
 
     const replaceNodeWithInsertedComponent = useCallback(
         (nodeId: string, nextNode: NotebookComponentBlockNode): void => {
+            if (nextNode.tagName === 'Columns') {
+                const inserted = makeColumnsNodes(nextNode)
+                restoreSelectionRef.current = { nodeId: inserted[2].id, start: 0, end: 0 }
+                commitDocument({
+                    ...documentRef.current,
+                    nodes: documentRef.current.nodes.flatMap((node) => (node.id === nodeId ? inserted : [node])),
+                })
+                posthog.capture('notebook columns inserted', { columns: 2 })
+                return
+            }
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, nextNode.tagName)
             const insertedPanels = getInsertedComponentPanelVisibility(nextNode)
             const insertedNode = withPersistedComponentPanelProps(nextNode, definition, insertedPanels)
@@ -2817,7 +2839,7 @@ function MarkdownNotebookEditor({
             focusNodeRef.current = nextNode.id
             replaceNode(nodeId, insertedNode)
         },
-        [mergedRegistry, replaceNode]
+        [mergedRegistry, replaceNode, commitDocument]
     )
 
     const insertMenuApi = useMemo<MarkdownNotebookInsertMenuApi>(
@@ -3052,6 +3074,7 @@ function MarkdownNotebookEditor({
     )
     const showInsertBoundaries = mode === 'edit' && document.nodes.length > 0
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
+    const insideColumns = isInsideNotebookColumns(document.nodes, insertMenu?.nodeId)
     const insertCommands = useMemo(
         () =>
             omitInsertCommands(
@@ -3078,9 +3101,10 @@ function MarkdownNotebookEditor({
                     extraInsertCommands ? extraInsertCommands(insertMenuApi) : [],
                     onBtw ? openBtwFromSlash : undefined
                 ),
-                hiddenInsertCommandKeys
+                [...(hiddenInsertCommandKeys ?? []), ...(insideColumns ? ['component-Columns'] : [])]
             ),
         [
+            insideColumns,
             mergedRegistry,
             replaceNodeWithInsertedComponent,
             replaceNode,
@@ -4662,6 +4686,9 @@ function MarkdownNotebookEditor({
     }, [insertMenu])
 
     const requestFocusForNode = useCallback((node: NotebookBlockNode, placement: 'start' | 'end'): boolean => {
+        if (isColumnLayoutNode(node)) {
+            return false
+        }
         const offsetForChildren = (children: NotebookInlineNode[]): number =>
             placement === 'start' ? 0 : getInlineText(children).length
 
@@ -4852,6 +4879,10 @@ function MarkdownNotebookEditor({
             let targetIndex = nodeIndex + step
             while (targetIndex >= 0 && targetIndex < nodes.length) {
                 const targetNode = nodes[targetIndex]
+                if (isColumnLayoutNode(targetNode)) {
+                    targetIndex += step
+                    continue
+                }
                 if (isTextBlockNode(targetNode)) {
                     const element = blockRefs.current[targetNode.id]
                     if (!element) {
@@ -5413,6 +5444,10 @@ function MarkdownNotebookEditor({
             return false
         }
 
+        const neighbour = documentRef.current.nodes[fromIndex + (direction === 'previous' ? -1 : 1)]
+        if (neighbour && isColumnLayoutNode(neighbour)) {
+            return false
+        }
         return moveBlockToBoundary(nodeId, direction === 'previous' ? fromIndex - 1 : fromIndex + 2)
     }
 
@@ -5936,6 +5971,9 @@ function MarkdownNotebookEditor({
         const passed = nodes.slice(neighbour.startIndex, neighbour.endIndex + 1)
         const [start, end] =
             direction === 'up' ? [neighbour.startIndex, cell.endIndex + 1] : [cell.startIndex, neighbour.endIndex + 1]
+        if (nodes.slice(start, end).some(isColumnLayoutNode)) {
+            return
+        }
         const reordered = direction === 'up' ? [...moved, ...passed] : [...passed, ...moved]
         const nextNodes = [...nodes.slice(0, start), ...reordered, ...nodes.slice(end)]
         // Where the second of the two swapped cells now starts.
@@ -7262,6 +7300,78 @@ function MarkdownNotebookEditor({
 
     const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
 
+    const renderVisualGroup = (group: MarkdownNotebookVisualGroup): JSX.Element => {
+        if (group.type === 'text') {
+            const lastItem = group.items[group.items.length - 1]
+            const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
+            for (const item of group.items) {
+                const lastChunk = chunks[chunks.length - 1]
+                // Code blocks never merge: each one is its own surface with its own line
+                // numbers and copy button.
+                if (lastChunk && lastChunk.surface === item.surface && item.surface !== 'code') {
+                    lastChunk.items.push(item)
+                } else {
+                    chunks.push({ surface: item.surface, items: [item] })
+                }
+            }
+
+            return (
+                <Fragment key={group.key}>
+                    <MarkdownNotebookTextGroup
+                        className={clsx(
+                            'MarkdownNotebook__text-group',
+                            group.key === firstTextGroupKey &&
+                                showDebug &&
+                                'MarkdownNotebook__text-group--with-debug-toolbar'
+                        )}
+                        jupyterStore={jupyterMode ? jupyterStore : null}
+                        cellId={group.items[0].node.id}
+                    >
+                        {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
+                        {chunks.map((chunk) => {
+                            const chunkLastIndex = chunk.items[chunk.items.length - 1].index
+                            const rows = chunk.items.map(({ node, index }) => (
+                                <Fragment key={node.id}>
+                                    {renderMemoizedNotebookRow(node, index)}
+                                    {chunk.surface === 'text' && index < chunkLastIndex
+                                        ? renderInsertBoundaryButton(index + 1, {
+                                              isGapClickable: false,
+                                          })
+                                        : null}
+                                </Fragment>
+                            ))
+
+                            return (
+                                <Fragment key={chunk.items[0].node.id}>
+                                    {chunk.surface === 'quote' ? (
+                                        <div className="MarkdownNotebook__blockquote-group">{rows}</div>
+                                    ) : chunk.surface === 'code' ? (
+                                        <div className="MarkdownNotebook__code-group">{rows}</div>
+                                    ) : (
+                                        rows
+                                    )}
+                                    {chunkLastIndex < lastItem.index
+                                        ? renderInsertBoundaryButton(chunkLastIndex + 1, {
+                                              isGapClickable: false,
+                                          })
+                                        : null}
+                                </Fragment>
+                            )
+                        })}
+                    </MarkdownNotebookTextGroup>
+                    {renderInsertBoundaryButton(lastItem.index + 1)}
+                </Fragment>
+            )
+        }
+
+        return (
+            <Fragment key={group.key}>
+                {renderMemoizedNotebookRow(group.node, group.index)}
+                {renderInsertBoundaryButton(group.index + 1)}
+            </Fragment>
+        )
+    }
+
     const notebookElement = (
         <div
             className={clsx(
@@ -7328,79 +7438,59 @@ function MarkdownNotebookEditor({
                         onDragLeave={handleCanvasDragLeave}
                     >
                         {renderInsertBoundaryButton(0)}
-                        {renderedNodeGroups.map((group) => {
-                            if (group.type === 'text') {
-                                const lastItem = group.items[group.items.length - 1]
-                                const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
-                                for (const item of group.items) {
-                                    const lastChunk = chunks[chunks.length - 1]
-                                    // Code blocks never merge: each one is its own surface with its own line
-                                    // numbers and copy button.
-                                    if (lastChunk && lastChunk.surface === item.surface && item.surface !== 'code') {
-                                        lastChunk.items.push(item)
-                                    } else {
-                                        chunks.push({ surface: item.surface, items: [item] })
-                                    }
-                                }
-
-                                return (
-                                    <Fragment key={group.key}>
-                                        <MarkdownNotebookTextGroup
-                                            className={clsx(
-                                                'MarkdownNotebook__text-group',
-                                                group.key === firstTextGroupKey &&
-                                                    showDebug &&
-                                                    'MarkdownNotebook__text-group--with-debug-toolbar'
-                                            )}
-                                            jupyterStore={jupyterMode ? jupyterStore : null}
-                                            cellId={group.items[0].node.id}
-                                        >
-                                            {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
-                                            {chunks.map((chunk) => {
-                                                const chunkLastIndex = chunk.items[chunk.items.length - 1].index
-                                                const rows = chunk.items.map(({ node, index }) => (
-                                                    <Fragment key={node.id}>
-                                                        {renderMemoizedNotebookRow(node, index)}
-                                                        {chunk.surface === 'text' && index < chunkLastIndex
-                                                            ? renderInsertBoundaryButton(index + 1, {
-                                                                  isGapClickable: false,
-                                                              })
-                                                            : null}
-                                                    </Fragment>
-                                                ))
-
-                                                return (
-                                                    <Fragment key={chunk.items[0].node.id}>
-                                                        {chunk.surface === 'quote' ? (
-                                                            <div className="MarkdownNotebook__blockquote-group">
-                                                                {rows}
-                                                            </div>
-                                                        ) : chunk.surface === 'code' ? (
-                                                            <div className="MarkdownNotebook__code-group">{rows}</div>
-                                                        ) : (
-                                                            rows
-                                                        )}
-                                                        {chunkLastIndex < lastItem.index
-                                                            ? renderInsertBoundaryButton(chunkLastIndex + 1, {
-                                                                  isGapClickable: false,
-                                                              })
-                                                            : null}
-                                                    </Fragment>
-                                                )
-                                            })}
-                                        </MarkdownNotebookTextGroup>
-                                        {renderInsertBoundaryButton(lastItem.index + 1)}
-                                    </Fragment>
-                                )
-                            }
-
-                            return (
+                        {groupNotebookColumns(renderedNodeGroups).map((group) =>
+                            group.type === 'columns' ? (
                                 <Fragment key={group.key}>
-                                    {renderMemoizedNotebookRow(group.node, group.index)}
-                                    {renderInsertBoundaryButton(group.index + 1)}
+                                    <NotebookColumns
+                                        group={group}
+                                        mode={mode}
+                                        renderGroup={renderVisualGroup}
+                                        onAddBlock={openInsertMenuAtBoundary}
+                                        onCountChange={(count) => {
+                                            commitDocument({
+                                                ...documentRef.current,
+                                                nodes: resizeNotebookColumns(documentRef.current.nodes, group, count),
+                                            })
+                                            posthog.capture('notebook columns configured', {
+                                                columns: count,
+                                                property: 'count',
+                                            })
+                                        }}
+                                        onWidthsChange={(widths) => {
+                                            updateNode(group.start.node.id, (node) =>
+                                                node.type === 'component'
+                                                    ? { ...node, props: { ...node.props, widths } }
+                                                    : node
+                                            )
+                                            posthog.capture('notebook columns configured', {
+                                                columns: group.columns.length,
+                                                property: 'widths',
+                                            })
+                                        }}
+                                        onRemoveLayout={() => {
+                                            const markerIds = new Set([
+                                                group.start.node.id,
+                                                group.end.node.id,
+                                                ...group.columns.flatMap((column) => [
+                                                    column.start.node.id,
+                                                    column.end.node.id,
+                                                ]),
+                                            ])
+                                            commitDocument({
+                                                ...documentRef.current,
+                                                nodes: documentRef.current.nodes.filter(
+                                                    (node) => !markerIds.has(node.id)
+                                                ),
+                                            })
+                                            posthog.capture('notebook columns removed')
+                                        }}
+                                    />
+                                    {renderInsertBoundaryButton(group.end.index + 1)}
                                 </Fragment>
+                            ) : (
+                                renderVisualGroup(group)
                             )
-                        })}
+                        )}
                         {jupyterCommands && mode === 'edit' ? (
                             <div
                                 className="MarkdownNotebook__jupyter-add-cell"
