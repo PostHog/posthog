@@ -17337,9 +17337,13 @@ snapshots:
     scenes-other-toolbar-extension--feature-flags--light:
         hash: v1.k794b7964.cc2dcf889b227b454d03895896ac4bb83750e7f34528c364118ba310b6614098.M6rT2njNyA1_WhHoa9QxlNk3eij86cHBpnOUyQWOI5w
     scenes-other-toolbar-extension--heatmap--dark:
-        hash: v1.k794b7964.9e90ae389acba7acc5c8feec155491b537ba3baaa347eb0b5330ffb12499d4fb.VUffPogQJoMuKDMRtEnuNNJGtmtcbFY9djuyg2QUMv4
+        hash: v1.k794b7964.6642e71dd078b0d863f23759db5a4cd4e8965e2da780be0cca8d843a1fd436fc.-tnxOMMJPM4fFJ5aBAo1CkyCkzHczAsdwMtfOtUVzUE
     scenes-other-toolbar-extension--heatmap--light:
-        hash: v1.k794b7964.c208dda39564a36ae2df7160c95fc2d1c678c837f116c476e8c280aa21cead7b.a7tgkHiw-B6z6B5GtiU5xJA6ShzG5BtGcJohH-Efbf4
+        hash: v1.k794b7964.527dba36cb86f1a4d73606c17b179175d906bbe9a1bf3fcffb6d8551e95019b5.vod36Hy9J4tT7EXZ99RMheWJyMJY6CjANt5r9C-_PPg
+    scenes-other-toolbar-extension--heatmap-saved-variant-filter--dark:
+        hash: v1.k794b7964.4bac11701e3add30e1569fbcc2c1971c0bb6ce288c33dc727a8a30caa0768d44.AVFOsNUdXUUMZQNGXKtY2xi6yjvM8xxf0jLympt0kpA
+    scenes-other-toolbar-extension--heatmap-saved-variant-filter--light:
+        hash: v1.k794b7964.4971869e648c12b9797ba72c0ee3e4ba80e9fe478b86cd8756d7df72e29ad91d.v2omiRffAXLRrOVgVNiT4n8WXcXhvfdTuv-BpvnBnnU
     scenes-other-toolbar-extension--home--dark:
         hash: v1.k794b7964.83bb52fa616a926259ed466d52ee44bfbb076e41e486aaa2101b88fcf1073fa9.KVpR75JkFzZxvH4RezINchlhG83HTJVnDh8KuYP45y0
     scenes-other-toolbar-extension--home--light:
