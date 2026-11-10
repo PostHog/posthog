@@ -2817,6 +2817,10 @@ def _resolve_stats_state(
         return None
 
 
+def _candidate_team_id(integration_id: int, candidates: Sequence[WorkspaceIntegration]) -> int | None:
+    return next((c.team_id for c in candidates if c.id == integration_id), None)
+
+
 def _resolve_project_state(
     integration: WorkspaceIntegration, slack_user_id: str, *, accessible: Sequence[WorkspaceIntegration]
 ) -> ProjectState:
@@ -2824,22 +2828,14 @@ def _resolve_project_state(
     if not candidates:
         return ProjectState()
 
-    user_row = (
-        SlackSettings.objects.filter(
-            slack_workspace_id=integration.integration_id,
-            slack_user_id=slack_user_id,
-        )
-        .select_related("default_integration")
-        .first()
-    )
-    workspace_row = (
-        SlackSettings.objects.filter(
-            slack_workspace_id=integration.integration_id,
-            slack_user_id__isnull=True,
-        )
-        .select_related("default_integration")
-        .first()
-    )
+    user_row = SlackSettings.objects.filter(
+        slack_workspace_id=integration.integration_id,
+        slack_user_id=slack_user_id,
+    ).first()
+    workspace_row = SlackSettings.objects.filter(
+        slack_workspace_id=integration.integration_id,
+        slack_user_id__isnull=True,
+    ).first()
 
     def project_label(c: WorkspaceIntegration) -> str:
         return f"{c.team.organization.name} · {c.team.name}"
@@ -2847,10 +2843,10 @@ def _resolve_project_state(
     # Look up the workspace default's label against the full candidate list,
     # not `accessible`, so a default pointing at an inaccessible project still
     # surfaces in the UI.
-    # Guard on the FK object (not the *_id field) so mypy narrows
-    # `default_integration` from `Integration | None` to `Integration`.
     workspace_team_id = (
-        workspace_row.default_integration.team_id if workspace_row and workspace_row.default_integration else None
+        _candidate_team_id(workspace_row.default_integration_id, candidates)
+        if workspace_row and workspace_row.default_integration_id
+        else None
     )
     workspace_team_label: str | None = None
     if workspace_team_id is not None:
@@ -2858,7 +2854,11 @@ def _resolve_project_state(
 
     return ProjectState(
         candidates=tuple(ProjectChoice(team_id=c.team_id, label=project_label(c)) for c in accessible),
-        personal_team_id=(user_row.default_integration.team_id if user_row and user_row.default_integration else None),
+        personal_team_id=(
+            _candidate_team_id(user_row.default_integration_id, candidates)
+            if user_row and user_row.default_integration_id
+            else None
+        ),
         workspace_team_id=workspace_team_id,
         workspace_team_label=workspace_team_label,
     )
