@@ -80,6 +80,7 @@ import {
     serializeResolverState,
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './services/hogflows/hogflow-batch-person-query.service'
+import { createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
@@ -3402,10 +3403,14 @@ describe('Workflows E2E (email queue)', () => {
                     { type: 'native_email', key: 'email', integration: 'email', required: true, templating: 'liquid' },
                 ],
             })
-            api = new CdpApi(hub, deps, {
-                hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
-                hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
-            })
+            api = new CdpApi(
+                hub,
+                { ...deps, idempotencyValkey: createIdempotencyValkeyPool(hub) },
+                {
+                    hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                    hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                }
+            )
             await api.start()
             app = setupExpressApp()
             app.use('/', api.router())
@@ -3588,6 +3593,22 @@ describe('Workflows E2E (email queue)', () => {
             await deliver()
 
             expect(await emailsTo(bcc)).toHaveLength(1)
+        })
+
+        it('refuses a retry of a template send that reuses its idempotency key in another category', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
+            const to = `receipt-${new UUIDT().toString()}@example.com`
+            const send = { to, distinct_id: 'buyer', idempotency_key: new UUIDT().toString() }
+
+            const first = await post('template', flow, { ...send, message_category: receipts })
+            const retry = await post('template', flow, { ...send, message_category: newsletter })
+            expect(first.status).toEqual(202)
+            expect(retry.status).toEqual(422)
+            expect(retry.body).toEqual({ error: 'idempotency_key_reused' })
+            await deliver()
+
+            expect(await emailsTo(to)).toHaveLength(1)
+            expect(await queuedPriorities()).toEqual([0])
         })
 
         it.each([
