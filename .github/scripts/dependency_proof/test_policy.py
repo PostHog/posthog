@@ -217,31 +217,27 @@ def test_new_packages(resolution: dict, reason: str | None) -> None:
             policy.new_packages(base, head)
 
 
+ROOT_LOCK = {"importers": {".": {}, "frontend": {}}}
+DESKTOP_LOCK = {"importers": {".": {}, "apps/code": {}}}
+
+
 @pytest.mark.parametrize(
-    ("directory", "member"),
+    ("path", "directory", "lock", "member"),
     [
-        ("", True),
-        ("frontend", True),
-        ("products/foo", True),
-        ("products/desktop", False),
-        ("products/desktop/apps/x", False),
-        ("packages/quill/apps/x", True),
-        ("packages/quill", False),
-        ("tools", False),
-        ("docs", True),
-        ("services/mcp/docs", True),
-        ("docs/guides", False),
+        ("package.json", "", ROOT_LOCK, True),
+        ("frontend/package.json", "", ROOT_LOCK, True),
+        ("products/desktop/package.json", "", ROOT_LOCK, False),
+        ("products/desktop/package.json", "products/desktop", DESKTOP_LOCK, True),
+        ("products/desktop/apps/code/package.json", "products/desktop", DESKTOP_LOCK, True),
+        ("products/desktop/frontend/package.json", "products/desktop", DESKTOP_LOCK, False),
     ],
 )
-def test_is_workspace_member(directory: str, member: bool) -> None:
-    globs = ["frontend", "products/*", "!products/desktop", "packages/quill/apps/*", "**/docs"]
-    assert policy.is_workspace_member(directory, globs) is member
-
-
-@pytest.mark.parametrize("glob", ["!products/{desktop,mobile}", "products**", "products/***"])
-def test_is_workspace_member_refuses_glob_syntax_it_cannot_read(glob: str) -> None:
-    with pytest.raises(Refused, match="syntax this proof does not read"):
-        policy.is_workspace_member("products/desktop", ["products/*", glob])
+def test_check_member(path: str, directory: str, lock: dict, member: bool) -> None:
+    if member:
+        policy.check_member(path, directory, lock)
+    else:
+        with pytest.raises(Refused, match="is not a project of"):
+            policy.check_member(path, directory, lock)
 
 
 def test_lockfile_dir() -> None:

@@ -29,7 +29,6 @@ RANGE = re.compile(r"(?P<operator>[~^]?)(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?
 # A package name with `*` wildcards. pnpm reads more pattern syntax, such as a leading `!`, and that is refused.
 PACKAGE_PATTERN = re.compile(r"(@[A-Za-z0-9._~*-]+/)?[A-Za-z0-9._~*-]+")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*$")
-WORKSPACE_GLOB = re.compile(r"[A-Za-z0-9._@/*-]+")
 PNPM_VERSION = re.compile(r"^pnpm@(\d+\.\d+\.\d+)$")
 
 
@@ -87,33 +86,11 @@ def lockfile_dir(path: str, exists: Callable[[str], bool]) -> str:
         directory = directory.rpartition("/")[0]
 
 
-def is_workspace_member(directory: str, globs: list[str]) -> bool:
-    """Whether pnpm-workspace.yaml `packages` globs include ``directory``, relative to the workspace root.
-
-    pnpm includes the root itself whatever the globs say.
-    """
-    if not directory:
-        return True
-    included = excluded = False
-    for glob in globs:
-        negated = glob.startswith("!")
-        pattern = glob.removeprefix("!").removeprefix("./").rstrip("/")
-        if _glob(pattern).match(directory):
-            included |= not negated
-            excluded |= negated
-    return included and not excluded
-
-
-def _glob(pattern: str) -> re.Pattern[str]:
-    """A workspace glob of path segments with `*`, and `**` as a whole segment.
-
-    pnpm reads more syntax, such as braces, and reads a `**` inside a segment as `*`. Both are refused.
-    """
-    inside_a_segment = any("**" in segment and segment != "**" for segment in pattern.split("/"))
-    if not WORKSPACE_GLOB.fullmatch(pattern) or inside_a_segment:
-        raise Refused(f"the workspace glob {pattern} uses syntax this proof does not read")
-    regex = re.escape(pattern).replace(r"\*\*/", "(?:.*/)?").replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
-    return re.compile(f"^{regex}$")
+def check_member(path: str, directory: str, lock: Mapping[str, Any]) -> None:
+    """Refuse a manifest that is not a project of the lockfile in ``directory``, because no replay covers it."""
+    project = path.rpartition("/")[0][len(directory) :].lstrip("/") or "."
+    if project not in (lock.get("importers") or {}):
+        raise Refused(f"{path} is not a project of {join(directory, LOCKFILE)}")
 
 
 def check_bump(label: str, old: str, new: str) -> None:
