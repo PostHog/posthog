@@ -167,7 +167,7 @@ export function useSqlChartModel<
         () =>
             visualizationType === ChartDisplayType.ActionsBarValue
                 ? (xData?.data.map((_, index) => String(index)) ?? [])
-                : (xData?.data ?? []),
+                : (xData?.data.map((value) => String(value ?? '[No value]')) ?? []),
         [visualizationType, xData]
     )
 

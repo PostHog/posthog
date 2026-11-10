@@ -87,6 +87,30 @@ const renderChart = async (overrides: Partial<SqlChartProps>): Promise<void> => 
 const lowestTick = (ticks: string[]): number => Math.min(...ticks.map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, ''))))
 
 it.each([
+    { name: 'line', Component: SqlLineGraph, visualizationType: ChartDisplayType.ActionsLineGraph },
+    { name: 'bar', Component: SqlBarGraph, visualizationType: ChartDisplayType.ActionsBar },
+    { name: 'combo', Component: SqlComboGraph, visualizationType: ChartDisplayType.ActionsLineGraph },
+])('renders non-string query categories on a $name chart', async ({ Component, visualizationType }) => {
+    const categories = [['north', 'west'], 42, null] as unknown as string[]
+    renderWithInsights({
+        component: (
+            <Component
+                {...props({
+                    xData: xData(categories),
+                    visualizationType,
+                    yData: [ySeries('count', [10, 20, 30])],
+                })}
+            />
+        ),
+    })
+    await screen.findByLabelText(/chart with 1 data series/i)
+    expect(screen.getByText('north,west')).toBeInTheDocument()
+    expect(screen.getByText('42')).toBeInTheDocument()
+    expect(screen.getByText('[No value]')).toBeInTheDocument()
+    expect(categories[0]).toEqual(['north', 'west'])
+})
+
+it.each([
     { name: 'line', Component: SqlLineGraph },
     { name: 'bar', Component: SqlBarGraph },
     { name: 'combo', Component: SqlComboGraph },
