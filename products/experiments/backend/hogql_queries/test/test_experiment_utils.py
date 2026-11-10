@@ -2,8 +2,6 @@ from typing import Any, cast
 
 import pytest
 
-from rest_framework.exceptions import ValidationError
-
 from posthog.schema import (
     Breakdown,
     BreakdownFilter,
@@ -1243,15 +1241,6 @@ class TestQuantileExperimentResult:
         )
         assert interval is not None
         assert interval[0] < 1 < interval[1]
-
-    def test_frequentist_result_rejects_sequential_testing(self) -> None:
-        with pytest.raises(ValidationError, match="Sequential testing isn't supported for percentile metrics"):
-            get_frequentist_experiment_result(
-                P90_OF_APP_READY,
-                _quantile_variant("control"),
-                [_quantile_variant("test")],
-                stats_config={"frequentist": {"sequential_testing_enabled": True}},
-            )
 
 
 class TestSanitizeNonFinite:

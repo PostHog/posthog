@@ -322,6 +322,24 @@ class TestSequentialTwoSidedTTest(TestCase):
         with self.assertRaises(StatisticError):
             SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=0)
 
+    def test_quantile_statistic_uses_exposed_users_as_the_sample_size(self):
+        tuning_parameter = 800
+        result = SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=tuning_parameter).run_test(
+            QUANTILE_TREATMENT, QUANTILE_CONTROL, DifferenceType.RELATIVE
+        )
+
+        pooled_variance = calculate_variance_pooled(QUANTILE_TREATMENT, QUANTILE_CONTROL, DifferenceType.RELATIVE)
+        users = QUANTILE_TREATMENT.n_clusters + QUANTILE_CONTROL.n_clusters
+        halfwidth = sequential_interval_halfwidth(pooled_variance * users, users, tuning_parameter, alpha=0.05)
+        self.assertAlmostEqual(result.confidence_interval[0], result.point_estimate - halfwidth, places=12)
+        self.assertAlmostEqual(result.confidence_interval[1], result.point_estimate + halfwidth, places=12)
+        self.assertAlmostEqual(
+            result.p_value,
+            sequential_p_value(result.point_estimate, pooled_variance, users, tuning_parameter, alpha=0.05),
+            places=12,
+        )
+        self.assertLess(result.p_value, 1.0)
+
 
 class TestSequentialTwoSidedTTestGoldenValues(TestCase):
     """Golden fixtures for the two-sided sequential test.
