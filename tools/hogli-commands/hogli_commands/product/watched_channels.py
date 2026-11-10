@@ -2,7 +2,7 @@
 
 An Isolated product skips the full Django suite when a change touches only files outside its
 `backend:contract-check` inputs (products/architecture.md § What makes the skip sound). tach and
-import-linter prove that no outside code imports past the facade. Three channels run a product module
+import-linter prove that no outside code imports past the facade. These channels run a product module
 in an outside suite with no import, so those checks cannot see them:
 
 - A signal receiver on a sender the product does not own. It runs inside the save and delete paths
@@ -11,6 +11,11 @@ in an outside suite with no import, so those checks cannot see them:
   target is written. The test depends on the names in that module and runs the code around them.
 - A module that core loads by name through `load_product_modules(...)`, such as
   `integration_usages` or `data_freshness`. Core imports it for every product that has one.
+- `backend/apps.py` and the product modules it imports. Django runs the AppConfig in every process,
+  and a callback that ready() registers runs wherever its hook fires.
+- A module that registers into another boundary's `register_*` hook, and the module that defines
+  what it registers. The hook owner calls it in its own suites.
+- A module that core settings name by dotted path, such as a middleware. It runs on every request.
 
 This module finds the module files each channel reaches. It reads source and never imports it.
 isolation.py accepts these files as contract-check inputs, and the lint fails while one is unwatched.
@@ -21,7 +26,7 @@ from __future__ import annotations
 import re
 import ast
 import functools
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 
@@ -48,6 +53,9 @@ class ChannelKind(StrEnum):
     FOREIGN_RECEIVER = "foreign-receiver"
     OUTSIDE_TEST = "outside-test"
     DISCOVERED_BY_NAME = "discovered-by-name"
+    APP_SETUP = "app-setup"
+    HOOK_CALLBACK = "hook-callback"
+    SETTINGS_PATH = "settings-path"
 
 
 @frozen
@@ -56,14 +64,14 @@ class ChannelModule:
 
     path: str  # relative to the product directory, e.g. "backend/apps.py"
     kind: ChannelKind
-    source: str  # the foreign sender as the source spells it, or the repo path of the outside test
+    source: str  # the foreign sender or hook as the source spells it, or the repo path that names the module
 
 
 @frozen
 class _NamedModule:
     product: str
     path: str
-    test: str
+    named_by: str  # repo path of the file that names the module
 
 
 @frozen
@@ -268,6 +276,30 @@ def _iter_backend_modules(product_dir: Path) -> Iterator[tuple[str, Path]]:
         yield "/".join(parts), path
 
 
+@frozen
+class _ParsedModule:
+    rel_path: str
+    tree: ast.Module
+    names: _ModuleNames
+
+
+def _parsed_backend_modules(product_dir: Path, needles: Sequence[bytes]) -> Iterator[_ParsedModule]:
+    """Parse the backend modules whose source holds one of the needles. The byte test skips the
+    parse for the many modules that cannot match."""
+    for rel_path, path in _iter_backend_modules(product_dir):
+        source = path.read_bytes()
+        if not any(needle in source for needle in needles):
+            continue
+        tree = ast_parse_safe(path)
+        if tree is None:
+            continue
+        module_parts = ["products", product_dir.name, *rel_path.removesuffix(".py").split("/")]
+        is_package = module_parts[-1] == "__init__"
+        if is_package:
+            module_parts.pop()
+        yield _ParsedModule(rel_path=rel_path, tree=tree, names=_module_names(tree, ".".join(module_parts), is_package))
+
+
 def foreign_receiver_modules(product_dir: Path) -> list[ChannelModule]:
     """The modules of a product that connect a receiver on a foreign sender, and the modules that
     define those receiver functions. Both run inside the sender's save and delete paths.
@@ -276,18 +308,8 @@ def foreign_receiver_modules(product_dir: Path) -> list[ChannelModule]:
     product = product_dir.name
     repo_root = product_dir.parent.parent
     found: list[ChannelModule] = []
-    for rel_path, path in _iter_backend_modules(product_dir):
-        source = path.read_bytes()
-        if b"sender" not in source and b"connect" not in source:
-            continue
-        tree = ast_parse_safe(path)
-        if tree is None:
-            continue
-        module_parts = ["products", product, *rel_path.removesuffix(".py").split("/")]
-        is_package = module_parts[-1] == "__init__"
-        if is_package:
-            module_parts.pop()
-        names = _module_names(tree, ".".join(module_parts), is_package)
+    for parsed in _parsed_backend_modules(product_dir, (b"sender", b"connect")):
+        rel_path, tree, names = parsed.rel_path, parsed.tree, parsed.names
         sites: list[tuple[str, ast.expr | None]] = [
             (ast.unparse(sender), function)
             for sender, function in _receiver_sites(tree)
@@ -336,13 +358,13 @@ def _outside_test_names(repo_root: Path) -> tuple[_NamedModule, ...]:
             dotted = _QUOTES_AND_SPACE_RE.sub(b"", match.group(2)).decode()
             module = _module_file(repo_root / "products" / product, dotted.split("."))
             if module is not None:
-                found.add(_NamedModule(product=product, path=module, test="/".join(parts)))
+                found.add(_NamedModule(product=product, path=module, named_by="/".join(parts)))
     return tuple(found)
 
 
 def outside_named_modules(product: str, repo_root: Path) -> list[ChannelModule]:
     return [
-        ChannelModule(path=named.path, kind=ChannelKind.OUTSIDE_TEST, source=named.test)
+        ChannelModule(path=named.path, kind=ChannelKind.OUTSIDE_TEST, source=named.named_by)
         for named in _outside_test_names(repo_root)
         if named.product == product
     ]
@@ -446,11 +468,142 @@ def discovered_modules(product_dir: Path, repo_root: Path) -> list[ChannelModule
     return found
 
 
+# ---------------------------------------------------------------------------
+# Channel 4: the AppConfig module and the product modules it imports
+# ---------------------------------------------------------------------------
+
+_APPS_MODULE = "backend/apps.py"
+
+
+def _is_type_checking_block(node: ast.AST) -> bool:
+    return isinstance(node, ast.If) and _dotted_name(node.test) in ("TYPE_CHECKING", "typing.TYPE_CHECKING")
+
+
+def _runtime_imports(nodes: Iterable[ast.AST]) -> Iterator[ast.Import | ast.ImportFrom]:
+    """Every import that can run, function-local ones too. An `if TYPE_CHECKING:` body never runs."""
+    for node in nodes:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            yield node
+        elif _is_type_checking_block(node):
+            yield from _runtime_imports(node.orelse)
+        else:
+            yield from _runtime_imports(ast.iter_child_nodes(node))
+
+
+def _imported_product_modules(tree: ast.Module, product_dir: Path, package: str) -> set[str]:
+    prefix = f"products.{product_dir.name}."
+    found: set[str] = set()
+    for node in _runtime_imports(tree.body):
+        if isinstance(node, ast.Import):
+            targets = [alias.name for alias in node.names]
+        else:
+            source = import_from_module(node, package)
+            if source is None:
+                continue
+            targets = [f"{source}.{alias.name}" for alias in node.names]
+        for target in targets:
+            if not target.startswith(prefix):
+                continue
+            module = _module_file(product_dir, target.removeprefix(prefix).split("."))
+            if module is not None:
+                found.add(module)
+    return found
+
+
+def app_setup_modules(product_dir: Path) -> list[ChannelModule]:
+    """backend/apps.py and every product module it imports.
+
+    Django imports the AppConfig and runs ready() in every process, so every suite runs this code.
+    An import inside a callback that ready() registers counts too, because the callback runs that
+    module wherever the hook fires."""
+    path = product_dir / _APPS_MODULE
+    if not path.is_file():
+        return []
+    found = [ChannelModule(path=_APPS_MODULE, kind=ChannelKind.APP_SETUP, source=_APPS_MODULE)]
+    tree = ast_parse_safe(path)
+    if tree is None:
+        return found
+    package = f"products.{product_dir.name}.backend"
+    for module in sorted(_imported_product_modules(tree, product_dir, package) - {_APPS_MODULE}):
+        found.append(ChannelModule(path=module, kind=ChannelKind.APP_SETUP, source=_APPS_MODULE))
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Channel 5: registrations into another boundary's hook
+# ---------------------------------------------------------------------------
+
+_HOOK_PREFIX = "register_"
+_FIRST_PARTY_PREFIXES: tuple[str, ...] = tuple(f"{root}." for root in FIRST_PARTY_ROOTS)
+
+
+def _foreign_hook_calls(tree: ast.Module, product: str, names: _ModuleNames) -> Iterator[tuple[str, list[ast.expr]]]:
+    """(hook, arguments) for every call to a `register_*` function that core or another product owns."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        qualified = _qualified_name(node.func, names)
+        if qualified is None or not qualified.startswith(_FIRST_PARTY_PREFIXES):
+            continue
+        if qualified.startswith(f"products.{product}."):
+            continue
+        if not qualified.rpartition(".")[2].startswith(_HOOK_PREFIX):
+            continue
+        yield qualified, [*node.args, *(keyword.value for keyword in node.keywords)]
+
+
+def hook_callback_modules(product_dir: Path) -> list[ChannelModule]:
+    """The modules of a product that register into another boundary's hook, and the modules that
+    define what they register. The hook owner calls the registered code in its own suites."""
+    found: list[ChannelModule] = []
+    for parsed in _parsed_backend_modules(product_dir, (_HOOK_PREFIX.encode(),)):
+        for hook, arguments in _foreign_hook_calls(parsed.tree, product_dir.name, parsed.names):
+            found.append(ChannelModule(path=parsed.rel_path, kind=ChannelKind.HOOK_CALLBACK, source=hook))
+            for argument in arguments:
+                module = _function_module(argument, product_dir, parsed.names)
+                if module is not None and module != parsed.rel_path:
+                    found.append(ChannelModule(path=module, kind=ChannelKind.HOOK_CALLBACK, source=hook))
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Channel 6: product modules that core settings name by dotted path
+# ---------------------------------------------------------------------------
+
+_SETTINGS_DIR = "posthog/settings"
+
+
+@functools.cache
+def _settings_names(repo_root: Path) -> tuple[_NamedModule, ...]:
+    """Every product module a settings file names, such as a middleware in MIDDLEWARE."""
+    found: set[_NamedModule] = set()
+    for path in sorted((repo_root / _SETTINGS_DIR).rglob("*.py")):
+        named_by = path.relative_to(repo_root).as_posix()
+        for match in _PRODUCT_MODULE_STRING_RE.finditer(path.read_bytes()):
+            product = match.group(1).decode()
+            dotted = _QUOTES_AND_SPACE_RE.sub(b"", match.group(2)).decode()
+            module = _module_file(repo_root / "products" / product, dotted.split("."))
+            if module is not None:
+                found.add(_NamedModule(product=product, path=module, named_by=named_by))
+    return tuple(found)
+
+
+def settings_named_modules(product: str, repo_root: Path) -> list[ChannelModule]:
+    return [
+        ChannelModule(path=named.path, kind=ChannelKind.SETTINGS_PATH, source=named.named_by)
+        for named in _settings_names(repo_root)
+        if named.product == product
+    ]
+
+
 def find_channel_modules(product_dir: Path, repo_root: Path) -> tuple[ChannelModule, ...]:
     found = (
         set(foreign_receiver_modules(product_dir))
         | set(outside_named_modules(product_dir.name, repo_root))
         | set(discovered_modules(product_dir, repo_root))
+        | set(app_setup_modules(product_dir))
+        | set(hook_callback_modules(product_dir))
+        | set(settings_named_modules(product_dir.name, repo_root))
     )
     return tuple(sorted(found, key=lambda c: (c.path, c.kind, c.source)))
 
@@ -472,6 +625,9 @@ def unwatched_channel_issue(path: str, channels: Sequence[ChannelModule]) -> str
     senders = sorted({c.source for c in channels if c.kind is ChannelKind.FOREIGN_RECEIVER})
     tests = sorted({c.source for c in channels if c.kind is ChannelKind.OUTSIDE_TEST})
     loaders = sorted({c.source for c in channels if c.kind is ChannelKind.DISCOVERED_BY_NAME})
+    app_setup = any(c.kind is ChannelKind.APP_SETUP for c in channels)
+    hooks = sorted({c.source for c in channels if c.kind is ChannelKind.HOOK_CALLBACK})
+    settings_files = sorted({c.source for c in channels if c.kind is ChannelKind.SETTINGS_PATH})
     reasons: list[str] = []
     moves: list[str] = []
     if senders:
@@ -482,6 +638,12 @@ def unwatched_channel_issue(path: str, channels: Sequence[ChannelModule]) -> str
         moves.append("move the test into the owning product")
     if loaders:
         reasons.append(f"core loads it by name through load_product_modules ({_first_few(loaders)})")
+    if app_setup:
+        reasons.append("Django runs it at setup in every process, as backend/apps.py or a module it imports")
+    if hooks:
+        reasons.append(f"it registers into a hook of core or another product, or is registered ({_first_few(hooks)})")
+    if settings_files:
+        reasons.append(f"core settings name it by dotted path ({_first_few(settings_files)})")
     remedy = f" or {' and '.join(moves)}" if moves else ""
     return (
         f"{path} runs in other suites without an import edge: {'; '.join(reasons)}. The "
