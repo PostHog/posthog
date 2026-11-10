@@ -235,8 +235,8 @@ describe('SandboxEmailService', () => {
         expect(recipients()).toEqual([member()])
     })
 
-    const accepted = { status: 'accepted', messageId: 'ses-1' }
-    const optedOut = { status: 'skipped', reason: 'opted_out' }
+    const accepted: SandboxSendOutcome = { status: 'accepted', messageId: 'ses-1' }
+    const optedOut: SandboxSendOutcome = { status: 'skipped', reason: 'opted_out' }
 
     it.each<[string, Partial<SandboxSendRequest>, SandboxSendOutcome]>([
         [

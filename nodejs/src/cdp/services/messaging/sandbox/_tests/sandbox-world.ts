@@ -175,11 +175,12 @@ export function useSandboxWorld(): SandboxWorld {
     }
 
     world.provision = async () => {
-        await insertIntegration(world.postgres, world.team.id, {
-            kind: 'email_sandbox' as any,
+        const sandboxIntegration = {
+            kind: 'email_sandbox' as const,
             integration_id: SANDBOX_INTEGRATION_ID,
             config: {},
-        })
+        }
+        await insertIntegration(world.postgres, world.team.id, sandboxIntegration)
     }
 
     world.setTenant = async (sendingStatus, syncedAt) => {
