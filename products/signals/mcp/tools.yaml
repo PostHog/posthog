@@ -125,8 +125,7 @@ tools:
             (`github_assign_on_pull_request`), and where and from which priority PostHog sends the user Slack pings
             (`slack_notification_integration_id`, `slack_notification_channel`, `slack_notification_min_priority`). A
             null field follows the project default. `has_overrides: false` means the user saved no overrides, so the
-            project defaults apply to every setting. The tool always reads the settings of the authenticated user. It
-            needs the `user:write` scope, also for this read.
+            project defaults apply to every setting.
         hooks: signals/inboxMySettingsHooks
         param_overrides:
             user_id:
@@ -146,12 +145,9 @@ tools:
             Change the personal inbox overrides of the authenticated user, for example "open pull requests for me only
             at P1 or higher" (`autostart_priority: P1`) or "send my inbox pings to this channel". This is a partial
             update: only the fields you send change, and the other fields keep their values. Send null on a field to
-            make it follow the project default again. To send Slack pings, set `slack_notification_integration_id` and
-            `slack_notification_channel` (`channel_id|#channel-name`), or set `slack_notification_direct_message: true`
-            to get a direct message. The API checks the Slack integration against the current project of the user, so
-            take the id from integrations-list in that project. Send null on either Slack field to stop the pings. Read
-            inbox-my-settings-get first and confirm the change with the user. The tool always changes the settings of
-            the authenticated user.
+            make it follow the project default again. The API checks `slack_notification_integration_id` against the
+            current project of the user, so take the id from integrations-list in that project. Read
+            inbox-my-settings-get first and confirm the change with the user.
         hooks: signals/inboxMySettingsHooks
         param_overrides:
             user_id:

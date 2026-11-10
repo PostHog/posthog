@@ -16,7 +16,7 @@ function notFound(method: string): PostHogApiError {
         status: 404,
         statusText: 'Not Found',
         body: '',
-        url: `https://app.example.com${MY_SETTINGS_PATH}`,
+        url: 'https://app.example.com/api/users/%40me/signal_autonomy/',
         method,
     })
 }
