@@ -1552,8 +1552,10 @@ describe('Cyclotron V2', () => {
             it('leaves no key behind when the job insert fails, so the retry queues the job', async () => {
                 const id = uuidv7()
 
-                // Out of range for the SMALLINT priority column, so the job insert fails after the key is written.
-                await expect(manager.createJobsIdempotently([keyed(id, 'a', { priority: 40_000 })])).rejects.toThrow()
+                const priorityTooLargeForSmallint = 40_000
+                await expect(
+                    manager.createJobsIdempotently([keyed(id, 'a', { priority: priorityTooLargeForSmallint })])
+                ).rejects.toThrow()
 
                 expect(await manager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['created'])
                 expect(await totalJobCount()).toBe(1)
@@ -1580,10 +1582,7 @@ describe('Cyclotron V2', () => {
             it('does not deadlock when concurrent calls carry the same ids in opposite orders', async () => {
                 const [first, second] = [uuidv7(), uuidv7()].sort()
                 await manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'a')])
-                // Row locks are granted in request order. The blocker holds `first`, the call given
-                // [first, second] queues for it, then the call given [second, first] queues behind.
-                // Without the sort, the second call would already hold `second`, and the two calls
-                // deadlock when the blocker lets go.
+                // Both calls queue for `first` in order. Unsorted, the reversed call would hold `second` and deadlock.
                 const blocker = await assertPool.connect()
                 await blocker.query('BEGIN')
                 await blocker.query('SELECT id FROM cyclotron_idempotency_keys WHERE id = $1 FOR UPDATE', [first])

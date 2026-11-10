@@ -46,13 +46,10 @@ export const CyclotronV2JobInitSchema = z.object({
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 
 export type CyclotronV2IdempotentJobInit = {
-    // The job's `id` is required and is the idempotency key's id.
     job: CyclotronV2JobInit & { id: string }
     fingerprint: string
 }
 
-// created: this call queued the job. replayed: an earlier call with the same id and fingerprint
-// queued it. mismatch: an earlier call with the same id and a different fingerprint queued a job.
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
 export const CyclotronV2RescheduleOptionsSchema = z.object({

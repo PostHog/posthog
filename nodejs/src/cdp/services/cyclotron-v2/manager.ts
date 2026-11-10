@@ -157,7 +157,6 @@ const dbWriteFailureCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
-// How long an idempotency key deduplicates repeats of its request, counted from when its job is due.
 export const IDEMPOTENCY_KEY_TTL_MS = 24 * 60 * 60 * 1000
 
 const idempotentInsertsCounter = new Counter({
@@ -444,22 +443,13 @@ export class CyclotronV2Manager {
         return ids
     }
 
-    /**
-     * Queues each job unless an earlier call already queued a job with the same id, and returns one
-     * outcome per input, in input order. The ids in one call must be unique.
-     *
-     * The idempotency key row and the job are written in one transaction, so a failure leaves
-     * neither and the caller's retry can queue the job. A concurrent call with the same id waits on
-     * the key's row lock until this call commits. A key expires `IDEMPOTENCY_KEY_TTL_MS` after its
-     * job is due, and once its job also no longer exists, the same id queues a new job.
-     */
+    /** Writes each job and its idempotency key in one transaction, so a failure leaves neither. */
     async createJobsIdempotently(inputs: CyclotronV2IdempotentJobInit[]): Promise<CyclotronV2IdempotentOutcome[]> {
         if (inputs.length === 0) {
             return []
         }
 
-        // Postgres returns ids in lowercase. Sorting makes every call lock key rows in the same
-        // order, so two calls that share ids cannot deadlock.
+        // Lowercase to match RETURNING. Sorted so every call locks keys in one order and cannot deadlock.
         const entries = inputs
             .map(({ job, fingerprint }) => ({
                 id: job.id.toLowerCase(),
@@ -476,8 +466,7 @@ export class CyclotronV2Manager {
 
         await this.insertGuard()
 
-        // Assigned before the transaction so that the per-team counter row is not locked until
-        // commit. A repeat leaves a gap in its team's sequence, which the fair dequeue order allows.
+        // Outside the transaction, so the hot per-team counter row is not locked until commit.
         const dequeueSeqs = await this.computeEmailDequeueSeqs(entries.map((entry) => entry.job))
 
         const now = Date.now()
@@ -487,8 +476,7 @@ export class CyclotronV2Manager {
         try {
             await client.query('BEGIN')
 
-            // A key that expired is claimed again before the janitor sweeps it, but not while its
-            // job still exists, because a second job with the same id would fail on the primary key.
+            // Reclaims an expired key only once its job is gone, because the job id is a primary key.
             const claimed = await client.query<{ id: string }>(
                 `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
                  SELECT unnest($1::uuid[]), unnest($2::int[]), unnest($3::text[]), unnest($4::timestamptz[])
@@ -522,8 +510,7 @@ export class CyclotronV2Manager {
                 )
             }
 
-            // Each statement in a read committed transaction reads a new snapshot, so this sees a
-            // key that a concurrent call committed while the claim above waited on its lock.
+            // A fresh snapshot, so this sees keys a concurrent call committed while the claim waited.
             const unclaimedIds = entries.filter((entry) => !claimedIds.has(entry.id)).map((entry) => entry.id)
             if (unclaimedIds.length > 0) {
                 const stored = await client.query<{ id: string; fingerprint: string }>(

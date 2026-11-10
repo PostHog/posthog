@@ -170,9 +170,9 @@ export class CyclotronV2Janitor {
     async runOnce(): Promise<CyclotronV2CleanupResult> {
         // Sweep first, before the cyclotron-cleanup stages below. Each of those issues an unguarded
         // pool.query, so a failure specific to cyclotron_jobs (a statement timeout or lock pressure on
-        // that hot table) rejects out of runOnce and would skip the sweeps for as long as it lasts. The
-        // sweeps touch other tables and swallow their own errors, so running them up front keeps
-        // expired rows draining even while cyclotron cleanup is failing.
+        // that hot table) rejects out of runOnce and would skip the sweep for as long as it lasts. The
+        // sweep touches a different table and swallows its own errors, so running it up front keeps
+        // expired watchers draining even while cyclotron cleanup is failing.
         await this.sweepExpiredConversionWatchers()
         await this.sweepExpiredIdempotencyKeys()
 
@@ -499,11 +499,7 @@ export class CyclotronV2Janitor {
         return this.sweepExpiredRows('conversion_watchers', conversionWatchersSweptCounter)
     }
 
-    /**
-     * Deletes idempotency keys whose window has closed. A key is only ever claimed again after it
-     * expires, so a missed sweep costs space and never a duplicate send. A key whose job still
-     * exists is kept, so that a repeat cannot insert a second job with the same id.
-     */
+    // Keeps a key while its job exists, so a repeat cannot insert a second job with the same id.
     sweepExpiredIdempotencyKeys(): Promise<number> {
         return this.sweepExpiredRows(
             'cyclotron_idempotency_keys',
@@ -512,9 +508,7 @@ export class CyclotronV2Janitor {
         )
     }
 
-    // SKIP LOCKED leaves a row that a writer holds, so the sweep never waits on it and holds up the
-    // janitor's other work. The outer expiry check stops the delete of a row that a writer renewed
-    // after the subquery selected it.
+    // SKIP LOCKED keeps the sweep from waiting on a writer, and the outer expiry check spares a row renewed meanwhile.
     private async sweepExpiredRows(
         table: 'conversion_watchers' | 'cyclotron_idempotency_keys',
         sweptCounter: Counter,
