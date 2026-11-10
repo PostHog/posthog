@@ -22,6 +22,7 @@ export const waitForEmailStatusMvReady = async (clickhouse: Clickhouse): Promise
     await ensureKafkaTopics([KAFKA_EMAIL_STATUS])
     const producer = await ActualKafkaProducerWrapper.create(undefined)
     const probeTeamId = -999_999
+    const probeIds: string[] = []
     try {
         await waitForExpect(async () => {
             const probe = buildEmailStatusRow({
@@ -29,6 +30,7 @@ export const waitForEmailStatusMvReady = async (clickhouse: Clickhouse): Promise
                 messageId: new UUIDT().toString(),
                 status: 'queued',
             })
+            probeIds.push(probe.message_id)
             await producer.queueMessages({
                 topic: KAFKA_EMAIL_STATUS,
                 messages: [{ key: probe.message_id, value: JSON.stringify(probe) }],
@@ -36,7 +38,7 @@ export const waitForEmailStatusMvReady = async (clickhouse: Clickhouse): Promise
             await producer.flush()
 
             const result = await clickhouse.query<{ c: number }>(
-                `SELECT count() AS c FROM email_status WHERE team_id = ${probeTeamId}`
+                `SELECT count() AS c FROM email_status WHERE team_id = ${probeTeamId} AND message_id IN (${probeIds.map((id) => `'${id}'`).join(', ')})`
             )
             expect(Number(result[0]?.c ?? 0)).toBeGreaterThan(0)
         }, 30_000)
