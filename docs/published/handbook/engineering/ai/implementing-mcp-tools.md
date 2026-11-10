@@ -83,6 +83,12 @@ redesign, ask which destinations matter and which existing sections to keep. Che
 shortcuts, since the saved layout contains list references rather than their resolved items. Reuse existing navigation,
 avoid duplicate destinations, and add live metrics only when explicitly requested. Layout limits are ceilings, not targets.
 
+For a general redesign, use `activity-summary-get` when available to suggest a few destinations based on the current
+person's recent work, repeated object opens, and product pages. Explain each suggestion briefly, and give their stated
+goal priority over inferred interests. The summary has no exact date-range filter and can be stale, not ready, or
+unavailable. Fall back to resolved Pinned and Recents items or ask what matters now. The summary does not resolve those
+lists or authorize removing sections or adding metrics. Apply specific requests without fetching activity first.
+
 Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
 Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
