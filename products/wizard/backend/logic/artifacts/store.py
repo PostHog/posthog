@@ -75,8 +75,10 @@ def upsert_pull_request(
 ) -> WizardRunPullRequestArtifactDTO:
     with transaction.atomic():
         WizardRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+        # Locked so a webhook state update cannot commit between this read and the write below.
         existing_metadata = (
             WizardRunArtifact.objects.for_team(team_id)
+            .select_for_update()
             .filter(run_id=run_id, type=WizardRunArtifactType.PULL_REQUEST.value)
             .values_list("metadata", flat=True)
             .first()

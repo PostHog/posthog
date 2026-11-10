@@ -4,11 +4,17 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.dispatch.loading import get_consumer_registry, reset_consumer_registry
 
+from products.wizard.backend.logic.artifacts.pull_requests import PullRequestArtifactNotStoredError
+from products.wizard.backend.tasks.pull_requests import (
+    MAX_PULL_REQUEST_EVENT_RETRIES,
+    process_wizard_pull_request_event,
+)
 from products.wizard.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
 PULL_REQUEST_DELAY = "products.wizard.backend.facade.tasks.process_wizard_pull_request_event.delay"
@@ -51,3 +57,17 @@ class TestWizardWebhookConsumers(SimpleTestCase):
             delay.assert_called_once_with(payload=dict(delivery.payload))
         else:
             delay.assert_not_called()
+
+    def test_a_close_without_an_artifact_is_retried_then_dropped(self) -> None:
+        with patch(
+            "products.wizard.backend.logic.artifacts.pull_requests.handle_pull_request_event",
+            side_effect=PullRequestArtifactNotStoredError("https://github.com/acme/widgets/pull/7"),
+        ):
+            with self.assertRaises(Retry):
+                process_wizard_pull_request_event.apply(kwargs={"payload": {}}, retries=0)
+
+            result = process_wizard_pull_request_event.apply(
+                kwargs={"payload": {}}, retries=MAX_PULL_REQUEST_EVENT_RETRIES
+            )
+
+        assert result.successful()

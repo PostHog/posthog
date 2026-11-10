@@ -1,7 +1,7 @@
 from uuid import NAMESPACE_URL, uuid5
 
 from posthog.models import User
-from posthog.ph_client import ph_background_capture
+from posthog.ph_client import ScopedCapture, ph_background_capture
 
 from products.wizard.backend.facade.contracts import (
     WizardRunArtifactDTO,
@@ -98,7 +98,9 @@ def enqueue_artifact_created(run: WizardRunDTO, artifact: WizardRunArtifactDTO) 
     _enqueue_run_event(run, WIZARD_RUN_ARTIFACT_CREATED_EVENT, f"artifact:{artifact.id}", properties)
 
 
-def enqueue_pull_request_finished(run: WizardRunDTO, artifact: WizardRunPullRequestArtifactDTO) -> None:
+def enqueue_pull_request_finished(
+    run: WizardRunDTO, artifact: WizardRunPullRequestArtifactDTO, capture: ScopedCapture
+) -> None:
     merged = artifact.state == WizardPullRequestState.MERGED
     _enqueue_run_event(
         run,
@@ -111,6 +113,7 @@ def enqueue_pull_request_finished(run: WizardRunDTO, artifact: WizardRunPullRequ
             "merged_at": artifact.merged_at.isoformat() if artifact.merged_at else None,
             "closed_at": artifact.closed_at.isoformat() if artifact.closed_at else None,
         },
+        capture,
     )
 
 
@@ -119,6 +122,7 @@ def _enqueue_run_event(
     event: str,
     event_key: str,
     properties: WizardEventProperties | None = None,
+    capture: ScopedCapture | None = None,
 ) -> None:
     event_uuid = uuid5(NAMESPACE_URL, f"wizard:{run.id}:{event_key}")
     event_properties: WizardEventProperties = {
@@ -144,7 +148,7 @@ def _enqueue_run_event(
         user_distinct_id = User.objects.filter(id=run.created_by_id).values_list("distinct_id", flat=True).first()
         if user_distinct_id is not None:
             distinct_id = user_distinct_id
-    ph_background_capture()(
+    (capture or ph_background_capture())(
         distinct_id=distinct_id,
         event=event,
         properties={**event_properties, "team_id": run.team_id, "wizard_run_id": str(run.id)},

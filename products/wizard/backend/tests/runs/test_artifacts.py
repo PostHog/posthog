@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID
@@ -106,7 +107,7 @@ def test_closed_pull_request_records_state_and_captures_event(
     run = _create_cloud_run(team.id, user.id)
     artifact = _create_pull_request_artifact(team.id, run.id)
 
-    with patch("products.wizard.backend.observability.events.ph_background_capture") as capture:
+    with patch("products.wizard.backend.logic.artifacts.pull_requests.ph_scoped_capture") as capture:
         pull_requests.handle_pull_request_event(
             _pull_request_payload("closed", updated_at="2026-11-10T12:00:00Z", merged=merged, closed=True)
         )
@@ -115,7 +116,7 @@ def test_closed_pull_request_records_state_and_captures_event(
     assert isinstance(stored, WizardRunPullRequestArtifactDTO)
     assert stored.state == state
     assert stored.closed_at == datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
-    captured = capture.return_value.call_args.kwargs
+    captured = capture.return_value.__enter__.return_value.call_args.kwargs
     assert captured["event"] == event
     assert captured["distinct_id"] == user.distinct_id
     assert captured["properties"]["wizard_run_id"] == str(run.id)
@@ -123,17 +124,30 @@ def test_closed_pull_request_records_state_and_captures_event(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("scope", ["other_team", "other_url"])
-def test_pull_request_event_without_a_matching_artifact_changes_nothing(team, user, installation, scope: str) -> None:
+@pytest.mark.parametrize(
+    ("scope", "action", "raises"),
+    [
+        ("other_team", "closed", True),
+        ("other_url", "closed", True),
+        ("other_url", "reopened", False),
+    ],
+)
+def test_pull_request_event_without_a_matching_artifact_changes_nothing(
+    team, user, installation, scope: str, action: str, raises: bool
+) -> None:
     other_team = Team.objects.create(organization=team.organization, project=team.project, name="Other environment")
     run_team = other_team if scope == "other_team" else team
     run = _create_cloud_run(run_team.id, user.id)
     _create_pull_request_artifact(run_team.id, run.id)
-    payload = _pull_request_payload("closed", updated_at="2026-11-10T12:00:00Z", merged=True, closed=True)
+    payload = _pull_request_payload(action, updated_at="2026-11-10T12:00:00Z", merged=True, closed=action == "closed")
     if scope == "other_url":
         payload["pull_request"]["html_url"] = "https://github.com/acme/widgets/pull/8"
 
-    with patch("products.wizard.backend.observability.events.ph_background_capture") as capture:
+    with (
+        patch("products.wizard.backend.logic.artifacts.pull_requests.ph_scoped_capture") as capture,
+        # A close can arrive before the handoff stores the artifact, so it asks the task to retry.
+        pytest.raises(pull_requests.PullRequestArtifactNotStoredError) if raises else nullcontext(),
+    ):
         pull_requests.handle_pull_request_event(payload)
 
     [stored] = wizard_facade.list_run_artifacts(run_team.id, run.id)
@@ -147,7 +161,7 @@ def test_pull_request_state_keeps_the_newest_delivery(team, user, installation) 
     run = _create_cloud_run(team.id, user.id)
     _create_pull_request_artifact(team.id, run.id)
 
-    with patch("products.wizard.backend.observability.events.ph_background_capture"):
+    with patch("products.wizard.backend.logic.artifacts.pull_requests.ph_scoped_capture"):
         pull_requests.handle_pull_request_event(
             _pull_request_payload("closed", updated_at="2026-11-10T12:00:00Z", merged=True, closed=True)
         )
