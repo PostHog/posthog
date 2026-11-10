@@ -98,6 +98,6 @@ export interface DotMatrixLegendLabels {
     valueLabel?: string
     countLabel?: string
     selectionLabel?: (count: number, mode: 'dots' | 'count') => string
-    hint?: string
+    hint?: string | false
     footer?: ReactNode
 }

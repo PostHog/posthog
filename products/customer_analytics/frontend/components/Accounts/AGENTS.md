@@ -45,10 +45,10 @@ The `AccountDotMatrixTile` uses the shared renderer in `lib/components/DotMatrix
 Activity requests share the DataNode query queue. Disposing a queued tile prevents its query from starting.
 Product usage preserves setup-specific empty messages and loaded user details when optional first-use history fails. History failures have a separate retry.
 Custom HogQL matrices cap columns times series at 512 glyph slots per row. Chronological columns keep the most recent periods, and the bound notice explains omitted columns.
-Account activity matrices use its embedded mode inside view cards.
+Account activity matrices use its embedded mode edge to edge inside view cards and hide legend filter instructions.
 `AccountViewTileHeaderActions` places widget-owned controls in the enclosing tile header, with an inline fallback outside a tile.
 `DotMatrixTileSettings` uses this slot for the Options gear and custom-query edit action.
-Product grouping and first-use controls share a left-aligned row with an activity-definition tooltip.
+Product grouping and first-use controls share a left-aligned, inset row with a focusable activity-definition info icon.
 Its Storybook fixtures live beside the renderer stories.
 `accountDotMatrixTileLogic` saves the data source, display mode, and weeks through the account view config callback. Series selection stays local to the mounted tile. Selecting Custom HogQL again reopens the saved query as a draft without saving or rerunning it.
 

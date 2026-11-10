@@ -104,8 +104,11 @@ export function AccountViewTile({
                 </div>
                 <div
                     className={clsx(
-                        'min-w-0 pt-2 pb-0 [&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]',
-                        insetClassName
+                        'min-w-0 pt-2 pb-0',
+                        component.kind !== 'dot_matrix' && [
+                            insetClassName,
+                            '[&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]',
+                        ]
                     )}
                 >
                     <AccountViewComponent

@@ -4,9 +4,10 @@ import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { DotMatrix } from 'lib/components/DotMatrix/DotMatrix'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { BookActivityMatrixFirstUse, BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
@@ -43,7 +44,7 @@ export function AccountProductUsageTable({
     const rowByKey = new Map(presentation.rows.map((row) => [row.key, row]))
     return (
         <div className="AccountProductUsageTable flex flex-col gap-3 min-w-0" data-attr="account-product-usage-table">
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4 px-2">
                 <LemonSegmentedButton
                     value={grouping}
                     onChange={setGrouping}
@@ -58,14 +59,15 @@ export function AccountProductUsageTable({
                     label="Show first use"
                     data-attr="account-product-usage-first-use"
                 />
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    icon={<IconInfo />}
-                    aria-label="How activity is counted"
-                    tooltip="A user counts when they take a product action or spend 30 seconds to 30 minutes on its pages."
-                    data-attr="account-product-usage-info"
-                />
+                <Tooltip title="A user counts when they take a product action or spend 30 seconds to 30 minutes on its pages.">
+                    <IconInfo
+                        className="text-secondary"
+                        role="img"
+                        aria-label="How activity is counted"
+                        tabIndex={0}
+                        data-attr="account-product-usage-info"
+                    />
+                </Tooltip>
             </div>
             <DotMatrix
                 {...presentation}
