@@ -107,6 +107,9 @@ _LAZY = {
     "cadence_changes": "logic.cadence_changes",
     "clear_legacy_sync_interval": "logic.cadence_changes",
     "clear_node_suspension": "logic.node_suspension",
+    "clear_suspension_markers": "logic.suspension_clearing",
+    "find_suspension_markers": "logic.suspension_clearing",
+    "get_dag_tier_report": "logic.tier_run_report",
     "is_node_suspended": "logic.node_suspension",
     "mark_node_suspended": "logic.node_suspension",
     "query_fingerprint": "logic.node_suspension",
@@ -144,6 +147,8 @@ _LAZY = {
     "check_incremental_eligibility": "logic.incremental_eligibility",
     "propose_incremental_config": "logic.incremental_eligibility",
     "definition_database": "logic.incremental_eligibility",
+    "duplicate_output_columns": "logic.output_columns",
+    "duplicate_output_columns_message": "logic.output_columns",
 }
 
 __all__ = sorted(_LAZY)

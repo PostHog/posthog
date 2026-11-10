@@ -55,6 +55,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -73,7 +74,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         context = SlackThreadContext(
-            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+            team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
 
         SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown="Done, <@U123|Jane Doe>.")
@@ -99,7 +100,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         context = SlackThreadContext(
-            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+            team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
 
         SlackThreadHandler(context, actor_slack_user_id=actor).start_status_stream(first_markdown_text=answer)
@@ -126,7 +127,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         context = SlackThreadContext(
-            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+            team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
         handler = SlackThreadHandler(context, actor_slack_user_id=actor)
 
@@ -158,6 +159,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -182,6 +184,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -198,6 +201,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -220,6 +224,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -242,6 +247,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -272,7 +278,7 @@ class TestSlackThreadHandler(SimpleTestCase):
     ):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         handler = SlackThreadHandler(context)
 
         handler.post_pr_closed(
@@ -301,6 +307,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         mock_get_client.return_value = mock_client
 
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -325,7 +332,9 @@ class TestSlackThreadHandler(SimpleTestCase):
     def test_post_error_includes_custom_recovery_hint(self, mock_get_client, _mock_find_progress):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678"))
+        handler = SlackThreadHandler(
+            SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+        )
 
         handler.post_error(
             "No connected GitHub account", task_url=None, recovery_hint="Connect GitHub, then reply here."
@@ -357,6 +366,7 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
 
     def _make_context(self) -> SlackThreadContext:
         return SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -449,7 +459,7 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
     """
 
     def _context(self) -> SlackThreadContext:
-        return SlackThreadContext(integration_id=1, channel="C001", thread_ts="1.0")
+        return SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1.0")
 
     @parameterized.expand(
         [
@@ -497,7 +507,7 @@ class TestPostPrOpenedPersonalGithubHint(SimpleTestCase):
     ):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(SlackThreadContext(integration_id=1, channel="C001", thread_ts="1.0"))
+        handler = SlackThreadHandler(SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1.0"))
 
         handler.post_pr_opened(
             "https://github.com/org/repo/pull/1",
@@ -516,6 +526,7 @@ class TestPostPrOpenedPersonalGithubHint(SimpleTestCase):
 class TestReplyFooterGate(SimpleTestCase):
     def _handler(self, footer: RunFooter | None = None) -> SlackThreadHandler:
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -551,7 +562,7 @@ class TestFooterNeverCostsTheAnswer(SimpleTestCase):
         ]
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(config={}, integration_id="T1")
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
 
         SlackThreadHandler(context, RunFooter(model="claude-opus-5")).post_thread_message(
             "the answer", with_footer=True
@@ -575,7 +586,7 @@ class TestStreamClosedBySlack(SimpleTestCase):
         )
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(id=1, config={}, integration_id="T1")
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         handler = SlackThreadHandler(context, RunFooter(model="claude-opus-5"), actor_slack_user_id="U123")
 
         assert (
@@ -686,7 +697,7 @@ class TestReplyPostedCapture(SimpleTestCase):
         mock_get_integration.return_value = integration
         reader = MagicMock()
         mock_resolve_user.return_value = reader
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         handler = SlackThreadHandler(
             context, RunFooter(run_id="run-1", task_id="task-1", chart_links=True), actor_slack_user_id="U123"
         )
@@ -714,7 +725,7 @@ class TestReplyPostedCapture(SimpleTestCase):
 
 class TestRelayedAnswerFooter(SimpleTestCase):
     def _handler(self, footer: RunFooter) -> SlackThreadHandler:
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         return SlackThreadHandler(context, footer)
 
     @parameterized.expand(
@@ -766,6 +777,7 @@ class TestDeletedTriggerMessage(SimpleTestCase):
     def _handler(self) -> SlackThreadHandler:
         return SlackThreadHandler(
             SlackThreadContext(
+                team_id=1,
                 integration_id=1,
                 channel="C_DELETED",
                 thread_ts="1700000000.000100",
@@ -810,6 +822,7 @@ class TestForkMenuOnReplies(SimpleTestCase):
 
     def _handler(self) -> SlackThreadHandler:
         context = SlackThreadContext(
+            team_id=1,
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
@@ -862,7 +875,7 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
     at a different length than the `section` it replaces."""
 
     def _handler(self) -> SlackThreadHandler:
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
         return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
 
     @parameterized.expand([("with_footer", True), ("without_footer", False)])
@@ -947,7 +960,9 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
     @patch.object(SlackThreadHandler, "_get_client")
     def test_moved_recipient_does_not_start_a_targeted_stream(self, client: MagicMock, _muted: MagicMock) -> None:
         handler = SlackThreadHandler(
-            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            SlackThreadContext(
+                team_id=1, integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"
+            ),
             RunFooter(run_id="run-1"),
         )
         assert handler.start_status_stream(first_markdown_text="Finished") is None
@@ -959,7 +974,9 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
         self, _name: str, text: str, _muted: MagicMock
     ) -> None:
         handler = SlackThreadHandler(
-            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            SlackThreadContext(
+                team_id=1, integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"
+            ),
             RunFooter(run_id="run-1"),
         )
         assert handler._with_leading_mention(text) == "Finished"
@@ -969,7 +986,9 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
     @patch.object(SlackThreadHandler, "_delete_progress_and_post")
     def test_shared_pr_card_keeps_the_card_without_ping(self, post: MagicMock, _muted: MagicMock) -> None:
         handler = SlackThreadHandler(
-            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            SlackThreadContext(
+                team_id=1, integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"
+            ),
             RunFooter(run_id="run-1"),
         )
         handler.post_pr_opened("https://example.com/pr/1", None, reply_target_slack_user_id="U123")
