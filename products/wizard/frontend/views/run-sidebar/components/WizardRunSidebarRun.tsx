@@ -32,7 +32,7 @@ export function WizardRunSidebarRun({
     const { completed, total } = wizardRunTaskCounts(tasks)
     return (
         <li
-            className="flex min-w-0 items-center gap-2 rounded px-2 py-2 hover:bg-fill-highlight-50"
+            className="flex min-w-0 items-start gap-2 rounded px-2 py-2 hover:bg-fill-highlight-50"
             data-run-id={run.id}
         >
             <LemonCheckbox

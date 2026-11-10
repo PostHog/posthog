@@ -159,11 +159,13 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             actions.refreshDetectedSources()
         },
         refreshDetectedSources: () => {
+            const activeRunIds = values.visibleRuns.filter(wizardRunIsActive).map((run) => run.id)
+            // A run can upload its scan and finish inside one cooldown, so a run that just ended always refreshes.
+            const runFinished = (cache.activeRunIds ?? []).some((id: string) => !activeRunIds.includes(id))
+            cache.activeRunIds = activeRunIds
             const now = Date.now()
-            if (
-                !values.visibleRuns.some(wizardRunIsActive) ||
-                now - (cache.detectedSourcesLoadedAt ?? 0) < DETECTED_SOURCES_REFRESH_MS
-            ) {
+            const cooledDown = now - (cache.detectedSourcesLoadedAt ?? 0) >= DETECTED_SOURCES_REFRESH_MS
+            if (!runFinished && (activeRunIds.length === 0 || !cooledDown)) {
                 return
             }
             cache.detectedSourcesLoadedAt = now

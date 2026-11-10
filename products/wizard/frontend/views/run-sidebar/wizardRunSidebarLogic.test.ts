@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
+import { wizardScansDetectedSourcesRetrieve } from '../../generated/api'
 import type { WizardRunApi } from '../../generated/api.schemas'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import { wizardRunSidebarLogic } from './wizardRunSidebarLogic'
@@ -97,6 +98,19 @@ describe('wizardRunSidebarLogic', () => {
         ])
 
         expect(logic.values.runDetectedSources.map((source) => source.warehouse_source_type)).toEqual(['Stripe'])
+    })
+
+    it('refreshes the detected sources when a run finishes inside the refresh cooldown', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const sync = wizardRunSyncLogic({ projectId: '1' })
+        sync.actions.runsLoaded([{ ...run('current'), status: 'running' }])
+        await expectLogic(logic).toFinishAllListeners()
+        const callsWhileRunning = jest.mocked(wizardScansDetectedSourcesRetrieve).mock.calls.length
+
+        sync.actions.runsLoaded([{ ...run('current'), status: 'completed' }])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(jest.mocked(wizardScansDetectedSourcesRetrieve).mock.calls.length).toBe(callsWhileRunning + 1)
     })
 
     it('scopes dismissals to the current project and user', async () => {

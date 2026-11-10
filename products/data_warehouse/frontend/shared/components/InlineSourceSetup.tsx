@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { IconDatabase, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import type { ExternalDataSourceType } from '~/types'
 
@@ -15,15 +15,9 @@ import { AvailableSourcesError, NewSourcesWizard } from '../../scenes/NewSourceS
 import { sourceWizardLogic } from '../../scenes/NewSourceScene/sourceWizardLogic'
 import { DataWarehouseWizardBlock } from './DataWarehouseWizardBlock'
 import { inlineSourceGrid } from './inlineSourceGrid'
-import { SourceIcon } from './SourceIcon'
+import { type InlineSourceItem, InlineSourceTile } from './InlineSourceTile'
 
 export type InlineSourceSetupView = 'selection' | 'connecting'
-
-interface SourceItem {
-    id: ExternalDataSourceType
-    label: string
-    detected: boolean
-}
 
 export interface InlineSourceSetupProps {
     /** Callback when source connection is completed */
@@ -98,7 +92,7 @@ function InternalInlineSourceSetup({
         query: searchQuery,
     })
 
-    const sourceItems: SourceItem[] = shown.map((source: SourceConfigResponseApi) => ({
+    const sourceItems: InlineSourceItem[] = shown.map((source: SourceConfigResponseApi) => ({
         id: source.name,
         label: source.label ?? source.name,
         detected: detectedSourceTypes.has(source.name),
@@ -136,23 +130,7 @@ function InternalInlineSourceSetup({
                         {sourceItems.length > 0 ? (
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                                 {sourceItems.map((source) => (
-                                    <button
-                                        key={source.id}
-                                        type="button"
-                                        className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer text-left"
-                                        onClick={() => onSourceSelect(source.id)}
-                                        data-attr={source.detected ? 'inline-source-detected' : undefined}
-                                    >
-                                        <SourceIcon type={source.id} size="small" disableTooltip />
-                                        <span className="flex min-w-0 flex-col items-start gap-1">
-                                            <span className="font-medium text-sm">{source.label}</span>
-                                            {source.detected && (
-                                                <LemonTag type="success" size="small">
-                                                    Found in your code
-                                                </LemonTag>
-                                            )}
-                                        </span>
-                                    </button>
+                                    <InlineSourceTile key={source.id} source={source} onSelect={onSourceSelect} />
                                 ))}
                             </div>
                         ) : (
