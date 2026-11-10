@@ -217,7 +217,10 @@ class TestSCIMAPI(APILicensedTest):
     def test_slug_free_url_resolves_tenant_from_token(self):
         # The config's token predates `scim_token_digest`, so the slug-free URL only starts working
         # once a slugged request has backfilled the digest from the verified token.
-        assert self.config.scim_token_digest is None
+        # Read into a local so the `is None` assert doesn't narrow the field for the rest of the test
+        # (mypy can't tell that `refresh_from_db` widens it again).
+        digest_before = self.config.scim_token_digest
+        assert digest_before is None
         self.client.credentials(**self.scim_headers)
         assert self.client.get(f"/scim/v2/{self.config.scim_slug}/Users").status_code == status.HTTP_200_OK
 
