@@ -4406,8 +4406,8 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
     if dropped and not drop_own_sender_settings:
         raise exceptions.ValidationError(
             {
-                "sender": f"The sandbox sender can't keep {', '.join(dropped)}. Clear them first, or send "
-                "drop_own_sender_settings: true to drop them."
+                "sender": f"The sandbox sender can't keep these settings: {', '.join(dropped)}. Clear them first, "
+                "or send drop_own_sender_settings: true to drop them."
             }
         )
     return to_sandbox_action(action)

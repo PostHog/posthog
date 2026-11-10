@@ -264,7 +264,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
     @parameterized.expand(
         [
             ("plain", {}, {}, None),
-            ("reply_to_kept", {"replyTo": "a@example.com"}, {}, "can't keep replyTo"),
+            ("reply_to_kept", {"replyTo": "a@example.com"}, {}, "can't keep these settings: replyTo"),
             ("reply_to_cleared_in_the_patch", {"replyTo": "a@example.com"}, {"email_patch": {"replyTo": None}}, None),
             ("reply_to_dropped", {"replyTo": "a@example.com"}, {"drop_own_sender_settings": True}, None),
         ]
