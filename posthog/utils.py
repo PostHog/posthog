@@ -1104,14 +1104,21 @@ def render_template(
 def resolve_self_capture_team() -> Optional["Team"]:
     """Resolve the team a local/self-hosted instance should treat as its own.
 
-    Mirrors the self-capture chain: the most-recently-active user's current team,
-    then the first team on the instance, then None. Safe before migrations have run
-    and when no users/teams exist. Loads a full Team row (no `.only(...)`) so callers
-    can read any field without a deferred-field lazy query on a background thread.
+    Mirrors the self-capture chain: the `POSTHOG_SELF_TEAM_ID` team when it exists, then the
+    most-recently-active user's current team, then the first team on the instance, then None.
+    Safe before migrations have run and when no users/teams exist. Loads a full Team row (no
+    `.only(...)`) so callers can read any field without a deferred-field lazy query on a
+    background thread.
     """
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
+    explicit_team_id = get_explicit_self_team_id()
     try:
+        if explicit_team_id is not None:
+            # Same pin as the flag provider and the browser token, so backend events land on it too.
+            explicit_team = Team.objects.filter(pk=explicit_team_id).first()
+            if explicit_team is not None:
+                return explicit_team
         user = (
             User.objects.filter(last_login__isnull=False).order_by("-last_login").select_related("current_team").first()
         )

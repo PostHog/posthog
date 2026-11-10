@@ -1336,6 +1336,10 @@ class TestResolveSelfCaptureTeam(TestCase):
         # the test transaction.
         User.objects.all().delete()
         Organization.objects.all().delete()
+        env_patch = patch.dict(os.environ, {}, clear=False)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
 
     def test_prefers_most_recently_logged_in_users_current_team(self):
         organization = Organization.objects.create(name="Org")
@@ -1387,6 +1391,32 @@ class TestResolveSelfCaptureTeam(TestCase):
     def test_returns_none_when_there_are_no_teams(self):
         assert resolve_self_capture_team() is None
         assert get_self_capture_team_id() is None
+
+    def test_explicit_self_team_id_wins_over_recent_users_current_team(self):
+        # Flags and the browser token already follow POSTHOG_SELF_TEAM_ID; backend self-capture
+        # must follow it too, or its events land on whichever team the last login was looking at.
+        organization = Organization.objects.create(name="Org")
+        pinned_team = Team.objects.create(organization=organization, name="Pinned")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        os.environ["POSTHOG_SELF_TEAM_ID"] = str(pinned_team.id)
+
+        assert resolve_self_capture_team() == pinned_team
+        assert get_self_capture_team_id() == pinned_team.id
+
+    def test_falls_back_to_default_chain_when_pinned_team_is_absent(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+
+        os.environ["POSTHOG_SELF_TEAM_ID"] = "987654321"
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
 
 
 class TestResolveDogfoodFlagsTeam(TestCase):
