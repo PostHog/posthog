@@ -28,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     schema_binding,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import person_property_sync as pps
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_phase_timer import (
+    PhaseTimer,
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync"
 
@@ -419,7 +422,13 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as compact,
         ):
             run = pps._RunContext(
-                team_id=1, project_id=7, binding=_SCHEMA, team_api_token="tok", team_uuid="team-uuid", run_token="job-1"
+                team_id=1,
+                project_id=7,
+                binding=_SCHEMA,
+                team_api_token="tok",
+                team_uuid="team-uuid",
+                run_token="job-1",
+                timer=PhaseTimer("incremental"),
             )
             result = await pps._process_source_bundles(run, source, [("a", {"plan_tier": "pro"})], 1)
 

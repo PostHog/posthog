@@ -5,20 +5,27 @@ Loaded on first use through `load_insight_source_config`, never from `ready()`, 
 on `posthog.schema`.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import AlertCondition, InsightThreshold
 
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
-from products.alerts.backend.platform_ownership import admit_platform_write, mirror_platform_edit
+from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS
+from products.alerts.backend.platform_ownership import (
+    admit_platform_write,
+    mirror_platform_edit,
+    remove_native_destinations,
+)
 from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     InvalidPlatformAlertEdit,
+    NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
+from products.alerts_platform.backend.facade.scheduling import MINUTES_PER_DAY
 
 
 class InsightPlatformAlertCondition(BaseModel):
@@ -59,6 +66,19 @@ class InsightPlatformAlertSourceConfig(BaseModel):
         description="How many of the most recent intervals a check leaves out, so late data can arrive. "
         "It can't change through this API.",
     )
+    investigation_agent_enabled: bool = Field(
+        default=False,
+        description="Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API.",
+    )
+    investigation_gates_notifications: bool = Field(
+        default=False,
+        description="Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a "
+        "false positive. It can't change through this API.",
+    )
+    investigation_inconclusive_action: Literal["notify", "suppress"] = Field(
+        default="notify",
+        description="What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API.",
+    )
 
 
 def validate_insight_edit(edit: PlatformAlertConfigurationEdit) -> None:
@@ -74,11 +94,23 @@ def validate_insight_edit(edit: PlatformAlertConfigurationEdit) -> None:
             raise InvalidPlatformAlertEdit(name, f"An insight alert keeps this at {stored}.")
 
 
+def creates_native_alert(team_id: int) -> bool:
+    """No insight alert is created without an insight row yet."""
+    return False
+
+
 INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     model=InsightPlatformAlertSourceConfig,
     validate=validate_insight_edit,
     admit=admit_platform_write,
     mirror=mirror_platform_edit,
+    # For an insight alert with no insight row: the platform deletes it, and its destinations stay
+    # HogFunctions. Creates stay off, and out of the API schema, until `creates` and
+    # `creates_native_alert` turn them on. The interval only sets a native create's cadence.
+    native=NativeAlertLifecycle(
+        check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations, creates=False
+    ),
+    native_create=creates_native_alert,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
-    kept_source_config_keys=frozenset({"config", "skip_weekend", "evaluation_delay_intervals"}),
+    kept_source_config_keys=INSIGHT_ROW_SETTINGS,
 )

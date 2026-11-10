@@ -14,15 +14,16 @@ from collections.abc import Mapping
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Aggregate, Avg, Count, Exists, Max, Min, OuterRef, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.redis import get_client
 
 from products.aeo.backend import catalog, gaps, rankings, suggestions
 from products.aeo.backend.brand import (
@@ -38,6 +39,8 @@ from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
     Brand,
+    BrandCreate,
+    BrandCreateError,
     BrandedSegment,
     BrandKind,
     BrandNotFoundError,
@@ -79,7 +82,7 @@ from products.aeo.backend.facade.contracts import (
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
-from products.aeo.backend.tasks.tasks import suggest_aeo_prompts_task
+from products.aeo.backend.tasks.tasks import recompute_aeo_own_citations_task, suggest_aeo_prompts_task
 
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
@@ -112,7 +115,7 @@ def list_prompts(
     A topic of "" selects the prompts that have no topic."""
     prompts = AEOPrompt.objects.for_team(team_id)
     if branded is not None:
-        names_brand = branded_filter(settings.AEO_TARGET_DOMAINS, field="prompt")
+        names_brand = branded_filter(catalog.own_domains(team_id), field="prompt")
         prompts = prompts.filter(names_brand if branded else ~names_brand)
     if not include_archived:
         prompts = prompts.filter(archived_at__isnull=True)
@@ -268,7 +271,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     the cited domains, brand sentiment and the words of the web searches over the last `days` days
     in the team's timezone."""
     prompt = _get_prompt_row(team_id, prompt_id)
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    target_domains = catalog.own_domains(team_id)
     checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
     engines = tuple(
         PromptEngineStats(
@@ -485,7 +488,7 @@ def get_prompt_set_overview(
     """Checks across the whole prompt set over the last `days` days in the team's timezone, the same
     counts for the `days` days before, and the current window split per engine and per topic.
     `branded` keeps the checks, and the active prompts, on one side of the branded split."""
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    target_domains = catalog.own_domains(team_id)
     tz = ZoneInfo(timezone_name)
     window_to = timezone.now().astimezone(tz).date()
     window_from = window_to - dt.timedelta(days=days - 1)
@@ -562,7 +565,7 @@ def get_prompt_set_rankings(
     `branded` keeps the checks on one side of the branded split."""
     return rankings.get_rankings(
         team_id,
-        target_domains=settings.AEO_TARGET_DOMAINS,
+        target_domains=catalog.own_domains(team_id),
         timezone_name=timezone_name,
         days=days,
         segment=branded,
@@ -654,6 +657,11 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     return catalog.sync_brands_from_run(team_id, run_id)
 
 
+def list_own_domains(team_id: int) -> list[str]:
+    """The registrable domains that count as the team itself in citations, from its own brands."""
+    return catalog.own_domains(team_id)
+
+
 def list_brands(
     team_id: int,
     *,
@@ -676,6 +684,41 @@ def get_brand(team_id: int, brand_id: str) -> Brand:
     return _to_brand(_get_brand_row(team_id, brand_id))
 
 
+# A burst of catalog edits shares one recompute, and each edit waits at most this long for it.
+RECOMPUTE_DEBOUNCE_SECONDS = 60
+# One DNS label: letters, digits and inner hyphens, at most 63 characters.
+_DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
+
+
+def create_brand(team_id: int, new: BrandCreate) -> Brand:
+    raw = new.domain.strip()
+    domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}")
+    if domain is None or not _is_dns_name(domain):
+        raise BrandCreateError(f"'{new.domain}' is not a valid domain. Use a domain such as example.com.")
+    duplicate = BrandCreateError(
+        f"The catalog already has {domain}. Update the existing brand instead of adding it again."
+    )
+    if AEOBrand.objects.for_team(team_id).filter(domain=domain).exists():
+        raise duplicate
+    try:
+        # A savepoint, so a concurrent add of the same domain surfaces as a duplicate, not a broken transaction.
+        with transaction.atomic():
+            brand = AEOBrand.objects.for_team(team_id).create(
+                team_id=resolve_effective_team_id(team_id),
+                name=new.name or catalog.placeholder_name(domain),
+                domain=domain,
+                kind=new.kind,
+                status=BrandStatus.CONFIRMED,
+                source=BrandSource.MANUAL,
+                aliases=_clean_aliases(new.aliases),
+            )
+    except IntegrityError as error:
+        raise duplicate from error
+    if catalog.counts_as_own(brand.kind, brand.status):
+        _recompute_own_citations_on_commit(brand.team_id)
+    return _to_brand(brand)
+
+
 def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     brand = _get_brand_row(team_id, brand_id)
     # Only the fields sent are written, so two people editing different fields do not undo each other.
@@ -690,12 +733,44 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
         brand.status = change.status
         changed.append("status")
     if change.aliases is not None:
-        # Order kept and duplicates dropped, so the mention regex gets each name once.
-        brand.aliases = list(dict.fromkeys(alias.strip() for alias in change.aliases if alias.strip()))
+        brand.aliases = _clean_aliases(change.aliases)
         changed.append("aliases")
     if changed:
         brand.save(update_fields=[*changed, "updated_at"])
+    # Any kind or status edit, not only one that flips this row: two concurrent edits can each look
+    # like no change and still make the brand own together. A recompute with nothing stale writes nothing.
+    if "kind" in changed or "status" in changed:
+        _recompute_own_citations_on_commit(brand.team_id)
     return _to_brand(brand)
+
+
+def _recompute_own_citations_on_commit(team_id: int) -> None:
+    """Past checks were scored against the own domains of their run day, so a change to the own
+    domains recomputes them in the background, once the brand change is visible to the task.
+
+    Edits within the debounce window share one task, which reads the domains when it starts. When the
+    enqueue fails, the brand change stands and the reconcile after the next citation run catches up."""
+
+    def enqueue() -> None:
+        try:
+            if get_client().set(
+                f"aeo_own_citations_recompute_queued:{team_id}", 1, nx=True, ex=RECOMPUTE_DEBOUNCE_SECONDS
+            ):
+                recompute_aeo_own_citations_task.apply_async((team_id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
+        except Exception as error:
+            capture_exception(error, {"team_id": team_id})
+
+    transaction.on_commit(enqueue)
+
+
+def _is_dns_name(domain: str) -> bool:
+    labels = domain.split(".")
+    return len(domain) <= 253 and len(labels) >= 2 and all(_DNS_LABEL.match(label) for label in labels)
+
+
+def _clean_aliases(aliases: tuple[str, ...]) -> list[str]:
+    # Order kept and duplicates dropped, so the mention regex gets each name once.
+    return list(dict.fromkeys(alias.strip() for alias in aliases if alias.strip()))
 
 
 def _get_brand_row(team_id: int, brand_id: str) -> AEOBrand:
@@ -944,7 +1019,7 @@ def _to_prompts(team_id: int, rows: list[AEOPrompt]) -> list[Prompt]:
     prompt_ids = [row.id for row in rows]
     latest_checks = _latest_checks(team_id, prompt_ids)
     version_counts = _version_counts(team_id, prompt_ids)
-    pattern = brand_pattern(settings.AEO_TARGET_DOMAINS)
+    pattern = brand_pattern(catalog.own_domains(team_id))
     return [
         _to_prompt(
             row,

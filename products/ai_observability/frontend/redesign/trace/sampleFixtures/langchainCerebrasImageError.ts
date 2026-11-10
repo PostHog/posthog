@@ -1,6 +1,7 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { MessagePart, NodeProperties, ThreadMessage } from '../types'
-import { SampleTraceFixture, sampleStats } from './sampleTraceFixture'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
+import { SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '3030b60b-110e-7653-675c-235b05cc9a77'
 const SPAN_ID = '03aaa1fa-517a-779b-ae4d-3bc682a08ab2'
@@ -133,21 +134,20 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
     initialNodeId: GENERATION_ID,
     details: {
         [TRACE_ID]: {
-            content: { kind: 'io', input: null, output: null },
+            content: jsonContent(null, null),
             error: null,
             properties: traceProperties,
             evals: { status: 'ready', results: [] },
-            raw: { id: TRACE_ID, createdAt: TIMESTAMP, traceName: 'scan_package', totalLatency: 2.133077383041382 },
+            raw: sampleRaw('trace', TRACE_ID, null),
         },
         [SPAN_ID]: {
-            content: { kind: 'messages', input: labelMessages(SPAN_ID), output: [] },
+            content: messagesContent(labelMessages(SPAN_ID), []),
             error: ERROR_MESSAGE,
             properties: { ...traceProperties, timestamp: SPAN_TIMESTAMP },
             evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_span',
-                id: SPAN_ID,
-                createdAt: SPAN_TIMESTAMP,
+            raw: sampleRaw('span', SPAN_ID, {
+                name: '$ai_span',
+                timestamp: SPAN_TIMESTAMP,
                 properties: {
                     ...sharedRawProperties,
                     $ai_span_id: SPAN_ID,
@@ -155,17 +155,16 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
                     $ai_span_name: 'RunnableSequence',
                     $ai_latency: 2.0081095695495605,
                 },
-            },
+            }),
         },
         [GENERATION_ID]: {
-            content: { kind: 'messages', input: cerebrasLabelMessages, output: [] },
+            content: messagesContent(cerebrasLabelMessages, []),
             error: ERROR_MESSAGE,
             properties: { ...traceProperties, provider: 'cerebras', temperature: 0 },
             evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_generation',
-                id: GENERATION_ID,
-                createdAt: TIMESTAMP,
+            raw: sampleRaw('generation', GENERATION_ID, {
+                name: '$ai_generation',
+                timestamp: TIMESTAMP,
                 properties: {
                     ...sharedRawProperties,
                     $ai_span_id: GENERATION_ID,
@@ -177,12 +176,14 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
                     $ai_http_status: 400,
                     $ai_latency: 2.0036303997039795,
                 },
-            },
+            }),
         },
     },
     thread: {
         status: 'ready',
-        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, messages: cerebrasLabelMessages, error: ERROR_MESSAGE }],
+        turns: [
+            { id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(cerebrasLabelMessages, []), error: ERROR_MESSAGE },
+        ],
         activeTurnId: TRACE_ID,
     },
     timeline: {

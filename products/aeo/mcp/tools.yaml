@@ -7,6 +7,24 @@ feature: aeo
 url_prefix: /web/content-autopilot
 ui_apps: {}
 tools:
+    aeo-brands-create:
+        operation: aeo_brands_create
+        enabled: false
+        disabled_reason: Enable after the aeo_brands create route is deployed, so MCP never serves a tool whose route 404s.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add a brand to the AI citation catalog
+        description: >
+            Add one brand to the project's AI citation brand catalog from its `domain` (a domain or a URL on it, stored
+            as its registrable domain), with a required `kind` (own, competitor, publisher or unknown), an optional
+            `name` (guessed from the domain when empty) and optional `aliases`. The brand is added as confirmed. Only
+            brands with `kind: own` count as the project in citations and mentions, and the daily run skips a project
+            without one, so add the project's own site first. Fails when the catalog already has the domain: find that
+            brand with `aeo-brands-list` and change it with `aeo-brands-update` instead. Ask the user before you label a
+            brand as a competitor.
+        feature_flag: aeo-citation-tracking
     aeo-brands-get:
         operation: aeo_brands_retrieve
         enabled: true
