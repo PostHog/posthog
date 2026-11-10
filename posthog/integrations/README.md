@@ -15,7 +15,9 @@ The rules for callers are in `AGENTS.md`.
 | Module               | Holds                                                                      |
 | -------------------- | -------------------------------------------------------------------------- |
 | `__init__.py`        | The public names                                                           |
-| `accessors.py`       | The operations                                                             |
+| `accessors.py`       | The operations and their scope rules                                       |
+| `backend/`           | The storage backends: `StorageBackend`, `DjangoBackend`, `FakeBackend`     |
+| `testing.py`         | `fake_integrations_backend` for tests                                      |
 | `catalogue.py`       | The kinds and their auth types (hand-written)                              |
 | `kinds_generated.py` | One accessor class per kind, generated from the catalogue                  |
 | `contracts.py`       | `IntegrationRecord`, `IntegrationPatch`, `IntegrationUsage` and the errors |
@@ -64,6 +66,7 @@ These reads go across teams, for example to the teams that share one GitHub inst
 - `list_by_external_id(external_id, team_ids=None)` returns the rows with this external id.
 - `get_by_external_id(external_id, id)` returns the row with this id and this external id, or raises `IntegrationNotFound`.
 - `count_by_external_id(external_id)` and `exists_by_external_id(external_id)`.
+- `get_by_id(id)` returns the row with this id, or raises `IntegrationNotFound`. Use it only when the caller holds a bare row id and no team.
 
 They need an accessor with a kind: on `IntegrationManager.any` they raise `ValueError`, because external ids are unique only per provider.
 Do not take the first row of `list_by_external_id` without `team_ids`: the rule `github-installation-first-team` flags it for GitHub.
@@ -104,15 +107,46 @@ An OAuth accessor (`IntegrationManager.<kind>.oauth`) also refreshes access toke
 ## Rows are read-only
 
 The SDK returns rows typed as `IntegrationRecord`, a read-only `Protocol`:
-`id`, `team_id`, `kind`, `integration_id`, `config`, `sensitive_config`, `errors`, `created_at`, `created_by_id`, `auth_type`, `display_name`, `access_token`, `refresh_token` and `can_be_managed_by_creator(user_id)`.
+`id`, `reference`, `team_id`, `kind`, `integration_id`, `config`, `sensitive_config`, `errors`, `created_at`, `created_by_id`, `auth_type`, `display_name`, `access_token`, `refresh_token` and `can_be_managed_by_creator(user_id)`.
 `config` and `sensitive_config` are `Mapping`s, so mypy rejects `row.config["x"] = 1`.
 Mypy also rejects `.save()`, `.delete()`, `.refresh_from_db()`, managers and related rows such as `row.team`.
 Use `row.team_id` and `row.created_by_id`, and load the team or the user from their own models.
 Write with `update` or `upsert`. Read the row again with `get` after a change.
 To set a foreign key to a row, set the id column: `task.github_integration_id = row.id`.
 
-At runtime the rows are still model instances. A later change returns frozen records with the same reads, and callers do not change.
+`reference` is the string form of the row reference (see "Store a reference outside a serializer"). Store it instead of `id`.
+
+With `DjangoBackend` the rows are still model instances at runtime. `FakeBackend` returns `FrozenIntegrationRecord`s with the same reads.
+A later change returns frozen records from every backend. It must first move the code that needs a model instance (the per-kind adapters that save the row, and the callers that read `row.team`) onto SDK operations.
 The per-kind adapters next to the model (`SlackIntegration`, `GitHubIntegration`, `OauthIntegration`, ...) take an `IntegrationRecord` and narrow it to the model with `integration_model`, because they still write the row.
+
+## Storage backends
+
+The accessors hold the scope rules: the kinds, the auth types, the warehouse source rows and the reserved config keys.
+They send the storage work to one `StorageBackend` (`backend/protocol.py`), which `current_backend()` returns.
+The primitives take and return plain data (`RowScope`, `RowFilter`, `NewIntegration`, `IntegrationPatch`, records), so a backend can send them over HTTP.
+
+| Backend                       | Rows                                                        |
+| ----------------------------- | ----------------------------------------------------------- |
+| `DjangoBackend` (the default) | The `Integration` model. The only SDK code that queries it. |
+| `FakeBackend` (tests)         | A dict in memory. Returns `FrozenIntegrationRecord`s.       |
+
+To use the fake in a test:
+
+```python
+from posthog.integrations.testing import fake_integrations_backend
+
+with fake_integrations_backend() as backend:
+    row = backend.seed(team_id=team.id, kind="slack", external_id="T1")
+    assert IntegrationManager.slack.oauth.get(team.id, row.id) == row
+```
+
+`FakeBackend` calls no provider. Pass `token_refresher` to return the patch that a token refresh stores.
+
+To add an operation:
+
+- When existing primitives can do it, add only the accessor method in `accessors.py`.
+- When it needs a new storage step, also add the primitive to `StorageBackend` in `backend/protocol.py`, implement it in `backend/django_backend.py` and `backend/fake_backend.py`, and add a case to `test/test_backends.py`, which runs against both backends.
 
 ## Pick an auth type
 
