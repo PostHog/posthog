@@ -35,7 +35,6 @@ export async function renderSandboxEmail(
     return parsed.data
 }
 
-/** Writes why a sandbox email failed to render to the run's own logs, where the workflow author reads it. */
 export function logRenderFailure({ action, result }: ActionHandlerOptions<SandboxEmailAction>, error: unknown): void {
     result.logs.push({
         level: 'error',

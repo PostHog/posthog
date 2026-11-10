@@ -5,7 +5,6 @@ import { logger } from '~/common/utils/logger'
 import { formatMailbox } from '../email.service'
 import { SandboxMessage } from './sandbox-message'
 
-// The sandbox feedback webhook attributes SES events by these exact names.
 export const SANDBOX_SES_TAGS = {
     team: 'ph_sbx_team',
     flow: 'ph_sbx_flow',
@@ -16,7 +15,6 @@ export const SANDBOX_SES_TAGS = {
     parentRun: 'ph_sbx_parent_run',
 } as const
 
-/** The identifiers SES accepts as tag values, capped at the length the feedback webhook attributes. */
 export const SES_TAG_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 export type SandboxSendTags = {

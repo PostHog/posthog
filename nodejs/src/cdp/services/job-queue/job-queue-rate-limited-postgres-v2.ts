@@ -84,7 +84,6 @@ export class CyclotronJobQueueRateLimitedPostgresV2 extends CyclotronJobQueuePos
 
 export const SES_GLOBAL_BUCKET_KEY = '@posthog/ses/global'
 
-/** The account-wide SES send bucket. Every worker that sends through SES must claim it with these exact options. */
 export function sesRateLimitedQueueOptions(
     config: Pick<
         PluginsServerConfig,

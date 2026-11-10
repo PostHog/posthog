@@ -80,7 +80,6 @@ export type CdpConfig = ClickhouseConfig & {
     WORKFLOWS_SANDBOX_CAPS_VALKEY_PORT: number
     WORKFLOWS_SANDBOX_CAPS_VALKEY_PASSWORD: string
     WORKFLOWS_SANDBOX_CAPS_VALKEY_TLS: boolean
-    // Base URL of the sandbox email worker's internal Service, which cdp-api calls for real test sends.
     WORKFLOWS_SANDBOX_EMAIL_TEST_URL: string
     WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET: string
     // Comma-separated log sources, such as `hog_flow`, that also send their logs to the logs product. Empty sends none.

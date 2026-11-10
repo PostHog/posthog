@@ -14,7 +14,6 @@ import { SandboxRenderedEmail } from './sandbox-message'
 import { logRenderFailure, renderSandboxEmail } from './sandbox-render'
 
 export const SANDBOX_TEST_TOKEN_TTL_SECONDS = 120
-// Outlasts the worker's own deadlines (its reads, cap claims, and SES send), so a send SES accepted is not reported as pending.
 const SANDBOX_TEST_TIMEOUT_MS = 30_000
 
 const TestSendResponseSchema = z.object({
@@ -31,7 +30,6 @@ export type SandboxEmailTesterDeps = {
     fetch?: (url: string, options: Parameters<typeof internalFetch>[1]) => Promise<FetchResponse>
 }
 
-/** Runs editor tests of a sandbox email step from cdp-api: renders here, and sends through the sandbox worker. */
 export class SandboxEmailTester implements SandboxEmailTestClient {
     constructor(private readonly deps: SandboxEmailTesterDeps) {}
 

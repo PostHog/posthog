@@ -79,7 +79,6 @@ export class RecipientPreferencesService {
         })
     }
 
-    /** Reports whether the person is at the team's marketing cap. When they are not, records this send against the cap. */
     public async checkMarketingFrequencyCap({
         teamId,
         resolvePersonId,

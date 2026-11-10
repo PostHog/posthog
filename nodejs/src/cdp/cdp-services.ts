@@ -241,7 +241,6 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
-    /** The sandbox email worker's sending side. Only that worker passes it, and only while sending is on. */
     sandboxEmail?: SandboxEmailRuntime | null
 }
 

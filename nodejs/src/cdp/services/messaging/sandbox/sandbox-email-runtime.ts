@@ -53,7 +53,6 @@ export function missingSandboxSenderSettings(config: SandboxRuntimeConfig): stri
     ]
 }
 
-/** Builds the sending side of the sandbox worker, or null while sending is off. Refuses a half-configured pod. */
 export function createSandboxEmailRuntime(
     config: SandboxRuntimeConfig,
     { postgres, teamManager }: { postgres: PostgresRouter; teamManager: TeamManager }

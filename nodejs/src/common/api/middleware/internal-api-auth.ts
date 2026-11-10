@@ -43,7 +43,6 @@ const SCOPED_AUTH_PATH_PATTERNS = [
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/transactional_email\/send$/,
     // CdpApi.postHogFlowManualInvocation, verified against WORKFLOWS_CANCEL_JWT_SECRET, audience-pinned.
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/manual_invocations$/,
-    // sandboxEmailTestRouter, verified against WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET, audience-pinned.
     /^\/api\/projects\/[^/]+\/sandbox_email\/test_send$/,
 ]
 

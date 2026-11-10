@@ -584,8 +584,6 @@ export type HogFlowInvocationContext = {
         frequencyCapHoldDeadlineAt?: string
         sandboxEmail?: SandboxEmailOutcome
         sandboxEmailRetries?: number
-        // A digest of the recipient whose daily cap tokens a throttled sandbox send still holds, so its retry to
-        // the same recipient spends no more.
         sandboxEmailCapsClaimedFor?: string
     }
     // Set by the subscription matcher consumer when an incoming event matched the
