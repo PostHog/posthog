@@ -327,13 +327,16 @@ describe('Hog Inputs', () => {
                     const startedAt = Date.now()
                     const deadline = deadlineFor()
                     let outcome: unknown
-                    const busyForSeconds = {
-                        ...globals,
-                        event: {
-                            ...globals.event,
-                            properties: { ...globals.event.properties, busy_until: startedAt + busyFor },
+                    let hogReads = 0
+                    const properties = { ...globals.event.properties }
+                    Object.defineProperty(properties, 'busy_until', {
+                        enumerable: true,
+                        get: () => {
+                            hogReads++
+                            return startedAt + busyFor
                         },
-                    }
+                    })
+                    const busyForSeconds = { ...globals, event: { ...globals.event, properties } }
                     void hogInputsService
                         .buildInputs(onlyHog, busyForSeconds, undefined, undefined, deadline.signal)
                         .then(
@@ -352,7 +355,7 @@ describe('Hog Inputs', () => {
                     }
 
                     expect(outcome).toMatchObject({ name: 'TimeoutError' })
-                    expect(Date.now() - startedAt).toBeLessThan(busyFor / 2)
+                    expect(hogReads).toBe(0)
                 } finally {
                     mockedNow.mockReturnValue(fixedNow)
                     jest.useRealTimers()
