@@ -2435,17 +2435,30 @@ describe('Cyclotron V2', () => {
                 const teamId = 5
                 const state = Buffer.from('{"queueMetadata":{"attachmentLoadTries":3}}')
                 const [deferredId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, state }])
-                const [job] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
-                await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [deferredId])
-                const [newerId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
-                const scheduledAt = new Date(Date.now() + 5_000)
+                const worker = createFairWorker({ batchMaxSize: 1 })
+                try {
+                    const [job] = await dequeueOneBatch(worker)
+                    await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [
+                        deferredId,
+                    ])
+                    const [newerId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                    const scheduledAt = new Date(Date.now() - 1_000)
 
-                await job.defer({ scheduledAt })
+                    await job.defer({ scheduledAt })
 
-                const row = await queryJob(deferredId)
-                expect(row).toMatchObject({ status: 'available', lock_id: null, janitor_touch_count: 2, state })
-                expect(new Date(row.scheduled)).toEqual(scheduledAt)
-                expect((await readDequeueSeq(deferredId))!).toBeGreaterThan((await readDequeueSeq(newerId))!)
+                    const row = await queryJob(deferredId)
+                    expect(row).toMatchObject({ status: 'available', lock_id: null, janitor_touch_count: 2, state })
+                    expect(new Date(row.scheduled)).toEqual(scheduledAt)
+
+                    const arrivals: string[] = []
+                    for (let i = 0; i < 2; i++) {
+                        const batch = await dequeueOneBatch(worker)
+                        arrivals.push(...batch.map((j) => j.id))
+                    }
+                    expect(arrivals).toEqual([newerId, deferredId])
+                } finally {
+                    await worker.disconnect()
+                }
             })
         })
     })
