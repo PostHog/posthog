@@ -367,9 +367,12 @@ def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.E
 
 @pytest.fixture(scope="session")
 def django_db_modify_db_settings(
-    django_db_modify_db_settings: None, django_db_keepdb: bool, django_db_createdb: bool
+    django_db_modify_db_settings: None,
+    django_db_keepdb: bool,
+    django_db_createdb: bool,
+    django_db_use_migrations: bool,
 ) -> None:
-    if prime_django_test_database is None or not django_db_keepdb or django_db_createdb:
+    if prime_django_test_database is None or not django_db_keepdb or django_db_createdb or not django_db_use_migrations:
         return
     result = prime_django_test_database(settings.DATABASES["default"])
     if result is not None and result.outcome != "kept":

@@ -9,18 +9,20 @@ from __future__ import annotations
 
 import os
 import gzip
+import time
 import shutil
 import tempfile
 import subprocess
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import psycopg
 from psycopg import sql
+from psycopg.conninfo import make_conninfo
 
 from hogli_commands.db_schema import (
     REPO_ROOT,
@@ -42,6 +44,8 @@ TEMPLATES_KEPT = 3
 TEMPLATE_MAX_LAG_SECONDS = 24 * 60 * 60
 TEMPLATE_BUILD_LOCK = 0x7465_6D70_6C61_7465
 MODE_ENV = "POSTHOG_TEST_DB_TEMPLATE"
+REFRESH_RETRY_SECONDS = 15 * 60
+LIBPQ_TLS_OPTIONS = ("sslmode", "sslrootcert", "sslcert", "sslkey", "sslpassword", "sslcrl", "sslnegotiation")
 
 
 class TemplateUnavailable(Exception):
@@ -54,17 +58,25 @@ class PostgresServer:
     port: str
     user: str
     password: str
+    tls: Mapping[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_django(cls, database: Mapping[str, Any]) -> PostgresServer:
+        options = database.get("OPTIONS") or {}
+        return cls(
+            host=database.get("HOST") or "localhost",
+            port=str(database.get("PORT") or "5432"),
+            user=database.get("USER") or "posthog",
+            password=database.get("PASSWORD") or "",
+            tls={key: str(options[key]) for key in LIBPQ_TLS_OPTIONS if options.get(key)},
+        )
+
+    def conninfo(self, dbname: str) -> str:
+        """Everything but the password, which psql takes from its environment rather than its argv."""
+        return make_conninfo(host=self.host, port=self.port, user=self.user, dbname=dbname, **self.tls)
 
     def connect(self, dbname: str) -> psycopg.Connection:
-        return psycopg.connect(
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            dbname=dbname,
-            autocommit=True,
-            connect_timeout=5,
-        )
+        return psycopg.connect(self.conninfo(dbname), password=self.password, autocommit=True, connect_timeout=5)
 
     def database_exists(self, dbname: str) -> bool:
         with self.connect("postgres") as admin:
@@ -103,10 +115,9 @@ class PostgresServer:
         if psql is None:
             run_psql_with_gzip_input(dump, dbname)
             return
-        connection = ["-h", self.host, "-p", self.port, "-U", self.user, dbname]
         with gzip.open(dump, "rb") as source:
             subprocess.run(
-                [psql, "-q", "-v", "ON_ERROR_STOP=1", "--single-transaction", *connection],
+                [psql, "-q", "-v", "ON_ERROR_STOP=1", "--single-transaction", self.conninfo(dbname)],
                 input=source.read(),
                 env={**os.environ, "PGPASSWORD": self.password},
                 stdout=subprocess.DEVNULL,
@@ -163,11 +174,15 @@ class TemplateStore:
         *,
         allow_download: bool = True,
         prefix: str = TEMPLATE_PREFIX,
+        failure_marker: Path | None = None,
     ) -> None:
         self.server = server
         self.checkout = checkout
         self.allow_download = allow_download
         self.prefix = prefix
+        self.failure_marker = failure_marker or Path(tempfile.gettempdir()) / (
+            f"{prefix}{server.host}_{server.port}.download-failed"
+        )
 
     def name_for(self, sha: str) -> str:
         return self.prefix + sha[:TEMPLATE_SHA_LENGTH]
@@ -177,12 +192,20 @@ class TemplateStore:
             local = self._newest_local_template()
             if not self.allow_download or (local is not None and not self._lags_master(local)):
                 return local
+            if self._download_failed_recently():
+                if local is None:
+                    raise TemplateUnavailable(
+                        f"the last download failed less than {REFRESH_RETRY_SECONDS // 60} minutes ago"
+                    )
+                return local
             try:
                 built = self._build_from_newest_artifact()
             except Exception:
+                self.failure_marker.touch()
                 if local is None:
                     raise
                 return local
+            self.failure_marker.unlink(missing_ok=True)
             self._prune(keep=built)
             return built
 
@@ -205,6 +228,12 @@ class TemplateStore:
             if not name.endswith(BUILDING_SUFFIX) and self.checkout.contains(name.removeprefix(self.prefix)):
                 return name
         return None
+
+    def _download_failed_recently(self) -> bool:
+        try:
+            return time.time() - self.failure_marker.stat().st_mtime < REFRESH_RETRY_SECONDS
+        except FileNotFoundError:
+            return False
 
     def _lags_master(self, name: str) -> bool:
         sha = name.removeprefix(self.prefix)
@@ -272,12 +301,7 @@ def prime_django_test_database(default_db: Mapping[str, Any]) -> PrimeResult | N
     """Prime the test database of Django's default alias. Off in CI, which restores its own."""
     if os.environ.get(MODE_ENV, "off" if os.environ.get("CI") else "auto") == "off":
         return None
-    server = PostgresServer(
-        host=default_db.get("HOST") or "localhost",
-        port=str(default_db.get("PORT") or "5432"),
-        user=default_db.get("USER") or "posthog",
-        password=default_db.get("PASSWORD") or "",
-    )
+    server = PostgresServer.from_django(default_db)
     target_db = default_db.get("TEST", {}).get("NAME") or f"test_{default_db['NAME']}"
     try:
         return prime_test_database(server, target_db, TemplateStore(server, Checkout()))

@@ -9,7 +9,9 @@ import pytest
 
 from django.conf import settings
 
+from hogli_commands import db_template
 from hogli_commands.db_template import Checkout, PostgresServer, PrimeOutcome, TemplateStore, prime_test_database
+from psycopg.conninfo import conninfo_to_dict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APPLIED, PENDING = sorted(path.stem for path in (REPO_ROOT / "posthog" / "migrations").glob("0*.py"))[1:3]
@@ -115,3 +117,46 @@ def test_prime_test_database_leaves_the_database_alone_without_a_template_from_t
     result = prime_test_database(scratch.server, scratch.target, scratch.store)
 
     assert (result.outcome, scratch.ledger()) == (PrimeOutcome.SKIPPED, ledger)
+
+
+def test_usable_template_tries_one_failed_download_per_retry_window(
+    scratch: Scratch, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts: list[None] = []
+
+    def unreachable_github() -> str:
+        attempts.append(None)
+        raise ConnectionError("github.com is unreachable")
+
+    monkeypatch.setattr(db_template, "github_token", unreachable_github)
+    workers = [
+        TemplateStore(
+            scratch.server, Checkout(REPO_ROOT), prefix=scratch.store.prefix, failure_marker=tmp_path / "failed"
+        )
+        for _ in range(3)
+    ]
+
+    for worker in workers:
+        with pytest.raises((ConnectionError, db_template.TemplateUnavailable)):
+            worker.usable_template()
+
+    assert len(attempts) == 1
+
+
+def test_postgres_server_keeps_the_tls_settings_of_the_django_database() -> None:
+    server = PostgresServer.from_django(
+        {
+            "HOST": "db.example.com",
+            "PASSWORD": "not-a-real-password",
+            "OPTIONS": {"sslmode": "verify-full", "sslrootcert": "/certs/ca.pem", "connect_timeout": 3},
+        }
+    )
+
+    assert conninfo_to_dict(server.conninfo("test_posthog")) == {
+        "host": "db.example.com",
+        "port": "5432",
+        "user": "posthog",
+        "dbname": "test_posthog",
+        "sslmode": "verify-full",
+        "sslrootcert": "/certs/ca.pem",
+    }
