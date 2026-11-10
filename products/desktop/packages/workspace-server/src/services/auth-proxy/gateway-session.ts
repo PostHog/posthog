@@ -1,5 +1,8 @@
 import type http from "node:http";
-import { gatewayModelRowsFromTaskModels } from "@posthog/agent/gateway-models";
+import {
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
+} from "@posthog/agent/gateway-models";
 import type { ScopedLogger } from "@posthog/di/logger";
 import {
   aiGatewayDenialCode,
@@ -372,9 +375,18 @@ export class GatewaySessionHandler {
     res: http.ServerResponse,
     abort: AbortController,
   ): Promise<void> {
-    let response: Response;
+    let rows: GatewayModelRow[];
     try {
-      response = await this.deps.listTaskModels(target.projectId, abort.signal);
+      const response = await this.deps.listTaskModels(
+        target.projectId,
+        abort.signal,
+      );
+      if (!response.ok) {
+        void response.body?.cancel().catch(() => {});
+        jsonError(res, 502, { type: "api_error", message: "Proxy error" });
+        return;
+      }
+      rows = gatewayModelRowsFromTaskModels(await response.json());
     } catch (error) {
       if (abort.signal.aborted) return;
       this.deps.log.warn("Model catalogue fetch failed", {
@@ -383,12 +395,6 @@ export class GatewaySessionHandler {
       jsonError(res, 502, { type: "api_error", message: "Proxy error" });
       return;
     }
-    if (!response.ok) {
-      void response.body?.cancel().catch(() => {});
-      jsonError(res, 502, { type: "api_error", message: "Proxy error" });
-      return;
-    }
-    const rows = gatewayModelRowsFromTaskModels(await response.json());
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ data: rows }));
   }

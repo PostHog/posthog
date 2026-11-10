@@ -1316,13 +1316,18 @@ describe("AuthProxyService gateway sessions", () => {
     expect(res.headers["x-kept"]).toBe("1");
   });
 
-  it("refuses an upstream redirect on the Django models listing", async () => {
-    authFetch.mockResolvedValue(
-      new Response(null, {
-        status: 302,
-        headers: { location: "https://evil.example" },
-      }),
-    );
+  it.each([
+    [
+      "an upstream redirect",
+      () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://evil.example" },
+        }),
+    ],
+    ["a body that is not JSON", () => new Response("<html>")],
+  ])("answers 502 to %s on the Django models listing", async (_, response) => {
+    authFetch.mockResolvedValue(response());
     source.getRoute.mockResolvedValue({
       mode: "blocked",
       reason: "credit_bucket_exhausted",
