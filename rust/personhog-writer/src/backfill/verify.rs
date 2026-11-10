@@ -337,7 +337,11 @@ async fn check(
             Ok(("rejected", row, stored))
         }
         Some(Scanned::Record(fresh) | Scanned::Trimmed(fresh)) => {
-            let stored = read_fresh(reader, fresh.team_id, fresh.person_id).await?;
+            // A fresh read opens a reader of its own, so it is spent only when the cached one is behind.
+            let stored = match stored {
+                Some(cached) if cached.version >= fresh.version => Some(cached),
+                _ => read_fresh(reader, fresh.team_id, fresh.person_id).await?,
+            };
             let outcome = match judge(&fresh, stored.as_ref()) {
                 Verdict::NewerInSlatedb => "in_flux",
                 verdict => verdict.label(),
