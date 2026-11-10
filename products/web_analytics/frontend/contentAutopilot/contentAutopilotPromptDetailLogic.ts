@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import type { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
 
@@ -653,6 +655,29 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                             ? "Couldn't archive the prompt. Try again."
                             : "Couldn't restore the prompt. Try again.")
                 )
+            }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        // Each prompt has its own URL, so a prompt can be linked to and the back button closes it.
+        openPromptDetail: ({ promptId }) => {
+            const path = urls.webAnalyticsContentAutopilotPrompt(promptId)
+            return router.values.location.pathname.endsWith(path) ? undefined : [path, router.values.searchParams]
+        },
+        closePromptDetail: () =>
+            values.promptId === null && router.values.location.pathname.includes('/web/content-autopilot/prompts/')
+                ? [urls.webAnalyticsContentAutopilot(), router.values.searchParams]
+                : undefined,
+    })),
+    urlToAction(({ actions, values }) => ({
+        '/web/content-autopilot/prompts/:promptId': ({ promptId }) => {
+            if (promptId && promptId !== values.promptId) {
+                actions.openPromptDetail(promptId)
+            }
+        },
+        '/web/content-autopilot': () => {
+            if (values.promptId) {
+                actions.closePromptDetail()
             }
         },
     })),

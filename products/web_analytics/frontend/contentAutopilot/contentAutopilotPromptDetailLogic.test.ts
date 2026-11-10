@@ -1,8 +1,10 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import type { HogQLQuery } from '~/queries/schema/schema-general'
@@ -68,6 +70,20 @@ describe('contentAutopilotPromptDetailLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it('opens a prompt from its own URL and returns to the workspace URL when it closes', async () => {
+        router.actions.push(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
+        await expectLogic(logic).toDispatchActions(['openPromptDetail']).toFinishAllListeners()
+        expect(logic.values.promptId).toEqual(PROMPT.id)
+        expect(mockRetrieve).toHaveBeenCalledWith(TEAM_ID, PROMPT.id)
+
+        logic.actions.closePromptDetail()
+        expect(router.values.location.pathname).toContain(urls.webAnalyticsContentAutopilot())
+        expect(router.values.location.pathname).not.toContain('/prompts/')
+
+        logic.actions.openPromptDetail(PROMPT.id)
+        expect(router.values.location.pathname).toContain(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
     })
 
     it('loads the prompt, its stats, its versions and the latest answer of each engine', async () => {
