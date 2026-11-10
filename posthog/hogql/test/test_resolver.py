@@ -568,8 +568,8 @@ class TestResolver(BaseTest):
         expr = self._select("SELECT try_cast(1 AS Int64)")
 
         with self.assertRaises(QueryError) as context:
-            resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(str(context.exception), "TRY_CAST is not allowed in clickhouse dialect")
+            resolve_types(expr, self.context, dialect="mysql")
+        self.assertEqual(str(context.exception), "TRY_CAST is not allowed in mysql dialect")
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select[0], ast.TryCast)

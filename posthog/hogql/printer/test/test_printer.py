@@ -352,11 +352,27 @@ class TestPrinter(BaseTest):
         printed = self._select("select [1, 2, 3][1:3]")
         self.assertIn("arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))", printed)
 
-    def test_try_cast_non_postgres_error(self):
-        self._assert_query_error(
-            "select try_cast(1 as Int64)",
-            "TRY_CAST is not allowed in clickhouse dialect",
-        )
+    @parameterized.expand(
+        [
+            ("sql_name", "try_cast(event AS integer)", "clickhouse", "Int64"),
+            ("clickhouse_name", "try_cast(event AS UInt8)", "clickhouse", "UInt8"),
+            ("timestamp_in_project_timezone", "try_cast(event AS timestamp)", "clickhouse", "DateTime64(6, 'UTC')"),
+            ("hogql_round_trip", "try_cast(event AS integer)", "hogql", "Int64"),
+        ]
+    )
+    def test_try_cast_prints_null_safe_cast(
+        self, _name: str, expr: str, dialect: HogQLDialect, expected_target: str
+    ) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr(expr, context, dialect=dialect)
+        if dialect == "hogql":
+            self.assertEqual(printed, f"accurateCastOrNull(event, '{expected_target}')")
+        else:
+            self.assertEqual(printed, "accurateCastOrNull(events.event, %(hogql_val_0)s)")
+            self.assertEqual(context.values["hogql_val_0"], expected_target)
+
+    def test_try_cast_unsupported_type_error(self) -> None:
+        self._assert_expr_error("try_cast(event AS Array(String))", "Unsupported type cast to 'array(string)'")
 
     def test_limit_percent_clickhouse_constant_prints_decimal(self):
         printed = self._select("select 1 from events limit 40 %")

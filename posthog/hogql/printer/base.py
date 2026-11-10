@@ -858,7 +858,34 @@ class BasePrinter(Visitor[str]):
         return str + ")"
 
     def visit_try_cast(self, node: ast.TryCast):
-        raise QueryError(f"TRY_CAST is not allowed in {self.DIALECT_NAME} dialect")
+        type_name = node.type_name.lower()
+        match type_name:
+            case "int" | "integer":
+                target = "Int64"
+            case "int8" | "int16" | "int32" | "int64" | "uint8" | "uint16" | "uint32" | "uint64":
+                target = type_name.replace("u", "U").replace("int", "Int")
+            case "float" | "double" | "double precision" | "real" | "float64":
+                target = "Float64"
+            case "float32":
+                target = "Float32"
+            case "text" | "varchar" | "char" | "string" | "nullable(string)":
+                target = "String"
+            case "boolean" | "bool":
+                target = "Bool"
+            case "date":
+                target = "Date"
+            case (
+                "datetime"
+                | "datetime64"
+                | "timestamp"
+                | "timestamptz"
+                | "timestamp with time zone"
+                | "timestamp with local time zone"
+            ):
+                target = f"DateTime64(6, '{self._get_timezone()}')"
+            case _:
+                raise QueryError(f"Unsupported type cast to '{node.type_name}'")
+        return f"accurateCastOrNull({self.visit(node.expr)}, {self.visit(ast.Constant(value=target))})"
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]

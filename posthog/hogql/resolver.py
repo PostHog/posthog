@@ -2516,7 +2516,7 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_try_cast(self, node: ast.TryCast):
-        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect not in {"clickhouse", "hogql", "trino"}:
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = self._copy(node)
         node.expr = self.visit(node.expr)

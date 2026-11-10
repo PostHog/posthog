@@ -26,6 +26,7 @@ Both typed queries and SQL support visualizations. Save supported dashboard anal
 - **HogQL rejects the ClickHouse `SETTINGS` clause outright** — appending `SETTINGS ...` (e.g. to tune `max_execution_time` or `join_algorithm`) always fails with `Unsupported: SelectStmt.settingsClause()`. Don't include it.
 - **`toDate()` takes exactly one argument** — it does not accept ClickHouse's `toDate(value, timezone)` form. Convert timezone first with `toTimeZone()`, then wrap in `toDate()`: `toDate(toTimeZone(timestamp, 'US/Pacific'))`, not `toDate(timestamp, 'US/Pacific')`.
 - **Width-suffixed conversion functions aren't supported** — `toInt64`, `toInt32`, `toFloat64`, `toUInt8`, etc. (and their `OrNull`/`OrZero` variants) always fail. Use the unsuffixed form instead: `toInt()`, `toFloat()`, `toUInt()`, `toIntOrNull()`, `toFloatOrZero()`, and so on.
+- **`TRY_CAST(value AS type)` returns NULL instead of failing** when a value can't be converted, for example `TRY_CAST(properties.$amount AS Float64)`. It accepts SQL type names (`integer`, `float`, `text`, `boolean`, `date`, `timestamp`) and ClickHouse names (`Int64`, `UInt8`, `Float64`, `DateTime`).
 
 ### Format SQL for readability
 
