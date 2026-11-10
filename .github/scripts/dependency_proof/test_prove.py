@@ -302,9 +302,22 @@ def test_comparable_ignores_only_a_deprecation_under_a_package() -> None:
     assert prover.comparable(plain) != prover.comparable(elsewhere)
 
 
-def test_comparable_reads_scalars_as_text_and_refuses_a_repeated_key() -> None:
-    assert prover.comparable(b"a: 1.10\n") != prover.comparable(b"a: 1.1\n")
-    assert prover.comparable(b"a: yes\n") == {"a": "yes"}
+@pytest.mark.parametrize(
+    ("one", "other", "same"),
+    [
+        (b"a: 1.10\n", b"a: 1.1\n", False),
+        (b"a: true\n", b'a: "true"\n', False),
+        (b"a: 1e3\n", b"a: '1e3'\n", False),
+        (b"a: ~\n", b"a: null\n", False),
+        (b"a: '1.0'\n", b'a: "1.0"\n', True),
+        (b"a: left-pad\n", b"a: 'left-pad'\n", True),
+    ],
+)
+def test_comparable_keeps_scalars_that_pnpm_reads_differently_apart(one: bytes, other: bytes, same: bool) -> None:
+    assert (prover.comparable(one) == prover.comparable(other)) is same
+
+
+def test_comparable_refuses_a_repeated_key_and_an_alias() -> None:
     with pytest.raises(Refused, match="repeats a key"):
         prover.comparable(b"a: 1\na: 2\n")
     with pytest.raises(Refused, match="alias"):
@@ -382,6 +395,7 @@ def test_git_reads_trees_without_running_hooks(tmp_path: Path) -> None:
     (hooks / "post-checkout").write_text("#!/bin/sh\ntouch hook-ran\n")
     (hooks / "post-checkout").chmod(stat.S_IRWXU)
     git("config", "core.hooksPath", str(hooks))
+    git("sparse-checkout", "set", "--no-cone", "/package.json")
 
     reader = prover.Git(repo)
     assert reader.changed_files(base, head) == [("M", "package.json"), ("A", "renovate.json5")]
@@ -392,4 +406,5 @@ def test_git_reads_trees_without_running_hooks(tmp_path: Path) -> None:
     assert reader.commit_time(head).tzinfo is UTC
     reader.add_worktree(tmp_path / "worktree", base)
     assert (tmp_path / "worktree" / "package.json").read_bytes() == b"{}"
+    assert (tmp_path / "worktree" / "pnpm-lock.yaml").exists()
     assert not (tmp_path / "worktree" / "hook-ran").exists()

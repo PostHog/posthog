@@ -31,6 +31,7 @@ jobs:
         timeout-minutes: 5
         permissions:
             contents: read
+            pull-requests: read
         outputs:
             pr: ${{ steps.identify.outputs.pr }}
             merge_base: ${{ steps.identify.outputs.merge_base }}

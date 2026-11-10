@@ -41,21 +41,37 @@ PROVER_FILES = (
 Runner = Callable[[list[str], Path], None]
 
 
+@dataclass(frozen=True)
+class Unquoted:
+    """A scalar that YAML reads as something other than a string, kept as the text in the file."""
+
+    text: str
+
+
 class StrictLoader(YAML_LOADER):  # type: ignore[misc,valid-type]
-    """Reads YAML with every scalar as text, no repeated keys and no aliases.
+    """Reads YAML without converting a scalar, and refuses repeated keys and aliases.
 
     The replay and the head lockfile are compared as the structures this loader builds, so it must
-    not read two different texts as one structure. Type coercion would, because `1.10` and `1.1` are one
-    float. A repeated key would too, because this parser keeps the last value and pnpm's may not.
+    not read two different texts as one structure. Type coercion would, because `1.10` and `1.1` are
+    one float. Reading every scalar as a string would too, because pnpm reads `true` as a boolean and
+    `"true"` as a string. So a string stays a `str`, and any other scalar becomes an `Unquoted` that
+    holds its text. A repeated key is refused, because this parser keeps the last value and pnpm's
+    may not.
     """
-
-    yaml_implicit_resolvers: dict[str, Any] = {}
 
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
         keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
         if len(set(keys)) != len(keys):
             raise Refused("a lockfile repeats a key")
         return super().construct_mapping(node, deep=deep)
+
+
+for _tag in ("bool", "int", "float", "null", "timestamp"):
+    StrictLoader.add_constructor(f"tag:yaml.org,2002:{_tag}", lambda _loader, node: Unquoted(node.value))
+# PyYAML resolves YAML 1.1 and pnpm reads YAML 1.2, which adds these two number forms.
+StrictLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:float", re.compile(r"^(?:[-+]?[0-9]+[eE][-+]?[0-9]+|0o[0-7]+)$"), list("-+0123456789")
+)
 
 
 @dataclass(frozen=True)
@@ -107,6 +123,8 @@ class Git:
 
     def add_worktree(self, directory: Path, sha: str) -> None:
         self.run("worktree", "add", "--detach", str(directory), sha)
+        # A new worktree copies the sparse patterns of the checkout it comes from, and pnpm needs the whole tree.
+        self.run("-C", str(directory), "sparse-checkout", "disable")
 
 
 class GitHub:
@@ -277,9 +295,13 @@ def prove(
     committed = git.commit_time(head)
     if committed > now:
         raise Refused("the head commit is dated in the future")
-    release_age_minutes = (
-        int((now - committed).total_seconds() // 60) + 1 + int(policy.MINIMUM_RELEASE_AGE.total_seconds() // 60)
-    )
+    started = time.monotonic()
+
+    def release_age_minutes() -> int:
+        # pnpm reads its own clock when it runs, which is later than `now` by the time spent since.
+        since_head = (now - committed).total_seconds() + time.monotonic() - started
+        return int(since_head // 60) + 1 + int(policy.MINIMUM_RELEASE_AGE.total_seconds() // 60)
+
     pinned = set(PROVER_FILES)
     for directory, manifests in groups.items():
         pinned |= prove_group(
@@ -330,7 +352,7 @@ def prove_group(
     renovate: Mapping[str, Any],
     directory: str,
     manifests: list[str],
-    release_age_minutes: int,
+    release_age_minutes: Callable[[], int],
 ) -> set[str]:
     """Proves one lockfile directory and returns the settings paths its proof read."""
     lockfile, root_manifest = join(directory, LOCKFILE), join(directory, MANIFEST)
@@ -378,7 +400,7 @@ def prove_group(
     version = policy.pnpm_version(policy.load_manifest(require(git.show(merge_base, root_manifest), root_manifest)))
     run(["npm", "install", "--global", "--no-audit", "--no-fund", f"pnpm@{version}"], worktree)
     updates = [f"{name}@{new}" for name, new in releases]
-    commands = replay_commands(["pnpm"], updates, bool(workspace.get("packages")), release_age_minutes)
+    commands = replay_commands(["pnpm"], updates, bool(workspace.get("packages")), release_age_minutes())
     if comparable(replay_lockfile(worktree, directory, head_manifests, commands, run)) != comparable(head_lock_text):
         raise Refused(f"pnpm writes a different {lockfile} for this update")
     return set(settings)
