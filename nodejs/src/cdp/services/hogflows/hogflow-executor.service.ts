@@ -50,6 +50,7 @@ import {
     WorkflowChangedError,
     actionIdForLogging,
     aiTaskLogToken,
+    canSendEmail,
     ensureCurrentAction,
     findContinueAction,
     shouldSkipAction,
@@ -920,7 +921,7 @@ export class HogFlowExecutorService {
         result.finished = false
 
         result.invocation.state.actionStepCount++
-        if (currentAction.type === 'function_email') {
+        if (canSendEmail(currentAction)) {
             result.invocation.queueMetadata = withoutMetadata(
                 result.invocation.queueMetadata,
                 SEND_WITH_FILES_METADATA_KEYS
