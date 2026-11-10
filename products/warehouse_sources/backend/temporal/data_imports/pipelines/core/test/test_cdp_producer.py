@@ -1,3 +1,4 @@
+import os
 import json
 import uuid
 import asyncio
@@ -1295,6 +1296,22 @@ def test_get_fs_reuses_the_same_filesystem_across_calls(_name, use_local_setup):
 
     mock_s3_filesystem.assert_called_once()
     assert first is second
+
+
+def test_get_fs_takes_the_bucket_region_from_settings():
+    producer = _make_producer("job_1")
+
+    with (
+        patch.object(settings, "USE_LOCAL_SETUP", False),
+        patch.object(settings, "DATA_WAREHOUSE_S3_REGION", "eu-central-1"),
+        patch.dict(os.environ, {"AWS_REGION": "us-west-2"}),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.pa_fs.S3FileSystem"
+        ) as mock_s3_filesystem,
+    ):
+        producer._get_fs()
+
+    assert mock_s3_filesystem.call_args.kwargs.get("region") == "eu-central-1"
 
 
 def test_build_event_id_is_a_valid_uuid():

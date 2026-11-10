@@ -714,3 +714,184 @@ class TestFanoutResume:
             ("b", "ncloc"),
             ("b", "coverage"),
         ]
+
+
+def _unknown_url() -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = 404
+    return requests.HTTPError(
+        "404 Client Error: Unknown url : /api/project_pull_requests/list for url: https://sonar.example.com",
+        response=response,
+    )
+
+
+class TestProjectRows:
+    @parameterized.expand(
+        [
+            (
+                "analyses_full_refresh",
+                "project_analyses",
+                "/api/project_analyses/search",
+                "analyses",
+                None,
+                {"project": "a", "p": "1", "ps": "500"},
+            ),
+            # The window starts a day early so an analysis processed after the last sync is not skipped.
+            (
+                "analyses_incremental",
+                "project_analyses",
+                "/api/project_analyses/search",
+                "analyses",
+                datetime(2026, 3, 4, 12, 0, tzinfo=UTC),
+                {"project": "a", "from": "2026-03-03T12:00:00+0000", "p": "1", "ps": "500"},
+            ),
+            ("branches_unpaged", "project_branches", "/api/project_branches/list", "branches", None, {"project": "a"}),
+            (
+                "pull_requests_unpaged",
+                "project_pull_requests",
+                "/api/project_pull_requests/list",
+                "pullRequests",
+                None,
+                {"project": "a"},
+            ),
+        ]
+    )
+    def test_request_shaping_and_rows_carry_the_project(
+        self, _name: str, endpoint: str, path: str, response_key: str, last_value: Any, expected: dict[str, str]
+    ) -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        try:
+            made = _route(
+                monkeypatch,
+                {
+                    _PROJECTS_PATH: _projects("a"),
+                    # A list endpoint without paging fields is read once.
+                    path: lambda params: {response_key: [{"key": "k1", "name": "n1"}]},
+                },
+            )
+            rows = _fanout_rows(
+                monkeypatch,
+                _FanoutManager(),
+                endpoint,
+                should_use_incremental_field=last_value is not None,
+                db_incremental_field_last_value=last_value,
+            )
+        finally:
+            monkeypatch.undo()
+
+        assert [params for request_path, params in made if request_path == path] == [expected]
+        assert rows == [{"project": "a", "key": "k1", "name": "n1"}]
+
+    def test_stops_when_the_server_does_not_serve_the_endpoint(self, monkeypatch: Any) -> None:
+        def pull_requests(params: dict[str, str]) -> dict:
+            raise _unknown_url()
+
+        made = _route(
+            monkeypatch,
+            {_PROJECTS_PATH: _projects("a", "b", "c"), "/api/project_pull_requests/list": pull_requests},
+        )
+
+        assert _fanout_rows(monkeypatch, _FanoutManager(), "project_pull_requests") == []
+        # Community Build answers the same 404 for every project, so one request is enough to stop.
+        assert sum(1 for path, _ in made if path == "/api/project_pull_requests/list") == 1
+
+
+class _ChangelogManager(_FanoutManager):
+    def save_state(self, data: SonarqubeResumeConfig) -> None:
+        self.events.append(("save", data.next_page, data.issue_key))
+
+
+_ISSUES_PATH = "/api/issues/search"
+_CHANGELOG_PATH = "/api/issues/changelog"
+
+
+def _issue_pages(*pages: list[str]) -> Any:
+    def handler(params: dict[str, str]) -> dict:
+        page = int(params["p"])
+        total = sum(len(keys) for keys in pages)
+        return {
+            "issues": [{"key": key, "project": "p"} for key in pages[page - 1]],
+            "paging": {"pageIndex": page, "pageSize": len(pages[0]), "total": total},
+        }
+
+    return handler
+
+
+class TestIssueChangelog:
+    def test_numbers_each_issues_changes_skips_a_deleted_issue_and_stages_before_each_yield(
+        self, monkeypatch: Any
+    ) -> None:
+        def changelog(params: dict[str, str]) -> dict:
+            if params["issue"] == "gone":
+                raise _not_found()
+            if params["issue"] == "i1":
+                return {
+                    "changelog": [
+                        {"creationDate": "d1", "diffs": [{"key": "issueStatus", "newValue": "ACCEPTED"}]},
+                        {"creationDate": "d1", "diffs": [{"key": "assignee", "newValue": "me"}]},
+                    ]
+                }
+            return {"changelog": []}
+
+        made = _route(monkeypatch, {_ISSUES_PATH: _issue_pages(["i1", "gone", "i2"]), _CHANGELOG_PATH: changelog})
+        manager = _ChangelogManager()
+
+        rows = _fanout_rows(monkeypatch, manager, "issue_changelog")
+
+        # Two changes made in the same second stay distinct rows through their position.
+        assert rows == [
+            {
+                "issue": "i1",
+                "project": "p",
+                "changeIndex": 0,
+                "creationDate": "d1",
+                "diffs": [{"key": "issueStatus", "newValue": "ACCEPTED"}],
+            },
+            {
+                "issue": "i1",
+                "project": "p",
+                "changeIndex": 1,
+                "creationDate": "d1",
+                "diffs": [{"key": "assignee", "newValue": "me"}],
+            },
+        ]
+        assert [params for path, params in made if path == _CHANGELOG_PATH] == [
+            {"issue": "i1"},
+            {"issue": "gone"},
+            {"issue": "i2"},
+        ]
+        assert manager.events == [
+            "safe_point",  # after the issues page
+            ("save", 1, "i1"),
+            ("yield", 2),
+            ("save", 1, "gone"),
+            "safe_point",
+            ("save", 1, "i2"),
+            "safe_point",
+        ]
+
+    @parameterized.expand(
+        [
+            ("after_an_issue", SonarqubeResumeConfig(next_page=2, issue_key="i3"), ["i4"]),
+            ("after_the_last_issue_of_a_page", SonarqubeResumeConfig(next_page=1, issue_key="i2"), ["i3", "i4"]),
+            # An issue deleted since the last attempt cannot be located, so its page is read again.
+            ("issue_gone", SonarqubeResumeConfig(next_page=2, issue_key="deleted"), ["i3", "i4"]),
+        ]
+    )
+    def test_resumes_after_the_saved_issue(
+        self, _name: str, state: SonarqubeResumeConfig, expected_issues: list[str]
+    ) -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        try:
+            made = _route(
+                monkeypatch,
+                {
+                    _ISSUES_PATH: _issue_pages(["i1", "i2"], ["i3", "i4"]),
+                    _CHANGELOG_PATH: lambda params: {"changelog": []},
+                },
+            )
+            _fanout_rows(monkeypatch, _ChangelogManager(state), "issue_changelog")
+        finally:
+            monkeypatch.undo()
+
+        assert [params["issue"] for path, params in made if path == _CHANGELOG_PATH] == expected_issues

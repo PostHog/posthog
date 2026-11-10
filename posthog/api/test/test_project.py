@@ -20,6 +20,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
@@ -83,6 +84,73 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             {team_in_other_org.project.id},
             "Only the project belonging to the scoped organization should be listed, the other one should be excluded",
         )
+
+    @parameterized.expand(
+        [
+            (credential, selected_restricted, ip, blocked)
+            for credential in ("session", "personal_api_key")
+            for selected_restricted in (False, True)
+            for ip, blocked in (("198.51.100.7", True), ("203.0.113.7", False))
+        ]
+    )
+    def test_project_list_filters_each_organizations_ip_policy(
+        self, credential: str, selected_restricted: bool, ip: str, blocked: bool
+    ) -> None:
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = self.organization if selected_restricted else other_org
+        self.user.current_team = self.team if selected_restricted else other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+            )
+        if credential == "personal_api_key":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Project list example",
+                secure_value=hash_key_value(token),
+                scopes=["project:read"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = self.client.get("/api/projects/", REMOTE_ADDR=ip)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        expected = {other_team.project_id} if blocked else {self.project.id, other_team.project_id}
+        self.assertEqual({project["id"] for project in response.json()["results"]}, expected)
+
+    @parameterized.expand(
+        [
+            ("list", True, status.HTTP_403_FORBIDDEN),
+            ("list", False, status.HTTP_200_OK),
+            ("create", True, status.HTTP_403_FORBIDDEN),
+            ("create", False, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_organization_projects_route_checks_the_url_organizations_ip_policy(
+        self, method: str, url_org_restricted: bool, expected_status: int
+    ) -> None:
+        self._set_unlimited_projects()
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization if url_org_restricted else other_org,
+                ip_restrictions=["203.0.113.0/24"],
+            )
+        url = f"/api/organizations/{self.organization.id}/projects/"
+        if method == "create":
+            response = self.client.post(url, {"name": "Example project"}, REMOTE_ADDR="198.51.100.7")
+        else:
+            response = self.client.get(url, REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if method == "create":
+            self.assertEqual(
+                Project.objects.filter(organization=self.organization, name="Example project").exists(),
+                not url_org_restricted,
+            )
 
     @parameterized.expand([(True,), (False,)])
     def test_project_scoped_key_reads_organization_ai_consent(self, approved: bool) -> None:
@@ -301,6 +369,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         for i in range(5):
             response = self.client.post("/api/projects/", {"name": f"Project {i}"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_creating_project_in_another_organization_switches_both_selections(self) -> None:
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/projects/", {"name": "Example project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team_id, response.json()["id"])
+        self.assertEqual(self.user.current_organization_id, self.organization.id)
 
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
