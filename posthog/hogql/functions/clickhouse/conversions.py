@@ -146,11 +146,8 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
 }
 
-# ClickHouse's 64-bit spellings of the numeric conversions. Int64 and Float64 are the widths that toInt and
-# toFloat already cast to, so each alias means the same as its HogQL name. Like toInt, toInt64 returns NULL for
-# input that ClickHouse's toInt64 rejects. The resolver renames an alias to its HogQL name before type inference
-# and printing, because those steps and every dialect printer look functions up by the HogQL name.
-# Narrower widths such as toInt32 stay unsupported: an alias would remove the overflow and change the value.
+# ClickHouse names for the HogQL casts of the same width. The resolver renames them before anything reads the name.
+# Narrower widths stay unsupported because an alias would hide their overflow.
 NUMERIC_CONVERSION_ALIASES: dict[str, str] = {
     "toInt64": "toInt",
     "toInt64OrNull": "toInt",

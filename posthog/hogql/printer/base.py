@@ -58,8 +58,7 @@ _WIDTH_SUFFIXED_CONVERSION = re.compile(r"to(U?Int|Float|Decimal)(?:8|16|32|64|1
 
 
 def _width_suffixed_conversion_suggestion(name: str) -> str | None:
-    # The nearest lexical match for a name like toInt8OrNull is countOrNull, so derive the HogQL name from
-    # the type family and suffix instead. HogQL has no unsigned conversions, so UInt maps to Int.
+    # The nearest lexical match for toInt8OrNull is countOrNull, so derive the name from the type family instead.
     match = _WIDTH_SUFFIXED_CONVERSION.fullmatch(name)
     if match is None:
         return None
