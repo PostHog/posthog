@@ -55,6 +55,7 @@ from products.replay_vision.backend.models.replay_observation_feed_impression im
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
@@ -5261,7 +5262,34 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
 
         # A later page of the same load ranks as of its first page, before the impression.
         assert load_picks(as_of=as_of)[0] == ["s-0", "s-1"]
+        # A fresh load inside the seen grace, as going back to the feed is, keeps the order.
+        assert load_picks()[0] == ["s-0", "s-1"]
+        ReplayObservationFeedImpression.objects.for_team(self.team.id).update(
+            last_shown_at=timezone.now() - timedelta(hours=2)
+        )
         assert load_picks()[0] == ["s-1", "s-0"]
+
+    def test_a_view_docks_an_embedding_pick_only_after_the_seen_grace(self) -> None:
+        scanner = self._create_scanner(name="m")
+        rows = {}
+        for index in range(10):
+            obs = self._succeeded_observation(scanner, f"s-{index}", 10 + index, self._monitor_result("no"))
+            category = "failure" if index < 2 else "routine"
+            set_rank(obs, category=category, contrast=0.5 - index * 0.01, group=None)
+            rows[f"s-{index}"] = obs
+
+        def load_picks() -> list[str]:
+            return [
+                item["observation"]["session_id"]
+                for item in self.client.get(self.feed_url).json()["results"]
+                if item["reason"]["kind"] == "embedding_pick"
+            ]
+
+        viewed_url = f"{self.observations_url(str(scanner.id))}{rows['s-0'].id}/viewed/"
+        assert self.client.post(viewed_url).status_code == 204
+        assert load_picks() == ["s-0", "s-1"]
+        ReplayObservationView.objects.for_team(self.team.id).update(created_at=timezone.now() - timedelta(hours=2))
+        assert load_picks() == ["s-1", "s-0"]
 
     def test_window_type_filter_and_limit(self) -> None:
         monitor = self._create_scanner(name="m")
