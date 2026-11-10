@@ -20,11 +20,9 @@ impl PropertyWriter {
     }
 
     /// Each batch is scanned, deleted and made durable before the next, so memory stays at one
-    /// batch whatever the team's size, and a restart resumes past the keys already gone. Each
-    /// batch's I/O is bounded by `step_timeout`, since SlateDB retries object store errors without
-    /// limit: a scan the deadline cuts short deletes what it found, a shard that cannot finish a
-    /// batch is left for the next pass, and the other shards go on. The error of the first such
-    /// shard comes back once every shard has been tried.
+    /// batch and a restart resumes past the keys already gone. Each batch's I/O is bounded by
+    /// `step_timeout`, since SlateDB retries object store errors without limit: a shard that
+    /// cannot finish a batch is left for the next pass, and the other shards go on.
     pub async fn erase_team_in_batches(
         &self,
         team_id: i64,
