@@ -20,8 +20,6 @@ import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/pane
 import { InsightVizNode, Node, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { DashboardType } from '~/types'
 
-import { notebooksCreate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
-
 import type { NotebookType } from '../scenes/notebooks/types'
 
 // Queue for operations that arrive before the Notebook component mounts its
@@ -222,6 +220,9 @@ export const notebooksModel = kea<notebooksModelType>([
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
                     const projectId = String(values.currentProjectId)
+                    const { notebooksCreate, notebooksRetrieve } = await retryImport(
+                        () => import('products/notebooks/frontend/generated/api')
+                    )
                     let created = true
                     const notebook = (await notebooksCreate(projectId, {
                         title,

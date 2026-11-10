@@ -1,6 +1,7 @@
 import dataclasses
 from typing import TYPE_CHECKING, Any, Optional
 
+from django.db import transaction
 from django.db.models import CharField, Exists, F, Model, OuterRef, Q, QuerySet
 from django.db.models.functions import Cast
 from django.db.models.signals import post_delete, post_save
@@ -35,7 +36,8 @@ class FileSystemSyncMixin(Model):
 
         @receiver(post_save, sender=cls, weak=False)
         def _file_system_post_save(sender, instance: "FileSystemSyncMixin", created, **kwargs):
-            instance.sync_file_system()
+            with transaction.atomic():
+                instance.sync_file_system()
 
         @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: "FileSystemSyncMixin", **kwargs):
