@@ -20,22 +20,27 @@ def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False
     edit. A file that was already unowned at the merge base does not count, at its old path when
     the change moved it, so a gap the repository already has never counts against a change.
 
+    The worktree includes the files git does not track yet, except the ignored ones.
     ``committed_only`` reads HEAD and not the worktree, for a check on what a push carries.
     """
     merge_base = _git(repo_root, "merge-base", against, "HEAD").strip()
+    diff = _git(
+        repo_root, "diff", "--name-status", "-z", "--find-renames", merge_base, *(["HEAD"] if committed_only else [])
+    )
     if committed_only:
         head_source = GitRefSource(repo_root)
         head, files = OwnersResolver(repo_root, source=head_source), sorted(head_source.files)
     else:
         head = OwnersResolver(repo_root)
-        files = head.tracked_files()
+        untracked = [
+            path for path in _git(repo_root, "ls-files", "--others", "--exclude-standard", "-z").split("\0") if path
+        ]
+        files = sorted([*head.tracked_files(), *untracked])
+        diff += "".join(f"A\0{path}\0" for path in untracked)
 
     path_at_base: dict[str, str | None] = {}
     reowned_directories: set[str] = set()
     ownership_filenames = head.ownership_filenames()
-    diff = _git(
-        repo_root, "diff", "--name-status", "-z", "--find-renames", merge_base, *(["HEAD"] if committed_only else [])
-    )
     fields = iter(diff.split("\0"))
     for status in fields:
         if not status:

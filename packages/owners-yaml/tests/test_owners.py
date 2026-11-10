@@ -1306,6 +1306,14 @@ def test_unowned_against_lists_only_what_the_worktree_leaves_unowned(
     assert result.output.split() == expected
 
 
+def test_newly_unowned_counts_a_file_git_does_not_track_yet(repo_with_a_gap: Path) -> None:
+    _write(repo_with_a_gap, ".git/info/exclude", "ignored/\n")
+    for rel in ("gap/untracked.py", "owned/untracked.py", "ignored/untracked.py"):
+        _write(repo_with_a_gap, rel, "later = 1\n")
+
+    assert newly_unowned(repo_with_a_gap, "HEAD") == ["gap/untracked.py"]
+
+
 @pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
 def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
     repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
