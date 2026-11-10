@@ -38,6 +38,8 @@ VOID_TAGS = frozenset(
 )
 LINK_SCHEMES = ("http://", "https://", "mailto:")
 JAVASCRIPT_WHITESPACE = r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
+TEXT_WORDS = re.compile(rf"{JAVASCRIPT_WHITESPACE}+")
+TEXT_LINK_START = re.compile(r"https?://")
 UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{JAVASCRIPT_WHITESPACE}*unsubscribe_url{JAVASCRIPT_WHITESPACE}*\}}\}}")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
@@ -47,13 +49,18 @@ URL_PARSER_TRIMS = "".join(chr(code) for code in range(0x21))
 
 
 def has_unsubscribe_link(html: str, text: str) -> bool:
-    if not html:
-        return UNSUBSCRIBE_PLACEHOLDER.search(text) is not None
     link = f"unsubscribe-link-{uuid4().hex}"
+    if not html:
+        url = f"https://{link}.invalid/"
+        return any(text_link.startswith(url) for text_link in _text_links(UNSUBSCRIBE_PLACEHOLDER.sub(url, text)))
     parser = _TextParser(keep_unsubscribe_link=False)
     parser.feed(UNSUBSCRIBE_PLACEHOLDER.sub(link, html))
     parser.close()
     return link in parser.visible_hrefs
+
+
+def _text_links(text: str) -> list[str]:
+    return [word[start.start() :] for word in TEXT_WORDS.split(text) if (start := TEXT_LINK_START.search(word))]
 
 
 def text_from_html(html: str, *, keep_unsubscribe_link: bool = False) -> str:
@@ -97,6 +104,8 @@ class _TextParser(HTMLParser):
         if tag in VOID_TAGS:
             self.handle_startendtag(tag, attrs)
             return
+        if tag == "body" and self.open_tags and self.open_tags[-1] == "head":
+            self._end_last()
         self._start(tag, attrs)
         self._push(tag)
 
