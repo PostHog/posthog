@@ -2580,12 +2580,10 @@ def _active_access_token_response(
         # Only for self-introspection: a caller with the `introspection` scope can read other
         # users' tokens from the same application.
         data["user_distinct_id"] = self_introspecting_user.distinct_id
-        data["current_organization_id"] = (
-            str(self_introspecting_user.current_organization_id)
-            if self_introspecting_user.current_organization_id
-            else None
-        )
-        data["current_team_id"] = self_introspecting_user.current_team_id
+        organization = self_introspecting_user.organization
+        team = self_introspecting_user.team
+        data["current_organization_id"] = str(organization.id) if organization else None
+        data["current_team_id"] = team.id if team else None
     if sandbox_task_id is not None:
         # The policy resolves API routes, which import these views.
         from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415

@@ -274,6 +274,25 @@ describe('StateManager', () => {
             expect(await manager.getDistinctId()).toBe('owner-1')
             expect((await cache.get('apiKey'))?.current_team_id).toBe(7)
         })
+
+        it('picks the default project from a fresh key response, not the cached one, when /users/@me is refused', async () => {
+            const owner = { user_distinct_id: 'owner-1', current_organization_id: 'org-1' }
+            const current = vi.fn(async () => ({
+                success: true,
+                data: { ...mockApiKey, scopes: ['insight:read'], ...owner, current_team_id: 8 },
+            }))
+            const manager = new StateManager(cache, {
+                config: { apiToken: 'phx_test' },
+                apiKeys: () => ({ current }),
+            } as unknown as ApiClient)
+            await cache.setMany({
+                apiKey: { ...mockApiKey, scopes: ['insight:read'], ...owner, current_team_id: 7 },
+                apiKeyFetchedAt: Date.now(),
+            })
+            vi.spyOn(manager, 'getUser').mockRejectedValue(new Error("Missing PostHog API scope: 'user:read'"))
+
+            expect(await manager.setDefaultOrganizationAndProject()).toEqual({ organizationId: 'org-1', projectId: 8 })
+        })
     })
 
     describe('getApiKey', () => {

@@ -240,9 +240,11 @@ export class StateManager {
 
     private async _getOwner(): Promise<CredentialOwner> {
         const apiKey = await this.getApiKey()
-        if (apiKey.user_distinct_id) {
-            return ownerFromApiKey(apiKey)
-        }
+        return apiKey.user_distinct_id ? ownerFromApiKey(apiKey) : this._getLiveOwner()
+    }
+
+    /** Reads the owner with a live request, which also rejects a revoked or expired credential. */
+    private async _getLiveOwner(): Promise<CredentialOwner> {
         try {
             const user = await this.getUser()
             return {
@@ -251,18 +253,21 @@ export class StateManager {
                 teamId: user.team?.id ?? null,
             }
         } catch (error) {
-            // OAuth key state is cached for the token's life, so an entry cached before the
-            // backend returned the owner never gets it without a fresh fetch.
             if (!findPostHogPermissionError(error)) {
                 throw error
             }
-            const fresh = await this._fetchApiKey()
+            const fresh = await this._refreshApiKey()
             if (!fresh.user_distinct_id) {
                 throw error
             }
-            await this._cache.set('apiKey', fresh)
             return ownerFromApiKey(fresh)
         }
+    }
+
+    private async _refreshApiKey(): Promise<NonNullable<State['apiKey']>> {
+        const fresh = await this.lookups.get(this._cache.scope, 'freshApiKey', () => this._fetchApiKey())
+        await this._cache.set('apiKey', fresh)
+        return fresh
     }
 
     private async _getDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
@@ -296,7 +301,11 @@ export class StateManager {
     }
 
     private async _fetchDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
-        const [{ scoped_organizations, scoped_teams }, owner] = await Promise.all([this.getApiKey(), this._getOwner()])
+        // The owner's current project changes, and the OAuth key cache lives for the token's life.
+        const [{ scoped_organizations, scoped_teams }, owner] = await Promise.all([
+            this.getApiKey(),
+            this._getLiveOwner(),
+        ])
         const activeOrganization = owner.organizationId ? { id: owner.organizationId } : null
         const activeTeam = owner.teamId !== null ? { id: owner.teamId } : null
 

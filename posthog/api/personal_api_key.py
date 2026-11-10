@@ -190,12 +190,13 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_current_organization_id(self, obj: PersonalAPIKey) -> str | None:
-        org_id = self._owner(obj).current_organization_id
-        return str(org_id) if org_id else None
+        organization = self._owner(obj).organization
+        return str(organization.id) if organization else None
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_current_team_id(self, obj: PersonalAPIKey) -> int | None:
-        return self._owner(obj).current_team_id
+        team = self._owner(obj).team
+        return team.id if team else None
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
