@@ -6,8 +6,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-// Temporary staff switch for the move from the events table to events_json. Remove this folder together with the
-// cookie handling in posthog/models/event/new_events_schema.py when the migration is complete.
+// Temporary staff switch for the move from the events table to events_json. Remove the NewEventsTable* and
+// newEventsTable* files here together with the cookie handling in posthog/models/event/new_events_schema.py when the
+// migration is complete.
 // pinned: NewEventsSchemaCookieMiddleware reads this cookie name and the value "1", and shared links carry the
 // same name as a URL parameter
 const NEW_EVENTS_SCHEMA = 'ph_new_events_schema'
@@ -44,7 +45,7 @@ export type newEventsTableLogicType = MakeLogicType<
 >
 
 export const newEventsTableLogic = kea<newEventsTableLogicType>([
-    path(['layout', 'navigation', 'NewEventsTable', 'newEventsTableLogic']),
+    path(['layout', 'navigation', 'newEventsTableLogic']),
     connect(() => ({
         values: [userLogic, ['user']],
     })),

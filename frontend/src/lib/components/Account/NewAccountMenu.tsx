@@ -35,7 +35,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { NewEventsTableSwitch } from '~/layout/navigation/NewEventsTable/NewEventsTableSwitch'
+import { NewEventsTableSwitch } from '~/layout/navigation/NewEventsTableSwitch'
 import { AvailableFeature } from '~/types'
 
 import { RenderKeybind } from '../Shortcuts/RenderKeybind'

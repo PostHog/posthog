@@ -18,7 +18,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { newEventsTableLogic } from '~/layout/navigation/NewEventsTable/newEventsTableLogic'
+import { newEventsTableLogic } from '~/layout/navigation/newEventsTableLogic'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
 

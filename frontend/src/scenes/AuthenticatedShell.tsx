@@ -23,7 +23,7 @@ import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNoticeSlot } from '~/layout/navigation/ImpersonationNotice/ImpersonationNoticeSlot'
-import { NewEventsTableBar } from '~/layout/navigation/NewEventsTable/NewEventsTableBar'
+import { NewEventsTableBar } from '~/layout/navigation/NewEventsTableBar'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 
