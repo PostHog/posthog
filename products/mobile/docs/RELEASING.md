@@ -108,6 +108,12 @@ This release includes the connection recovery, offline cache, chat navigation, r
 Native configuration and dependency changes require new binaries and a new runtime.
 It submits to TestFlight and Google Play internal testing; public-store promotion remains manual after testing.
 
+Version `1.13.0` requests both native builds through `native-1130`, following `ota-1110-final-reply`.
+It includes session replay video, report links that open in the app, updated iOS icons and the mobile replay prototype already on `master`.
+Native dependencies and configuration changes require new binaries.
+The request raises the version above the `1.12.0` PR base and submits to TestFlight and Google Play internal testing.
+Public-store promotion remains manual after testing.
+
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 
