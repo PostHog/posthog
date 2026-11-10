@@ -18,7 +18,6 @@ import {
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import type { CategoricalScoreOptionApi } from '../generated/api.schemas'
 import type { CompositeInputReadApi } from '../generated/api.schemas'
-import type { ScoreDefinitionConfigApi } from '../generated/api.schemas'
 import { updateScorerDraft } from './compositeFormulaDefaults'
 import { getBooleanConfig } from './scoreDefinitionConfigUtils'
 import {
@@ -105,14 +104,7 @@ export interface scorerLogicActions {
         value: ScoreDefinitionDraft[keyof ScoreDefinitionDraft]
     ) => {
         field: keyof ScoreDefinitionDraft
-        value:
-            | boolean
-            | string
-            | string[]
-            | CategoricalScoreOptionApi[]
-            | (CompositeInputReadApi & {
-                  config?: ScoreDefinitionConfigApi | undefined
-              })[]
+        value: boolean | string | string[] | CategoricalScoreOptionApi[] | CompositeInputReadApi[]
     }
     setError: (error: string | null) => {
         error: string | null

@@ -107,6 +107,7 @@ class CompositeScorers:
         ids = {item["scorer_version_id"] for item in composition["inputs"]}
         versions = {
             str(version.id): version
+            # nosemgrep: idor-lookup-without-user -- Versions inherit team and caller access from their definitions.
             for version in ScoreDefinitionVersion.objects.filter(id__in=ids, definition__in=definitions).select_related(
                 "definition"
             )

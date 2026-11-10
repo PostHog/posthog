@@ -144,7 +144,8 @@ class TestCompositeScorers(APIBaseTest):
             invalid = self.client.post(f"{self.endpoint}validate_composition/", self.payload, format="json")
             self.assertEqual(invalid.status_code, 400, invalid.data)
 
-    def test_denied_input_hides_composite_and_prevents_new_definition(self) -> None:
+    @parameterized.expand([("allowed", False), ("denied", True)])
+    def test_input_access_controls_composite_visibility_and_creation(self, _name: str, deny_input: bool) -> None:
         composite = self.create_composite()
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -155,18 +156,25 @@ class TestCompositeScorers(APIBaseTest):
         AccessControl.objects.create(
             team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
         )
-        AccessControl.objects.create(
-            team=self.team,
-            resource="llm_analytics",
-            resource_id=str(self.source.id),
-            organization_member=membership,
-            access_level="none",
-        )
+        if deny_input:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="llm_analytics",
+                resource_id=str(self.source.id),
+                organization_member=membership,
+                access_level="none",
+            )
         self.client.force_login(member)
         for suffix in ("", "versions/", f"versions/{composite['current_version_id']}/"):
-            self.assertEqual(self.client.get(f"{self.endpoint}{composite['id']}/{suffix}").status_code, 404)
-        self.assertEqual(self.client.get(self.endpoint).data["results"], [])
-        self.assertEqual(self.client.post(self.endpoint, self.payload, format="json").status_code, 400)
+            self.assertEqual(
+                self.client.get(f"{self.endpoint}{composite['id']}/{suffix}").status_code, 404 if deny_input else 200
+            )
+        visible_ids = {item["id"] for item in self.client.get(self.endpoint).data["results"]}
+        self.assertEqual(visible_ids, set() if deny_input else {str(self.source.id), composite["id"]})
         self.assertEqual(
-            self.client.post(f"{self.endpoint}validate_composition/", self.payload, format="json").status_code, 400
+            self.client.post(self.endpoint, self.payload, format="json").status_code, 400 if deny_input else 201
+        )
+        self.assertEqual(
+            self.client.post(f"{self.endpoint}validate_composition/", self.payload, format="json").status_code,
+            400 if deny_input else 200,
         )
