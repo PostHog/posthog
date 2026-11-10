@@ -20,6 +20,7 @@ from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
+from products.alerts.backend.logic.destinations import retire_alert_hog_functions
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_cutover import (
     can_move,
@@ -193,6 +194,16 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
             "enabled",
             "An AI detector alert can't be turned back on through this API. Turn it on in the insight's alert settings.",
         )
+    for key, stored in (
+        ("config", alert.config),
+        ("skip_weekend", bool(alert.skip_weekend)),
+        ("evaluation_delay_intervals", alert.evaluation_delay_intervals),
+    ):
+        # Insight checks these against the insight's query, so only the insight API may change them.
+        if key in edit.source_config and edit.source_config[key] != stored:
+            raise InvalidPlatformAlertEdit(
+                "source_config", f"{key} can't change through this API. Change it in the insight's alert settings."
+            )
     condition = edit.source_config[SOURCE_CONDITION_KEY]
     if condition.get("detector") != alert.detector_config:
         # A detector config is checked against its insight and its access rules in the insight API only.
@@ -266,3 +277,9 @@ def _write_threshold(alert: AlertConfiguration, configuration: dict | None) -> N
         alert.threshold = Threshold.objects.create(
             team_id=alert.team_id, insight_id=alert.insight_id, configuration=configuration
         )
+
+
+def remove_native_destinations(*, team_id: int, configuration_id: UUID) -> None:
+    """Removes the HogFunction destinations of an insight alert with no insight row, which match on
+    the configuration's own id."""
+    retire_alert_hog_functions(team_id=team_id, alert_id=str(configuration_id))

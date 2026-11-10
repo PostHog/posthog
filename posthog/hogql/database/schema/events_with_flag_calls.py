@@ -297,9 +297,7 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
         return serialized
     # Events reads a missing key and an empty object as NULL. An integer key names a key, not a position.
     raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
-    # Events reads a JSON null as NULL from a JSON subcolumn. A restriction makes events read the key from the
-    # `temporary_properties` text instead, and that text keeps the JSON null as `null`.
-    return null_if_sentinels(raw, ("", "{}") if overlaps_restriction else ("", "{}", "null"))
+    return null_if_sentinels(raw, ("", "{}", "null"))
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":

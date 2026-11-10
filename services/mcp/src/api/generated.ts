@@ -14203,6 +14203,123 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    /**
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     */
+    export type AlertReceiverTypeEnum = typeof AlertReceiverTypeEnum[keyof typeof AlertReceiverTypeEnum];
+
+
+    export const AlertReceiverTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+    } as const;
+
+    export interface AlertReceiver {
+      /** ID of the receiver. Routes name it in receiver_id. */
+      id: string;
+      /** Name of the receiver, unique in the project. */
+      name: string;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord */
+      type: AlertReceiverTypeEnum;
+      /** Whether routes send to this receiver. A disabled receiver gets nothing. */
+      enabled: boolean;
+      /** How many routes send to this receiver. Deleting the receiver deletes them. */
+      route_count: number;
+      /** Integration ID of the Slack workspace. Set when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Set when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable Slack channel name. Set when type=slack. */
+      slack_channel_name?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+    }
+
+    export interface AlertReceiverWrite {
+      /**
+         * Name of the receiver, unique in the project.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether routes send to this receiver. Defaults to true. */
+      enabled?: boolean;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord */
+      type: AlertReceiverTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
+      webhook_url?: string;
+    }
+
+    export interface AlertRouteMatcher {
+      /** Name of an alert label, such as team. */
+      label: string;
+      /** The value the label must equal, such as checkout. */
+      value: string;
+    }
+
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     * * `errored` - errored
+     * * `broken` - broken
+     */
+    export type PlatformAlertDestinationEventKindEnum = typeof PlatformAlertDestinationEventKindEnum[keyof typeof PlatformAlertDestinationEventKindEnum];
+
+
+    export const PlatformAlertDestinationEventKindEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
+    export interface AlertRoute {
+      /** ID of the route. */
+      id: string;
+      /** ID of the receiver this route sends to. */
+      receiver_id: string;
+      /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+      matchers: AlertRouteMatcher[];
+      /** The alert transitions the receiver hears about through this route. */
+      event_kinds: PlatformAlertDestinationEventKindEnum[];
+      /** Whether this route sends. */
+      enabled: boolean;
+    }
+
+    export interface AlertRouteWrite {
+      /** ID of the receiver this route sends to. */
+      receiver_id: string;
+      /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+      matchers?: AlertRouteMatcher[];
+      /**
+         * The alert transitions the receiver hears about through this route. Defaults to every kind.
+         * @minItems 1
+         */
+      event_kinds?: PlatformAlertDestinationEventKindEnum[];
+      /** Whether this route sends. Defaults to true. */
+      enabled?: boolean;
+    }
+
     export interface AlertSimulate {
       /**
          * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
@@ -18435,9 +18552,8 @@ export namespace Schemas {
     /**
      * Typed configuration for a PostgreSQL batch-export destination.
      *
-     * Connection credentials may live in a linked Integration (when one is provided) or
-     * inline in this config (legacy). Mirrors the non-credential fields of
-     * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     * Connection credentials live in the linked Integration, never here. Mirrors the
+     * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface PostgresDestinationConfig {
       /** PostgreSQL database name to connect to. */
@@ -18554,22 +18670,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
-     */
-    export type RedshiftCopyInputsAuthorization = number | string | {
-      aws_access_key_id: string;
-      aws_secret_access_key: string;
-    };
-
-    /**
-     * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
-     */
-    export type RedshiftCopyInputsBucketCredentials = number | {
-      aws_access_key_id: string;
-      aws_secret_access_key: string;
-    };
-
-    /**
      * S3 staging configuration for a Redshift batch export running in COPY mode.
      */
     export interface RedshiftCopyInputs {
@@ -18579,10 +18679,10 @@ export namespace Schemas {
       region_name: string;
       /** Key prefix for staged files in the S3 bucket. */
       s3_key_prefix: string;
-      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-      authorization: RedshiftCopyInputsAuthorization;
-      /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-      bucket_credentials: RedshiftCopyInputsBucketCredentials;
+      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. */
+      authorization: number | string;
+      /** AWS S3 integration ID used to stage files in the S3 bucket. */
+      bucket_credentials: number;
     }
 
     export type RedshiftDestinationConfigType = typeof RedshiftDestinationConfigType[keyof typeof RedshiftDestinationConfigType];
@@ -18595,8 +18695,7 @@ export namespace Schemas {
     /**
      * Typed configuration for a Redshift batch-export destination.
      *
-     * Connection credentials may live in a linked Integration (when one is provided) or inline in
-     * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+     * Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
      * `products/batch_exports/backend/service.py`.
      */
     export interface RedshiftDestinationConfig {
@@ -39825,6 +39924,16 @@ export namespace Schemas {
       Duration: 'Duration',
     } as const;
 
+    export type PropertyDefinitionTypeNameEnum = typeof PropertyDefinitionTypeNameEnum[keyof typeof PropertyDefinitionTypeNameEnum];
+
+
+    export const PropertyDefinitionTypeNameEnum = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -39848,6 +39957,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index: number | null;
     }
 
     export interface ErrorDetail {
@@ -60717,11 +60833,25 @@ export namespace Schemas {
      */
     export type InsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
+    /**
+     * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
+     */
+    export type InsightPlatformAlertSourceConfigConfig = { [key: string]: unknown } | null;
+
     export interface InsightPlatformAlertSourceConfig {
       /** The insight the alert checks. It cannot change through this API. */
       insight_id: number;
       /** The bound the insight's value is checked against. */
       condition: InsightPlatformAlertCondition;
+      /** Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API. */
+      config?: InsightPlatformAlertSourceConfigConfig;
+      /** Whether checks skip Saturdays and Sundays. It can't change through this API. */
+      skip_weekend?: boolean;
+      /**
+         * How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API.
+         * @minimum 0
+         */
+      evaluation_delay_intervals?: number;
     }
 
     /**
@@ -67666,6 +67796,16 @@ export namespace Schemas {
       scraping_status?: CoreMemoryScrapingStatusEnum | BlankEnum | null;
     }
 
+    export type MeasureEnum = typeof MeasureEnum[keyof typeof MeasureEnum];
+
+
+    export const MeasureEnum = {
+      RequestCount: 'request_count',
+      ErrorCount: 'error_count',
+      ErrorRate: 'error_rate',
+      Latency: 'latency',
+    } as const;
+
     /**
      * One attendee of a synced calendar meeting (read-only).
      */
@@ -74319,6 +74459,7 @@ export namespace Schemas {
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
+     * * `traces` - Traces
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -74329,6 +74470,7 @@ export namespace Schemas {
       WarehouseSource: 'warehouse_source',
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
+      Traces: 'traces',
     } as const;
 
     /**
@@ -74422,7 +74564,8 @@ export namespace Schemas {
        * * `insight` - Insight
        * * `warehouse_source` - Warehouse source
        * * `warehouse_destination` - Warehouse destination
-       * * `metrics` - Metrics */
+       * * `metrics` - Metrics
+       * * `traces` - Traces */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -82161,6 +82304,45 @@ export namespace Schemas {
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
+    export interface PatchedAlertReceiverWrite {
+      /**
+         * Name of the receiver, unique in the project.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether routes send to this receiver. Defaults to true. */
+      enabled?: boolean;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord */
+      type?: AlertReceiverTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
+      webhook_url?: string;
+    }
+
+    export interface PatchedAlertRouteWrite {
+      /** ID of the receiver this route sends to. */
+      receiver_id?: string;
+      /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+      matchers?: AlertRouteMatcher[];
+      /**
+         * The alert transitions the receiver hears about through this route. Defaults to every kind.
+         * @minItems 1
+         */
+      event_kinds?: PlatformAlertDestinationEventKindEnum[];
+      /** Whether this route sends. Defaults to true. */
+      enabled?: boolean;
+    }
+
     export interface PatchedAnnotation {
       /** Unique ID of the annotation. */
       readonly id?: number;
@@ -83965,6 +84147,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin?: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type?: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index?: number | null;
     }
 
     export interface PatchedErrorTrackingAlertUpdateRequest {
@@ -87450,6 +87639,123 @@ export namespace Schemas {
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
      */
+    export type PatchedTracesPlatformAlertConfigurationEditSourceKind = typeof PatchedTracesPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedTracesPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedTracesPlatformAlertConfigurationEditSourceKind = {
+      Traces: 'traces',
+    } as const;
+
+    /**
+     * The requests an alert measures, in the tracing scene's filter shape.
+     */
+    export interface TracesAlertFilters {
+      /** Services whose requests the alert measures. */
+      serviceNames?: string[];
+      /** Span, span attribute and resource attribute filters, as the tracing scene sends. */
+      filterGroup?: PropertyGroupFilter | null;
+    }
+
+    /**
+     * The latency percentile. Required for latency.
+     */
+    export type TracesPlatformAlertConditionPercentile = typeof TracesPlatformAlertConditionPercentile[keyof typeof TracesPlatformAlertConditionPercentile] | null;
+
+
+    export const TracesPlatformAlertConditionPercentile = {
+      Number50: 50,
+      Number90: 90,
+      Number95: 95,
+      Number99: 99,
+    } as const;
+
+    export type TracesAlertThresholdOperator = typeof TracesAlertThresholdOperator[keyof typeof TracesAlertThresholdOperator];
+
+
+    export const TracesAlertThresholdOperator = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface TracesPlatformAlertCondition {
+      /** What the alert measures over requests: their count, the count with an error status, the share with an error status, or a latency percentile. A request is a trace root, server or consumer span. */
+      measure: MeasureEnum;
+      /** The latency percentile. Required for latency. */
+      percentile?: TracesPlatformAlertConditionPercentile;
+      /**
+         * The bound: a count for request_count and error_count, a fraction from 0 to 1 for error_rate, milliseconds for latency.
+         * @minimum 0
+         */
+      threshold: number;
+      /** Whether the alert fires above or below it. */
+      threshold_operator: TracesAlertThresholdOperator;
+      /** Time window in minutes that each check measures. */
+      window_minutes: WindowMinutesEnum;
+    }
+
+    export interface TracesPlatformAlertConfig {
+      /** The requests the alert measures. */
+      filters?: TracesAlertFilters;
+      /** The bound the measure is checked against. */
+      condition: TracesPlatformAlertCondition;
+    }
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedTracesPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedTracesPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedTracesPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedTracesPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a traces alert. The bound the alert is evaluated against is under condition. */
+      source_config?: TracesPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedTracesPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedTracesPlatformAlertConfigurationEditAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
     export type PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind = typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind];
 
 
@@ -87605,7 +87911,7 @@ export namespace Schemas {
       annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedTracesPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -93112,6 +93418,69 @@ export namespace Schemas {
     /**
      * Product whose data the alert evaluates. It cannot change after the create.
      */
+    export type TracesPlatformAlertConfigurationCreateSourceKind = typeof TracesPlatformAlertConfigurationCreateSourceKind[keyof typeof TracesPlatformAlertConfigurationCreateSourceKind];
+
+
+    export const TracesPlatformAlertConfigurationCreateSourceKind = {
+      Traces: 'traces',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type TracesPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type TracesPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface TracesPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: TracesPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a traces alert. The bound the alert is evaluated against is under condition. */
+      source_config: TracesPlatformAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: TracesPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: TracesPlatformAlertConfigurationCreateAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
     export type WarehouseDestinationPlatformAlertConfigurationCreateSourceKind = typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind[keyof typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind];
 
 
@@ -93235,7 +93604,70 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationCreateAnnotations;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | TracesPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type TracesPlatformAlertConfigurationEditSourceKind = typeof TracesPlatformAlertConfigurationEditSourceKind[keyof typeof TracesPlatformAlertConfigurationEditSourceKind];
+
+
+    export const TracesPlatformAlertConfigurationEditSourceKind = {
+      Traces: 'traces',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type TracesPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type TracesPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface TracesPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: TracesPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a traces alert. The bound the alert is evaluated against is under condition. */
+      source_config: TracesPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: TracesPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: TracesPlatformAlertConfigurationEditAnnotations;
+    }
 
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -93363,7 +93795,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | TracesPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * * `slack` - Slack
@@ -93381,22 +93813,6 @@ export namespace Schemas {
       Teams: 'teams',
       Discord: 'discord',
       Pagerduty: 'pagerduty',
-    } as const;
-
-    /**
-     * * `firing` - firing
-     * * `resolved` - resolved
-     * * `errored` - errored
-     * * `broken` - broken
-     */
-    export type PlatformAlertDestinationEventKindEnum = typeof PlatformAlertDestinationEventKindEnum[keyof typeof PlatformAlertDestinationEventKindEnum];
-
-
-    export const PlatformAlertDestinationEventKindEnum = {
-      Firing: 'firing',
-      Resolved: 'resolved',
-      Errored: 'errored',
-      Broken: 'broken',
     } as const;
 
     export interface PlatformAlertCreateDestination {
@@ -96607,6 +97023,57 @@ export namespace Schemas {
       Event: 'event',
       Person: 'person',
     } as const;
+
+    export interface PropertyUsageEntry {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type?: PropertyDefinitionTypeNameEnum;
+      /**
+         * Property name, for example `$current_url`.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
+    }
+
+    export interface PropertyUsageMetricsItem {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type: PropertyDefinitionTypeNameEnum;
+      /** Property name. */
+      name: string;
+      /**
+         * Group type index of a group property, null for other types.
+         * @nullable
+         */
+      group_type_index: number | null;
+      /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+      query_usage_30_day: number;
+    }
+
+    export interface PropertyUsageMetricsRequest {
+      /** Properties to fetch 30-day query usage for, at most 100 per request. */
+      properties: PropertyUsageEntry[];
+    }
+
+    export interface PropertyUsageMetricsResponse {
+      /** One entry per requested property, in request order. */
+      results: PropertyUsageMetricsItem[];
+    }
 
     export interface PropertyValueItem {
       count?: number | null;
@@ -110277,6 +110744,14 @@ export namespace Schemas {
          * @nullable
          */
       default_slack_notification_channel?: string | null;
+      /** Minimum report priority for the project's team Slack channel. P0 is highest. Null includes all reports, including reports without a priority. A set threshold excludes reports without a priority. Personal notification settings are separate.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      default_slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       /**
          * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
          * @nullable
@@ -118525,6 +119000,8 @@ export namespace Schemas {
          * @nullable
          */
       ready_at: string | null;
+      /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+      hoglake: boolean;
       /** Trino connection target. Null until Trino is ready and reachable. */
       connection: WarehouseTrinoConnection | null;
     }
