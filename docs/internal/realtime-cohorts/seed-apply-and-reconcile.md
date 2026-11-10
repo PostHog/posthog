@@ -131,13 +131,18 @@ Both kinds finish the same way, in an order the code enforces with types.
    One write batch holds the new leaf rows or person records and, for each single-leaf cohort about to be emitted, a Stage 2 row set to the value being **replaced**.
 3. **Schedule** eviction deadlines for the changed leaf rows.
 4. **Recompose** composed cohorts, reading each person's state once for all their cohorts, and decide their emissions.
+   A person is recomposed when the fold changed their state, or when a single-leaf row for them lagged in step 1.
+   For a person seed, a composed cohort over one of their evaluated leaves that has no Stage 2 row for them also recomposes, on its own, without the other cohorts on its leaves.
+   That case covers a cohort added over leaves an earlier run already seeded: the seed changes nothing, so without it the cohort never gets a row, and its reconcile certifies it with no members.
+   A non-member's row stays absent, so a cohort the run's own leaf answers already make false is skipped without a read, and only the cohort recomposes, not its leaves.
+   The seed path also rewrites an unreadable Stage 2 row with a readable bit when it recomposes the cohort, as the single-leaf diff does.
 5. **Produce**, in parallel: the membership changes tagged `origin: seed` with the run id, first-hop cascades if enabled, and re-keyed seeds for merged persons.
 6. **Stage 2 commit.**
    Write the new truth into the Stage 2 rows.
 7. **Mark** the run's offsets, published once the whole quantum has applied, or **hold** the first offset at once if any step failed.
 
 This order is what makes seed output self-healing.
-If the produce in step 5 fails, the offset is held, and the seed is redelivered at the next rebalance or restart.
+If the produce in step 5 fails, the offset is held, and the seed is redelivered at the next restart.
 On redelivery the fold changes nothing: for a tile, `max` of the same count is the same count, and for a person seed, its own earlier write makes the verdict a skip.
 But the single-leaf Stage 2 rows still hold the replaced value, and the composed cohorts' Stage 2 bits were never written, so both disagree with the truth and the change is emitted again.
 Live output has no such repair, which is why live is at most once and seeds are at least once.
@@ -160,10 +165,20 @@ Each worker keeps a queue of reconcile jobs.
 A timer sends a drain message down every worker's live lane every couple of seconds while any job exists, and each drain advances the head job by one page.
 
 1. **Guard**, checked on every drain.
-   The job is discarded without a marker if the team or cohort left the catalog, if the cohort no longer emits membership, or if its current shape hash for the run's kind is missing or differs from the pinned one.
-   Before the first catalog load, the job waits.
+   The job is withheld if the team or cohort left the catalog, if the cohort no longer emits membership, or if its current shape hash for the run's kind is missing or differs from the pinned one.
+   It is withheld only after a catalog refresh that began after the request arrived, because each of these misses can mean the catalog has not yet read the cohort's latest write.
+   Until such a refresh, and before the first catalog load, the job waits, and so do the jobs queued behind it on that partition.
+   The wait counts once per job in `cohort_reconcile_jobs_deferred_total`.
+   The refresh reads the Postgres reader, so this holds while reader lag stays shorter than the delay from the write to the request's arrival.
    The guard checks only that one hash.
    The walk composes the cohort's tree from the processor's current catalog, so an edit that changes only the composition, or only the other kind's leaves, does not stop it.
+   When the catalog lets the job proceed, the guard then checks the partition's [slice coverage](state-store-and-durability.md#slice-coverage).
+   The job is withheld when the slice's history begins after the run's boundary, or when the request carries no boundary and the slice does not hold its whole history.
+   That check runs before the scan, because rows emitted from such a slice would re-assert its partial answers downstream.
+   A withheld job produces one `reconcile_withheld` marker with the reason, then releases its seed offset once the marker is acknowledged.
+   Consecutive withheld jobs at the head of the queue share one produce of up to one scan page, so a burst of them costs the drain one broker round trip per tick.
+   A failed produce keeps the job, and the jobs behind it, at the head of the queue, and the guard decides them again on the next drain.
+   `cohort_reconcile_jobs_discarded_total{reason}` counts withheld jobs.
 2. **Scanning.**
    Read the next page of the cohort's Stage 2 rows on this partition.
    Recompute each row from stored leaf state and emit it, `entered` or `left`, tagged `origin: reconcile` with the run id, whether or not it changed.
@@ -188,7 +203,7 @@ Reconcile re-tells what the store holds, and it cannot bring back what the store
 An event that Stage 1 skipped on a store error is missing from the leaf state, so the walk recomputes the same wrong answer.
 A person whose first Stage 2 row for the cohort was never written, for example after a crash between a Stage 1 batch and its Stage 2 batch, is not in the walk at all.
 Seeds from a later run that cover the missed event repair the first case.
-A seed or a leaf flip that touches the person repairs the second.
+A seed or a leaf flip that touches the person repairs the second: a person seed recomposes a composed cohort that has no row for the person even when it changes nothing.
 
 ### Why every row is emitted
 
@@ -206,12 +221,12 @@ The committable offset is the lowest of the processed offset, any held offset, a
 
 | Failure                                                                                                        | Result                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A store read or write fails during a run                                                                       | The run's first offset is held for the rest of the partition's tenure. Later runs still apply, but the commit stays at the hold until a restart or rebalance replays from it                                                                                                                                                                                                                                                  |
+| A store read or write fails during a run                                                                       | The run's first offset is held for the rest of the partition's tenure. Later runs still apply, but the commit stays at the hold until a restart replays from it                                                                                                                                                                                                                                                               |
 | A run fails before its Stage 1 commit, and a reconcile request for the same cohort follows it on the partition | The reconcile still completes and produces its marker, so the partition is certified without that tile. The tile applies, and emits its change, only when the next tenure replays from the hold                                                                                                                                                                                                                               |
-| A membership produce fails                                                                                     | Hold. At the next rebalance or restart the redelivered seed emits the change again, through the pre-written row for single-leaf cohorts and the unwritten Stage 2 bit for composed ones                                                                                                                                                                                                                                       |
+| A membership produce fails                                                                                     | Hold. At the next restart the redelivered seed emits the change again, through the pre-written row for single-leaf cohorts and the unwritten Stage 2 bit for composed ones                                                                                                                                                                                                                                                    |
 | The processor crashes mid-run                                                                                  | Nothing was committed past the run, so it replays. Every step is idempotent                                                                                                                                                                                                                                                                                                                                                   |
 | A tile is redelivered                                                                                          | `max` of the same count changes nothing                                                                                                                                                                                                                                                                                                                                                                                       |
-| The cohort is edited mid-run                                                                                   | Old tiles whose hash still maps to a leaf are max-merged into the current leaves, harmlessly. Old reconcile requests are discarded if the edit changed the shape hash for their kind. Otherwise they walk the current definition                                                                                                                                                                                              |
+| The cohort is edited mid-run                                                                                   | Old tiles whose hash still maps to a leaf are max-merged into the current leaves, harmlessly. Old reconcile requests are withheld if the edit changed the shape hash for their kind. Otherwise they walk the current definition                                                                                                                                                                                               |
 | A restart interrupts a reconcile                                                                               | The job's cursor lives in memory, so the replayed request walks the cohort again from the start                                                                                                                                                                                                                                                                                                                               |
 | A reconcile page's produce or commit fails                                                                     | The same page retries on the next drain, and its rows are emitted again                                                                                                                                                                                                                                                                                                                                                       |
 | A marker produce fails                                                                                         | The worker retries on the next drain                                                                                                                                                                                                                                                                                                                                                                                          |

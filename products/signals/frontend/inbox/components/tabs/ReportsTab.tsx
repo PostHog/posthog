@@ -1,35 +1,39 @@
 import { useMountedLogic, useValues } from 'kea'
-import { JSX, useCallback, useEffect, useRef } from 'react'
+import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
-import { IconNotebook } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { urls } from 'scenes/urls'
-
+import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
+import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
+import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
     InboxScope,
     SignalReport,
 } from '../../types'
 import { mergeReportRows, selectedFlatListSections } from '../../utils/flatReportList'
+import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
 import { ReportContextMenu } from '../cards/ReportContextMenu'
+import { FirstReportProgress } from '../emptyState/FirstReportProgress'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
-import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
+import { InboxMcpBanner } from '../InboxMcpBanner'
+import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
+import { InboxSortSelect } from '../shell/InboxSortSelect'
 import { useReportImpressions } from '../useReportImpressions'
 import { useSelectableReportList } from '../useSelectableReportList'
 
@@ -39,19 +43,22 @@ import { useSelectableReportList } from '../useSelectableReportList'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the states the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'closed', 'dismissed', 'held-back'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
 interface SectionListState {
     count: number | null
     countLoading: boolean
+    countSettled: boolean
     reports: SignalReport[]
     isLoaded: boolean
     reportsLoadFailed: boolean
     pageLoadFailed: boolean
     reportsResponseLoading: boolean
     hasMore: boolean
+    loadedRankingPill: boolean
+    loadedPersonalFallback: boolean
 }
 
 /**
@@ -63,27 +70,33 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
     const {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
         pageLoadFailed,
         reportsResponseLoading,
         hasMore,
+        loadedRankingPill,
+        loadedPersonalFallback,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
         pageLoadFailed,
         reportsResponseLoading,
         hasMore,
+        loadedRankingPill,
+        loadedPersonalFallback,
     }
 }
 
 /**
- * Every state's count and loaded rows, keyed by state. All five logics are mounted regardless of
+ * Every state's count and loaded rows, keyed by state. All logics are mounted regardless of
  * who is looking or which states the filter selects, so the hooks never change shape when the
  * staff flag resolves or a checkbox toggles; callers decide which states matter to them.
  */
@@ -91,8 +104,11 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
     return {
         monitoring: useSectionState('monitoring'),
         'needs-decision': useSectionState('needs-decision'),
+        'outcome-monitoring': useSectionState('outcome-monitoring'),
         resolved: useSectionState('resolved'),
+        closed: useSectionState('closed'),
         dismissed: useSectionState('dismissed'),
+        'held-back': useSectionState('held-back'),
         'not-actionable': useSectionState('not-actionable'),
     }
 }
@@ -102,7 +118,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, visibleStateFilter, scope } =
+    const { hasActiveFilters, activeSourceProductFilter, priorityFilter, visibleStateFilter, scope } =
         useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
@@ -117,10 +133,9 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         !isRunsOpen &&
         !isTriageOpen
 
-    // A count is settled once its request is no longer in flight: loaded, refreshed, or failed
-    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
-    // filter refresh in progress doesn't fire the event with the previous query's counts.
-    const settled = COUNTED_SECTION_KEYS.every((key) => !sections[key].countLoading)
+    // Waiting on `countSettled` rather than the loading flags means a scope or filter change
+    // doesn't fire the event with the previous query's counts.
+    const settled = COUNTED_SECTION_KEYS.every((key) => sections[key].countSettled)
     const firedRef = useRef(false)
 
     useEffect(() => {
@@ -136,7 +151,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             pullsTabCount: sections.monitoring.count,
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
-            sourceProductFilter,
+            sourceProductFilter: activeSourceProductFilter,
             priorityFilter,
             stateFilter: visibleStateFilter,
             scope,
@@ -146,35 +161,52 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         settled,
         sections,
         hasActiveFilters,
-        sourceProductFilter,
+        activeSourceProductFilter,
         priorityFilter,
         visibleStateFilter,
         scope,
     ])
 }
 
-/** Nothing has reached the inbox yet — the whole list is empty, not just one state. */
-function ReportsEmptyState(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (featureFlags[FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE] === 'empty-state') {
-        return <InboxWaitingForWork />
-    }
+/**
+ * One row of the flat list, memoized. The list above it re-renders on every count, page and poll
+ * that lands, and repainting a few hundred rows each time is what made the inbox stop answering
+ * clicks. The restore closure is built here so the row's props stay comparable.
+ */
+const ReportRow = memo(function ReportRow({
+    report,
+    sectionKey,
+    rankingSortField,
+    rankingPill,
+    personalSort,
+    timestampField,
+    hideOwnClaim,
+}: {
+    report: SignalReport
+    sectionKey: InboxReportSectionKey
+    rankingSortField: InboxRankingSortField | null
+    rankingPill: boolean
+    personalSort: boolean
+    timestampField: 'created_at' | 'updated_at'
+    hideOwnClaim: boolean
+}): JSX.Element {
     return (
-        <div className="mx-auto flex max-w-md flex-col items-center gap-2 py-12 text-center">
-            <div className="mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-fill-primary text-secondary">
-                <IconNotebook className="text-2xl" />
-            </div>
-            <h3 className="m-0 text-base font-semibold">Nothing in your inbox yet</h3>
-            <p className="m-0 text-sm text-tertiary">
-                Agents file what they find here: reports waiting on a pull request, pull requests for you to review, and
-                the work already resolved.
-            </p>
-            <SelfDrivingInstallingHint>
-                Reports will start arriving as soon as live data comes in.
-            </SelfDrivingInstallingHint>
-        </div>
+        <ReportContextMenu report={report} sectionKey={sectionKey}>
+            <ReportCard
+                report={report}
+                selectable
+                rankingSortField={rankingSortField}
+                rankingPill={rankingPill}
+                personalSort={personalSort}
+                timestampField={timestampField}
+                hideOwnClaim={hideOwnClaim}
+                onRestore={() =>
+                    reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
+                }
+            />
+        </ReportContextMenu>
     )
-}
+})
 
 function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (narrowed) {
@@ -182,6 +214,9 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     }
     if (scope === INBOX_SCOPE_FOR_YOU) {
         return 'No reports suggested for you yet. Switch the scope to see the entire project.'
+    }
+    if (scope === INBOX_SCOPE_CLAIMED_BY_YOU) {
+        return "You haven't claimed any reports. Open a report and select I'm on it to claim it."
     }
     return 'No reports here yet.'
 }
@@ -194,11 +229,16 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
+    const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
+    const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
-    const { hasActiveFilters, visibleStateFilter, scope, sortField, sortDirection } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters, visibleStateFilter, scope, activeSortField, activeSortDirection } =
+        useValues(inboxFiltersLogic)
+    const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
+    const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
@@ -227,7 +267,17 @@ export function ReportsTab(): JSX.Element {
         InboxReportSectionKey,
         SignalReport[]
     >
-    const rows = mergeReportRows(reportsBySection, selectedSections, sortField, sortDirection)
+    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
+    const rankingPill =
+        isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
+    const personalSort = activeSortField === 'personal'
+    // Every state reads the same stored ranking, so one fallback response means the whole list fell back.
+    const personalFallback = personalSort && selectedSections.some((key) => sections[key].loadedPersonalFallback)
+    // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
+    const firstUnscoredIndex = rankingSortField
+        ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
+        : -1
     useReportImpressions(rows, selectedSections)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
     useSelectableReportList(rows.map(({ report }) => report.id))
@@ -252,15 +302,19 @@ export function ReportsTab(): JSX.Element {
         settledOnceRef.current = true
     }
     const showFirstLoadSkeleton = firstLoadPending && (!settledOnceRef.current || rows.length === 0)
-    const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed && !sections[key].isLoaded)
+    const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed)
     const pageLoading = selectedSections.some((key) => sections[key].reportsResponseLoading)
     const pageLoadFailed = selectedSections.some((key) => sections[key].pageLoadFailed)
     const hasMore = selectedSections.some((key) => sections[key].hasMore)
 
-    // `ensureLoaded` only fetches a state with nothing loaded and nothing in flight, so retrying
-    // after a partial failure refetches the failed states and leaves the loaded ones alone.
     const retryFailedSections = (): void => {
-        selectedSections.forEach((key) => reportListLogic(sectionListLogicProps(key)).actions.ensureLoaded())
+        selectedSections.forEach((key) => {
+            if (sections[key].reportsLoadFailed && !sections[key].reportsResponseLoading) {
+                const { actions } = reportListLogic(sectionListLogicProps(key))
+                actions.loadCount()
+                actions.loadReports()
+            }
+        })
     }
     // `loadMore` self-guards on `hasMore` and in-flight requests, so this only refetches the pages
     // that actually failed.
@@ -312,26 +366,51 @@ export function ReportsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <InboxReportFilters />
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        to={urls.inboxTriage()}
-                        sideIcon={<KeyboardShortcut t />}
-                        tooltip="Go through the reports that need a pull request one at a time"
-                        data-attr="inbox-triage-mode"
-                    >
-                        Triage mode
-                    </LemonButton>
-                    <InboxScopeFilter />
+            {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
+                scope on the next. The divider sits in the gap left of the sort group, so on a wrapped
+                line it falls outside the clipped edge instead of leading the line. The sort group
+                grows so scope always ends the row. */}
+            <div className="@container -mx-1 overflow-x-clip px-1">
+                <div className="flex items-center gap-2 @2xl:hidden">
+                    <InboxFiltersPanel />
+                    <InboxSortSelect />
+                    <div className="ml-auto min-w-0">
+                        <InboxScopeFilter />
+                    </div>
+                </div>
+                <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
+                    <InboxReportFilters />
+                    <div className="relative flex flex-1 items-center gap-2">
+                        <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />
+                        <InboxSortSelect />
+                        <div className="ml-auto shrink-0">
+                            <InboxScopeFilter />
+                        </div>
+                    </div>
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
+            <InboxMcpBanner />
+            {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
+            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
+                <div className="min-w-0" data-attr="inbox-first-report-progress">
+                    <FirstReportProgress
+                        result={firstReportProgress}
+                        notificationEmail={savedState?.first_report_notification_email}
+                    />
+                </div>
+            )}
 
-            {inboxIsEmpty ? (
-                <ReportsEmptyState />
+            {personalFallback && !inboxIsEmpty && (
+                <LemonBanner type="info">
+                    Your personalized list isn't ready yet, so this is the Recommended order.
+                </LemonBanner>
+            )}
+
+            {inboxIsEmpty && !anyLoadFailed ? (
+                showActivation ? null : (
+                    <InboxWaitingForWork />
+                )
             ) : showFirstLoadSkeleton ? (
                 // Hold the rows until every selected state's first page has settled: the states
                 // load in parallel, and painting the fastest one first would let the slower ones
@@ -345,6 +424,7 @@ export function ReportsTab(): JSX.Element {
                         <LemonButton
                             size="small"
                             type="secondary"
+                            loading={pageLoading}
                             onClick={retryFailedSections}
                             data-attr="inbox-report-list-retry"
                         >
@@ -356,20 +436,21 @@ export function ReportsTab(): JSX.Element {
                 )
             ) : (
                 <div className="@container flex flex-col gap-1.5">
-                    {rows.map(({ report, sectionKey }) => (
-                        <ReportContextMenu key={report.id} report={report} sectionKey={sectionKey}>
-                            <ReportCard
+                    {rows.map(({ report, sectionKey }, index) => (
+                        <Fragment key={report.id}>
+                            {index > 0 && index === firstUnscoredIndex && (
+                                <LemonDivider label="Not scored yet" className="my-2 text-xs text-tertiary" />
+                            )}
+                            <ReportRow
                                 report={report}
                                 sectionKey={sectionKey}
-                                selectable
-                                onRestore={() =>
-                                    reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(
-                                        report.id,
-                                        'list_row'
-                                    )
-                                }
+                                rankingSortField={rankingSortField}
+                                rankingPill={rankingPill}
+                                personalSort={personalSort}
+                                timestampField={timestampField}
+                                hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />
-                        </ReportContextMenu>
+                        </Fragment>
                     ))}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}
                     {pageLoading && <CardSkeleton count={2} variant="cards" dashed />}
@@ -379,6 +460,7 @@ export function ReportsTab(): JSX.Element {
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
+                                loading={pageLoading}
                                 onClick={retryFailedSections}
                                 data-attr="inbox-report-list-retry"
                             >

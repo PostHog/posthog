@@ -1,4 +1,4 @@
-import { ComponentType, LazyExoticComponent, lazy } from 'react'
+import { ComponentProps, ComponentType, LazyExoticComponent, createElement, lazy, useState } from 'react'
 
 import { isChunkLoadError, isGenericNetworkTypeError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
 
@@ -8,6 +8,10 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     }
     const { name, message } = error as { name?: string; message?: string }
     return name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$] is not a function$/.test(message)
+}
+
+function isSyntaxError(error: unknown): boolean {
+    return !!error && typeof error === 'object' && (error as { name?: string }).name === 'SyntaxError'
 }
 
 /**
@@ -27,6 +31,12 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
+        // A truncated or corrupted chunk fails to parse. The browser caches the failed module per URL,
+        // so a retry gets the same error. Only a page reload fetches the chunk again.
+        if (isSyntaxError(error)) {
+            markAsChunkLoadError(error)
+            throw error
+        }
         if (!isChunkLoadError(error) && !isGenericNetworkTypeError(error)) {
             throw error
         }
@@ -66,4 +76,66 @@ export function lazyWithRetry<T extends ComponentType<any>>(
     factory: () => Promise<{ default: T }>
 ): LazyExoticComponent<T> {
     return lazy(() => retryImport(factory))
+}
+
+export interface PreloadableComponent<T extends ComponentType<any>> {
+    Component: (props: ComponentProps<T>) => JSX.Element
+    /** Starts the chunk download. Resolves when it ends, also on a failure, which the render path reports. */
+    preload: () => Promise<void>
+}
+
+const LAZY_REMOUNT_RETRY_AFTER_MS = 1000
+
+/**
+ * `lazyWithRetry` plus a `preload()` that a logic can call as soon as it knows the component will render,
+ * so the chunk downloads in parallel with the data. A component that mounts after the chunk has loaded
+ * renders at once and never shows its Suspense fallback.
+ */
+export function lazyWithPreload<T extends ComponentType<any>>(
+    factory: () => Promise<{ default: T }>
+): PreloadableComponent<T> {
+    let loaded: T | null = null
+    let pending: Promise<{ default: T }> | null = null
+    let rejectedAt: number | null = null
+    const load = (): Promise<{ default: T }> => {
+        pending ??= retryImport(factory).then(
+            (module) => {
+                loaded = module.default
+                return module
+            },
+            (error) => {
+                pending = null
+                rejectedAt = Date.now()
+                throw error
+            }
+        )
+        return pending
+    }
+    let Lazy = lazy(load)
+
+    // React caches a rejection inside the lazy wrapper, so a remount after a failure needs a new one.
+    // React also re-renders a suspended mount when its import rejects. A new wrapper on that re-render
+    // would start another import at once, so a failing chunk would loop and never reach the error boundary.
+    const currentLazy = (): typeof Lazy => {
+        if (rejectedAt !== null && Date.now() - rejectedAt >= LAZY_REMOUNT_RETRY_AFTER_MS) {
+            rejectedAt = null
+            Lazy = lazy(load)
+        }
+        return Lazy
+    }
+
+    function Component(props: ComponentProps<T>): JSX.Element {
+        // Decided once per mount: switching from the lazy wrapper to the loaded component would remount it.
+        const [Resolved] = useState(() => loaded ?? currentLazy())
+        return createElement(Resolved as ComponentType<ComponentProps<T>>, props)
+    }
+
+    return {
+        Component,
+        preload: () =>
+            load().then(
+                () => undefined,
+                () => undefined
+            ),
+    }
 }

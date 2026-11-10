@@ -31,7 +31,7 @@ async def mock_to_thread(fn, *args, **kwargs):
     return fn(*args, **kwargs)
 
 
-class TestUsageEnrichmentInputs(TestCase):
+class TestUsageEnrichmentInputs(SimpleTestCase):
     def test_default_values(self):
         inputs = UsageEnrichmentInputs()
 
@@ -51,7 +51,7 @@ class TestUsageEnrichmentInputs(TestCase):
         assert inputs.specific_org_id == "org-123"
 
 
-class TestPrepareSalesforceUpdateRecord(TestCase):
+class TestPrepareSalesforceUpdateRecord(SimpleTestCase):
     def test_basic_signals(self):
         signals = UsageSignals(
             total_events_7d=10000,
@@ -80,7 +80,6 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
         signals = UsageSignals(
             total_events_7d=10000,
             events_avg_daily_7d=None,
-            events_7d_momentum=None,
         )
 
         record = prepare_salesforce_update_record("001ABC123", signals)
@@ -88,7 +87,6 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
         assert record["Id"] == "001ABC123"
         assert record["posthog_total_events_7d__c"] == 10000
         assert "posthog_events_avg_daily_7d__c" not in record
-        assert "posthog_events_7d_momentum__c" not in record
 
     def test_empty_products_list(self):
         signals = UsageSignals(
@@ -111,6 +109,21 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
 
         assert record["posthog_total_events_7d__c"] == 0
         assert record["posthog_total_events_30d__c"] == 0
+
+    @parameterized.expand(
+        [
+            ("7d_capped", "events_7d_momentum", "posthog_events_7d_momentum__c", 250_000.0, 99_999.99),
+            ("30d_capped", "events_30d_momentum", "posthog_events_30d_momentum__c", 1_000_000.0, 99_999.99),
+            ("7d_cleared", "events_7d_momentum", "posthog_events_7d_momentum__c", None, None),
+            ("30d_cleared", "events_30d_momentum", "posthog_events_30d_momentum__c", None, None),
+        ]
+    )
+    def test_momentum_capped_or_cleared(self, _name, attr, sf_field, momentum, expected):
+        signals = UsageSignals(**{attr: momentum})
+
+        record = prepare_salesforce_update_record("001ABC123", signals)
+
+        assert record[sf_field] == expected
 
 
 class TestDecideOrgRegion(SimpleTestCase):
@@ -153,7 +166,7 @@ class TestDecideOrgRegion(SimpleTestCase):
         assert decide_org_region("org-a", billing_region, current) == expected
 
 
-class TestWorkflowParseInputs(TestCase):
+class TestWorkflowParseInputs(SimpleTestCase):
     def test_parse_inputs_valid_json(self):
         inputs = SalesforceUsageEnrichmentWorkflow.parse_inputs(['{"batch_size": 50}'])
 
@@ -534,7 +547,7 @@ class TestEnrichOrgPageActivity(TestCase):
 WORKFLOW_CLASS = f"{WORKFLOW_MODULE}.SalesforceUsageEnrichmentWorkflow"
 
 
-class TestProductionModeContinueAsNew(TestCase):
+class TestProductionModeContinueAsNew(SimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_continues_as_new_when_page_is_full(self, mock_workflow):

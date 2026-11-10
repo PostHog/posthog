@@ -1,59 +1,124 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { ByokModelPickerNotice } from './ByokModelPickerNotice'
-import { getModelPickerFooterLink, ModelPicker } from './ModelPicker'
+import { getModelPickerFooterActions, ModelPicker } from './ModelPicker'
 import { modelPickerLogic } from './modelPickerLogic'
-import { LLMProviderKey, LLMProviderKeyState } from './settings/llmProviderKeysLogic'
+import { AddKeyModal } from './settings/AddKeyModal'
+import { LLMProviderKey, LLMProviderKeyState, llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
 
 interface StoryArgs {
     keyState: LLMProviderKeyState | null
     modelsFail: boolean
+    systemOne?: boolean
 }
 
 function providerKey(state: LLMProviderKeyState): Partial<LLMProviderKey> {
     return { id: 'key-1', provider: 'openai', name: 'Production', state }
 }
 
-function PickerWithNotice(): JSX.Element {
-    const { providerModelGroups, hasByokKeys, byokModelsLoading, providerKeysLoading } = useValues(modelPickerLogic)
+function PickerWithNotice({ systemOne = false }: { systemOne?: boolean }): JSX.Element {
+    const {
+        providerModelGroups,
+        evaluationProviderModelGroups,
+        hasByokKeys,
+        byokModelsLoading,
+        providerKeysLoading,
+        byokModelNotice,
+        evaluationModelNotice,
+    } = useValues(modelPickerLogic)
+    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
     return (
         // The story root has no width of its own, so the picker column is sized here to match the form it sits in.
         <div className="w-[560px]">
-            <ModelPicker
-                model=""
-                selectedProviderKeyId={null}
-                onSelect={() => {}}
-                groups={providerModelGroups}
-                loading={byokModelsLoading || providerKeysLoading}
-                footerLink={getModelPickerFooterLink(hasByokKeys)}
-            />
-            <ByokModelPickerNotice />
+            {(systemOne ? evaluationModelNotice : byokModelNotice)?.kind === 'no-keys' ? (
+                <LemonButton
+                    type="secondary"
+                    icon={<IconPlus />}
+                    fullWidth
+                    center
+                    onClick={() => setNewKeyModalOpen(true)}
+                >
+                    Add API key
+                </LemonButton>
+            ) : (
+                <ModelPicker
+                    model=""
+                    selectedProviderKeyId={null}
+                    onSelect={() => {}}
+                    groups={systemOne ? evaluationProviderModelGroups : providerModelGroups}
+                    loading={byokModelsLoading || providerKeysLoading}
+                    footerActions={getModelPickerFooterActions(
+                        systemOne ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys,
+                        () => setNewKeyModalOpen(true)
+                    )}
+                />
+            )}
+            <ByokModelPickerNotice forEvaluation={systemOne} />
+            <AddKeyModal />
         </div>
     )
 }
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-App/AI observability/BYOK model picker notice',
-    render: ({ keyState, modelsFail }) => {
+    render: ({ keyState, modelsFail, systemOne }) => {
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                    results: keyState ? [providerKey(keyState)] : [],
+                    results: keyState
+                        ? [
+                              {
+                                  ...providerKey(keyState),
+                                  ...(systemOne ? { provider: 'system_one', name: 'System One' } : {}),
+                              },
+                          ]
+                        : [],
                 },
                 '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
                 // Only the per-key request fails. The playground list uses the same path without a key id.
                 '/api/llm_proxy/models/': ({ request }) =>
                     modelsFail && new URL(request.url).searchParams.get('provider_key_id')
                         ? [500, { error: 'Internal error' }]
-                        : [200, []],
+                        : [
+                              200,
+                              systemOne
+                                  ? [
+                                        {
+                                            id: 'example-judge-v1',
+                                            name: 'example-judge-v1',
+                                            provider: 'System One',
+                                            is_recommended: false,
+                                        },
+                                    ]
+                                  : [],
+                          ],
+                '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) =>
+                    modelsFail && params.key_id
+                        ? [500, { error: 'Internal error' }]
+                        : [
+                              200,
+                              systemOne
+                                  ? [
+                                        {
+                                            id: 'example-judge-v1',
+                                            name: 'example-judge-v1',
+                                            provider: 'System One',
+                                            is_recommended: false,
+                                        },
+                                    ]
+                                  : [],
+                          ],
             },
         })
 
-        return <PickerWithNotice />
+        return <PickerWithNotice systemOne={systemOne} />
     },
 }
 export default meta
@@ -68,4 +133,8 @@ export const NoUsableProviderKeys: StoryObj<StoryArgs> = {
 
 export const ModelsFailedToLoad: StoryObj<StoryArgs> = {
     args: { keyState: 'ok', modelsFail: true },
+}
+
+export const SystemOne: StoryObj<StoryArgs> = {
+    args: { keyState: 'ok', modelsFail: false, systemOne: true },
 }

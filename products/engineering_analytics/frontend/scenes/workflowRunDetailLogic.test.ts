@@ -1,12 +1,14 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig } from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { engineeringAnalyticsWorkflowJobs, engineeringAnalyticsWorkflowRun } from '../generated/api'
+import {
+    engineeringAnalyticsRunFailureLogs,
+    engineeringAnalyticsWorkflowJobs,
+    engineeringAnalyticsWorkflowRun,
+} from '../generated/api'
 import type { WorkflowRunDetailApi } from '../generated/api.schemas'
 import { workflowRunDetailLogic } from './workflowRunDetailLogic'
 
@@ -18,6 +20,7 @@ jest.mock('../generated/api', () => ({
 
 const mockRun = engineeringAnalyticsWorkflowRun as jest.MockedFunction<typeof engineeringAnalyticsWorkflowRun>
 const mockJobs = engineeringAnalyticsWorkflowJobs as jest.MockedFunction<typeof engineeringAnalyticsWorkflowJobs>
+const mockLogs = engineeringAnalyticsRunFailureLogs as jest.MockedFunction<typeof engineeringAnalyticsRunFailureLogs>
 
 const RUN: WorkflowRunDetailApi = {
     repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
@@ -49,52 +52,38 @@ describe('workflowRunDetailLogic', () => {
 
     afterEach(() => logic?.unmount())
 
-    it('links the loaded workflow breadcrumb back with the current scope', async () => {
-        router.actions.push(urls.engineeringAnalyticsWorkflowRun('PostHog', 'posthog', 42), {
-            source: 'source-1',
-            repo: 'PostHog/posthog',
-            date_from: '2026-06-01',
-            date_to: '2026-06-30',
-            run_scope: 'merge_queue',
+    it('keeps colliding engine runs in separate logic instances and scopes all reads', async () => {
+        const github = workflowRunDetailLogic({
+            repoOwner: 'PostHog',
+            repoName: 'posthog',
+            runId: 42,
+            ciEngine: 'github_actions',
+            sourceId: null,
         })
         logic = workflowRunDetailLogic({
             repoOwner: 'PostHog',
             repoName: 'posthog',
             runId: 42,
-            sourceId: 'source-1',
+            ciEngine: 'depot_ci',
+            sourceId: null,
+        })
+        expect(logic).not.toBe(github)
+        mockRun.mockResolvedValue({ ...RUN, conclusion: 'failure', ci_engine: 'depot_ci' })
+        mockLogs.mockResolvedValue({
+            run_id: 42,
+            ci_engine: 'depot_ci',
+            logs_available: false,
+            jobs: [],
+            truncated: false,
         })
         logic.mount()
-
-        await expectLogic(logic).toDispatchActionsInAnyOrder(['loadRunSuccess', 'loadJobsSuccess'])
-
-        expect(logic.values.breadcrumbs.map(({ name }) => name)).toEqual([
-            'Engineering analytics',
-            'Workflows',
-            'PostHog/posthog · CI',
-            'run #42',
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadRunSuccess',
+            'loadJobsSuccess',
+            'loadFailureLogsSuccess',
         ])
-        const workflowDestination = new URL(logic.values.breadcrumbs[2].path!, 'https://example.com')
-        expect(workflowDestination.pathname).toBe(
-            new URL(urls.engineeringAnalyticsWorkflowRuns('PostHog', 'posthog', 'CI'), 'https://example.com').pathname
-        )
-        expect(Object.fromEntries(workflowDestination.searchParams)).toEqual({
-            date_from: '2026-06-01',
-            date_to: '2026-06-30',
-            run_scope: 'merge_queue',
-            source: 'source-1',
-            repo: 'PostHog/posthog',
-        })
-
-        router.actions.replace(urls.engineeringAnalyticsWorkflowRun('PostHog', 'posthog', 42), {
-            source: 'source-1',
-            repo: 'PostHog/posthog',
-            date_from: '-30d',
-        })
-        const hubDestination = new URL(logic.values.breadcrumbs[0].path!, 'https://example.com')
-        expect(Object.fromEntries(hubDestination.searchParams)).toEqual({
-            date_from: '-30d',
-            source: 'source-1',
-            repo: 'PostHog/posthog',
-        })
+        for (const read of [mockRun, mockJobs, mockLogs]) {
+            expect(read).toHaveBeenCalledWith('1', expect.objectContaining({ run_id: 42, ci_engine: 'depot_ci' }))
+        }
     })
 })

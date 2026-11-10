@@ -12,6 +12,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 
 @dataclass(frozen=True)
 class SupportChannel:
@@ -20,6 +22,14 @@ class SupportChannel:
     id: str
     name: str
     is_member: bool
+
+
+@dataclass(frozen=True)
+class SupportSlackSender:
+    """The Slack profile a SupportHog message can be posted under."""
+
+    name: str
+    icon_url: str
 
 
 @dataclass(frozen=True)
@@ -118,6 +128,17 @@ class AccountEmailThreadSummary:
 class EmailThreadAddress:
     name: str
     email: str
+
+
+@frozen
+class RoleSlaBreach:
+    """Open tickets assigned to one of the viewer's roles, due inside the caller's window."""
+
+    role_id: UUID
+    role_name: str
+    ticket_count: int
+    soonest_ticket_number: int
+    soonest_due_at: datetime
 
 
 @dataclass(frozen=True)

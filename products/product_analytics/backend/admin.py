@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from django import forms
 from django.contrib import admin, messages
+from django.contrib.admin import ActionLocation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
@@ -13,7 +14,7 @@ from posthog.admin.filters import DeletedFilter
 from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.user import User
 
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -96,9 +97,11 @@ class InsightAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return Insight.objects_including_soft_deleted.all()
 
-    def get_actions(self, request: HttpRequest) -> dict[str, Any]:
+    def get_actions(
+        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
+    ) -> dict[str, Any]:
         # Drop the built-in hard-delete: insights are soft-deleted product-side.
-        actions = super().get_actions(request)
+        actions = super().get_actions(request, action_location=action_location)
         actions.pop("delete_selected", None)
         return actions
 
@@ -124,11 +127,7 @@ class InsightAdmin(admin.ModelAdmin):
             if insights:
                 # Re-activate tiles on live dashboards, and log manually since Insight has no
                 # ModelActivityMixin. Unnamed insights are skipped in the log, matching the API.
-                DashboardTile.objects_including_soft_deleted.filter(
-                    insight_id__in=[insight.id for insight in insights],
-                    deleted=True,
-                    dashboard__deleted=False,
-                ).update(deleted=False)
+                dashboards_api.restore_tiles_for_insights_without_access_check([insight.id for insight in insights])
                 bulk_log_activity(
                     [
                         LogActivityEntry(

@@ -31,6 +31,14 @@ class EvaluationErrorSpec:
 
 
 USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
+    "endpoint_blocked": EvaluationErrorSpec(
+        error_type="endpoint_blocked",
+        owner="user",
+        safe_message="The judge endpoint is not allowed. Check the connection settings.",
+        status_reason=EvaluationStatusReason.PROVIDER_KEY_INVALID,
+        disables_evaluation=True,
+        provider_key_state=LLMProviderKey.State.ERROR,
+    ),
     "provider_key_required": EvaluationErrorSpec(
         error_type="provider_key_required",
         owner="user",
@@ -98,6 +106,13 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         status_reason=EvaluationStatusReason.MODEL_NOT_FOUND,
         disables_evaluation=True,
     ),
+    "model_not_supported": EvaluationErrorSpec(
+        error_type="model_not_supported",
+        owner="user",
+        safe_message="The selected model does not support chat completions. Choose a chat model before re-enabling.",
+        status_reason=EvaluationStatusReason.MODEL_NOT_SUPPORTED,
+        disables_evaluation=True,
+    ),
     "hog_error": EvaluationErrorSpec(
         error_type="hog_error",
         owner="user",
@@ -119,6 +134,12 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         error_type="score_out_of_bounds",
         owner="user",
         safe_message="The score was outside the configured bounds, so this run was skipped. Check the score limits.",
+    ),
+    # Unlike `rate_limit`, this limit can clear on the next run, so the evaluation stays enabled.
+    "rate_limit_retries_exhausted": EvaluationErrorSpec(
+        error_type="rate_limit_retries_exhausted",
+        owner="user",
+        safe_message="The provider kept rate limiting your API key, so this run was skipped. Raise the key's limits or lower the sampling percentage.",
     ),
 }
 

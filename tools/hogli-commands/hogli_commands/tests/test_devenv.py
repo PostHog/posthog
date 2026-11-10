@@ -924,6 +924,14 @@ class TestMprocsGeneratorRegression:
             assert 'export POSTHOG_DESKTOP_SKILLS="${POSTHOG_DESKTOP_SKILLS:-local}"' in config.procs[name]["shell"]
         assert "POSTHOG_DESKTOP_SKILLS" not in config.procs["backend"]["shell"]
 
+    @parameterized.expand([(name,) for name in load_intent_map().intents])
+    def test_nodejs_cdp_brings_cyclotron_migrations(self, intent_name: str) -> None:
+        """CDP capability groups run CyclotronV2 workers that need cyclotron_jobs to exist."""
+        resolved = IntentResolver(load_intent_map(), create_mprocs_registry()).resolve([intent_name])
+
+        if resolved.capabilities & {"nodejs_cdp", "nodejs_cdp_workflows"}:
+            assert "migrate-cyclotron" in resolved.units
+
     def test_product_analytics_keeps_native_core_services(self) -> None:
         intent_map = load_intent_map()
         registry = create_mprocs_registry()

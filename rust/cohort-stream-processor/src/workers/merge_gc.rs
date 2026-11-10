@@ -83,6 +83,7 @@ impl MergeGcCursor {
 
 /// GC one partition's three merge CFs for one tick. `marker_cutoff_ms` gates the two idempotence
 /// markers; `tombstone_cutoff_ms` (longer) gates tombstones.
+#[hotpath::measure]
 pub fn handle_merge_gc(
     partition_id: u16,
     store: &CohortStore,

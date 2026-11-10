@@ -22,6 +22,7 @@ import {
   BreadcrumbSeparator,
 } from "@posthog/ui/primitives/Breadcrumb";
 import { LEADING_BUTTON_PULL } from "@posthog/ui/primitives/ChromeBar";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
@@ -63,6 +64,7 @@ interface ChannelBreadcrumbProps {
    * unrelated once the bar's width separates them from the name.
    */
   leafTrailing?: ReactNode;
+  isLoading?: boolean;
 }
 
 // "# channel / leaf" header breadcrumb shared across channel scenes (CONTEXT.md,
@@ -80,6 +82,7 @@ export function ChannelBreadcrumb({
   onRename,
   trailing,
   leafTrailing,
+  isLoading = false,
 }: ChannelBreadcrumbProps) {
   const spacesLayout = useChannelsLayout();
   // Only a leaf is renamable, so the scope key falls back to its label.
@@ -91,25 +94,31 @@ export function ChannelBreadcrumb({
   const atChannelHome = channelId ? pathname === `/spaces/${channelId}` : false;
 
   const channelSegment = (
-    <BreadcrumbSegment
-      icon={channelGlyph(channelName, {
-        size: 12,
-        space: spacesLayout,
-        className: "shrink-0 text-muted-foreground/80",
-      })}
-      label={channelName}
-      strong
-      onClick={
-        channelId && !atChannelHome
-          ? () =>
-              void navigate({
-                to: "/spaces/$channelId",
-                params: { channelId },
-              })
-          : undefined
-      }
-      contextMenu={Boolean(channelId)}
-    />
+    <span
+      className="flex items-center gap-1"
+      aria-busy={isLoading || undefined}
+    >
+      <BreadcrumbSegment
+        icon={channelGlyph(channelName, {
+          size: 12,
+          space: spacesLayout,
+          className: "shrink-0 text-muted-foreground/80",
+        })}
+        label={channelName}
+        strong
+        onClick={
+          channelId && !atChannelHome
+            ? () =>
+                void navigate({
+                  to: "/spaces/$channelId",
+                  params: { channelId },
+                })
+            : undefined
+        }
+        contextMenu={Boolean(channelId)}
+      />
+      {isLoading ? <Spinner size="xs" aria-hidden="true" /> : null}
+    </span>
   );
 
   return (

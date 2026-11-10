@@ -65,6 +65,24 @@ describe('EvaluationDisplay', () => {
         expect(screen.queryByText('False')).not.toBeInTheDocument()
     })
 
+    test.each([true, 'true'])('renders a skipped categorical run before N/A (%s)', (skipped) => {
+        render(
+            <Provider>
+                <EvaluationDisplay
+                    eventProperties={{
+                        $ai_evaluation_result_type: 'categorical',
+                        $ai_evaluation_applicable: false,
+                        $ai_evaluation_allows_na: false,
+                        $ai_evaluation_skipped: skipped,
+                    }}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('Skipped')).toBeInTheDocument()
+        expect(screen.queryByText('N/A')).not.toBeInTheDocument()
+    })
+
     it('colors a detector true result as danger, matching the badges elsewhere on the page', () => {
         const evaluationsLogic = llmEvaluationsLogic()
         evaluationsLogic.mount()

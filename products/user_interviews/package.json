@@ -1,25 +1,6 @@
 {
     "name": "@posthog/products-user-interviews",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
-    },
-    "dependencies": {
-        "kea": "catalog:",
-        "kea-loaders": "catalog:",
-        "kea-router": "catalog:",
-        "posthog-js": "catalog:"
-    },
-    "devDependencies": {
-        "kea-test-utils": "catalog:"
-    },
-    "peerDependencies": {
-        "@posthog/brand": "catalog:",
-        "@posthog/icons": "catalog:",
-        "@storybook/react": "catalog:",
-        "@types/react": "*",
-        "clsx": "*",
-        "jest": "*",
-        "react": "*",
-        "typescript": "catalog:*"
+        "backend:test": "echo 'vestigial app — no tests'"
     }
 }

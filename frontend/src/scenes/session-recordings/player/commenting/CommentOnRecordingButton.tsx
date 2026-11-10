@@ -6,7 +6,8 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { preloadRichContent } from 'lib/components/RichContentEditor/LazyRichContent'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { cn } from 'lib/utils/css-classes'
 import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
@@ -43,9 +44,18 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
     )
 }
 
-export function CommentOnRecordingButton({ className }: { className?: string }): JSX.Element {
+export function CommentOnRecordingButton({
+    className,
+    'data-attr': dataAttr,
+}: {
+    className?: string
+    'data-attr'?: string
+}): JSX.Element {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
+
+    const defaultDataAttr = isCommenting ? 'stop-annotating-recording' : 'annotate-recording'
+    const overrideDataAttr = dataAttr && isCommenting ? `${dataAttr}-stop` : dataAttr
 
     return (
         <AccessControlAction
@@ -54,6 +64,7 @@ export function CommentOnRecordingButton({ className }: { className?: string }):
         >
             <LemonButton
                 size="xsmall"
+                onMouseEnter={preloadRichContent}
                 onClick={(e) => {
                     e.stopPropagation()
                     setIsCommenting(!isCommenting)
@@ -69,7 +80,7 @@ export function CommentOnRecordingButton({ className }: { className?: string }):
                         </>
                     )
                 }
-                data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
+                data-attr={overrideDataAttr ?? defaultDataAttr}
                 active={isCommenting}
                 icon={<IconComment className={cn('text-lg', className)} />}
             />

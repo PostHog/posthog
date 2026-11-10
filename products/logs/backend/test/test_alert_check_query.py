@@ -21,18 +21,18 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 
+from products.alerts_platform.backend.facade.rolling_checks import rolling_check_ranges
 from products.logs.backend.alert_check_query import (
-    CHECKPOINT_MAX_STALENESS,
     AlertCheckCountResult,
     AlertCheckQuery,
     BatchedAlertCheckQuery,
     BatchedBucketedResult,
     BucketedCount,
-    _rolling_check_ranges,
+    GroupedAlertCheckQuery,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
-    resolve_alert_date_to,
 )
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
@@ -1057,6 +1057,73 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
             assert batched.per_alert[str(alert.id)] == single
 
     @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
+    def test_each_group_counts_what_its_own_single_alert_query_counts(self):
+        base = datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
+        self._seed(self.SERVICE_A, base, [3] * 60)
+        self._seed(self.SERVICE_B, base, [7] * 60)
+        both = self._make_alert(filters={"serviceNames": [self.SERVICE_A, self.SERVICE_B]})
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15 + 2 * 5)
+
+        def grouped(open_groups: list[dict[str, str]], limit: int) -> list[str]:
+            result = GroupedAlertCheckQuery(
+                team=self.team,
+                alert=both,
+                date_from=date_from,
+                date_to=nca,
+                group_by=("service_name",),
+                open_groups=open_groups,
+                worst_is_highest=True,
+                threshold_count=10,
+                datapoints_to_alarm=1,
+                limit=limit,
+                max_execution_time=30,
+                ch_user=ClickHouseUser.DEFAULT,
+            ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
+            for group in result.groups:
+                alone = self._make_alert(filters={"serviceNames": [group.labels["service_name"]]})
+                assert group.counts == AlertCheckQuery(
+                    team=self.team, alert=alone, date_from=date_from, date_to=nca
+                ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
+            return [group.labels["service_name"] for group in result.groups]
+
+        assert grouped([], limit=2) == [self.SERVICE_B, self.SERVICE_A]
+        # The quieter group still comes back when it is open, ahead of a worse one the limit cuts.
+        assert grouped([{"service_name": self.SERVICE_A}], limit=1) == [self.SERVICE_A, self.SERVICE_B]
+
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
+    def test_a_limit_keeps_the_groups_that_breach_n_of_m_over_a_worse_latest_period(self):
+        steady, spike, smaller_spike = "rolling_grouped_steady", "rolling_grouped_spike", "rolling_grouped_spike_2"
+        # Periods are 12:15-12:20, 12:20-12:25 and 12:25-12:30.
+        self._seed(steady, datetime(2025, 12, 16, 12, 15, tzinfo=UTC), [2] * 15)
+        self._seed(spike, datetime(2025, 12, 16, 12, 25, tzinfo=UTC), [20] * 5)
+        self._seed(smaller_spike, datetime(2025, 12, 16, 12, 25, tzinfo=UTC), [12] * 5)
+        alert = self._make_alert(filters={"serviceNames": [steady, spike, smaller_spike]}, window_minutes=5)
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+
+        result = GroupedAlertCheckQuery(
+            team=self.team,
+            alert=alert,
+            date_from=nca - dt.timedelta(minutes=15),
+            date_to=nca,
+            group_by=("service_name",),
+            open_groups=[],
+            worst_is_highest=True,
+            threshold_count=5,
+            datapoints_to_alarm=2,
+            limit=1,
+            max_execution_time=30,
+            ch_user=ClickHouseUser.DEFAULT,
+        ).execute_rolling_checks(nca=nca, window_minutes=5, cadence_minutes=5, period_count=3)
+
+        # The row past the limit is the worst group cut.
+        assert [(g.labels["service_name"], [c.count for c in g.counts]) for g in result.groups] == [
+            (steady, [10, 10, 10]),
+            (spike, [0, 0, 100]),
+        ]
+        assert result.truncated
+
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_single_alert_cohort_matches_per_alert_path(self):
         base = datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
         self._seed(self.SERVICE_A, base, [5] * 60)
@@ -1870,7 +1937,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         )
         builders = {
             "bucketed": lambda: query._build_bucketed_query(5, 10_000),
-            "count_per_range": lambda: query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)),
+            "count_per_range": lambda: query._build_count_per_range_query(rolling_check_ranges(self.NCA, 5, 5, 3)),
         }
         return builders[builder]()
 
@@ -1916,7 +1983,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         alert = self._make_alert(filters={"serviceNames": [self.TARGET_SERVICE]})
         date_from = self.NCA - dt.timedelta(minutes=15)
         query = BatchedAlertCheckQuery(team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA)
-        sql, _ = self._print_query(query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)))
+        sql, _ = self._print_query(query._build_count_per_range_query(rolling_check_ranges(self.NCA, 5, 5, 3)))
         where = self._outer_where_sql(sql)
         assert "service_name" in where
         assert not re.search(r"(?<![a-zA-Z0-9_])or\(", where), where
@@ -1927,7 +1994,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         query = BatchedAlertCheckQuery(
             team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
         )
-        sql, values = self._print_query(query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)))
+        sql, values = self._print_query(query._build_count_per_range_query(rolling_check_ranges(self.NCA, 5, 5, 3)))
         # Apply the runtime CH settings; index selection can diverge from real
         # queries without them (same recipe as posthog/hogql/test/test_property_skip_indexes.py).
         settings = {
@@ -2130,7 +2197,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         query = BatchedAlertCheckQuery(
             team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
         )
-        sql, _ = self._print_query(query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)))
+        sql, _ = self._print_query(query._build_count_per_range_query(rolling_check_ranges(self.NCA, 5, 5, 3)))
         select_part, _, _ = sql.partition(" WHERE ")
         assert "indexHint(" in select_part
         assert "indexHint(" not in self._outer_where_sql(sql)
@@ -2182,30 +2249,29 @@ class TestBatchedQueryPredicateHoistingEmptyScan(ClickhouseTestMixin, APIBaseTes
         assert [b.count for b in batched.per_alert[str(alert.id)]] == [0, 0, 0]
 
 
-class TestFetchLiveLogsCheckpoint(APIBaseTest):
-    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
-    def test_returns_datetime_from_response(self, mock_execute):
-        mock_response = type("R", (), {"results": [[datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)]]})()
-        mock_execute.return_value = mock_response
+class TestFetchLiveLogsCheckpoint(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS logs_kafka_metrics")
 
-        result = fetch_live_logs_checkpoint(self.team)
+    def _consumed(self, partition: int, observed: datetime) -> None:
+        sync_execute(
+            "INSERT INTO logs_kafka_metrics (_topic, _partition, max_observed_timestamp) VALUES",
+            [("logs", partition, observed)],
+        )
 
-        assert result == datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)
-
-    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
-    def test_returns_none_on_empty_table(self, mock_execute):
-        # min() over an empty set returns NULL.
-        mock_execute.return_value = type("R", (), {"results": [[None]]})()
-
+    def test_returns_none_before_any_log_is_consumed(self) -> None:
         assert fetch_live_logs_checkpoint(self.team) is None
 
-    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
-    def test_returns_none_when_no_rows(self, mock_execute):
-        mock_execute.return_value = type("R", (), {"results": []})()
+    def test_returns_the_slowest_partitions_newest_log(self) -> None:
+        start = datetime(2026, 11, 5, 12, 0, tzinfo=UTC)
+        self._consumed(0, start)
+        self._consumed(0, start + dt.timedelta(seconds=30))
+        self._consumed(1, start + dt.timedelta(seconds=20))
 
-        assert fetch_live_logs_checkpoint(self.team) is None
+        assert fetch_live_logs_checkpoint(self.team) == start + dt.timedelta(seconds=20)
 
-    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
+    @patch("products.alerts_platform.backend.facade.ingestion_checkpoint.execute_hogql_query")
     def test_attaches_utc_to_naive_datetime(self, mock_execute):
         # ClickHouse returns tz-naive datetimes for DateTime64 columns in some code paths.
         mock_execute.return_value = type("R", (), {"results": [[datetime(2025, 1, 1, 12, 34, 56)]]})()
@@ -2214,123 +2280,3 @@ class TestFetchLiveLogsCheckpoint(APIBaseTest):
 
         assert result == datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)
         assert result is not None and result.tzinfo is not None
-
-
-class TestResolveAlertDateTo(unittest.TestCase):
-    NEXT_CHECK_AT = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-    def test_none_checkpoint_returns_next_check_at(self):
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, None) == self.NEXT_CHECK_AT
-
-    def test_fresh_checkpoint_in_past_is_used(self):
-        checkpoint = self.NEXT_CHECK_AT - dt.timedelta(seconds=30)
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == checkpoint
-
-    def test_checkpoint_equal_to_next_check_at_is_used(self):
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, self.NEXT_CHECK_AT) == self.NEXT_CHECK_AT
-
-    def test_future_checkpoint_is_clamped_to_next_check_at(self):
-        checkpoint = self.NEXT_CHECK_AT + dt.timedelta(seconds=60)
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == self.NEXT_CHECK_AT
-
-    def test_stale_checkpoint_beyond_threshold_falls_back_to_next_check_at(self):
-        # The "quiet partition pins min() backwards" case — must not strand spikes
-        # on active partitions in the past.
-        checkpoint = self.NEXT_CHECK_AT - CHECKPOINT_MAX_STALENESS - dt.timedelta(seconds=1)
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == self.NEXT_CHECK_AT
-
-    def test_checkpoint_exactly_at_threshold_is_still_used(self):
-        checkpoint = self.NEXT_CHECK_AT - CHECKPOINT_MAX_STALENESS
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == checkpoint
-
-
-class TestRollingCheckRanges(unittest.TestCase):
-    NCA = datetime(2026, 5, 3, 6, 0, 0, tzinfo=UTC)
-
-    def test_m_equals_1_returns_single_latest_window(self):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=1)
-        assert ranges == [(self.NCA - dt.timedelta(minutes=15), self.NCA)]
-
-    def test_m_equals_3_window_15_cadence_5(self):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=3)
-        assert ranges == [
-            (datetime(2026, 5, 3, 5, 35, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 40, tzinfo=UTC), datetime(2026, 5, 3, 5, 55, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
-        ]
-
-    def test_m_equals_3_window_30_cadence_5(self):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=30, cadence_minutes=5, period_count=3)
-        assert ranges == [
-            (datetime(2026, 5, 3, 5, 20, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 25, tzinfo=UTC), datetime(2026, 5, 3, 5, 55, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 30, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
-        ]
-
-    def test_cadence_equals_window_produces_non_overlapping_back_to_back(self):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=15, period_count=3)
-        assert ranges == [
-            (datetime(2026, 5, 3, 5, 15, tzinfo=UTC), datetime(2026, 5, 3, 5, 30, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 30, tzinfo=UTC), datetime(2026, 5, 3, 5, 45, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
-        ]
-
-    def test_cadence_greater_than_window_produces_gaps(self):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=5, cadence_minutes=10, period_count=3)
-        assert ranges == [
-            (datetime(2026, 5, 3, 5, 35, tzinfo=UTC), datetime(2026, 5, 3, 5, 40, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 55, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
-        ]
-
-    def test_oldest_first_ordering(self):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=5)
-        starts = [start for start, _ in ranges]
-        assert starts == sorted(starts)
-
-    @parameterized.expand(
-        [
-            ("M1", 1),
-            ("M2", 2),
-            ("M3", 3),
-            ("M5", 5),
-            ("M10", 10),
-        ]
-    )
-    def test_newest_range_ends_exactly_at_nca(self, _name: str, m: int):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=m)
-        assert ranges[-1][1] == self.NCA
-
-    def test_total_lookback_matches_window_plus_m_minus_1_times_cadence(self):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=3)
-        oldest_start = ranges[0][0]
-        expected_lookback = dt.timedelta(minutes=15 + (3 - 1) * 5)
-        assert self.NCA - oldest_start == expected_lookback
-
-    @parameterized.expand(
-        [
-            ("M1_w15_c5", 1, 15, 5),
-            ("M2_w15_c5", 2, 15, 5),
-            ("M3_w15_c5", 3, 15, 5),
-            ("M5_w30_c5", 5, 30, 5),
-            ("M10_w60_c5", 10, 60, 5),
-            ("M3_w5_c1", 3, 5, 1),
-        ]
-    )
-    def test_each_range_is_exactly_window_minutes_wide(self, _name: str, m: int, window: int, cadence: int):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=window, cadence_minutes=cadence, period_count=m)
-        for start, end in ranges:
-            assert end - start == dt.timedelta(minutes=window)
-
-    @parameterized.expand(
-        [
-            ("M2_w15_c5", 2, 15, 5),
-            ("M3_w15_c5", 3, 15, 5),
-            ("M5_w30_c5", 5, 30, 5),
-        ]
-    )
-    def test_adjacent_ranges_offset_by_cadence(self, _name: str, m: int, window: int, cadence: int):
-        ranges = _rolling_check_ranges(self.NCA, window_minutes=window, cadence_minutes=cadence, period_count=m)
-        for i in range(len(ranges) - 1):
-            assert ranges[i + 1][0] - ranges[i][0] == dt.timedelta(minutes=cadence)
-            assert ranges[i + 1][1] - ranges[i][1] == dt.timedelta(minutes=cadence)

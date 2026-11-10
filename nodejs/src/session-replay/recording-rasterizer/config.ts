@@ -12,6 +12,11 @@ export function parsePositiveInt(raw: string | undefined, fallback: number): num
     return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
+export function parseFraction(raw: string | undefined, fallback: number): number {
+    const n = parseFloat(raw ?? '')
+    return Number.isFinite(n) && n > 0 && n <= 1 ? n : fallback
+}
+
 export const config = {
     // Temporal
     temporalHost: process.env.TEMPORAL_HOST || '127.0.0.1',
@@ -25,6 +30,14 @@ export const config = {
     // Worker
     logLevel: (process.env.LOG_LEVEL || 'info') as 'debug' | 'info' | 'warn' | 'error',
     maxConcurrentActivities: parsePositiveInt(process.env.MAX_CONCURRENT_ACTIVITIES, 4),
+    // Above these fractions of the cgroup limit, the worker takes no activity beyond its first slot.
+    tunerTargetMemoryUsage: parseFraction(process.env.TUNER_TARGET_MEMORY_USAGE, 0.7),
+    tunerTargetCpuUsage: parseFraction(process.env.TUNER_TARGET_CPU_USAGE, 0.9),
+    tunerRampThrottleMs: parsePositiveInt(process.env.TUNER_RAMP_THROTTLE_MS, 10_000),
+    // On SIGTERM (deploy, scale-down, node replacement) the worker waits this long for in-flight renders before
+    // the SDK cancels them. The SDK default is 0, which cancels every running render at once. Keep it below the
+    // pod's terminationGracePeriodSeconds (1800s in prod) so the process still exits before it is killed.
+    shutdownGraceTimeMs: parsePositiveInt(process.env.SHUTDOWN_GRACE_TIME_MS, 25 * 60 * 1000),
     browserRecycleAfter: parsePositiveInt(process.env.BROWSER_RECYCLE_AFTER, 100),
     // Browsers held warm beyond this are closed on release: each idle Chromium pins 100-250MB RSS,
     // and a pod that once ran at full concurrency would otherwise keep that footprint forever.
@@ -38,9 +51,9 @@ export const config = {
     screenshotJpegQuality: parsePositiveInt(process.env.SCREENSHOT_JPEG_QUALITY, 80),
     metricsPort: parsePositiveInt(process.env.METRICS_PORT, 6738),
 
-    // Encryption
-    secretKey: process.env.TEMPORAL_SECRET_KEY || process.env.SECRET_KEY,
-    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_SECRET_KEYS ?? process.env.SECRET_KEY).filter(Boolean),
+    // Encryption. There is no SECRET_KEY fallback, so a deployment never has to give this pod that key.
+    secretKey: process.env.TEMPORAL_SECRET_KEY,
+    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_SECRET_KEYS).filter(Boolean),
 
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,
@@ -53,7 +66,6 @@ export const config = {
 
     // Recording API. The dev recording-api listens on 6741 (bin/temporal-recording-rasterizer-worker).
     recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6741',
-    recordingApiSecret: process.env.INTERNAL_API_SECRET || '',
     // The listing hits ClickHouse through recording-api, so internalFetch's 3s default aborts it under load.
     blockListingTimeoutMs: parsePositiveInt(process.env.BLOCK_LISTING_TIMEOUT_MS, 30_000),
     // Renders above this many compressed bytes fail permanently instead of loading the pod into its

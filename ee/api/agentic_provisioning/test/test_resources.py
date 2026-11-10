@@ -3,15 +3,83 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import Organization
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+from posthog.models.user import User
+from posthog.test.authentication_checks import covers_authentication
 
+from ee.api.agentic_provisioning.authentication import ProvisioningBearerAuthentication
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.ratelimits import RATE_LIMITED_MESSAGE
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 
 class TestProvisioningResources(ProvisioningTestBase):
+    @parameterized.expand(
+        [
+            (operation, ip, restrict_target, expected)
+            for operation in ("create", "read", "rotate", "remove", "new_project", "existing_project", "deep_link")
+            for ip, restrict_target, expected in (
+                ("203.0.113.7", True, 200),
+                ("198.51.100.7", True, 403),
+                ("198.51.100.7", False, 200),
+            )
+        ]
+    )
+    def test_resource_ip_policy_follows_target(
+        self, operation: str, ip: str, restrict_target: bool, expected: int
+    ) -> None:
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        if operation == "existing_project":
+            existing = Team.objects.create(organization=self.organization, name="Existing example project")
+            TeamProvisioningConfig.objects.update_or_create(
+                team=existing, defaults={"stripe_project_id": "example-policy-project", "application": self.partner}
+            )
+        other = Organization.objects.create(name="Other example organization")
+        other_team = Team.objects.create(organization=other)
+        self.user.join(organization=other)
+        self.user.current_team = other_team
+        self.user.save()
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization if restrict_target else other, ip_restrictions=["203.0.113.0/24"]
+        )
+        self.client.defaults["REMOTE_ADDR"] = ip
+        original_key = self.team.api_token
+        original_scopes = access_token.scoped_teams
+        original_teams = Team.objects.filter(organization=self.organization).count()
+        original_mappings = TeamProvisioningConfig.objects.count()
+        original_credentials = PersonalAPIKey.objects.count()
+        url = "/api/agentic/provisioning/resources"
+        data: dict[str, str] = {}
+        if operation in ("new_project", "existing_project"):
+            data = {"project_id": "example-policy-project"}
+        elif operation == "deep_link":
+            url = "/api/agentic/provisioning/deep_links"
+            data = {"purpose": "dashboard"}
+        elif operation in ("read", "rotate", "remove"):
+            url += f"/{self.team.id}"
+            url += {"read": "", "rotate": "/rotate_credentials", "remove": "/remove"}[operation]
+        response = (
+            self._get_with_bearer(url, token=token)
+            if operation == "read"
+            else self._post_with_bearer(url, data, token=token)
+        )
+        assert response.status_code == expected, response.content
+        if expected == 403:
+            assert response.json()["error"]["code"] == "forbidden"
+            self.team.refresh_from_db()
+            access_token.refresh_from_db()
+            assert self.team.api_token == original_key
+            assert access_token.scoped_teams == original_scopes
+            assert Team.objects.filter(organization=self.organization).count() == original_teams
+            assert TeamProvisioningConfig.objects.count() == original_mappings
+            assert PersonalAPIKey.objects.count() == original_credentials
+
+    @covers_authentication(ProvisioningBearerAuthentication)
     def test_create_resource_returns_complete(self):
         token = self._get_bearer_token()
         res = self._post_with_bearer(
@@ -651,11 +719,12 @@ class TestProvisioningResources(ProvisioningTestBase):
 
 
 class TestProvisioningResourceRemove(ProvisioningTestBase):
-    def test_remove_strips_team_from_sibling_tokens(self):
+    @parameterized.expand([("same_user", False), ("other_org_member", True)])
+    def test_remove_strips_team_from_sibling_tokens(self, _name: str, sibling_is_other_member: bool) -> None:
         # Removing a resource has to revoke the team from every live token
-        # the partner installation holds for that user. Otherwise a sibling
-        # bearer that still has the team in scope can short-circuit past the
-        # auto-add guard and keep operating on the removed team.
+        # the partner holds, for any user. Otherwise a sibling bearer that still
+        # has the team in scope can short-circuit past the auto-add guard and keep
+        # operating on the removed team.
         from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -666,10 +735,16 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             defaults={"stripe_project_id": "proj_remove_me", "application": access_token.application},
         )
 
-        # Sibling token for the same user+application also has the team in scope.
+        sibling_user = (
+            User.objects.create_and_join(
+                organization=self.organization, email="teammate@example.com", password="testpass", first_name="Mate"
+            )
+            if sibling_is_other_member
+            else access_token.user
+        )
         sibling_at = OAuthAccessToken.objects.create(
             application=access_token.application,
-            user=access_token.user,
+            user=sibling_user,
             token="sibling_access_token_value",
             expires=access_token.expires,
             scope=access_token.scope,
@@ -677,7 +752,7 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         )
         sibling_rt = OAuthRefreshToken.objects.create(
             application=access_token.application,
-            user=access_token.user,
+            user=sibling_user,
             token="sibling_refresh_token_value",
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],

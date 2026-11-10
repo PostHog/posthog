@@ -1,7 +1,12 @@
+import re
 import hmac
 import base64
 import hashlib
+import binascii
 from typing import Literal
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
 def encode_digest(encoding: Literal["hex", "base64", "base64url", "binary"], digest: bytes) -> str:
@@ -61,3 +66,50 @@ def sha256HmacChain(data: list, encoding: Literal["hex", "base64", "base64url", 
 
 def sha1HmacChain(data: list, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str:
     return _hmac_chain(data, "sha1", encoding)
+
+
+def sha256HmacBase64Key(key: str, data: str, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str:
+    # Svix-style webhook secrets are random bytes, which a string key would corrupt. The extra
+    # padding makes the decode accept a key with or without padding, as Node does.
+    key_bytes = base64.b64decode(key.strip() + "==")
+    digest = hmac.new(key_bytes, data.encode(), hashlib.sha256).digest()
+
+    return encode_digest(encoding, digest)
+
+
+# b64decode skips characters outside the alphabet, so check the whole string first. TS and Rust use the same patterns.
+_HEX_PATTERN = re.compile(r"(?:[0-9a-fA-F]{2})*")
+_BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+
+
+def _decode_verify_arg(value: str, encoding: str, expected_bytes: int) -> bytes | None:
+    # Hex is the longest valid form, so anything longer is rejected before the regex runs on it.
+    if len(value) > expected_bytes * 2:
+        return None
+    if not (_HEX_PATTERN if encoding == "hex" else _BASE64_PATTERN).fullmatch(value):
+        return None
+    try:
+        if encoding == "hex":
+            decoded = bytes.fromhex(value)
+        else:
+            decoded = base64.b64decode(value + "==")
+    except (ValueError, binascii.Error):
+        return None
+    return decoded if len(decoded) == expected_bytes else None
+
+
+# Returns False for a malformed key or signature, so a bad webhook reads as unverified, not as a crash.
+def ed25519Verify(message: object, signature: object, public_key: object, encoding: str = "hex") -> bool:
+    if encoding not in ("hex", "base64"):
+        raise ValueError(f"ed25519Verify: encoding must be 'hex' or 'base64', got '{encoding}'")
+    if not isinstance(message, str) or not isinstance(signature, str) or not isinstance(public_key, str):
+        return False
+    signature_bytes = _decode_verify_arg(signature.strip(), encoding, 64)
+    key_bytes = _decode_verify_arg(public_key.strip(), encoding, 32)
+    if signature_bytes is None or key_bytes is None:
+        return False
+    try:
+        Ed25519PublicKey.from_public_bytes(key_bytes).verify(signature_bytes, message.encode())
+    except (InvalidSignature, ValueError):
+        return False
+    return True

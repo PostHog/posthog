@@ -3,6 +3,7 @@ import { memo } from 'react'
 
 import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import api from 'lib/api'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -12,6 +13,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -25,6 +27,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
+import { getEuUserId, getUserAdminUrl } from 'lib/utils/userAdmin'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -46,9 +49,10 @@ import {
     PersonType,
     PersonsTabType,
     PropertyDefinitionType,
+    Region,
 } from '~/types'
 
-import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket/ComposeTicketButton'
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { RelatedGroups } from 'products/groups/frontend/components/RelatedGroups'
 
@@ -232,6 +236,7 @@ export function PersonScene(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
 
     if (personError) {
@@ -286,28 +291,56 @@ export function PersonScene(): JSX.Element | null {
                             type="secondary"
                             size="small"
                         />
-                        <LemonButton
-                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
-                            disabled={deletedPersonLoading}
-                            loading={deletedPersonLoading}
-                            type="secondary"
-                            status="danger"
-                            data-attr="delete-person"
-                            size="small"
-                            icon={isMobile() ? <IconTrash /> : null}
-                        >
-                            {isMobile() ? null : 'Delete person'}
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <>
+                                <Button
+                                    onClick={() => showPersonDeleteModal(person, () => loadPersons())}
+                                    disabled={deletedPersonLoading}
+                                    loading={deletedPersonLoading}
+                                    variant="destructive-outline"
+                                    data-attr="delete-person"
+                                    size={isMobile() ? 'icon' : undefined}
+                                    aria-label={isMobile() ? 'Delete person' : undefined}
+                                    tooltip={isMobile() ? 'Delete person' : undefined}
+                                >
+                                    {isMobile() ? <IconTrash /> : 'Delete person'}
+                                </Button>
+                                {person.distinct_ids.length > 1 && (
+                                    <Button
+                                        onClick={() => setSplitMergeModalShown(true)}
+                                        data-attr="merge-person-button"
+                                        variant="outline"
+                                    >
+                                        Split IDs
+                                    </Button>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    onClick={() => showPersonDeleteModal(person, () => loadPersons())}
+                                    disabled={deletedPersonLoading}
+                                    loading={deletedPersonLoading}
+                                    type="secondary"
+                                    status="danger"
+                                    data-attr="delete-person"
+                                    size="small"
+                                    icon={isMobile() ? <IconTrash /> : null}
+                                >
+                                    {isMobile() ? null : 'Delete person'}
+                                </LemonButton>
 
-                        {person.distinct_ids.length > 1 && (
-                            <LemonButton
-                                onClick={() => setSplitMergeModalShown(true)}
-                                data-attr="merge-person-button"
-                                type="secondary"
-                                size="small"
-                            >
-                                Split IDs
-                            </LemonButton>
+                                {person.distinct_ids.length > 1 && (
+                                    <LemonButton
+                                        onClick={() => setSplitMergeModalShown(true)}
+                                        data-attr="merge-person-button"
+                                        type="secondary"
+                                        size="small"
+                                    >
+                                        Split IDs
+                                    </LemonButton>
+                                )}
+                            </>
                         )}
                     </>
                 }
@@ -578,22 +611,39 @@ const PersonFeatureFlagsTab = memo(function PersonFeatureFlagsTab({
 
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
 
     const openInAdminPanel = async (email: string): Promise<void> => {
         try {
             const response = await api.users.list(email)
-
-            if (!response.results || response.results.length === 0) {
-                throw new Error('User not found')
+            const userId = response.results?.[0]?.id
+            if (userId) {
+                window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
+                return
             }
 
-            const userId = response.results[0].id
-            window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
+            const euUserId = await getEuUserId(person?.distinct_ids ?? [], { productKey: ProductKey.PERSONS })
+            if (euUserId === null) {
+                throw new Error('User not found')
+            }
+            window.open(getUserAdminUrl(Region.EU, euUserId), '_blank')
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             lemonToast.error(`Failed to open admin panel: ${message}`)
         }
+    }
+
+    if (todayRailNav) {
+        return (
+            <Button
+                variant="outline"
+                onClick={() => openInAdminPanel(person?.properties.email)}
+                disabledReason={disabledReason}
+            >
+                Open in admin panel
+            </Button>
+        )
     }
 
     return (

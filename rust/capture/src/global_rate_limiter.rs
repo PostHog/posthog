@@ -99,6 +99,13 @@ pub fn ai_byte_limit_window(config: &Config) -> (u64, &'static str) {
     }
 }
 
+/// Writer and optional replica URL of one limiter Redis cluster.
+#[derive(Debug, PartialEq)]
+struct RedisClusterUrls<'a> {
+    writer: &'a str,
+    reader: Option<&'a str>,
+}
+
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
@@ -158,9 +165,8 @@ impl GlobalRateLimiter {
                 min_sync_floor: config.global_rate_limit_min_sync_floor,
                 redis_key_prefix: &prefix,
                 metrics_scope: &metrics_scope,
-                // The token-only limiter is not wired to the dynamic refresh
-                // source. (The hierarchical resolver is still set but is a no-op
-                // for bare token keys, which have no `:distinct_id` suffix.)
+                // No dynamic source for the token-only limiter; its resolver's token
+                // fallback never fires for bare token keys.
                 enable_dynamic_source: false,
                 dry_run: config.global_rate_limit_dry_run,
             },
@@ -174,15 +180,15 @@ impl GlobalRateLimiter {
     /// events/window elsewhere caps bytes/window here. Callers pass an event's
     /// serialized size as the count.
     ///
-    /// Budgets are configured in bytes/second and scaled to the window, so the
-    /// knob keeps the same meaning whatever `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS`
-    /// is set to.
+    /// Budgets are configured in bytes/second and scaled to the AI byte window
+    /// (see `ai_byte_limit_window`), so the knob keeps its meaning whatever that
+    /// window is set to.
     pub fn new_ai_bytes(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        // `build` refuses to boot on a zero window, so this scaling never
-        // divides a budget down to nothing.
+        // `build` refuses to boot on a zero window, so this scaling never makes
+        // the budget zero.
         let (window_secs, window_env_var) = ai_byte_limit_window(config);
         let metrics_scope = format!("{}_ai_bytes", config.capture_mode.as_tag());
         Self::build(
@@ -235,10 +241,8 @@ impl GlobalRateLimiter {
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
         spec: LimiterSpec<'_>,
     ) -> anyhow::Result<Self> {
-        // `leak_rate_for` divides the threshold by the window, so a zero window
-        // gives every bucket an infinite leak rate and the limiter admits
-        // everything. That is the opposite of what an operator setting a limit
-        // asked for, and it fails silently, so refuse to boot on it.
+        // A zero window panics the background task on its first tick, so no read ever
+        // lands and pods limit on local counts alone. Refuse to boot instead.
         if spec.window_secs == 0 {
             anyhow::bail!(
                 "invalid configuration: {} must be greater than 0 (limiter {}); \
@@ -312,6 +316,9 @@ impl GlobalRateLimiter {
             local_cache_max_entries: spec.local_cache_max_entries,
             metrics_scope: spec.metrics_scope.to_string(),
             min_sync_floor: spec.min_sync_floor,
+            max_read_outage: config
+                .global_rate_limit_max_read_outage_secs
+                .map(Duration::from_secs),
             max_sync_keys_per_tick: config.global_rate_limit_max_sync_keys_per_tick,
             max_keys_per_command: config.global_rate_limit_max_keys_per_command,
             max_concurrent_commands: config.global_rate_limit_max_concurrent_commands,
@@ -371,7 +378,7 @@ impl GlobalRateLimiter {
             // No custom override for this key: enforce the global threshold.
             EvalResult::NotApplicable => self.is_global_key_limited(key, count).await,
             EvalResult::Limited(response) => Some(response),
-            // Allowed / FailOpen on a key that HAS a custom override: not limited,
+            // Allowed on a key that HAS a custom override: not limited,
             // and we must not re-check it against the global threshold.
             _ => None,
         };
@@ -420,14 +427,83 @@ impl GlobalRateLimiter {
         self.limiter.is_custom_key(key)
     }
 
+    /// Clients for the per-(token, distinct_id) limiter, one per shard in shard order. Without
+    /// `GLOBAL_RATE_LIMIT_REDIS_URL` the limiter shares the main client.
+    pub async fn build_redis_shards(
+        config: &Config,
+        shared_redis: Arc<dyn Client + Send + Sync>,
+    ) -> anyhow::Result<Vec<Arc<dyn Client + Send + Sync>>> {
+        let clusters = Self::redis_shard_urls(config)?;
+        if clusters.is_empty() {
+            return Ok(vec![shared_redis]);
+        }
+        if clusters.len() > 1 {
+            info!(
+                shards = clusters.len(),
+                "Global rate limiter sharding keys across Redis clusters"
+            );
+        }
+        let mut clients = Vec::with_capacity(clusters.len());
+        for cluster in clusters {
+            clients.push(Self::connect_redis(config, cluster).await?);
+        }
+        Ok(clients)
+    }
+
+    /// Client for a limiter that never shards (the AI byte limiter): the first cluster, or the
+    /// main client without `GLOBAL_RATE_LIMIT_REDIS_URL`.
     pub async fn build_redis_client(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,
     ) -> anyhow::Result<Arc<dyn Client + Send + Sync>> {
-        let Some(ref writer_url) = config.global_rate_limit_redis_url else {
-            return Ok(shared_redis);
-        };
+        match Self::first_cluster_urls(config) {
+            Some(cluster) => Self::connect_redis(config, cluster).await,
+            None => Ok(shared_redis),
+        }
+    }
 
+    fn first_cluster_urls(config: &Config) -> Option<RedisClusterUrls<'_>> {
+        config
+            .global_rate_limit_redis_url
+            .as_deref()
+            .map(|writer| RedisClusterUrls {
+                writer,
+                reader: config.global_rate_limit_redis_reader_url.as_deref(),
+            })
+    }
+
+    /// The order of the returned clusters is the routing table, so every pod must list them the same way.
+    fn redis_shard_urls(config: &Config) -> anyhow::Result<Vec<RedisClusterUrls<'_>>> {
+        let first = Self::first_cluster_urls(config);
+        match config.global_rate_limit_redis_shards {
+            1 => Ok(first.into_iter().collect()),
+            2 => {
+                let Some(first) = first else {
+                    anyhow::bail!(
+                        "GLOBAL_RATE_LIMIT_REDIS_SHARDS=2 requires GLOBAL_RATE_LIMIT_REDIS_URL"
+                    );
+                };
+                let Some(writer) = config.global_rate_limit_redis_shard_1_url.as_deref() else {
+                    anyhow::bail!(
+                        "GLOBAL_RATE_LIMIT_REDIS_SHARDS=2 requires GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL"
+                    );
+                };
+                Ok(vec![
+                    first,
+                    RedisClusterUrls {
+                        writer,
+                        reader: config.global_rate_limit_redis_shard_1_reader_url.as_deref(),
+                    },
+                ])
+            }
+            n => anyhow::bail!("GLOBAL_RATE_LIMIT_REDIS_SHARDS must be 1 or 2, got {n}"),
+        }
+    }
+
+    async fn connect_redis(
+        config: &Config,
+        cluster: RedisClusterUrls<'_>,
+    ) -> anyhow::Result<Arc<dyn Client + Send + Sync>> {
         let response_timeout = config
             .global_rate_limit_redis_response_timeout_ms
             .unwrap_or(config.redis_response_timeout_ms);
@@ -445,11 +521,11 @@ impl GlobalRateLimiter {
             Some(Duration::from_millis(connection_timeout))
         };
 
-        if let Some(ref reader_url) = config.global_rate_limit_redis_reader_url {
+        if let Some(reader_url) = cluster.reader {
             info!("Global rate limiter using read/write split Redis client");
             let rw_config = common_redis::ReadWriteClientConfig::new(
-                writer_url.clone(),
-                reader_url.clone(),
+                cluster.writer.to_string(),
+                reader_url.to_string(),
                 common_redis::CompressionConfig::disabled(),
                 common_redis::RedisValueFormat::default(),
                 response_timeout,
@@ -459,7 +535,7 @@ impl GlobalRateLimiter {
         } else {
             Ok(Arc::new(
                 common_redis::RedisClient::with_config(
-                    writer_url.clone(),
+                    cluster.writer.to_string(),
                     common_redis::CompressionConfig::disabled(),
                     common_redis::RedisValueFormat::default(),
                     response_timeout,
@@ -705,6 +781,76 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Mutex;
     use std::time::Duration;
+
+    fn shard_config(extra: &[(&str, &str)]) -> Config {
+        let env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
+        ]
+        .iter()
+        .chain(extra.iter())
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        envconfig::Envconfig::init_from_hashmap(&env).expect("test config")
+    }
+
+    #[rstest]
+    #[case::no_dedicated_redis(&[], &[])]
+    #[case::shard_1_ignored_until_enabled(
+        &[
+            ("GLOBAL_RATE_LIMIT_REDIS_URL", "redis://a"),
+            ("GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL", "redis://b"),
+        ],
+        &[("redis://a", None)],
+    )]
+    #[case::two_shards_in_order(
+        &[
+            ("GLOBAL_RATE_LIMIT_REDIS_SHARDS", "2"),
+            ("GLOBAL_RATE_LIMIT_REDIS_URL", "redis://a"),
+            ("GLOBAL_RATE_LIMIT_REDIS_READER_URL", "redis://a-replica"),
+            ("GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL", "redis://b"),
+            ("GLOBAL_RATE_LIMIT_REDIS_SHARD_1_READER_URL", "redis://b-replica"),
+        ],
+        &[("redis://a", Some("redis://a-replica")), ("redis://b", Some("redis://b-replica"))],
+    )]
+    fn redis_shard_urls_follow_the_shard_count(
+        #[case] env: &[(&str, &str)],
+        #[case] want: &[(&str, Option<&str>)],
+    ) {
+        let config = shard_config(env);
+        let got: Vec<(&str, Option<&str>)> = GlobalRateLimiter::redis_shard_urls(&config)
+            .expect("valid shard config")
+            .into_iter()
+            .map(|c| (c.writer, c.reader))
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    #[rstest]
+    #[case::shard_1_url_missing(
+        &[("GLOBAL_RATE_LIMIT_REDIS_SHARDS", "2"), ("GLOBAL_RATE_LIMIT_REDIS_URL", "redis://a")],
+        "GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL",
+    )]
+    #[case::first_url_missing(
+        &[("GLOBAL_RATE_LIMIT_REDIS_SHARDS", "2"), ("GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL", "redis://b")],
+        "requires GLOBAL_RATE_LIMIT_REDIS_URL",
+    )]
+    #[case::unsupported_count(&[("GLOBAL_RATE_LIMIT_REDIS_SHARDS", "3")], "must be 1 or 2")]
+    fn redis_shard_urls_reject_an_incomplete_shard_config(
+        #[case] env: &[(&str, &str)],
+        #[case] expected: &str,
+    ) {
+        let err = GlobalRateLimiter::redis_shard_urls(&shard_config(env))
+            .expect_err("invalid shard config must fail startup");
+        assert!(
+            err.to_string().contains(expected),
+            "expected {expected:?} in {err}"
+        );
+    }
 
     type CallLog = Arc<Mutex<Vec<&'static str>>>;
 
@@ -1061,15 +1207,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_csv_seed_resolves_hierarchically() {
-        // Gap fix vs master: a static-CSV token-level override (dynamic source
-        // OFF) now applies to that token's token:distinct_id keys too, because
-        // the hierarchical resolver is always set — not just on the dynamic path.
+        // A static-CSV token-level override (dynamic source off) applies to that
+        // token's token:distinct_id keys too, because capture always sets the
+        // hierarchical resolver.
         let limiter = GlobalRateLimiter::for_test_hierarchical_seeded(Some("phc_seed=7"));
 
         assert!(limiter.is_custom_key("phc_seed"), "exact token override");
         assert!(
             limiter.is_custom_key("phc_seed:any_user"),
-            "token override must apply to token:distinct_id (master only did exact match)"
+            "token override must apply to token:distinct_id"
         );
         assert!(
             !limiter.is_custom_key("other_tok:any_user"),

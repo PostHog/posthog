@@ -22,15 +22,13 @@ const progressIndicatorVariants = cva('quill-progress__indicator', {
 
 type ProgressVariantProps = VariantProps<typeof progressIndicatorVariants>
 
-function Progress({
-    className,
-    children,
-    value,
-    variant = 'default',
-    ...props
-}: ProgressPrimitive.Root.Props & ProgressVariantProps): React.ReactElement {
+const Progress = React.forwardRef<
+    React.ComponentRef<typeof ProgressPrimitive.Root>,
+    ProgressPrimitive.Root.Props & ProgressVariantProps
+>(function Progress({ className, children, value, variant = 'default', ...props }, ref) {
     return (
         <ProgressPrimitive.Root
+            ref={ref}
             value={value}
             data-quill
             data-slot="progress"
@@ -44,51 +42,63 @@ function Progress({
             </ProgressTrack>
         </ProgressPrimitive.Root>
     )
-}
+})
 
-function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props): React.ReactElement {
+const ProgressTrack = React.forwardRef<
+    React.ComponentRef<typeof ProgressPrimitive.Track>,
+    ProgressPrimitive.Track.Props
+>(function ProgressTrack({ className, ...props }, ref) {
     return (
         <ProgressPrimitive.Track
+            ref={ref}
             className={cn('quill-progress__track relative flex items-center', className)}
             data-slot="progress-track"
             {...props}
         />
     )
-}
+})
 
-function ProgressIndicator({
-    className,
-    variant = 'default',
-    ...props
-}: ProgressPrimitive.Indicator.Props & ProgressVariantProps): React.ReactElement {
+const ProgressIndicator = React.forwardRef<
+    React.ComponentRef<typeof ProgressPrimitive.Indicator>,
+    ProgressPrimitive.Indicator.Props & ProgressVariantProps
+>(function ProgressIndicator({ className, variant = 'default', ...props }, ref) {
     return (
         <ProgressPrimitive.Indicator
+            ref={ref}
             data-slot="progress-indicator"
             data-variant={variant}
             className={cn(progressIndicatorVariants({ variant }), className)}
             {...props}
         />
     )
-}
+})
 
-function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props): React.ReactElement {
+const ProgressLabel = React.forwardRef<
+    React.ComponentRef<typeof ProgressPrimitive.Label>,
+    ProgressPrimitive.Label.Props
+>(function ProgressLabel({ className, ...props }, ref) {
     return (
         <ProgressPrimitive.Label
+            ref={ref}
             className={cn('quill-progress__label', className)}
             data-slot="progress-label"
             {...props}
         />
     )
-}
+})
 
-function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props): React.ReactElement {
+const ProgressValue = React.forwardRef<
+    React.ComponentRef<typeof ProgressPrimitive.Value>,
+    ProgressPrimitive.Value.Props
+>(function ProgressValue({ className, ...props }, ref) {
     return (
         <ProgressPrimitive.Value
+            ref={ref}
             className={cn('quill-progress__value ms-auto', className)}
             data-slot="progress-value"
             {...props}
         />
     )
-}
+})
 
 export { Progress, ProgressTrack, ProgressIndicator, ProgressLabel, ProgressValue, progressIndicatorVariants }

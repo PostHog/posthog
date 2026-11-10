@@ -7,14 +7,18 @@ import { ActivityScope } from '~/types'
 
 import { dataWarehouseSavedQueryActivityDescriber } from './activityDescriptions'
 
-function describeText(changes: ActivityChange[]): string {
+function describeText(
+    changes: ActivityChange[],
+    activity: string = 'updated',
+    trigger: ActivityLogItem['detail']['trigger'] = null
+): string {
     const logItem: ActivityLogItem = {
         user: { first_name: 'Max', last_name: 'Hog', email: 'max@posthog.com' },
-        activity: 'updated',
+        activity,
         created_at: '2026-03-01T00:00:00Z',
         scope: ActivityScope.DATA_WAREHOUSE_SAVED_QUERY,
         item_id: '7',
-        detail: { name: 'daily view', changes, merge: null, trigger: null },
+        detail: { name: 'daily view', changes, merge: null, trigger },
     }
     const { description } = dataWarehouseSavedQueryActivityDescriber(logItem)
     const { container } = render(<>{description}</>)
@@ -75,6 +79,15 @@ describe('dataWarehouseSavedQueryActivityDescriber', () => {
         ],
     ])('describes incremental materialization transitions', (before, after, expected) => {
         expect(describeText([change('incremental_config', before, after)])).toContain(expected)
+    })
+
+    it.each([
+        [{ job_type: 'warehouse_suggestion', job_id: 'suggestion-1', payload: { kind: 'deprecate' } }, true],
+        [null, false],
+    ])('says when a warehouse suggestion turned materialization off', (trigger, viaSuggestion) => {
+        expect(describeText([], 'materialization_disabled', trigger).includes('(via a warehouse suggestion)')).toBe(
+            viaSuggestion
+        )
     })
 
     it('keeps the existing activity branches', () => {

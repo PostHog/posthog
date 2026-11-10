@@ -87,7 +87,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
         })
         const inner = JSON.stringify({
             event: '$snapshot_items',
-            properties: { $snapshot_items: items, $session_id: 's-1', $window_id: windowId },
+            properties: { $snapshot_items: items, $session_id: 's-1', $window_id: windowId, $snapshot_source: 'web' },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
     }
@@ -323,7 +323,7 @@ describeAddon('native image collection', () => {
     const PSEUDO_TEAM = '0123456789abcdef0123456789abcdef'
     const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
 
-    function imagePayload(): Buffer {
+    function imagePayload(remoteImageUrls: string[] = []): Buffer {
         const inner = JSON.stringify({
             event: '$snapshot_items',
             properties: {
@@ -341,6 +341,12 @@ describeAddon('native image collection', () => {
                                         attributes: { src: `data:image/png;base64,${PNG_B64}` },
                                         childNodes: [],
                                     },
+                                    ...remoteImageUrls.map((src) => ({
+                                        type: 2,
+                                        tagName: 'img',
+                                        attributes: { src },
+                                        childNodes: [],
+                                    })),
                                 ],
                             },
                             initialOffset: { top: 0, left: 0 },
@@ -349,6 +355,7 @@ describeAddon('native image collection', () => {
                 ],
                 $session_id: 's-1',
                 $window_id: 'w',
+                $snapshot_source: 'web',
             },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
@@ -384,9 +391,69 @@ describeAddon('native image collection', () => {
         }
     )
 
-    it('collects nothing without the collection keys and blurs inline instead', async () => {
+    it('leaves out what an earlier message produced, and still writes those refs into the lines', async () => {
+        // The produce steps claim with refs that JS builds, and the addon drops with refs it builds
+        // itself. If the two ever disagree, nothing is dropped and every duplicate crosses into JS.
         rustAddon!.initAnonymizer({ text: [], url: [] })
-        const result = await rustAddon!.anonymizeKafkaPayload(imagePayload())
+        const namespace = 'v3:42:2026-09'
+        const producedRefDedup = {
+            images: new rustAddon!.RefDedupCache(10),
+            urls: new rustAddon!.RefDedupCache(10),
+            urlTimeBucket: 7,
+        }
+        const anonymize = () =>
+            rustAddon!.anonymizeKafkaPayload(
+                imagePayload(['https://cdn.example.com/a.png']),
+                undefined,
+                namespace,
+                CONTENT_KEY,
+                'url-key',
+                namespace,
+                producedRefDedup
+            )
+
+        const first = await anonymize()
+        const firstMeta = parseJSON(first.meta!) as { urls?: { hash: string; url: string }[] }
+        expect(firstMeta.urls).toHaveLength(1)
+        const imageRefs = [imageRef(namespace, hashImageBytes(CONTENT_KEY, Buffer.from(PNG_B64, 'base64')))]
+        const urlRefs = firstMeta.urls!.map(({ hash }) => `imageurl:${namespace}:${hash}`)
+        const urls = firstMeta.urls!.map(({ url }) => url)
+        // The anonymize call only reads the caches, so the first message's refs are still unclaimed.
+        expect(producedRefDedup.images.claimRefs(imageRefs)).toEqual([true])
+        expect(producedRefDedup.urls.claimTransportUrls(urlRefs, urls, 7)).toEqual([true])
+
+        const second = await anonymize()
+        expect(second).toMatchObject({
+            failed: false,
+            images: null,
+            dedupedImageCount: 1,
+            dedupedUrlCount: 1,
+            collectedUrlDomainCount: 1,
+        })
+        expect((parseJSON(second.meta!) as { urls?: unknown[] }).urls).toBeUndefined()
+        expect(second.lines!.toString()).toContain(imageRefs[0])
+        expect(second.lines!.toString()).toContain(urlRefs[0])
+    })
+
+    it.each([
+        ['without the collection keys', () => rustAddon!.anonymizeKafkaPayload(imagePayload())],
+        [
+            'over maxImageBytes',
+            () =>
+                rustAddon!.anonymizeKafkaPayload(
+                    imagePayload(),
+                    undefined,
+                    PSEUDO_TEAM,
+                    CONTENT_KEY,
+                    null,
+                    null,
+                    undefined,
+                    16
+                ),
+        ],
+    ])('collects nothing %s and blanks the image instead', async (_case, anonymize) => {
+        rustAddon!.initAnonymizer({ text: [], url: [] })
+        const result = await anonymize()
         expect(result.failed).toBe(false)
         expect(result.images).toBeNull()
         expect(result.lines!.toString()).not.toContain(PNG_B64)
@@ -401,6 +468,18 @@ describeAddon('native image collection', () => {
         await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
         ).resolves.toMatchObject({ failed: false })
+        await expect(
+            rustAddon!.anonymizeKafkaPayload(
+                imagePayload(),
+                undefined,
+                PSEUDO_TEAM,
+                CONTENT_KEY,
+                null,
+                null,
+                undefined,
+                0
+            )
+        ).rejects.toThrow('maxImageBytes')
     })
 
     it('runs either collection lane without the other', async () => {

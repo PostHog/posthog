@@ -185,35 +185,6 @@ database "posthog" {
     }
   }
 
-  table "writable_metrics_kafka_metrics" {
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "metrics_kafka_metrics"
-    }
-  }
-
   table "writable_trace_spans" {
     column "time_bucket" {
       type         = "DateTime"
@@ -356,24 +327,6 @@ database "posthog" {
     }
   }
 
-  patch_table "kafka_metrics_avro" {
-    engine "kafka" {
-      collection           = "warpstream_metrics"
-      topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro-new"
-      format               = "Avro"
-      num_consumers        = 4
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-    settings = {
-      input_format_avro_allow_missing_fields = "1"
-    }
-  }
-
   patch_table "kafka_metrics_avro4" {
     engine "kafka" {
       collection           = "warpstream_metrics"
@@ -409,10 +362,6 @@ database "posthog" {
     modify_column "_bytes_compressed" {
       type = "Nullable(Float64)"
     }
-  }
-
-  patch_materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
-    to_table = "posthog.writable_metrics_kafka_metrics"
   }
 
   patch_materialized_view "kafka_trace_spans_avro_mv" {

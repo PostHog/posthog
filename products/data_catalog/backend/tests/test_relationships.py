@@ -254,10 +254,40 @@ class TestRelationshipAPI(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/data_catalog/relationship_proposals/"
 
+    @parameterized.expand(
+        [
+            (field, status_filter)
+            for field in ("source_table_name", "joining_table_name", "reasoning")
+            for status_filter in ("proposed", "rejected")
+        ]
+    )
+    def test_search_combines_with_status(self, field: str, status_filter: str) -> None:
+        matches: dict[str, RelationshipProposal] = {}
+        for proposal_status in (RelationshipStatus.PROPOSED, RelationshipStatus.REJECTED):
+            matches[proposal_status] = RelationshipProposal.objects.for_team(self.team.id).create(
+                team=self.team,
+                undirected_fingerprint=f"matching-{proposal_status}",
+                status=proposal_status,
+                **{**_JOIN, field: "activation"},
+            )
+        RelationshipProposal.objects.for_team(self.team.id).create(
+            team=self.team, undirected_fingerprint="unrelated", **_JOIN
+        )
+
+        response = self.client.get(self.url, {"search": "activation", "status": status_filter})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["id"] for row in response.json()["results"]] == [str(matches[status_filter].id)]
+
     def test_create_proposal(self) -> None:
         response = self.client.post(self.url, _JOIN, format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["status"] == RelationshipStatus.PROPOSED
+        proposal_id = response.json()["id"]
+        for table_name in (_JOIN["source_table_name"], _JOIN["joining_table_name"]):
+            listed = self.client.get(self.url, {"table_name": table_name})
+            assert [item["id"] for item in listed.json()["results"]] == [proposal_id]
+        assert self.client.get(self.url, {"table_name": "unrelated"}).json()["results"] == []
 
     def test_duplicate_pair_returns_409_with_proposal_id(self) -> None:
         # The dedupe conflict must render through the HTTP exception handler and hand back the

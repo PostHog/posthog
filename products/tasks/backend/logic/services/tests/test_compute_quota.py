@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from unittest.mock import patch
 
@@ -5,6 +7,7 @@ from django.test import override_settings
 
 from posthog.models import Organization, Team, User
 
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.compute_quota import (
     ComputeQuotaDenialReason,
     get_compute_quota_denial_reason,
@@ -12,7 +15,7 @@ from products.tasks.backend.logic.services.compute_quota import (
     is_compute_quota_exhausted,
     is_task_billable_compute,
 )
-from products.tasks.backend.models import Loop, Task, TaskClientProvenance
+from products.tasks.backend.models import Task, TaskClientProvenance
 
 
 @pytest.mark.django_db
@@ -97,24 +100,23 @@ class TestComputeQuota:
         assert not is_task_billable_compute(self.task(origin_product=origin, client_provenance=provenance))
 
     @pytest.mark.parametrize("origin", [Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP])
-    def test_desktop_started_origins_are_billable(self, origin):
-        assert is_task_billable_compute(
-            self.task(origin_product=origin, client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
-        )
+    @pytest.mark.parametrize("provenance", list(TaskClientProvenance))
+    def test_first_party_client_origins_are_billable(self, origin, provenance):
+        assert is_task_billable_compute(self.task(origin_product=origin, client_provenance=provenance))
 
     def test_unknown_origin_is_ineligible(self):
-        assert not is_billable_compute(
-            origin_product=None,
-            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
-            source_loop_id=None,
-            source_loop_internal=None,
-        )
+        assert not is_billable_compute(origin_product=None, client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
 
-    def test_only_direct_non_internal_desktop_loop_is_eligible(self):
-        loop_defaults = {"team": self.team, "instructions": "run", "runtime_adapter": "agent"}
-        user_loop = Loop.objects.unscoped().create(**loop_defaults, name="user", internal=False)
-        internal_loop = Loop.objects.unscoped().create(**loop_defaults, name="internal", internal=True)
+    @pytest.mark.parametrize(
+        "bills_compute,provenance,billable",
+        [
+            (True, TaskClientProvenance.POSTHOG_DESKTOP, True),
+            (False, TaskClientProvenance.POSTHOG_DESKTOP, False),
+            (True, None, False),
+        ],
+    )
+    def test_profiled_task_bills_compute_by_its_profile(self, bills_compute, provenance, billable):
+        profile = replace(get_task_profile("business_knowledge"), key="test.billing", bills_compute=bills_compute)
 
-        assert is_task_billable_compute(self.task(origin_product=Task.OriginProduct.LOOP, loop=user_loop))
-        assert not is_task_billable_compute(self.task(origin_product=Task.OriginProduct.LOOP, loop=internal_loop))
-        assert not is_task_billable_compute(self.task(origin_product=Task.OriginProduct.LOOP))
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            assert is_task_billable_compute(self.task(profile=profile.key, client_provenance=provenance)) is billable

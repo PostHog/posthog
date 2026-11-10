@@ -13,10 +13,12 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ComposeTicketButton } from '../../components/ComposeTicket'
+import { ComposeTicketButton } from '../../components/ComposeTicket/ComposeTicketButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
+import { SupportTicketsBanner } from '../../components/SupportTicketsBanner/SupportTicketsBanner'
 import { TicketListFilters } from '../../components/TicketListFilters/TicketListFilters'
 import { supportEmptyState } from '../../emptyState/supportEmptyState'
 import { type Ticket } from '../../types'
@@ -195,16 +197,18 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 }
 
 export function SupportTicketsScene(): JSX.Element {
+    const { aiEnabled } = useValues(supportTicketsSceneLogic)
+    const ticketsTitle = useTodayPeopleTitle('support')
+
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
-                name="Support"
+                name={ticketsTitle?.name ?? 'Support'}
                 description=""
-                resourceType={{
-                    type: 'conversation',
-                }}
+                resourceType={ticketsTitle?.resourceType ?? { type: 'conversation' }}
                 actions={<ComposeTicketButton />}
             />
+            <SupportTicketsBanner aiEnabled={aiEnabled} />
             <ScenesTabs />
             <TicketListFilters />
             <SupportTicketsTable />

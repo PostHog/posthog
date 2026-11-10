@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.credentials_service.errors import CredentialsServiceUnreachableError
 from posthog.models.integration import SlackIntegration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -323,7 +324,7 @@ class TestExchangeCode:
     @pytest.fixture(autouse=True)
     def credentials(self):
         with patch(
-            "products.slack_app.backend.services.slack_user_oauth.get_instance_settings",
+            "posthog.credentials_service.instance_settings.get_instance_settings",
             return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
         ):
             yield
@@ -361,6 +362,35 @@ class TestExchangeCode:
         slack_client.return_value.openid_connect_userInfo.return_value = claims
         with pytest.raises(SlackUserOAuthError, match="missing user or team id"):
             exchange_code(code="abc", redirect_uri="https://ph.example/complete/slack-link/")
+
+    def test_credentials_service_failure_raises_oauth_error(self, slack_client):
+        with patch(
+            "products.slack_app.backend.services.slack_user_oauth.get_many_or_instance_settings",
+            side_effect=CredentialsServiceUnreachableError("refused"),
+        ):
+            with pytest.raises(SlackUserOAuthError, match="temporarily unavailable"):
+                exchange_code(code="abc", redirect_uri="https://ph.example/complete/slack-link/")
+        slack_client.return_value.openid_connect_token.assert_not_called()
+
+    @pytest.mark.parametrize("email_lookup_works", [True, False])
+    def test_user_scopes_exchange_maps_the_authed_user(self, slack_client, email_lookup_works):
+        client = slack_client.return_value
+        client.oauth_v2_access.return_value = {
+            "authed_user": {"id": SLACK_USER_ID, "access_token": "xoxp-user", "scope": "search:read.public,users:read"},
+            "team": {"id": SLACK_TEAM_ID, "name": "My Workspace"},
+        }
+        if email_lookup_works:
+            client.users_info.return_value = {"user": {"profile": {"email": "dev@slack.example"}}}
+        else:
+            client.users_info.side_effect = SlackApiError("no", {"ok": False, "error": "missing_scope"})
+
+        identity = exchange_code(code="abc", redirect_uri="https://ph.example/complete/slack-link/", search_scopes=True)
+
+        assert (identity.slack_user_id, identity.slack_team_id) == (SLACK_USER_ID, SLACK_TEAM_ID)
+        assert identity.user_access_token == "xoxp-user"
+        assert identity.user_scopes == "search:read.public users:read"
+        assert identity.slack_email == ("dev@slack.example" if email_lookup_works else None)
+        client.openid_connect_token.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=False)

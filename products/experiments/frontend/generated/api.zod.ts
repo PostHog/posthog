@@ -165,21 +165,21 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -239,6 +239,18 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -444,21 +456,21 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -518,6 +530,18 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -724,21 +748,21 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -798,6 +822,18 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -865,7 +901,7 @@ export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
         query: zod
             .unknown()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -889,7 +925,7 @@ export const ExperimentSavedMetricsUpdateBody = /* @__PURE__ */ zod
         query: zod
             .unknown()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -915,7 +951,7 @@ export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -1072,7 +1108,10 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. The response payload intentionally does not
+ * already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+ * a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+ * `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+ * minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
@@ -1084,24 +1123,19 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
         trigger: zod
             .enum([
                 'manual',
-                'agent_mcp',
+                'manual_retry',
                 'cold_run',
                 'stale_refresh',
-                'auto_refresh',
+                'heal_latest_run',
                 'experiment_config_change',
                 'metric_config_change',
-                'config_change',
-                'experiment_launch',
-                'experiment_stop',
-                'experiment_update',
-                'timeseries_sync',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
+                '\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
+                'What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.\n\n\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')
@@ -1294,6 +1328,7 @@ export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin
 
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax = 100
 
 export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
 
@@ -1318,8 +1353,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
         number_of_variants: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .max(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax)
             .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
-            .describe('Total number of variants including control (default 2).'),
+            .describe('Total number of variants including control (default 2, at most 100).'),
         exposure_rate_per_day: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
@@ -1335,7 +1371,7 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe(
-                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+                'Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.'
             ),
         baseline_stats: zod
             .union([
@@ -1353,7 +1389,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
                         sum_squares: zod
                             .number()
                             .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
-                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                            .describe(
+                                "Sum of squared metric values. Mean metrics read their variance from it, and ratio\/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value."
+                            ),
                         denominator_sum: zod
                             .number()
                             .nullish()
@@ -1398,6 +1436,8 @@ export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
 
 export const experimentsCreateFromPromptCreateBodyTemplatesMax = 3
 
+export const experimentsCreateFromPromptCreateBodyDescriptionMax = 3000
+
 export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object({
     prompt_name: zod
         .string()
@@ -1428,7 +1468,11 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
-    description: zod.string().optional().describe('Optional experiment description.'),
+    description: zod
+        .string()
+        .max(experimentsCreateFromPromptCreateBodyDescriptionMax)
+        .optional()
+        .describe('Optional experiment description.'),
 })
 
 /**
@@ -1542,6 +1586,7 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                                             'in',
                                             'not_in',
                                             'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
                                             'flag_evaluates_to',
                                             'semver_eq',
                                             'semver_neq',
@@ -1604,6 +1649,7 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -1685,6 +1731,7 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                                             'in',
                                             'not_in',
                                             'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
                                             'flag_evaluates_to',
                                             'semver_eq',
                                             'semver_neq',
@@ -1747,6 +1794,7 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',

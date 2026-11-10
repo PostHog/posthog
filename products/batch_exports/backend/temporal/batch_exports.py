@@ -14,7 +14,6 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.cdp.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
 from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_CDP_INTERNAL_EVENTS
 from posthog.models.team.team import Team
@@ -28,6 +27,7 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
 from products.batch_exports.backend.billing import is_billable_run
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -51,6 +51,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     native_events_export_query,
 )
+from products.cdp.backend.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -231,35 +232,6 @@ def select_events_query_template(
     if is_backfill:
         return SELECT_FROM_EVENTS_VIEW_BACKFILL
     return SELECT_FROM_EVENTS_VIEW
-
-
-def reads_native_events_source(
-    *,
-    use_new_events_schema: bool,
-    team_id: int,
-    interval_start: str | None,
-    interval_end: str,
-    is_backfill: bool = False,
-    backfill_details: BackfillDetails | None = None,
-) -> bool:
-    """Whether a run reads the native events source instead of a legacy events table.
-
-    Only the native source projects the `$unset` and `$group_set` columns, so a caller that asks for
-    them on a run routed to a legacy table builds a query ClickHouse cannot resolve. The routing is
-    wider than `is_backfill`: a backfill over recent data still reads `distributed_events_recent`.
-    """
-    if not use_new_events_schema:
-        return False
-    return (
-        select_events_query_template(
-            team_id=team_id,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            is_backfill=is_backfill,
-            backfill_details=backfill_details,
-        )
-        is SELECT_FROM_EVENTS_VIEW_BACKFILL
-    )
 
 
 def iter_records(
@@ -809,7 +781,7 @@ async def try_cancel_running_backfills(batch_export_id: str) -> int | None:
 
 
 def make_internal_events_payload(
-    status: BatchExportRun.Status | str,
+    status: BatchExportRunStatus | str,
     team_id: int,
     batch_export_id: str,
     batch_export_run_id: str,
@@ -887,7 +859,7 @@ def make_internal_events_payload(
 
 
 def make_app_metrics_payloads(
-    status: BatchExportRun.Status | str,
+    status: BatchExportRunStatus | str,
     team_id: int,
     batch_export_id: str,
     batch_export_run_id: str,

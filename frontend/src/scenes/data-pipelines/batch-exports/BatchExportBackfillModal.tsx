@@ -13,6 +13,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
+import { BatchExportModelEnumApi } from 'products/batch_exports/frontend/generated/api.schemas'
+
 import {
     BatchExportBackfillModalLogicProps,
     batchExportBackfillModalLogic,
@@ -122,7 +124,7 @@ export function BatchExportBackfillModal({ id, context }: BatchExportBackfillMod
                 </LemonField>
 
                 {/* Note: This is behind a feature flag while we improve backfilling behavior. */}
-                {earliestBackfillEnabled && batchExportConfig?.model == 'persons' ? (
+                {earliestBackfillEnabled && batchExportConfig?.model === BatchExportModelEnumApi.Persons ? (
                     <LemonField name="earliest_backfill">
                         {({ onChange }) => (
                             <LemonCheckbox

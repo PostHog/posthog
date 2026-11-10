@@ -18,6 +18,8 @@ export interface WorkflowTemplateCardProps {
     onClick: () => void
     onEdit?: (e: React.MouseEvent) => void
     onDelete?: (e: React.MouseEvent) => void
+    /** Marks the card as the current choice, for pickers that select a template before they create anything. */
+    selected?: boolean
     'data-attr': string
 }
 
@@ -30,6 +32,7 @@ export function WorkflowTemplateCard({
     onClick,
     onEdit,
     onDelete,
+    selected,
     'data-attr': dataAttr,
 }: WorkflowTemplateCardProps): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -41,7 +44,11 @@ export function WorkflowTemplateCard({
                 type="button"
                 onClick={onClick}
                 data-attr={dataAttr}
-                className="flex flex-col gap-2 w-full h-full p-4 text-left border rounded bg-surface-primary hover:border-primary hover:bg-surface-secondary transition-colors"
+                aria-pressed={selected}
+                className={clsx(
+                    'flex flex-col gap-2 w-full h-full p-4 text-left border rounded bg-surface-primary hover:border-primary hover:bg-surface-secondary transition-colors',
+                    selected && 'border-accent ring-1 ring-accent'
+                )}
             >
                 {preview}
                 <div className="flex flex-col gap-1 grow">

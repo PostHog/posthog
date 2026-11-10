@@ -1,4 +1,4 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
@@ -6,6 +6,9 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+import { AvailableFeature, StartupProgramLabel } from '~/types'
 
 const SUBMITTER = {
     first_name: 'Ada',
@@ -34,6 +37,13 @@ const LEGAL_DOCUMENT_LIST = [
         created_at: '2026-04-20T15:30:00Z',
     },
 ]
+
+/** Startup credits do not cover a BAA, even when the organization has the entitlement. */
+const startupProgramBilling = (label: StartupProgramLabel): Record<string, unknown> => ({
+    products: [],
+    has_active_subscription: true,
+    startup_program_label: label,
+})
 
 /**
  * Mounts the legal documents scene(s) against a mocked API. A single shared
@@ -66,6 +76,11 @@ export default meta
 
 type Story = StoryObj<{}>
 
+const withBaaEntitlement: Decorator = (Story) => {
+    useAvailableFeatures([AvailableFeature.HIPAA_BAA])
+    return <Story />
+}
+
 /**
  * Landing screen at `/legal` with two prior submissions — one signed BAA and
  * one DPA waiting for counter-signature — so the two status tags are both
@@ -74,23 +89,18 @@ type Story = StoryObj<{}>
 export const LegalDocumentsList: Story = {}
 
 /**
- * New-document page for a BAA. Mocks the billing endpoint so the scene sees an
- * active `boost` add-on and the form isn't gated behind the paywall banner.
+ * New-document page for an organization with the BAA entitlement.
  */
 export const NewBAA: Story = {
     parameters: {
         pageUrl: urls.legalDocumentNew('BAA'),
     },
     decorators: [
+        withBaaEntitlement,
         mswDecorator({
             get: {
                 '/api/billing/': {
-                    products: [
-                        {
-                            type: 'platform_and_support',
-                            addons: [{ type: 'boost', subscribed: true }],
-                        },
-                    ],
+                    products: [],
                     has_active_subscription: true,
                 },
             },
@@ -109,15 +119,11 @@ export const NewBAATrial: Story = {
         pageUrl: urls.legalDocumentNew('BAA'),
     },
     decorators: [
+        withBaaEntitlement,
         mswDecorator({
             get: {
                 '/api/billing/': {
-                    products: [
-                        {
-                            type: 'platform_and_support',
-                            addons: [{ type: 'boost', subscribed: false }],
-                        },
-                    ],
+                    products: [],
                     trial: {
                         type: 'standard',
                         status: 'active',
@@ -142,15 +148,11 @@ export const NewBAAEnterpriseTrial: Story = {
         pageUrl: urls.legalDocumentNew('BAA'),
     },
     decorators: [
+        withBaaEntitlement,
         mswDecorator({
             get: {
                 '/api/billing/': {
-                    products: [
-                        {
-                            type: 'platform_and_support',
-                            addons: [{ type: 'enterprise', subscribed: false }],
-                        },
-                    ],
+                    products: [],
                     trial: {
                         type: 'standard',
                         status: 'active',
@@ -159,6 +161,43 @@ export const NewBAAEnterpriseTrial: Story = {
                     },
                     has_active_subscription: false,
                 },
+            },
+        }),
+    ],
+}
+
+/**
+ * Landing screen at `/legal` for an organization on the Startup program with no
+ * BAA yet. The organization has the entitlement, but the BAA menu item is
+ * disabled because startup credits do not cover a BAA.
+ */
+export const ListStartupProgram: Story = {
+    decorators: [
+        withBaaEntitlement,
+        mswDecorator({
+            get: {
+                '/api/organizations/:org_id/legal_documents': EMPTY_PAGINATED_RESPONSE,
+                '/api/billing/': startupProgramBilling(StartupProgramLabel.Startup),
+            },
+        }),
+    ],
+}
+
+/**
+ * New-document page for a BAA when the org is on the Startup program and has no
+ * BAA yet. The banner replaces the paywall copy and the submit button is
+ * disabled by the startup block rather than by an existing document.
+ */
+export const NewBAAStartupProgram: Story = {
+    parameters: {
+        pageUrl: urls.legalDocumentNew('BAA'),
+    },
+    decorators: [
+        withBaaEntitlement,
+        mswDecorator({
+            get: {
+                '/api/organizations/:org_id/legal_documents': EMPTY_PAGINATED_RESPONSE,
+                '/api/billing/': startupProgramBilling(StartupProgramLabel.Startup),
             },
         }),
     ],

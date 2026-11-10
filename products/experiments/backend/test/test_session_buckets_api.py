@@ -14,24 +14,25 @@ import posthog.hogql.query as hogql_query_module
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.models import EventProperty, Team, User
+from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend import session_buckets
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SCAN_DAYS, MAX_BUCKET_SOURCES
 from products.experiments.backend.session_exposure import MAX_SESSION_DURATION_HOURS
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -362,11 +363,11 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert expected_reason in response.json()["detail"]
 
     def test_funnel_dropoff_completion_check_survives_an_action_step(self) -> None:
-        action = Action.objects.create(team=self.team, name="Viewed cart", steps_json=[{"event": "cart viewed"}])
+        action = create_action(team=self.team, name="Viewed cart", steps_json=[{"event": "cart viewed"}])
         metric = _funnel(
             "a7777777-7777-7777-7777-777777777777",
             "Checkout via action",
-            [CART, {"kind": "ActionsNode", "id": action.pk}, SERVER_CHARGE],
+            [CART, {"kind": "ActionsNode", "id": action.id}, SERVER_CHARGE],
         )
         experiment = self._create_experiment(metrics=[metric])
         self._session(events=[("cart viewed", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
@@ -536,15 +537,15 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, rollout flag enabled, experiment start offset from the cutoff, expected event)
-            ("after_cutoff", True, 7, EXPERIMENT_EXPOSURE_EVENT),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
-            ("before_cutoff", True, -7, "$feature_flag_called"),
+            # (name, rollout flag enabled, experiment start offset from the cutoff, events read)
+            ("after_cutoff", True, 7, {EXPERIMENT_EXPOSURE_EVENT}),
+            ("after_cutoff_flag_disabled", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
+            ("before_cutoff", True, -7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_bucket_population_reads_the_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_events: set[str]
     ) -> None:
         # setUp logged in under the class-level freeze, months before this test's frozen clock,
         # so that session has expired; log in again inside the window.
@@ -570,22 +571,22 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        # Only answer for the exposure-event flag; returning True for every flag would flip
-        # unrelated HogQL query modifiers on and break the query under test.
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=flag_enabled):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
-        # The analysis queries resolve the default exposure event per experiment
-        # (resolve_default_exposure_event), and the playlist ANDs these ids with an exposure
-        # filter the frontend builds from the same resolved event. A bucket read off the other
-        # event intersects two different populations once the two events stop being emitted
-        # together.
+        # The bucket must hold the population the analysis queries count. An experiment on
+        # $feature_flag_called reads both events, because the $experiment_exposure copy carries
+        # the exposures once ingestion stops writing $feature_flag_called to events.
         assert response.status_code == status.HTTP_200_OK, response.json()
-        expected_session = new_event_session if expected_event == EXPERIMENT_EXPOSURE_EVENT else legacy_event_session
-        assert response.json()["session_ids"] == [expected_session]
+        expected_sessions = [
+            session
+            for event, session in (
+                (EXPERIMENT_EXPOSURE_EVENT, new_event_session),
+                ("$feature_flag_called", legacy_event_session),
+            )
+            if event in expected_events
+        ]
+        assert sorted(response.json()["session_ids"]) == sorted(expected_sessions)
         # $experiment_exposure is emitted for every experiment, so matching it must still require
         # this experiment's flag key.
         assert other_flag_session not in response.json()["session_ids"]
@@ -607,10 +608,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=True):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
         # Under the rollout $experiment_exposure is the default exposure, not a custom choice, so
@@ -623,8 +621,8 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
     @parameterized.expand([("custom_event",), ("action",)])
     def test_session_linkable_custom_exposure_defines_the_population(self, exposure_kind: str) -> None:
         if exposure_kind == "action":
-            action = Action.objects.create(team=self.team, name="Checkout", steps_json=[{"event": "checkout started"}])
-            exposure_config: dict[str, Any] = {"kind": "ActionsNode", "id": action.pk}
+            action = create_action(team=self.team, name="Checkout", steps_json=[{"event": "checkout started"}])
+            exposure_config: dict[str, Any] = {"kind": "ActionsNode", "id": action.id}
         else:
             exposure_config = {
                 "kind": "ExperimentEventExposureConfig",
@@ -653,13 +651,13 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert response.json()["used_exposure_fallback"] is False
 
     def test_action_metrics_are_not_excluded_by_the_linkability_check(self) -> None:
-        action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
+        action = create_action(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
         action_metric = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
             "uuid": "88888888-8888-8888-8888-888888888888",
             "name": "Purchased (action)",
-            "source": {"kind": "ActionsNode", "id": action.pk},
+            "source": {"kind": "ActionsNode", "id": action.id},
         }
         experiment = self._create_experiment(metrics=[action_metric])
         purchased = self._session(events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])

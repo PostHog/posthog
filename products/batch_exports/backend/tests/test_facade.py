@@ -1,3 +1,5 @@
+import json
+import uuid
 import datetime as dt
 
 import pytest
@@ -9,6 +11,9 @@ from temporalio.client import Client
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.integrations import IntegrationNotFound
+from posthog.models import Integration, Organization, Team, User
+from posthog.paging import CursorPageRequest
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import api, contracts, testing
@@ -16,7 +21,6 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
     BatchExportDestination,
-    BatchExportOnDemand,
     BatchExportRun,
 )
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound
@@ -34,6 +38,7 @@ HTTP = BatchExportDestination.Destination.HTTP
 NOOP = BatchExportDestination.Destination.NOOP
 WORKFLOWS = BatchExportDestination.Destination.WORKFLOWS
 FILE_DOWNLOAD = BatchExportDestination.Destination.FILE_DOWNLOAD
+REDSHIFT = BatchExportDestination.Destination.REDSHIFT
 
 
 @pytest.fixture
@@ -72,18 +77,77 @@ def _create_run(*, finished_at, records=0, status=BatchExportRun.Status.COMPLETE
 
 
 @pytest.mark.parametrize(
-    "contract_enum,model_choices",
+    "scenario,expected",
     [
-        (contracts.DestinationType, BatchExportDestination.Destination),
-        (contracts.BatchExportModel, BatchExport.Model),
-        (contracts.BatchExportModel, BatchExportOnDemand.Model),
-        (contracts.BatchExportRunStatus, BatchExportRun.Status),
-        (contracts.BatchExportBackfillStatus, BatchExportBackfill.Status),
+        ("destination", True),
+        ("bucket_int", True),
+        ("bucket_string", True),
+        ("authorization_int", True),
+        ("authorization_string", True),
+        ("both", True),
+        ("destination_and_both", True),
+        ("json_string", True),
+        ("unrelated", False),
+        ("other_team", False),
+        ("deleted", False),
+        ("non_redshift", False),
+        ("iam_role", False),
+        ("missing", False),
+        ("none", False),
+        ("invalid_json", False),
     ],
-    ids=["destination type", "model", "on-demand model", "run status", "backfill status"],
 )
-def test_contract_enums_match_the_model_choices(contract_enum, model_choices):
-    assert {member.value for member in contract_enum} == set(model_choices.values)
+def test_list_batch_exports_using_integration(
+    team: Team, organization: Organization, scenario: str, expected: bool
+) -> None:
+    integration = Integration.objects.create(team=team, kind=Integration.IntegrationKind.AWS_S3)
+    copy_inputs: dict[str, object] = {
+        "s3_bucket": "example-bucket",
+        "region_name": "us-east-1",
+        "bucket_credentials": {"aws_access_key_id": "fake-key", "aws_secret_access_key": "fake-secret"},
+        "authorization": "default",
+    }
+    if scenario in {"bucket_int", "both", "destination_and_both", "other_team", "deleted", "non_redshift"}:
+        copy_inputs["bucket_credentials"] = integration.pk
+    elif scenario in {"bucket_string", "json_string"}:
+        copy_inputs["bucket_credentials"] = str(integration.pk)
+    elif scenario == "unrelated":
+        copy_inputs["bucket_credentials"] = integration.pk + 1
+
+    if scenario in {"authorization_int", "both", "destination_and_both"}:
+        copy_inputs["authorization"] = integration.pk
+    elif scenario == "authorization_string":
+        copy_inputs["authorization"] = str(integration.pk)
+    elif scenario == "iam_role":
+        copy_inputs["authorization"] = "arn:aws:iam::123456789012:role/example-role"
+
+    config: dict[str, object] = {"copy_inputs": copy_inputs}
+    if scenario == "json_string":
+        config["copy_inputs"] = json.dumps(copy_inputs)
+    elif scenario == "missing":
+        config = {}
+    elif scenario == "none":
+        config["copy_inputs"] = None
+    elif scenario == "invalid_json":
+        config["copy_inputs"] = "{invalid"
+
+    export_team = create_team(organization=organization) if scenario == "other_team" else team
+    destination_type = AWS_S3 if scenario == "destination" else HTTP if scenario == "non_redshift" else REDSHIFT
+    export_id = _create_export(
+        export_team,
+        name="integration export",
+        destination_type=destination_type,
+        config=config,
+        integration_id=integration.pk if scenario in {"destination", "destination_and_both"} else None,
+    )
+    if scenario == "deleted":
+        testing.update_batch_export(export_id, team_id=team.pk, deleted=True)
+
+    exports = api.list_batch_exports_using_integration(team.pk, integration.pk)
+
+    assert [export.id for export in exports] == ([export_id] if expected else [])
+    if expected:
+        assert exports[0].name == "integration export"
 
 
 def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team, organization):
@@ -283,6 +347,59 @@ def test_backfills_for_export_lists_every_backfill_newest_first_within_the_team(
     assert api.list_backfills_for_export(export_id, other_team.pk) == []
 
 
+@pytest.mark.parametrize("scope", ["other_team", "other_export"])
+def test_runs_and_backfills_are_scoped_to_the_team_and_export(team, organization, scope):
+    export_id = _create_export(team)
+    run_id = _create_run(batch_export_id=export_id, finished_at=IN_WINDOW, status=BatchExportRun.Status.RUNNING)
+    backfill_id = testing.create_backfill(export_id, team_id=team.pk, status=BatchExportBackfill.Status.RUNNING)
+    if scope == "other_team":
+        team_id, scoped_export_id = create_team(organization=organization).pk, export_id
+    else:
+        team_id, scoped_export_id = team.pk, _create_export(team, name="other")
+    every_run = contracts.BatchExportRunFilters(
+        created=contracts.DatetimeRange(
+            start=dt.datetime(2000, 1, 1, tzinfo=dt.UTC), end=dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
+        )
+    )
+    page = CursorPageRequest(ordering=("-created_at",), after=(), offset=0, limit=10)
+
+    own_runs = api.list_batch_export_runs(team.pk, export_id, filters=every_run, page=page)
+    assert [run.id for run in own_runs.results] == [run_id]
+    assert api.list_batch_export_runs(team_id, scoped_export_id, filters=every_run, page=page).results == []
+    assert api.list_batch_export_backfills(team_id, scoped_export_id, page=page).results == []
+    # A leaked run or backfill would get past the lookup and reach Temporal instead of raising.
+    for read_run in (api.get_batch_export_run, api.retry_batch_export_run, api.cancel_batch_export_run):
+        with pytest.raises(contracts.BatchExportRunNotFoundError):
+            read_run(team_id, scoped_export_id, run_id)
+    for read_backfill in (api.get_batch_export_backfill, api.cancel_batch_export_backfill):
+        with pytest.raises(contracts.BatchExportBackfillNotFoundError):
+            read_backfill(team_id, scoped_export_id, backfill_id)
+    if scope == "other_team":
+        with pytest.raises(contracts.BatchExportNotFoundError):
+            api.create_batch_export_backfill(team_id, export_id, start_at=None, end_at=None)
+
+
+@pytest.mark.parametrize("scope", ["other_team", "deleted"])
+def test_pause_unpause_and_delete_refuse_another_teams_or_a_deleted_export(team, organization, scope):
+    export_id = _create_export(team, paused=True)
+    if scope == "other_team":
+        team_id = create_team(organization=organization).pk
+    else:
+        team_id = team.pk
+        testing.update_batch_export(export_id, team_id=team.pk, deleted=True)
+
+    # A leaked lookup would pause silently, reach Temporal to unpause, or run the delete.
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.pause_batch_export(team_id, export_id, note="pause")
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.unpause_batch_export(team_id, export_id, note="unpause", backfill=False)
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.delete_batch_export(export_id, team_id)
+
+    export = BatchExport.objects.get(id=export_id)
+    assert (export.paused, export.deleted) == (True, scope == "deleted")
+
+
 def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
     first = _create_export(team, name="first")
     second = _create_export(team, name="second")
@@ -300,6 +417,53 @@ def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
 
     assert not BatchExport.objects.filter(id__in=[first, second]).exists()
     assert not BatchExportDestination.objects.filter(id__in=destination_ids).exists()
+
+
+def test_workflows_backfill_export_is_a_paused_hourly_events_export_for_the_hog_function(team, organization):
+    user = User.objects.create_and_join(organization=organization, email="backfiller@example.com", password=None)
+    hog_function_id = uuid.uuid4()
+    event_filters: list[dict[str, object]] = [
+        {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}
+    ]
+
+    with mock.patch("products.batch_exports.backend.service.sync_batch_export") as sync_batch_export:
+        ref = api.create_workflows_backfill_export(
+            team.pk,
+            hog_function_id=hog_function_id,
+            name="My destination",
+            event_filters=event_filters,
+            last_modified_by_id=user.pk,
+        )
+
+    sync_batch_export.assert_called_once()
+    batch_export = BatchExport.objects.select_related("destination").get(id=ref.id, team_id=team.pk)
+    assert ref.name == "My destination"
+    assert (
+        batch_export.paused,
+        batch_export.interval,
+        batch_export.model,
+        batch_export.filters,
+        batch_export.last_modified_by_id,
+    ) == (True, "hour", BatchExport.Model.EVENTS, event_filters, user.pk)
+    assert batch_export.destination.type == WORKFLOWS
+    assert batch_export.destination.config == {"hog_function_id": str(hog_function_id)}
+
+
+def test_workflows_backfill_export_rejects_bad_filters_before_it_schedules_anything(team):
+    with (
+        mock.patch("products.batch_exports.backend.service.sync_batch_export") as sync_batch_export,
+        pytest.raises(contracts.InvalidBatchExportFilters),
+    ):
+        api.create_workflows_backfill_export(
+            team.pk,
+            hog_function_id=uuid.uuid4(),
+            name="My destination",
+            event_filters=[{"id": "$pageview", "type": "events"}],
+            last_modified_by_id=1,
+        )
+
+    sync_batch_export.assert_not_called()
+    assert not BatchExport.objects.filter(team_id=team.pk).exists()
 
 
 @pytest.fixture
@@ -328,3 +492,26 @@ def test_creating_and_deleting_a_batch_export_manages_its_temporal_schedule(team
     assert BatchExport.objects.get(id=detail.id).deleted is True
     with pytest.raises(temporalio.service.RPCError):
         _describe_schedule(temporal, str(detail.id))
+
+
+def test_destination_test_step_refuses_an_integration_from_another_team(team, organization):
+    other_team = create_team(organization=organization)
+    integration = Integration.objects.create(
+        team=other_team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id="example-server-hostname",
+        config={"server_hostname": "example-server-hostname"},
+        sensitive_config={"client_id": "fake-client-id", "client_secret": "fake-client-secret"},
+    )
+
+    with (
+        mock.patch("products.batch_exports.backend.destination_tests.get_destination_test"),
+        pytest.raises(IntegrationNotFound),
+    ):
+        api.run_destination_test_step(
+            team.pk,
+            destination_type="Databricks",
+            config={"http_path": "fake-http-path", "catalog": "catalog", "schema": "schema", "table_name": "events"},
+            integration_id=integration.id,
+            step=0,
+        )

@@ -45,7 +45,7 @@ OpenTelemetry spans. One row per span. Backed by ClickHouse `trace_spans_distrib
 - **`trace_id`, `span_id`, `parent_span_id` are base64-encoded bytes**, not hex. The MCP layer (`posthog:query-apm-spans`, `posthog:apm-trace-get`) converts to hex via `hex(tryBase64Decode(...))` for display. Raw HogQL queries against this table see the base64 form.
 - **`parent_span_id` of a root span** is `'AAAAAAAAAAA='` (12-char base64 of 8 zero bytes), not null. **Use `is_root_span` to find trace entries** — don't string-match the padding.
 - **Use `hex(tryBase64Decode(trace_id))` to display trace_ids in hex** for human-readable output.
-- Cross-signal joins by `trace_id` work against `logs` (both store base64). For `posthog.metrics`, exemplar extraction is not yet wired up in the ingestion pipeline — see the metrics reference for the current state.
+- Cross-signal joins by `trace_id` work against `logs` (both store base64). For `posthog.metrics`, only points with an exemplar carry a `trace_id` (filter `trace_id != ''`) — see the metrics reference.
 - User HogQL queries on `posthog.trace_spans` are capped at 50 GB read per query.
 
 ## `posthog.trace_attributes`

@@ -11,6 +11,16 @@ import * as zod from 'zod'
 
 export const createBodyNameMax = 64
 
+export const createBodyMemberNoticeOneMessageMax = 1000
+
+export const createBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const createBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const createBodyIpRestrictionsItemMax = 64
+
+export const createBodyIpRestrictionsMax = 100
+
 export const CreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(createBodyNameMax),
     logo_media_id: zod.uuid().nullish(),
@@ -42,6 +52,36 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(createBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(createBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(createBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -55,9 +95,28 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(createBodyIpRestrictionsItemMax))
+        .max(createBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const updateBodyNameMax = 64
+
+export const updateBodyMemberNoticeOneMessageMax = 1000
+
+export const updateBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const updateBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const updateBodyIpRestrictionsItemMax = 64
+
+export const updateBodyIpRestrictionsMax = 100
 
 export const UpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(updateBodyNameMax),
@@ -90,6 +149,36 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(updateBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(updateBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(updateBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -103,9 +192,28 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(updateBodyIpRestrictionsItemMax))
+        .max(updateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const partialUpdateBodyNameMax = 64
+
+export const partialUpdateBodyMemberNoticeOneMessageMax = 1000
+
+export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const partialUpdateBodyIpRestrictionsItemMax = 64
+
+export const partialUpdateBodyIpRestrictionsMax = 100
 
 export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
@@ -138,6 +246,36 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(partialUpdateBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -151,6 +289,15 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(partialUpdateBodyIpRestrictionsItemMax))
+        .max(partialUpdateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const MembersUpdateBody = /* @__PURE__ */ zod.object({
@@ -451,7 +598,7 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team. Only the person who started a ticket discussion can send it (403), and it cannot go to a channel shared with another Slack workspace (400). 429 when the Slack integration has made too many channel lookups in the last minute.
  */
 export const commentsSendToSlackCreateBodyChannelIdMax = 255
 

@@ -21,6 +21,9 @@ Then, run the tests:
 cargo test --package feature-flags
 ```
 
+To run against other databases, for example from a second checkout, set `TEST_DATABASE_URL`, `TEST_PERSONS_DATABASE_URL` and `TEST_REDIS_URL`; unset, they default to `test_posthog`, `posthog_persons` and Redis database 0 on localhost.
+Keep `TEST_REDIS_URL` off Redis database 1, which the dedicated flags cache tests use.
+
 ## To watch changes
 
 ```sh

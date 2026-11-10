@@ -133,6 +133,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
         },
     }
     monkeypatch.setattr(verification_config, "_load_verification_yaml", lambda filename: override_config)
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: [])
     verification_config._get_data_modeling_verification_config.cache_clear()
     request.addfinalizer(verification_config._get_data_modeling_verification_config.cache_clear)
 

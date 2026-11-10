@@ -5,8 +5,8 @@ These are the precomputation-framework successors to the v2 pre-aggregation
 Where v2 was hand-written ClickHouse SQL run by a staging-table + partition-swap
 Dagster ETL, these are HogQL templates fed to `ensure_precomputed`, which manages
 job tracking, TTLs and the `ReplacingMergeTree` INSERTs. The scheduled
-`web_dimensional_precompute` Dagster job is the only caller (the write path is
-not wired into any query runner yet).
+`web_dimensional_precompute` Dagster job is the only writer. Query runners only
+check for READY jobs (`dimensional_job_ids`) and never build a window inline.
 
 The framework auto-prepends `team_id`/`job_id` and appends `expires_at` to the
 top-level SELECT, and substitutes `{time_window_min}` / `{time_window_max}` per
@@ -22,30 +22,61 @@ Parity with v2 is intentional, with two deliberate deviations:
     NULL, so they fit the non-nullable Int64 columns deterministically.
 """
 
-from datetime import datetime
+import json
+from collections.abc import Collection
+from datetime import UTC, datetime
+from uuid import UUID
+
+from django.conf import settings
+
+from posthog.schema import HogQLQueryModifiers, SessionTableVersion
 
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 
+from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.web_preaggregated.sql import is_eu_cluster
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
+    parse_ttl_schedule,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import SESSION_FORWARD_PAD_MINUTES
 
-# TTL tuned for "keep ~90 days warm, don't recompute every time": today's window
-# refreshes hourly, the last two days daily, everything older is computed once and
-# held for 90 days. The scheduled job re-runs over the rolling window and the
-# framework only recomputes windows whose jobs have expired.
+# Distributed read-table names as registered in the HogQL database schema.
+WEB_STATS_DIMENSIONAL_READ_TABLE = "web_stats_dimensional_preaggregated"
+WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
+
+# Today's window refreshes hourly, the last two days daily, and older days are held for 90 to 97
+# days so a settled day is computed once. The scheduled job re-runs over the rolling window and the
+# framework only recomputes windows whose jobs have expired. Today's TTL is shorter than the hourly
+# schedule so that every run finds today's job expired and rebuilds it. A TTL equal to the schedule
+# period lets a run find the job fresh by seconds, skip it, and leave it expired until the next run.
+#
+# The jitter gives each older day a stable offset, so a backfill's days expire on different runs
+# and each run rebuilds only a few of them.
 DIMENSIONAL_TTL_SECONDS: dict[str, int] = {
-    "0d": 60 * 60,
+    "0d": 45 * 60,
     "2d": 24 * 60 * 60,
     "default": 90 * 24 * 60 * 60,
 }
+DIMENSIONAL_DEFAULT_TTL_JITTER_SECONDS = 7 * 24 * 60 * 60
+
+
+def dimensional_ttl_schedule() -> TtlSchedule:
+    # The jobs cover UTC days, so the TTL bands must start at UTC midnight too. With bands in the
+    # team timezone, the current UTC day moves into the 1-day band when the team's local day
+    # starts, and that day then stops refreshing until the next UTC midnight. The band cutoffs are
+    # relative to now, so build the schedule per call.
+    return parse_ttl_schedule(
+        DIMENSIONAL_TTL_SECONDS, "UTC", default_ttl_jitter_seconds=DIMENSIONAL_DEFAULT_TTL_JITTER_SECONDS
+    )
 
 
 # Per-session row, then aggregated into hourly buckets. `host`/`device_type`/
@@ -302,21 +333,98 @@ def _base_placeholders() -> dict[str, ast.Expr]:
     }
 
 
+# Same ceilings as the legacy pre-aggregation job (`WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS`), whose
+# tables these replace. One UTC day of a very large team's events, grouped by every fixed dimension,
+# outgrows the default 42 GiB limit in the step that merges the shards' partial aggregates.
+DIMENSIONAL_INSERT_SETTINGS: dict[str, int | str] = {
+    "max_memory_usage": 140 * 1024**3,
+    "max_bytes_before_external_group_by": 70 * 1024**3,
+    "distributed_aggregation_memory_efficient": 1,
+    "max_execution_time": 2200,
+    # Spread the sessions-table reads over every replica, like the legacy job. `in_order` sends every
+    # one of these heavy reads to the first replica.
+    "load_balancing": "random",
+}
+
+# HogQL filters the sessions table by the time in the session id, which comes from the device
+# clock, while event timestamps are corrected at capture. A device clock that runs slow gives a
+# session id earlier than the session's real start, so the buffer is the clock skew we tolerate.
+# 25 hours matches the legacy pre-aggregation job and avoids the default 3 days on each side,
+# which makes these inserts read about twice as many sessions.
+DIMENSIONAL_SESSION_BUFFER_MINUTES = 25 * 60
+
+
+# Modifier fields that change what the INSERTs store. The executor leaves modifiers out of the job
+# hash, so `dimensional_cache_key_context` adds these values to it: a team settings change gives new
+# jobs, and the old ones stop matching. A read whose values differ from the team's cannot use the jobs.
+DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
+    "bounceRateDurationSeconds",
+    "bounceRatePageViewMode",
+    "materializationMode",
+    "personsOnEventsMode",
+    "sessionsV2JoinMode",
+    "sessionTableVersion",
+)
+
+
+# The sessions v3 table holds every session only from the day its backfill reached, per Cloud region.
+# A region missing here has no complete v3 history yet, so a v3 team there gets no dimensional days.
+SESSIONS_V3_COVERAGE_START_BY_REGION: dict[str, datetime] = {
+    "US": datetime(2026, 10, 1, tzinfo=UTC),
+}
+_NO_SESSIONS_COVERAGE = datetime.max.replace(tzinfo=UTC)
+
+
+def sessions_coverage_floor(modifiers: HogQLQueryModifiers) -> datetime | None:
+    # A window before the floor builds as if no sessions existed: empty for the stats template, and
+    # without entry dimensions or bounces for the rest. The writer must not build it and reads must
+    # not serve it. Off Cloud the v3 materialized view fills the table natively, so it has no floor.
+    if modifiers.sessionTableVersion != SessionTableVersion.V3 or not is_cloud():
+        return None
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    return SESSIONS_V3_COVERAGE_START_BY_REGION.get(region, _NO_SESSIONS_COVERAGE)
+
+
+def dimensional_insert_modifiers(team: Team) -> HogQLQueryModifiers:
+    return create_default_modifiers_for_team(
+        team, HogQLQueryModifiers(sessionTimestampBufferMinutes=DIMENSIONAL_SESSION_BUFFER_MINUTES)
+    )
+
+
+def dimensional_cache_key_context(modifiers: HogQLQueryModifiers) -> dict[str, str]:
+    dump = modifiers.model_dump(mode="json")
+    return {
+        "semantic_modifiers": json.dumps(
+            {field: dump.get(field) for field in DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS}, sort_keys=True
+        )
+    }
+
+
 def ensure_web_stats_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
     time_range_end: datetime,
+    run_inserts: bool = True,
+    stale_while_revalidate_seconds: float | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> LazyComputationResult:
+    modifiers = modifiers or dimensional_insert_modifiers(team)
     return ensure_precomputed(
         team=team,
         insert_query=STATS_INSERT_TEMPLATE,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=DIMENSIONAL_TTL_SECONDS,
+        ttl_seconds=dimensional_ttl_schedule(),
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
-        read_after_write=False,
+        # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
+        read_after_write=True,
+        run_inserts=run_inserts,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
+        insert_settings=DIMENSIONAL_INSERT_SETTINGS,
+        modifiers=modifiers,
+        cache_key_context=dimensional_cache_key_context(modifiers),
     )
 
 
@@ -324,15 +432,83 @@ def ensure_web_bounces_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
     time_range_end: datetime,
+    run_inserts: bool = True,
+    stale_while_revalidate_seconds: float | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> LazyComputationResult:
+    modifiers = modifiers or dimensional_insert_modifiers(team)
     return ensure_precomputed(
         team=team,
         insert_query=BOUNCES_INSERT_TEMPLATE,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=DIMENSIONAL_TTL_SECONDS,
+        ttl_seconds=dimensional_ttl_schedule(),
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
-        read_after_write=False,
+        # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
+        read_after_write=True,
+        run_inserts=run_inserts,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
+        insert_settings=DIMENSIONAL_INSERT_SETTINGS,
+        modifiers=modifiers,
+        cache_key_context=dimensional_cache_key_context(modifiers),
+    )
+
+
+# The hourly writer rebuilds today's window, and the read keeps serving the previous
+# generation while the rebuild runs or after a run fails. The grace stays far below
+# EXPIRY_BUFFER_SECONDS, so the ClickHouse rows of a graced job still exist.
+DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS = 30 * 60
+
+
+@frozen
+class DimensionalJobIds:
+    # None for a table the caller did not ask for.
+    stats: list[UUID] | None
+    bounces: list[UUID] | None
+    stale: bool = False
+    # The oldest `computed_at` of the served jobs.
+    computed_at: datetime | None = None
+
+
+def dimensional_job_ids(
+    team: Team,
+    time_range_start: datetime,
+    time_range_end: datetime,
+    tables: Collection[str],
+    modifiers: HogQLQueryModifiers,
+) -> DimensionalJobIds | None:
+    """Return the READY job ids of `tables` that cover the range, or None when any of them
+    has a gap. Check-only: a read never builds a window, the scheduled job does.
+    The framework splits jobs on UTC days, so the bounds should already be in UTC."""
+    results: dict[str, LazyComputationResult] = {}
+    ensure_by_table = {
+        WEB_STATS_DIMENSIONAL_READ_TABLE: ensure_web_stats_dimensional_precomputed,
+        WEB_BOUNCES_DIMENSIONAL_READ_TABLE: ensure_web_bounces_dimensional_precomputed,
+    }
+    for table, ensure in ensure_by_table.items():
+        if table not in tables:
+            continue
+        result = ensure(
+            team,
+            time_range_start,
+            time_range_end,
+            run_inserts=False,
+            stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
+            modifiers=modifiers,
+        )
+        if not result.ready:
+            return None
+        results[table] = result
+
+    stats = results.get(WEB_STATS_DIMENSIONAL_READ_TABLE)
+    bounces = results.get(WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
+    return DimensionalJobIds(
+        stats=stats.job_ids if stats else None,
+        bounces=bounces.job_ids if bounces else None,
+        stale=any(result.stale for result in results.values()),
+        computed_at=min(
+            (result.computed_at for result in results.values() if result.computed_at is not None), default=None
+        ),
     )

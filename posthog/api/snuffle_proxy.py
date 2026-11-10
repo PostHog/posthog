@@ -20,6 +20,7 @@ from django.http import HttpResponse, QueryDict
 import requests
 import structlog
 from drf_spectacular.utils import extend_schema
+from requests.auth import HTTPBasicAuth
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser
@@ -27,6 +28,7 @@ from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api_queries_budget import debit
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload, connection_creds
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -114,6 +116,56 @@ def schedule_snuffle_budget_debit(team_id: str, bytes_read: int) -> None:
         logger.exception("snuffle_proxy_budget_debit_submit_failed", team_id=team_id)
 
 
+class SnuffleNotConfiguredError(Exception):
+    """Raised when no Snuffle URL is configured for this deployment."""
+
+
+def _snuffle_auth(ch_user: ClickHouseUser | None) -> HTTPBasicAuth | None:
+    # A token-backed user's file rotates, so the credential is read for each request.
+    if ch_user is not None and (creds := connection_creds(Workload.LOGS, ch_user)) is not None:
+        return HTTPBasicAuth(creds.user, creds.read_password())
+    return (
+        HTTPBasicAuth(settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
+    )
+
+
+def snuffle_request(
+    team_id: int,
+    method: str,
+    upstream_path: str,
+    *,
+    params: dict[str, list[str]] | dict[str, str] | None = None,
+    data: dict[str, list[str]] | dict[str, str] | None = None,
+    accept: str = "application/json",
+    timeout: float | None = None,
+    ch_user: ClickHouseUser | None = None,
+) -> requests.Response:
+    """Send one request to Snuffle as `team_id` and debit the bytes it read from the query budget.
+
+    `upstream_path` is the Snuffle path, for example ``/api/v1/query_range``. Snuffle connects to
+    ClickHouse as `ch_user` when it is a registered logs cluster user. Network errors from
+    `requests` propagate, so each caller can map them to its own error format.
+    """
+    base_url = settings.SNUFFLE_APM_URL
+    if not base_url:
+        raise SnuffleNotConfiguredError("PromQL/LogQL query API is not configured")
+    headers = {TEAM_ID_HEADER: str(team_id), "Accept": accept}
+    auth = _snuffle_auth(ch_user)
+    upstream = internal_requests.request(
+        method,
+        f"{base_url.rstrip('/')}{upstream_path}",
+        params=params,
+        data=data,
+        headers=headers,
+        auth=auth,
+        timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS if timeout is None else timeout,
+    )
+    bytes_read = _read_bytes_from(upstream)
+    if bytes_read is not None:
+        schedule_snuffle_budget_debit(str(team_id), bytes_read)
+    return upstream
+
+
 class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Base for the team-scoped Prometheus- and Loki-compatible query endpoints.
 
@@ -145,6 +197,9 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return []
         return super().get_throttles()
 
+    def before_forward(self, request: Request, path: str) -> None:
+        """Runs once for each request that the proxy forwards upstream. Subclasses override it."""
+
     @extend_schema(exclude=True)
     @action(detail=False, methods=["GET", "POST"], url_path=r"api/v1/(?P<path>[A-Za-z0-9_./-]+)")
     def proxy(self, request: Request, path: str, **kwargs) -> HttpResponse:
@@ -154,8 +209,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not any(pattern.fullmatch(path) for pattern in self.allowed_paths):
             return _error_response(status.HTTP_404_NOT_FOUND, "not_found", f"unsupported endpoint: {path}")
 
-        base_url = settings.SNUFFLE_APM_URL
-        if not base_url:
+        if not settings.SNUFFLE_APM_URL:
             return _error_response(
                 status.HTTP_501_NOT_IMPLEMENTED, "unavailable", "PromQL/LogQL query API is not configured"
             )
@@ -172,22 +226,18 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             response["Retry-After"] = str(budget_status.retry_after_seconds)
             return response
 
+        self.before_forward(request, path)
         method = request.method or "GET"
-        url = f"{base_url.rstrip('/')}{self.upstream_prefix}/{path}"
-        params = _forwardable(request.query_params)
-        headers = {TEAM_ID_HEADER: str(team_id), "Accept": request.headers.get("Accept", "application/json")}
         body = _forwardable(request.data) if method == "POST" and isinstance(request.data, QueryDict) else None
-        auth = (settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
 
         try:
-            upstream = internal_requests.request(
+            upstream = snuffle_request(
+                team_id,
                 method,
-                url,
-                params=params,
+                f"{self.upstream_prefix}/{path}",
+                params=_forwardable(request.query_params),
                 data=body,
-                headers=headers,
-                auth=auth,
-                timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS,
+                accept=request.headers.get("Accept", "application/json"),
             )
         except requests.Timeout:
             logger.warning("snuffle_proxy_timeout", team_id=team_id, path=path)
@@ -211,6 +261,5 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         bytes_read = _read_bytes_from(upstream)
         if bytes_read is not None:
-            schedule_snuffle_budget_debit(str(team_id), bytes_read)
             response["X-PostHog-Query-Bytes-Read"] = str(bytes_read)
         return response

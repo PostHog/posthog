@@ -21,7 +21,8 @@ if (empty(inputs.ticket_id)) {
 
 let response := postHogGetTicket({
   'ticket_id': inputs.ticket_id,
-  'include_first_customer_message_text': inputs.include_first_customer_message_text
+  'include_first_customer_message_text': inputs.include_first_customer_message_text,
+  'first_customer_message_max_bytes': inputs.first_customer_message_max_bytes
 })
 
 if (response.status != 200) {
@@ -49,6 +50,14 @@ return response.body
             default: false,
             description:
                 "Add a short preview of the customer's first message to the response. Off by default, since it runs an extra query. Turn it on to remind the customer which ticket a message is about.",
+        },
+        {
+            key: 'first_customer_message_max_bytes',
+            type: 'number',
+            label: 'First customer message length (bytes)',
+            secret: false,
+            required: false,
+            description: 'Bytes of the first message to include, from 200 to 3,000. Leave empty for the short preview.',
         },
     ],
 }

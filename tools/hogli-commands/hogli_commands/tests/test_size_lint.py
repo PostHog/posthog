@@ -238,7 +238,16 @@ class TestPreflightForwardsDiffScope:
             pytest.param("abc123", True, ["--against", "abc123", "--committed"], id="explicit_base_forwarded"),
         ],
     )
-    def test_only_an_explicit_base_is_forwarded(self, against: str | None, strict: bool, expected: list[str]) -> None:
+    def test_only_an_explicit_base_is_forwarded(
+        self,
+        against: str | None,
+        strict: bool,
+        expected: list[str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _write(tmp_path, "posthog/api/team.py", 1)
+        monkeypatch.setattr(ci_preflight, "REPO_ROOT", tmp_path)
         check = ci_preflight.DiffCheck(
             key="size",
             label="file size",

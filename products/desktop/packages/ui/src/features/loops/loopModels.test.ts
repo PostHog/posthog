@@ -2,9 +2,9 @@ import type {
   SessionConfigOption,
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import { restrictedModelMeta } from "@posthog/shared";
 import { MODELS } from "@posthog/shared/model-catalog";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { describe, expect, it } from "vitest";
 import type { ModelRolloutFlags } from "../sessions/modelOptionFilters";
 import {
@@ -135,8 +135,10 @@ describe("loopModelOptions", () => {
         "claude-opus-5",
         "claude-opus-5-5",
         "claude-sonnet-5",
+        "claude-sonnet-5-5",
         "claude-fable-5",
         "claude-fable-5-1",
+        "claude-fable-5-2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
         "moonshotai/kimi-k3",
@@ -153,6 +155,7 @@ describe("loopModelOptions", () => {
         "gpt-5.6-luna",
         "gpt-6-astra",
         "gpt-6-sol",
+        "gpt-6.1-sol",
         "gpt-6-luna",
       ],
     },
@@ -185,8 +188,8 @@ describe("loopModelOptions", () => {
 
 describe("LOOP_DEFAULT_MODELS", () => {
   it("mirrors the backend loop defaults", () => {
-    expect(LOOP_DEFAULT_MODELS.claude.id).toBe("claude-sonnet-5");
-    expect(LOOP_DEFAULT_MODELS.codex.id).toBe("gpt-5");
+    expect(LOOP_DEFAULT_MODELS.claude.id).toBe("claude-sonnet-5-5");
+    expect(LOOP_DEFAULT_MODELS.codex.id).toBe("gpt-6.1-sol");
   });
 });
 
@@ -212,7 +215,11 @@ describe("loopReasoningEffortOptions", () => {
       expectedValues: ["high", "max"],
     },
     { adapter: "claude", model: "unknown-model", expectedValues: [] },
-    { adapter: "codex", model: "", expectedValues: ["low", "medium", "high"] },
+    {
+      adapter: "codex",
+      model: "",
+      expectedValues: ["low", "medium", "high", "xhigh", "max"],
+    },
     {
       adapter: "codex",
       model: "gpt-5.5",
@@ -279,11 +286,11 @@ describe("clampLoopReasoningEffort", () => {
       expected: null,
     },
     {
-      name: "clears an effort the default model doesn't support",
+      name: "keeps an effort the default model supports",
       adapter: "codex",
       model: "",
       effort: "xhigh",
-      expected: null,
+      expected: "xhigh",
     },
     {
       name: "keeps auto as auto",

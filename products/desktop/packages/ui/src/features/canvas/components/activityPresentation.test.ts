@@ -83,7 +83,7 @@ describe("activityPresentation", () => {
       "canvas owner comment",
       item({
         activityKind: "owned_item_comment",
-        commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+        commentTarget: { scope: "canvas", itemId: "canvas-1" },
         author: AUTHOR,
       }),
       "just now · Ann commented on your canvas",

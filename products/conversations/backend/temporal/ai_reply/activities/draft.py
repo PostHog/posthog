@@ -9,6 +9,7 @@ import structlog
 from pydantic import ValidationError
 from temporalio import activity
 
+from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -17,6 +18,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.business_knowledge.backend.constants import MAX_ALWAYS_ON_CONTEXT_CHARS
 from products.business_knowledge.backend.logic import get_chunks_by_ids
 from products.conversations.backend.playbook import compose_support_playbook, is_posthog_docs_source
+from products.conversations.backend.task_profiles import SUPPORT_REPLY
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
     DIAGNOSTIC_SCOPES_PRESET,
@@ -44,7 +46,6 @@ from products.conversations.backend.temporal.helpers import (
     get_or_create_support_sandbox_env,
     resolve_user_id_for_support,
 )
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import EmptyAgentTurnError, MultiTurnSession
 
 logger = structlog.get_logger(__name__)
@@ -144,6 +145,7 @@ def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
             "source_name": r.source_name,
             "source_type": r.source_type,
             "is_generated": r.is_generated,
+            "url": r.url,
         }
         for r in results
     ]
@@ -161,10 +163,20 @@ def format_knowledge_chunks(chunks: list[dict[str, Any]]) -> str:
     if not chunks:
         return "(none)"
     visible = chunks[:20]
-    rendered = "\n\n".join(
-        (f"{_chunk_label(c)} [chunk_id={c['chunk_id']}] ({c['document_title']} > {c['heading_path']})\n{c['content']}")
-        for c in visible
-    )
+    rendered_chunks: list[str] = []
+    for chunk in visible:
+        header = (
+            f"{_chunk_label(chunk)} [chunk_id={chunk['chunk_id']}] "
+            f"({chunk['document_title']} > {chunk['heading_path']})"
+        )
+        url = chunk.get("url")
+        if isinstance(url, str):
+            # Document.url is varchar(2048). Collapse it to one line so a crawled URL cannot open a new prompt section.
+            safe_url = sanitize_user_text(url, 2048)
+            if safe_url:
+                header = f"{header}\nURL: {safe_url}"
+        rendered_chunks.append(f"{header}\n{chunk['content']}")
+    rendered = "\n\n".join(rendered_chunks)
     if any(c.get("is_generated") for c in visible):
         return f"{LEARNED_CHUNK_NOTE}\n\n{rendered}"
     return rendered
@@ -402,9 +414,7 @@ Return your response as a JSON object with keys: reply, citations, confidence (a
                 prompt,
                 context,
                 step_name="support_reply",
-                origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-                mcp_builtin_agent_key="support",
-                internal=True,
+                profile=SUPPORT_REPLY,
                 max_poll_seconds=DRAFT_POLL_SECONDS,
             )
         except EmptyAgentTurnError:

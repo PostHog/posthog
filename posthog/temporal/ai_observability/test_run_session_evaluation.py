@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -12,8 +11,8 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
+from posthog.hogql.placeholders import replace_placeholders
 
-from posthog.cdp.validation import compile_hog
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     ExecuteLLMJudgeInputs,
@@ -21,6 +20,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     get_output_type_config,
 )
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
+from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
     AI_EVENTS_RETENTION_DAYS,
@@ -29,6 +29,7 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
     SessionFetchOutcome,
     _count_session_events,
     _SessionEventCount,
+    _sum_session_payload_bytes,
     build_session_hog_globals,
     execute_session_hog_eval_activity,
     execute_session_llm_judge_activity,
@@ -45,6 +46,8 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
 )
 
 from products.ai_observability.backend.hog import compile_ai_observability_hog
+from products.ai_observability.backend.llm.attachments import AttachmentPart
+from products.cdp.backend.validation import compile_hog
 
 FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -139,6 +142,18 @@ class TestFormatSessionForJudge:
         # the caller must skip the session instead of judging a partial transcript.
         traces = [_trace(f"t{i}", cost=0, latency=0, event_count=100) for i in range(260)]
         assert format_session_for_judge(traces) is None
+
+    def test_numbers_an_image_once_across_the_session(self):
+        image = {"type": "image_url", "image_url": {"url": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"}}
+        traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(2)]
+        for trace in traces:
+            trace.events[0].properties["$ai_input"] = [{"role": "user", "content": [image]}]
+
+        rendered = format_session_for_judge(traces, JudgeAttachments(team_id=1).marker)
+
+        assert rendered is not None
+        assert rendered.count("[image 1]") == 2
+        assert "[image 2]" not in rendered
 
     def test_many_small_traces_are_judged_rather_than_skipped_on_count_alone(self):
         """The overflow check must measure the rendered transcript, not `per_trace_budget * n`.
@@ -235,6 +250,20 @@ class TestCountSessionEvents:
         assert result.first_seen == first_seen
         assert mock_query_ai_events.call_args.kwargs["fall_back_to_events"] is False
 
+    @pytest.mark.parametrize(
+        "fetch, rows",
+        [(_count_session_events, [[7, datetime(2026, 7, 1, tzinfo=UTC)]]), (_sum_session_payload_bytes, [[100]])],
+    )
+    def test_reads_the_session_traces_with_global_in(self, fetch, rows):
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
+            return_value=Mock(results=rows),
+        ) as mock_query_ai_events:
+            fetch(Mock(), "s-1", FROZEN_NOW, FROZEN_NOW)
+
+        kwargs = mock_query_ai_events.call_args.kwargs
+        assert "globalIn(trace_id, (SELECT" in replace_placeholders(kwargs["query"], kwargs["placeholders"]).to_hogql()
+
 
 class TestRunHogEvalOverRecentSessions:
     @time_machine.travel(FROZEN_NOW, tick=False)
@@ -277,14 +306,6 @@ class TestRunHogEvalOverRecentSessions:
 
 
 class TestFetchSessionForEvaluation:
-    @pytest.fixture(autouse=True)
-    def unrestricted_project_defaults(self) -> Iterator[None]:
-        with patch(
-            "posthog.temporal.ai_observability.run_session_evaluation.get_restricted_properties_with_group_type_index_for_team",
-            return_value=set(),
-        ):
-            yield
-
     def test_queries_in_evaluation_mode_with_both_date_bounds(self):
         user = Mock()
         with (
@@ -477,8 +498,28 @@ class TestFetchSessionForEvaluation:
 class TestExecuteSessionActivities:
     @pytest.mark.parametrize("runtime", ["hog", "llm_judge"])
     @pytest.mark.parametrize("target", ["generation", "trace", "session"])
-    @pytest.mark.parametrize("score", [0.25, None])
-    def test_numeric_outputs_across_targets(self, runtime: str, target: str, score: float | None) -> None:
+    @pytest.mark.parametrize(
+        "output_type,score",
+        [
+            ("numeric", 0.25),
+            ("numeric", None),
+            ("categorical", ["resolved"]),
+            ("categorical", []),
+            ("categorical", None),
+        ],
+    )
+    def test_outputs_across_targets(
+        self, runtime: str, target: str, output_type: str, score: float | list[str] | None
+    ) -> None:
+        output_config = {
+            "allows_na": True,
+            **(
+                {"min": 0, "max": 1}
+                if output_type == "numeric"
+                else {"options": [{"key": "resolved", "label": "Resolved"}], "selection_mode": "multiple"}
+            ),
+        }
+        result_key = "score" if output_type == "numeric" else "categories"
         trace = _trace("trace-1", cost=0, latency=0)
         evaluation = {
             "id": "numeric-eval",
@@ -487,14 +528,14 @@ class TestExecuteSessionActivities:
             "evaluation_config": {
                 "prompt": "Rate quality",
                 "bytecode": compile_ai_observability_hog(
-                    "return null" if score is None else "return 0.25",
+                    "return null" if score is None else f"return {score!r}",
                     "destination",
                 ),
             },
-            "output_type": "numeric",
-            "output_config": {"min": 0, "max": 1, "allows_na": True},
+            "output_type": output_type,
+            "output_config": output_config,
         }
-        schema = get_output_type_config(True, output_type="numeric").response_format
+        schema = get_output_type_config(True, output_type=output_type, output_config=output_config).response_format
         with (
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
@@ -514,7 +555,7 @@ class TestExecuteSessionActivities:
                 is_byok=False,
             )
             client.return_value.complete.return_value = Mock(
-                parsed=schema.model_validate({"reasoning": "Quality", "score": score}),
+                parsed=schema.model_validate({"reasoning": "Quality", result_key: score}),
                 usage=None,
             )
             if target == "generation":
@@ -544,15 +585,16 @@ class TestExecuteSessionActivities:
                     if runtime == "hog"
                     else execute_session_llm_judge_activity(session_inputs)
                 )
-        assert result["result_type"] == "numeric"
+        assert result["result_type"] == output_type
         assert "verdict" not in result
         assert result["applicable"] is (score is not None)
         if score is None:
-            assert "score" not in result
+            assert result_key not in result
         else:
-            assert result["score"] == score
-            assert result["score_min"] == 0
-            assert result["score_max"] == 1
+            assert result.get(result_key) == score
+            if output_type == "numeric":
+                assert result["score_min"] == 0
+                assert result["score_max"] == 1
 
     @pytest.mark.parametrize(
         "skip_reason",
@@ -561,7 +603,7 @@ class TestExecuteSessionActivities:
             "session_too_large",
             "session_payload_too_large",
             "session_truncated",
-            "property_access_restricted",
+            "session_has_no_traces",
         ],
     )
     @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
@@ -603,7 +645,7 @@ class TestExecuteSessionActivities:
             )
 
     @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
-    @pytest.mark.parametrize("skip_reason", ["session_truncated", "property_access_restricted"])
+    @pytest.mark.parametrize("skip_reason", ["session_truncated", "session_has_no_traces"])
     def test_judge_skips_without_judging(self, output_type: str, skip_reason: str) -> None:
         with (
             patch(
@@ -631,10 +673,41 @@ class TestExecuteSessionActivities:
         assert "score" not in result
         if output_type == "numeric":
             assert "verdict" not in result
-        if skip_reason == "property_access_restricted":
-            assert "property access rules" in result["reasoning"]
+        assert result["reasoning"]
         # The whole point of the truncation-as-skip choice: never grade a partial transcript.
         mock_call_llm_judge.assert_not_called()
+
+    def test_judge_gets_the_session_images(self) -> None:
+        trace = _trace("trace-1", cost=0, latency=0)
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}}
+        trace.events[0].properties["$ai_input"] = [{"role": "user", "content": [image]}]
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+                return_value=SessionFetchOutcome(traces=[trace], skip_reason=None, event_count=1),
+            ),
+            patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
+        ):
+            execute_session_llm_judge_activity(
+                ExecuteSessionEvaluationInputs(
+                    evaluation={
+                        "team_id": 1,
+                        "evaluation_type": "llm_judge",
+                        "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
+                        "output_type": "boolean",
+                        "output_config": {},
+                    },
+                    team_id=1,
+                    session_id="s-1",
+                    window_start=FROZEN_NOW.isoformat(),
+                )
+            )
+
+        attachment_prompt = mock_call_llm_judge.call_args.kwargs["attachment_prompt"]
+        assert "[image 1]" in attachment_prompt.text
+        assert attachment_prompt.attachments.content(attachment_prompt.text, "openai", "gpt-5.5")[2] == AttachmentPart(
+            mime_type="image/png", data=b"hi"
+        )
 
     def test_judge_skips_without_judging_when_the_rendered_transcript_would_overflow(self):
         # The fetch itself succeeds (session_truncated wasn't raised there), but the session has
@@ -651,6 +724,7 @@ class TestExecuteSessionActivities:
             result = execute_session_llm_judge_activity(
                 ExecuteSessionEvaluationInputs(
                     evaluation={
+                        "team_id": 1,
                         "evaluation_type": "llm_judge",
                         "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
                         "output_type": "boolean",

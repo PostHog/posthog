@@ -18,6 +18,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 SCHEDULE_ID = "github-job-logs-coordinator-schedule"
@@ -31,7 +32,13 @@ async def create_github_job_logs_coordinator_schedule(client: Client) -> None:
             id=SCHEDULE_ID,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=SCHEDULE_INTERVAL, offset=deterministic_offset(SCHEDULE_ID, SCHEDULE_INTERVAL)
+                )
+            ]
+        ),
         # SKIP so a slow tick doesn't stack; the egress limiter (not cron frequency) caps spend.
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCHEDULE_INTERVAL),
     )

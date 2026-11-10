@@ -31,7 +31,9 @@ testWithWorkspace.describe('OAuth MCP consent', () => {
             await test.step('assert server-preloaded MCP scopes', async () => {
                 await expect(page.getByText('Showing all permissions the PostHog MCP server supports')).toBeVisible()
                 // notebook scopes are absent from the old static fallback, so their
-                // presence proves the server derived the full catalog.
+                // presence proves the server derived the full catalog. A long request groups
+                // the rows by product area, so open the group the notebook row is in first.
+                await page.getByTestId('oauth-scope-group-toggle-product-analytics').click()
                 await expect(page.getByText('Notebook', { exact: true })).toBeVisible()
             })
         }

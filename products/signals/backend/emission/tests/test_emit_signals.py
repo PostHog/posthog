@@ -1,13 +1,19 @@
 import json
 import uuid
-from collections.abc import Sequence
-from datetime import UTC, datetime
+import asyncio
+from collections.abc import Iterator, Sequence
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 import temporalio.worker
 from temporalio import activity
@@ -16,8 +22,20 @@ from temporalio.worker import Worker
 
 from posthog.hogql import ast
 
+from posthog.exceptions import QuotaLimitExceeded
+from posthog.models import Team
+from posthog.models.comment import Comment
+from posthog.sync import database_sync_to_async
+
+from products.conversations.backend.models import Ticket
 from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
+from products.signals.backend.artefact_schemas import Dismissal, ReportLink
 from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
+from products.signals.backend.emission.conversations_coordinator import (
+    EmitConversationsSignalsInputs,
+    emit_conversations_signals_activity,
+)
+from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
@@ -27,19 +45,47 @@ from products.signals.backend.emission.fetchers.data_warehouse import data_wareh
 from products.signals.backend.emission.pipeline import (
     LLM_MAX_ATTEMPTS,
     TEMPORAL_PAYLOAD_MAX_BYTES,
+    _create_message,
     _emit_signals,
+    _reports_closed_to_source_state,
     _summarize_description,
     build_emitter_outputs,
     check_actionability,
     filter_actionable,
+    filter_admitted,
     run_signal_pipeline,
     summarize_long_descriptions,
 )
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalSpend,
+    SignalTeamConfig,
+)
+from products.signals.backend.spend import signal_id_for
+from products.signals.backend.trial.policy import TrialRefused
 
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
 FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse"
 ACTIVITY_MODULE_PATH = "products.signals.backend.emission.emit_signals"
+
+
+@pytest.fixture(autouse=True)
+def no_llm_retry_delay(monkeypatch):
+    monkeypatch.setattr(f"{PIPELINE_MODULE_PATH}.LLM_RETRY_INITIAL_DELAY_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
+def no_trial() -> Iterator[None]:
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+    ):
+        yield
 
 
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
@@ -53,6 +99,7 @@ def _make_config(**overrides: Any) -> SignalSourceTableConfig:
             description=record.get("description", ""),
             weight=0.5,
             extra=record,
+            existing_source_only=record.get("existing_source_only", False),
         ),
         "record_fetcher": data_warehouse_record_fetcher,
         "partition_field": "created_at",
@@ -72,6 +119,7 @@ def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> Ma
         block.text = content
         response.content = [block]
     response.stop_reason = stop_reason
+    response._request_id = None
     return response
 
 
@@ -126,7 +174,7 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
+        assert "parseDateTimeBestEffort(toString(updated_at)) > {last_synced_at}" in query_arg
 
     @pytest.mark.parametrize(
         "source_config,expected_ids",
@@ -229,7 +277,7 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
+        assert "parseDateTimeBestEffort(toString(time)) > now() - interval 14 day" in query_arg
 
     @pytest.mark.parametrize(
         "table_name,expected_chain",
@@ -365,7 +413,364 @@ class TestRunSignalPipelineEmitterFailures:
         assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
 
 
+@pytest.mark.asyncio
+async def test_batch_admission_overlaps_checks_with_bounded_concurrency() -> None:
+    outputs = [replace(_make_output(source_id=str(i)), signal_id=str(i)) for i in range(4)]
+    release = asyncio.Event()
+    two_started = asyncio.Event()
+    started: list[str] = []
+    active = 0
+    peak_active = 0
+
+    async def admit(*, team: Team, signal_id: str, billing_exempt: bool) -> None:
+        nonlocal active, peak_active
+        started.append(signal_id)
+        active += 1
+        peak_active = max(peak_active, active)
+        if len(started) == 2:
+            two_started.set()
+        try:
+            await release.wait()
+            if signal_id == "1":
+                raise TrialRefused("daily_limit_reached")
+        finally:
+            active -= 1
+
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.EMIT_CONCURRENCY_LIMIT", 2),
+        patch(f"{PIPELINE_MODULE_PATH}.database_sync_to_async_pool", return_value=admit),
+        patch(f"{PIPELINE_MODULE_PATH}.capture_pipeline_stage") as capture,
+    ):
+        pending = asyncio.create_task(filter_admitted(MagicMock(), MagicMock(), outputs))
+        try:
+            await asyncio.wait_for(two_started.wait(), timeout=1)
+            await asyncio.sleep(0)  # Let the remaining checks attempt admission while both slots are occupied.
+            assert started == ["0", "1"]
+        finally:
+            release.set()
+            result = await pending
+
+    assert peak_active == 2
+    assert result == [outputs[0], outputs[2], outputs[3]]
+    capture.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEmissionRetryIdentity:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("actionable", [True, False])
+    async def test_conversations_does_not_hide_messages_arriving_after_fetch(
+        self, team: Team, actionable: bool
+    ) -> None:
+        module = "products.signals.backend.emission.conversations_coordinator"
+        snapshot_at = datetime(2026, 1, 10, 12, tzinfo=UTC)
+        with (
+            time_machine.travel(snapshot_at, tick=False) as clock,
+            patch("products.conversations.backend.events.capture_internal"),
+        ):
+            ticket = await database_sync_to_async(Ticket.objects.create_with_number)(
+                team=team, widget_session_id="snapshot-test", distinct_id="test-user", channel_source="widget"
+            )
+            await Comment.objects.acreate(
+                team=team, scope="conversations_ticket", item_id=str(ticket.id), content="Export does not finish"
+            )
+            await Ticket.objects.filter(id=ticket.id).aupdate(
+                created_at=snapshot_at - timedelta(days=2), last_message_at=snapshot_at - timedelta(hours=2)
+            )
+            config = CONVERSATIONS_TICKETS_CONFIG
+
+            def fetch_then_receive_message(team, config, context):
+                records = CONVERSATIONS_TICKETS_CONFIG.record_fetcher(team, config, context)
+                # A message can arrive even before the fetcher returns control to the pipeline.
+                clock.shift(timedelta(seconds=30))
+                Comment.objects.create(
+                    team=team, scope="conversations_ticket", item_id=str(ticket.id), content="A new detail"
+                )
+                Ticket.objects.filter(id=ticket.id).update(last_message_at=timezone.now())
+                clock.shift(timedelta(seconds=30))
+                return records
+
+            async def decide(**kwargs):
+                clock.shift(timedelta(minutes=5))
+                return kwargs["outputs"] if actionable else []
+
+            with (
+                patch(f"{module}.Heartbeater"),
+                patch(
+                    f"{module}.get_signal_config",
+                    return_value=config.model_copy(update={"record_fetcher": fetch_then_receive_message}),
+                ),
+                patch(f"{module}.afetch_source_config", AsyncMock(return_value={})),
+                patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=False),
+                patch("posthoganalytics.feature_enabled", return_value=False),
+                patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
+                patch(f"{PIPELINE_MODULE_PATH}.filter_actionable", side_effect=decide),
+                patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+            ):
+                result = await emit_conversations_signals_activity(EmitConversationsSignalsInputs(team_id=team.id))
+            assert result["signals_emitted"] == int(actionable)
+            processed = await SignalEmissionRecord.objects.aget(team=team, source_id=str(ticket.id))
+            assert processed.emitted_at == snapshot_at
+            fetch = database_sync_to_async(config.record_fetcher)
+            assert await fetch(team, config, {}) == []  # The existing 24-hour resnapshot floor still applies.
+            clock.move_to(snapshot_at + timedelta(hours=24, minutes=1))
+            records = await fetch(team, config, {})
+            assert [record["id"] for record in records] == [ticket.id]
+            assert ("customer", "A new detail") in records[0]["messages"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("limit", ["billing", "daily"])
+    async def test_conversations_defer_refused_tickets_and_allow_later_snapshots(self, team: Team, limit: str) -> None:
+        with patch("products.conversations.backend.events.capture_internal"):
+            ticket = await database_sync_to_async(Ticket.objects.create_with_number)(
+                team=team, widget_session_id="admission-test", distinct_id="test-user", channel_source="widget"
+            )
+            await Comment.objects.acreate(
+                team=team, scope="conversations_ticket", item_id=str(ticket.id), content="Export does not finish"
+            )
+        await Ticket.objects.filter(id=ticket.id).aupdate(
+            created_at=timezone.now() - timedelta(days=2), last_message_at=timezone.now() - timedelta(hours=2)
+        )
+        config = CONVERSATIONS_TICKETS_CONFIG
+        fetch = database_sync_to_async(config.record_fetcher)
+        with (
+            patch(
+                "products.signals.backend.quota.is_team_signals_quota_limited", return_value=limit == "billing"
+            ) as quota,
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *a, **kw: key == "self-driving-quota-enforcement",
+            ),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(
+                f"{PIPELINE_MODULE_PATH}.filter_actionable", side_effect=lambda **kwargs: kwargs["outputs"]
+            ) as filter_records,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            if limit == "daily":
+                await SignalTeamConfig.objects.aupdate_or_create(team=team, defaults={"max_reports_per_day": 1})
+                await SignalReport.objects.acreate(team=team, first_visible_at=timezone.now())
+
+            records = await fetch(team, config, {})
+            result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            assert result["signals_emitted"] == 0
+            assert not await SignalEmissionRecord.objects.filter(team=team).aexists()
+            emit.assert_not_awaited()
+            assert filter_records.call_args.kwargs["outputs"] == []
+
+            quota.return_value = False
+            await SignalReport.objects.filter(team=team).adelete()
+            records = await fetch(team, config, {})
+            assert [record["id"] for record in records] == [ticket.id]
+            emit.side_effect = RuntimeError("dispatch unavailable")
+            with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
+                await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            first_signal_id = emit.call_args.kwargs["signal_id"]
+            assert not await SignalEmissionRecord.objects.filter(team=team).aexists()
+            quota.return_value = limit == "billing"
+            if limit == "daily":
+                await SignalReport.objects.acreate(team=team, first_visible_at=timezone.now())
+            emit.side_effect = None
+            records = await fetch(team, config, {})
+            result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            assert result["signals_emitted"] == 1
+            assert emit.call_args.kwargs["signal_id"] == first_signal_id
+            assert await fetch(team, config, {}) == []
+
+            quota.return_value = False
+            await SignalReport.objects.filter(team=team).adelete()
+            await SignalEmissionRecord.objects.filter(team=team).aupdate(
+                emitted_at=timezone.now() - timedelta(hours=30)
+            )
+            await Ticket.objects.filter(id=ticket.id).aupdate(last_message_at=timezone.now() - timedelta(minutes=90))
+            records = await fetch(team, config, {})
+            result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            assert result["signals_emitted"] == 1
+            assert emit.call_args.kwargs["signal_id"] != first_signal_id
+            assert await fetch(team, config, {}) == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("limit", ["billing", "daily"])
+    async def test_pipeline_refuses_new_records_but_retries_admitted_records(self, team, limit: str):
+        config = _make_config(record_processed_outputs=True)
+        with (
+            patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=False) as quota,
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *a, **kw: key == "self-driving-quota-enforcement",
+            ),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+            patch(f"{PIPELINE_MODULE_PATH}._create_message", new_callable=AsyncMock) as provider,
+        ):
+            emit.side_effect = RuntimeError("dispatch unavailable")
+            with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
+                await run_signal_pipeline(team=team, config=config, records=[{"id": "accepted"}], extra={})
+            accepted_id = emit.call_args.kwargs["signal_id"]
+            if limit == "billing":
+                quota.return_value = True
+            else:
+                await SignalTeamConfig.objects.aupdate_or_create(team=team, defaults={"max_reports_per_day": 1})
+                await SignalReport.objects.acreate(
+                    team=team, status=SignalReport.Status.READY, first_visible_at=timezone.now()
+                )
+            emit.side_effect = None
+            emit.reset_mock()
+            result = await run_signal_pipeline(
+                team=team, config=config, records=[{"id": "accepted"}, {"id": "fresh"}], extra={}
+            )
+        assert result["signals_emitted"] == 1
+        emit.assert_awaited_once()
+        assert emit.call_args.kwargs["signal_id"] == accepted_id
+        provider.assert_not_awaited()
+        assert await database_sync_to_async(lambda: SignalSpend.objects.for_team(team.id).count())() == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("record_processed_outputs", [False, True])
+    async def test_retry_repairs_ledger_for_finalized_signal(self, team, record_processed_outputs: bool) -> None:
+        output = replace(_make_output(source_id="record-1"), idempotency_key="record-1")
+        signal_id = signal_id_for(
+            team_id=team.id,
+            source_product=output.source_product,
+            source_type=output.source_type,
+            idempotency_key="record-1",
+        )
+        await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(team.id).create(
+                team_id=team.id, signal_id=signal_id, kind=SignalSpend.Kind.AD_HOC, spend=1, finalized_at=timezone.now()
+            )
+        )()
+        config = _make_config(emitter=lambda team_id, record: output, record_processed_outputs=record_processed_outputs)
+        with patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit:
+            for _ in range(2):
+                result = await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+                assert result["signals_emitted"] == 0
+        emit.assert_not_awaited()
+        assert await SignalEmissionRecord.objects.filter(team=team, source_id="record-1").acount() == int(
+            record_processed_outputs
+        )
+
+    @pytest.mark.asyncio
+    async def test_retry_skips_filtered_signal_after_sibling_dispatch_failure(self, team):
+        checked = []
+
+        async def filter_outputs(*, outputs, **kwargs):
+            checked.append([output.source_id for output in outputs])
+            for output in outputs:
+                if output.source_id == "filtered":
+                    await database_sync_to_async(
+                        lambda output=output: (
+                            SignalSpend.objects.for_team(team.id)
+                            .filter(signal_id=output.signal_id, kind=SignalSpend.Kind.AD_HOC)
+                            .update(spend=1)
+                        )
+                    )()
+            return [output for output in outputs if output.source_id != "filtered"]
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
+            patch(f"{PIPELINE_MODULE_PATH}.filter_actionable", side_effect=filter_outputs),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            temporal_activity.in_activity.return_value = True
+            temporal_activity.info.return_value.workflow_run_id = "import"
+            temporal_activity.info.return_value.activity_id = "emit"
+            records = [{"id": "filtered"}, {"id": "accepted"}]
+            config = _make_config(actionability_prompt="Filter {description}")
+            emit.side_effect = RuntimeError("dispatch failed")
+            with pytest.raises(RuntimeError):
+                await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            filtered = await database_sync_to_async(lambda: SignalSpend.objects.for_team(team.id).get(spend=1))()
+            assert filtered.finalized_at is not None
+            emit.side_effect = None
+            await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            assert checked == [["filtered", "accepted"], ["accepted"]]
+            assert [call.kwargs["source_id"] for call in emit.call_args_list] == ["accepted", "accepted"]
+
+    @pytest.mark.asyncio
+    async def test_activity_retries_keep_signal_id_but_later_imports_do_not(self, team):
+        config = _make_config(record_processed_outputs=False)
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            temporal_activity.in_activity.return_value = True
+            info = temporal_activity.info.return_value
+            info.workflow_run_id = "first-import"
+            info.activity_id = "emit-1"
+            emit.side_effect = RuntimeError("dispatch failed")
+            with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
+                await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            first = emit.call_args.kwargs["signal_id"]
+            emit.side_effect = None
+            info.attempt = 2
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            assert emit.call_args.kwargs["signal_id"] == first
+            info.workflow_run_id = "next-import"
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            assert emit.call_args.kwargs["signal_id"] != first
+
+    @pytest.mark.asyncio
+    async def test_material_versions_dedupe_across_imports(self, team):
+        def emitter(team_id, record):
+            return replace(_make_output(source_id=record["id"]), idempotency_key=f"{record['id']}:{record['version']}")
+
+        config = _make_config(emitter=emitter, sync_with_source=True)
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches", return_value={}),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            temporal_activity.in_activity.return_value = True
+            temporal_activity.info.return_value.workflow_run_id = "first-import"
+            temporal_activity.info.return_value.activity_id = "emit-1"
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1", "version": "v1"}], extra={})
+            first = emit.call_args.kwargs
+            temporal_activity.info.return_value.workflow_run_id = "next-import"
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1", "version": "v1"}], extra={})
+            repeated = emit.call_args.kwargs
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1", "version": "v2"}], extra={})
+            changed = emit.call_args.kwargs
+
+        assert repeated["signal_id"] == first["signal_id"]
+        assert repeated["idempotency_key"] == first["idempotency_key"] == "record-1:v1"
+        assert changed["signal_id"] != first["signal_id"]
+        assert changed["idempotency_key"] == "record-1:v2"
+        assert changed["sync_with_source"] is True
+
+
 class TestCheckActionability:
+    @pytest.mark.asyncio
+    async def test_provider_call_keeps_its_timeout(self):
+        client = MagicMock()
+
+        async def wait_forever(**kwargs):
+            await asyncio.Event().wait()
+
+        client.messages.create = AsyncMock(side_effect=wait_forever)
+        with patch(f"{PIPELINE_MODULE_PATH}.LLM_CALL_TIMEOUT_SECONDS", 0.01):
+            with pytest.raises(TimeoutError):
+                await _create_message(client, team_id=1, signal_id=None, messages=[], extra_headers={})
+        client.messages.create.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("spend_exhausted")])
+    async def test_admission_refusal_does_not_retry_or_fail_open(self, refusal):
+        client = MagicMock()
+        client.messages.create = AsyncMock()
+        with (
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", side_effect=refusal) as prepare,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture_exception") as capture,
+        ):
+            with pytest.raises(type(refusal)):
+                await check_actionability(client, 1, _make_output(), "Check {description}")
+        assert prepare.call_count == 1
+        client.messages.create.assert_not_awaited()
+        capture.assert_not_called()
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "llm_response,expected",
@@ -476,17 +881,31 @@ class TestCheckActionability:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "model,expected_output_config",
-        [("claude-sonnet-5", {"effort": "medium"}), ("claude-sonnet-4-5", None)],
+        "model,expected_output_config,trial",
+        [
+            ("claude-sonnet-5", {"effort": "medium"}, False),
+            ("claude-sonnet-5-5", {"effort": "medium"}, False),
+            ("claude-sonnet-4-5", None, False),
+            ("claude-sonnet-5", {"effort": "medium"}, True),
+        ],
     )
-    async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
+    async def test_pins_effort_only_on_adaptive_models(
+        self, model: str, expected_output_config: dict[str, str] | None, trial: bool
+    ) -> None:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.with_options.return_value = mock_client
 
-        with patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model):
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model),
+            patch(f"{PIPELINE_MODULE_PATH}.requires_trial_accounting", return_value=trial),
+            patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=trial),
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+        ):
             await check_actionability(mock_client, 7, _make_output(), "Is this actionable? {description}")
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == model
         assert call_kwargs.get("output_config") == expected_output_config
 
     @pytest.mark.asyncio
@@ -498,12 +917,12 @@ class TestCheckActionability:
         output = _make_output(source_id="42")
         with (
             patch(
-                "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
-                return_value="typesafe-shadow",
+                "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
+                return_value="system-one-shadow",
             ),
-            patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
+            patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
             patch(
-                "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
+                "products.signals.backend.system_one_decision.decision_api.decide_when_available",
                 return_value=DecisionResult(
                     model="jevk5-fp8-0.2",
                     answers={"actionable": NoulAnswer(probability=0.98)},
@@ -521,17 +940,45 @@ class TestCheckActionability:
         # report attributes to), since the per-call blob replaces the client default.
         assert "x-posthog-property-ai_stage" not in headers
         assert json.loads(headers["X-PostHog-Properties"]) == {
+            "$ai_prompt_name": "signals-actionability-test_product-test",
             "ai_product": "signals_emission",
             "ai_stage": "actionability",
             "signals_decision_id": decision_request.trace_id,
             "source_id": output.source_id,
             "source_product": output.source_product,
             "source_type": output.source_type,
+            "system_one_prompt_source": "bundled",
             "team_id": "7",
         }
 
 
 class TestFilterActionable:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("stage", ["actionability", "summarization"])
+    @pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("spend_exhausted")])
+    async def test_refused_records_leave_the_batch_without_provider_fallback(
+        self, stage: str, refusal: Exception
+    ) -> None:
+        team = MagicMock(id=1)
+        client = MagicMock()
+        client.messages.create = AsyncMock()
+        outputs = [_make_output(description="x" * 100)]
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=client),
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", side_effect=refusal) as prepare,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture_exception") as capture,
+            patch(f"{PIPELINE_MODULE_PATH}.logger.exception") as log_exception,
+        ):
+            if stage == "actionability":
+                result = await filter_actionable(team, outputs, "Check {description}", extra={})
+            else:
+                result = await summarize_long_descriptions(team, outputs, "Summarize {description}", 10, extra={})
+        assert result == []
+        assert prepare.call_count == 1
+        client.messages.create.assert_not_awaited()
+        capture.assert_not_called()
+        log_exception.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_filters_non_actionable_outputs(self):
         outputs = [
@@ -551,7 +998,7 @@ class TestFilterActionable:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             result = await filter_actionable(team, outputs, "prompt {description}", extra={})
 
@@ -559,6 +1006,21 @@ class TestFilterActionable:
 
 
 class TestSummarizeDescription:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("spend_exhausted")])
+    async def test_admission_refusal_does_not_retry_or_truncate(self, refusal):
+        client = MagicMock()
+        client.messages.create = AsyncMock()
+        with (
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", side_effect=refusal) as prepare,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture_exception") as capture,
+        ):
+            with pytest.raises(type(refusal)):
+                await _summarize_description(client, 1, _make_output(), "Summarize {description}", 10)
+        assert prepare.call_count == 1
+        client.messages.create.assert_not_awaited()
+        capture.assert_not_called()
+
     PROMPT = "Summarize this: {description}"
     THRESHOLD = 200
 
@@ -648,7 +1110,7 @@ class TestSummarizeLongDescriptions:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             result = await summarize_long_descriptions(team, [short, long], self.PROMPT, self.THRESHOLD, extra={})
 
@@ -668,12 +1130,12 @@ class TestSummarizeLongDescriptions:
 class TestEmitSignals:
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_emit_signal(self):
-        output = _make_output(source_id="42", description="bug report")
+        output = replace(_make_output(source_id="42", description="bug report"), signal_id=str(uuid.uuid4()))
         team = MagicMock()
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             count = await _emit_signals(team=team, organization=MagicMock(), outputs=[output], extra={})
 
@@ -686,7 +1148,35 @@ class TestEmitSignals:
             description="bug report",
             weight=0.5,
             extra={},
+            idempotency_key=None,
+            signal_id=output.signal_id,
+            sync_with_source=False,
+            source_match_signal_id=None,
+            source_match_report_id=None,
         )
+
+    @pytest.mark.asyncio
+    async def test_passes_source_sync_to_emit_signal(self):
+        output = replace(
+            _make_output(source_id="42", description="updated bug report"),
+            signal_id=str(uuid.uuid4()),
+            idempotency_key="42:material-version",
+        )
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
+        ):
+            await _emit_signals(
+                team=MagicMock(),
+                organization=MagicMock(),
+                outputs=[output],
+                extra={},
+                sync_with_source=True,
+            )
+
+        assert emit.call_args.kwargs["idempotency_key"] == "42:material-version"
+        assert emit.call_args.kwargs["sync_with_source"] is True
 
     @pytest.mark.asyncio
     async def test_continues_on_individual_emit_failure(self):
@@ -701,7 +1191,7 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", side_effect=mock_emit),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
         ):
             count = await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=outputs, extra={})
@@ -728,7 +1218,7 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             count = await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=[output], extra={})
 
@@ -743,7 +1233,7 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
                 await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=[output], extra={})
@@ -756,18 +1246,127 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", side_effect=Exception("boom")),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             with pytest.raises(RuntimeError, match="All 2 signal emissions failed"):
                 await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=outputs, extra={})
 
 
+@pytest.mark.django_db(transaction=True)
+class TestExistingSourceOnlyOutputs:
+    def test_closed_report_lookup_batches_reports_links_and_dismissals(self, team):
+        resolved = SignalReport.objects.create(team=team, status=SignalReport.Status.RESOLVED)
+        fixed_dismissal = SignalReport.objects.create(team=team, status=SignalReport.Status.SUPPRESSED)
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=fixed_dismissal,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            content=Dismissal(state="suppressed", reason="already_fixed").model_dump_json(),
+        )
+
+        merge_survivor = SignalReport.objects.create(team=team, status=SignalReport.Status.READY)
+        merged_source = SignalReport.objects.create(team=team, status=SignalReport.Status.SUPPRESSED)
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=merged_source,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            content=Dismissal(state="suppressed", reason="merged").model_dump_json(),
+        )
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=merged_source,
+            type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+            content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(merge_survivor.id)).model_dump_json(),
+            link_target_id=merge_survivor.id,
+        )
+
+        recurrence_parent = SignalReport.objects.create(team=team, status=SignalReport.Status.RESOLVED)
+        recurrence = SignalReport.objects.create(team=team, status=SignalReport.Status.READY)
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=recurrence,
+            type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+            content=ReportLink(
+                kind=ReportLinkKind.RECURRENCE_OF, report_id=str(recurrence_parent.id)
+            ).model_dump_json(),
+            link_target_id=recurrence_parent.id,
+        )
+
+        failed = SignalReport.objects.create(team=team, status=SignalReport.Status.FAILED)
+
+        closed = _reports_closed_to_source_state(
+            team.id,
+            {
+                str(resolved.id),
+                str(fixed_dismissal.id),
+                str(merged_source.id),
+                str(recurrence_parent.id),
+                str(failed.id),
+            },
+        )
+
+        assert closed == {str(resolved.id), str(fixed_dismissal.id), str(failed.id)}
+
+        direct_reports = SignalReport.objects.bulk_create(
+            [SignalReport(team=team, status=SignalReport.Status.RESOLVED) for _ in range(20)]
+        )
+        with CaptureQueriesContext(connection) as one_report_queries:
+            _reports_closed_to_source_state(team.id, {str(direct_reports[0].id)})
+        with CaptureQueriesContext(connection) as many_report_queries:
+            _reports_closed_to_source_state(team.id, {str(report.id) for report in direct_reports})
+
+        assert len(many_report_queries) == len(one_report_queries)
+
+    @pytest.mark.asyncio
+    async def test_terminal_source_only_emits_when_it_already_has_a_report(self, team):
+        config = _make_config(sync_with_source=True, actionability_prompt="Actionable? {description}")
+        open_report = await SignalReport.objects.acreate(team=team, status=SignalReport.Status.READY)
+        resolved_report = await SignalReport.objects.acreate(team=team, status=SignalReport.Status.RESOLVED)
+        records: list[dict[str, Any]] = [
+            {"id": "open", "state": "open"},
+            {"id": "known-closed", "state": "closed", "existing_source_only": True},
+            {"id": "new-closed", "state": "closed", "existing_source_only": True},
+            {"id": "resolved-closed", "state": "closed", "existing_source_only": True},
+        ]
+        with (
+            patch(
+                f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches",
+                return_value={
+                    "known-closed": [MagicMock(signal_id="previous-signal", report_id=str(open_report.id))],
+                    "resolved-closed": [MagicMock(signal_id="fixed-signal", report_id=str(resolved_report.id))],
+                },
+            ),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(
+                f"{PIPELINE_MODULE_PATH}.filter_actionable",
+                new_callable=AsyncMock,
+                side_effect=lambda **kwargs: kwargs["outputs"],
+            ) as filter_actionable,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
+        ):
+            result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
+
+        assert result["signals_emitted"] == 2
+        assert {call.kwargs["source_id"] for call in emit.await_args_list} == {"open", "known-closed"}
+        known_call = next(call for call in emit.await_args_list if call.kwargs["source_id"] == "known-closed")
+        assert known_call.kwargs["source_match_signal_id"] == "previous-signal"
+        assert known_call.kwargs["source_match_report_id"] == str(open_report.id)
+        assert filter_actionable.await_args is not None
+        assert [output.source_id for output in filter_actionable.await_args.kwargs["outputs"]] == ["open"]
+        filtered = [call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"]
+        assert [
+            (call.kwargs["properties"]["source_id"], call.kwargs["properties"]["filter_reason"]) for call in filtered
+        ] == [
+            ("new-closed", "source_state_without_report"),
+            ("resolved-closed", "source_state_on_closed_report"),
+        ]
+
+
+@pytest.mark.django_db(transaction=True)
 class TestPipelineStageTelemetry:
     @pytest.mark.asyncio
-    async def test_captures_each_stage_per_signal(self):
-        team = MagicMock(id=1)
-        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
-
+    async def test_captures_each_stage_per_signal(self, team):
         short_description = "short actionable bug"
         long_description = "x" * 500
         non_actionable_description = "billing question, not actionable"
@@ -812,7 +1411,7 @@ class TestPipelineStageTelemetry:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
         ):
@@ -836,11 +1435,10 @@ class TestPipelineStageTelemetry:
         ]
 
 
+@pytest.mark.django_db(transaction=True)
 class TestRunSignalPipelineSteering:
     @pytest.mark.asyncio
-    async def test_source_config_steering_customizes_actionability_prompt(self):
-        team = MagicMock(id=1)
-        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    async def test_source_config_steering_customizes_actionability_prompt(self, team):
         config = _make_config(actionability_prompt=ISSUE_ACTIONABILITY_PROMPT)
         records = [{"id": "chore_1", "description": "Bump lodash to 4.17.21"}]
 
@@ -855,7 +1453,7 @@ class TestRunSignalPipelineSteering:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
         ):
@@ -883,9 +1481,7 @@ class TestRunSignalPipelineSteering:
         assert [call.kwargs["properties"]["steering_applied"] for call in filtered_calls] == [True]
 
     @pytest.mark.asyncio
-    async def test_without_source_config_prompt_is_unchanged(self):
-        team = MagicMock(id=1)
-        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    async def test_without_source_config_prompt_is_unchanged(self, team):
         config = _make_config(actionability_prompt=ISSUE_ACTIONABILITY_PROMPT)
         records = [{"id": "issue_1", "description": "Export button broken"}]
 
@@ -900,7 +1496,7 @@ class TestRunSignalPipelineSteering:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
         ):
@@ -1013,7 +1609,7 @@ class TestEmitActivityTableNameResolution:
         schema.table = table
         schema.source = source
 
-        fetch_mock = AsyncMock(return_value=(schema, MagicMock()))
+        fetch_mock = AsyncMock(return_value=(schema, MagicMock(organization=MagicMock(usage={}))))
 
         with (
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
@@ -1048,7 +1644,7 @@ class TestEmitActivitySourceConfigThreading:
             return []
 
         config = _make_config(record_fetcher=capture_fetcher)
-        team = MagicMock(id=7)
+        team = MagicMock(id=7, organization=MagicMock(usage={}))
         schema = MagicMock()
         schema.table.name = "test_table"
 

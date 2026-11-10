@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
@@ -26,13 +27,16 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.temporal.activities.observation_media import (
     _footer_crop_px,
     _pick_video_time_s,
-    finalize_observation_thumbnail_activity,
-    prepare_observation_thumbnail_activity,
+    finalize_observation_media_activity,
+    prepare_observation_media_activity,
 )
 from products.replay_vision.backend.temporal.media_types import (
-    ExtractThumbnailActivityOutput,
-    FinalizeObservationThumbnailInputs,
+    ExtractedFrame,
+    ExtractThumbnailsActivityOutput,
+    FinalizeObservationMediaInputs,
     ObservationMediaInputs,
+    PreparedFrame,
+    PrepareObservationMediaOutput,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
@@ -79,8 +83,36 @@ class TestObservationMedia(BaseTest):
         fields.update(overrides)
         return ObservationMediaInputs(**fields)
 
-    def _prepare(self, **overrides: Any) -> Any:
-        return async_to_sync(prepare_observation_thumbnail_activity)(self._inputs(**overrides))
+    def _prepare(self, **overrides: Any) -> PrepareObservationMediaOutput:
+        return async_to_sync(prepare_observation_media_activity)(self._inputs(**overrides))
+
+    def _finalize(
+        self,
+        prepared: PrepareObservationMediaOutput,
+        rendered: list[PreparedFrame],
+        observation_id: UUID,
+        with_small: list[PreparedFrame] | None = None,
+    ) -> None:
+        small_ids = {f.object_id for f in (rendered if with_small is None else with_small)}
+        prefix = f"s3://{settings.OBJECT_STORAGE_BUCKET}/replay-vision/media/team-{self.team.id}/{observation_id}"
+        async_to_sync(finalize_observation_media_activity)(
+            FinalizeObservationMediaInputs(
+                team_id=self.team.id,
+                observation_id=observation_id,
+                frames=prepared.frames,
+                result=ExtractThumbnailsActivityOutput(
+                    frames=[
+                        ExtractedFrame(
+                            id=f.object_id,
+                            s3_uri=f"{prefix}/{f.object_id}.webp",
+                            file_size_bytes=4096,
+                            small_s3_uri=f"{prefix}/{f.object_id}-small.webp" if f.object_id in small_ids else None,
+                        )
+                        for f in rendered
+                    ]
+                ),
+            )
+        )
 
     def test_media_object_is_written_outside_the_exports_prefix(self) -> None:
         prepared = self._prepare()
@@ -88,7 +120,7 @@ class TestObservationMedia(BaseTest):
         assert prepared.activity_input.s3_key_prefix == (
             f"replay-vision/media/team-{self.team.id}/{self.observation.id}"
         )
-        asset = ExportedAsset.objects.get(pk=prepared.media_asset_id)
+        asset = ExportedAsset.objects.get(pk=prepared.frames[0].media_asset_id)
         assert asset.is_system is True
         assert (asset.export_context or {})["observation_id"] == str(self.observation.id)
         assert (asset.export_context or {})["session_recording_id"] == self.session_id
@@ -103,7 +135,7 @@ class TestObservationMedia(BaseTest):
 
         prepared = self._prepare(thumbnail_video_s=70, signal_video_times=[(40, 60)])
 
-        assert prepared.activity_input.video_time_s == 70.0
+        assert prepared.activity_input.frames[0].video_time_s == 70.0
 
     @parameterized.expand(
         [
@@ -120,8 +152,8 @@ class TestObservationMedia(BaseTest):
 
         prepared = self._prepare(signal_video_times=signals)
 
-        assert prepared.activity_input.video_time_s == expected_s
-        assert prepared.video_start_ms == int(expected_s * 1000)
+        assert prepared.activity_input.frames[0].video_time_s == expected_s
+        assert prepared.frames[0].video_start_ms == int(expected_s * 1000)
 
     def test_a_missing_analysis_asset_fails_without_retrying(self) -> None:
         analysis_asset_id = self.analysis_asset.id
@@ -132,48 +164,100 @@ class TestObservationMedia(BaseTest):
 
         assert caught.value.non_retryable is True
 
-    def test_finalize_links_the_rendered_object_to_the_observation(self) -> None:
-        prepared = self._prepare()
+    def test_one_render_links_the_thumbnail_and_each_chapter_frame_the_video_had(self) -> None:
+        chapters = [
+            {"start_ms": 0, "end_ms": 2_000, "title": "Opens the app", "thumbnail_ms": 1_000},
+            {"start_ms": 30_000, "end_ms": 70_000, "title": "Edits a form", "thumbnail_ms": 50_000},
+            {"start_ms": 70_000, "end_ms": 100_000, "title": "Leaves", "thumbnail_ms": 100_000},
+        ]
+        self.observation.scanner_result = {"model_output": {"scanner_type": "summarizer", "chapters": chapters}}
+        self.observation.save()
 
-        async_to_sync(finalize_observation_thumbnail_activity)(
-            FinalizeObservationThumbnailInputs(
-                team_id=self.team.id,
-                observation_id=self.observation.id,
-                media_asset_id=prepared.media_asset_id,
-                video_start_ms=prepared.video_start_ms,
-                rec_start_ms=prepared.rec_start_ms,
-                result=ExtractThumbnailActivityOutput(
-                    s3_uri=f"s3://{settings.OBJECT_STORAGE_BUCKET}/replay-vision/media/team-{self.team.id}/{self.observation.id}/x.png",
-                    file_size_bytes=4096,
-                ),
-            )
+        prepared = self._prepare()
+        assert [(f.kind, f.position) for f in prepared.frames] == [
+            ("thumbnail", 0),
+            ("chapter", 0),
+            ("chapter", 1),
+            ("chapter", 2),
+        ]
+        # The thumbnail keeps the video-wide edge margin; a chapter frame stays inside its own chapter instead.
+        assert [f.video_time_s for f in prepared.activity_input.frames] == [25.0, 1.0, 50.0, 99.0]
+        assert [f.required for f in prepared.activity_input.frames] == [True, False, False, False]
+        assert (prepared.activity_input.image_format, prepared.activity_input.small_width) == ("webp", 480)
+        assert len({f.media_asset_id for f in prepared.frames} | {f.small_media_asset_id for f in prepared.frames}) == 8
+        # A re-render reuses the large assets with the expiry they already have.
+        ExportedAsset.objects.filter(pk__in=[f.media_asset_id for f in prepared.frames]).update(
+            expires_after=timezone.now() + timedelta(days=30)
+        )
+        # A retried prepare reuses each slot's assets rather than leaving a second one behind.
+        again = self._prepare()
+        assert [(f.media_asset_id, f.small_media_asset_id) for f in again.frames] == [
+            (f.media_asset_id, f.small_media_asset_id) for f in prepared.frames
+        ]
+
+        # The rasterizer made no small copy of the third frame, and the video has no fourth frame at all.
+        self._finalize(
+            prepared,
+            rendered=prepared.frames[:3],
+            with_small=prepared.frames[:2],
+            observation_id=self.observation.id,
         )
 
-        media = ReplayObservationMedia.objects.for_team(self.team.id).get(observation_id=self.observation.id)
-        assert media.kind == ReplayObservationMedia.Kind.THUMBNAIL
-        assert media.asset_id == prepared.media_asset_id
-        assert (media.asset.content_location or "").startswith("replay-vision/media/")
+        linked = (
+            ReplayObservationMedia.objects.for_team(self.team.id)
+            .filter(observation_id=self.observation.id)
+            .select_related("asset", "small_asset")
+        )
+        assert sorted((m.kind, m.position, m.asset_id, m.small_asset_id) for m in linked) == sorted(
+            [(f.kind, f.position, f.media_asset_id, f.small_media_asset_id) for f in prepared.frames[:2]]
+            + [(f.kind, f.position, f.media_asset_id, None) for f in prepared.frames[2:3]]
+        )
+        assert all((m.asset.content_location or "").startswith("replay-vision/media/") for m in linked)
+        assert {m.asset.export_format for m in linked} == {ExportedAsset.ExportFormat.WEBP}
+        for m in linked:
+            if m.small_asset is not None:
+                assert (m.small_asset.content_location or "").endswith("-small.webp")
+                assert m.small_asset.expires_after == m.asset.expires_after
+        unlinked = [
+            asset_id
+            for asset_id in (
+                prepared.frames[2].small_media_asset_id,
+                prepared.frames[3].media_asset_id,
+                prepared.frames[3].small_media_asset_id,
+            )
+            if asset_id is not None
+        ]
+        for asset in ExportedAsset.objects_including_ttl_deleted.filter(pk__in=unlinked):
+            assert asset.expires_after is not None and asset.expires_after <= timezone.now()
+
+    def test_a_copy_of_a_frame_just_past_its_expiry_still_expires(self) -> None:
+        prepared = self._prepare()
+        thumbnail = prepared.frames[0]
+        assert thumbnail.small_media_asset_id is not None
+        expired_at = timezone.now() - timedelta(seconds=1)
+        ExportedAsset.objects.filter(pk=thumbnail.media_asset_id).update(expires_after=expired_at)
+
+        self._finalize(prepared, rendered=[thumbnail], observation_id=self.observation.id)
+
+        small = ExportedAsset.objects_including_ttl_deleted.get(pk=thumbnail.small_media_asset_id)
+        assert small.expires_after == expired_at
+
+    def test_an_observation_without_chapters_renders_only_its_thumbnail(self) -> None:
+        self.observation.scanner_result = {"model_output": {"scanner_type": "monitor", "verdict": "yes"}}
+        self.observation.save()
+
+        prepared = self._prepare()
+
+        assert [(f.kind, f.position) for f in prepared.frames] == [("thumbnail", 0)]
 
     def test_an_observation_deleted_mid_render_expires_the_asset_with_its_location(self) -> None:
         prepared = self._prepare()
         observation_id = self.observation.id
         self.observation.delete()
 
-        async_to_sync(finalize_observation_thumbnail_activity)(
-            FinalizeObservationThumbnailInputs(
-                team_id=self.team.id,
-                observation_id=observation_id,
-                media_asset_id=prepared.media_asset_id,
-                video_start_ms=prepared.video_start_ms,
-                rec_start_ms=prepared.rec_start_ms,
-                result=ExtractThumbnailActivityOutput(
-                    s3_uri=f"s3://{settings.OBJECT_STORAGE_BUCKET}/replay-vision/media/team-{self.team.id}/{observation_id}/x.png",
-                    file_size_bytes=4096,
-                ),
-            )
-        )
+        self._finalize(prepared, rendered=prepared.frames, observation_id=observation_id)
 
-        asset = ExportedAsset.objects_including_ttl_deleted.get(pk=prepared.media_asset_id)
+        asset = ExportedAsset.objects_including_ttl_deleted.get(pk=prepared.frames[0].media_asset_id)
         assert asset.expires_after is not None
         assert (asset.content_location or "").startswith("replay-vision/media/")
 
@@ -205,17 +289,26 @@ class TestObservationMediaExpiry(BaseTest):
             expires_after=timezone.now() + timedelta(days=90),
             is_system=True,
         )
+        self.small_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.WEBP,
+            export_context={"observation_id": str(self.observation.id)},
+            content_location=f"replay-vision/media/team-{self.team.id}/{self.observation.id}/x-small.webp",
+            expires_after=timezone.now() + timedelta(days=90),
+            is_system=True,
+        )
         ReplayObservationMedia.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             observation=self.observation,
             asset=self.asset,
+            small_asset=self.small_asset,
             kind=ReplayObservationMedia.Kind.THUMBNAIL,
             position=0,
             video_start_ms=1000,
         )
 
-    def _expires_after(self) -> datetime:
-        expires_after = ExportedAsset.objects_including_ttl_deleted.get(pk=self.asset.pk).expires_after
+    def _expires_after(self, asset: ExportedAsset) -> datetime:
+        expires_after = ExportedAsset.objects_including_ttl_deleted.get(pk=asset.pk).expires_after
         assert expires_after is not None
         return expires_after
 
@@ -229,8 +322,9 @@ class TestObservationMediaExpiry(BaseTest):
     def test_media_is_expired_when_its_observation_goes_away(self, _name: str, delete) -> None:
         delete(self)
 
-        assert self._expires_after() <= timezone.now()
-        assert ExportedAsset.objects_including_ttl_deleted.filter(pk=self.asset.pk).exists()
+        for asset in (self.asset, self.small_asset):
+            assert self._expires_after(asset) <= timezone.now()
+            assert ExportedAsset.objects_including_ttl_deleted.filter(pk=asset.pk).exists()
 
     def test_the_sweeps_own_delete_is_not_undone(self) -> None:
         self.asset.delete()

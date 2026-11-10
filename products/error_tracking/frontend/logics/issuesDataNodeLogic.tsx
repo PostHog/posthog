@@ -104,7 +104,11 @@ export interface issuesDataNodeLogicActions {
         issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
-    mutationSuccess: (mutationName: string) => {
+    mutationSuccess: (
+        mutationName: string,
+        issueId?: string | undefined
+    ) => {
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     resolveIssues: (ids: string[]) => {
@@ -170,8 +174,7 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -203,7 +206,6 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
             | null
-            | undefined
     } // nodeLogic
     setResponse: (
         response:

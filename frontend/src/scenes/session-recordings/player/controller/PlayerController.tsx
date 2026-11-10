@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { isChristmas, isHalloween } from 'lib/holidays'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen, IconGhost, IconSanta, IconSkipEnd, IconSkipStart } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
+import { isChristmas, isHalloween } from 'lib/utils/holidays'
 import {
     CommentOnRecordingButton,
     EmojiCommentOnRecordingButton,
@@ -180,7 +180,13 @@ function SkipToNext(): JSX.Element | null {
     )
 }
 
-export function Screenshot({ className }: { className?: string }): JSX.Element {
+export function Screenshot({
+    className,
+    'data-attr': dataAttr,
+}: {
+    className?: string
+    'data-attr'?: string
+}): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
@@ -196,7 +202,7 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
                 </>
             }
             icon={<IconCamera className={cn('text-xl', className)} />}
-            data-attr="replay-screenshot-png"
+            data-attr={dataAttr ?? 'replay-screenshot-png'}
             tooltipPlacement="top"
         />
     )

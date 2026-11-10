@@ -4,31 +4,47 @@ import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import LEGACY_HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_SNAPSHOT_POSITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import ListingProof
+from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conformance_kit import (
+    SourceDatabase,
+    TableDef,
+    insert,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.fake_engine import FakeCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
 _SCHEMA_MODEL = "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
 _JOB_MODEL = "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob"
 _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
 _COMPANIONS = "products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs"
+_SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
 _SNAPSHOT_LANE = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane"
+_HISTORY_TABLE = "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table"
+_MIXIN = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_mixin"
+_CONFIG_WRITE = "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"
+_USERS = TableDef(name="public.users", columns={"id": int}, primary_key=("id",))
 
 
-def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
+def _schema(**overrides) -> MagicMock:
     schema = MagicMock()
     schema.name = "users"
     schema.is_cdc = overrides.get("is_cdc", True)
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
+    # Explicit: an unset MagicMock attribute is truthy, which would send the snapshot path into the
+    # xmin cursor branch and fail on the missing cursor manager.
+    schema.is_xmin = overrides.get("is_xmin", False)
     schema.sync_type_config = {}
     schema.schema_metadata = {}
     schema.resolved_s3_folder_name = None
     schema.primary_key_columns = ["id"]
     schema.last_synced_at = None
-    schema.source.job_inputs = {"cdc_enabled": True, "cdc_ingest_mode": ingest_mode}
+    schema.source.job_inputs = {"cdc_enabled": True}
     return schema
 
 
@@ -49,8 +65,10 @@ def _inputs(reset_pipeline: bool = False) -> SourceInputs:
     )
 
 
-def _days_ago(days: int | None) -> dt.datetime | None:
-    return None if days is None else dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days)
+def _proof_days_ago(days: int | None) -> ListingProof | None:
+    if days is None:
+        return None
+    return ListingProof(listed_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days), tail={})
 
 
 def _delta_ref() -> MagicMock:
@@ -66,9 +84,10 @@ def _dispatch(
     job_version: str | None = ExternalDataJob.PipelineVersion.V3,
     clear_listing: MagicMock | None = None,
     retire_orphans: MagicMock | None = None,
-    proof_time: dt.datetime | None = None,
+    proof: ListingProof | None = None,
     hand_reset: MagicMock | None = None,
     expired: AsyncMock | None = None,
+    resumable: MagicMock | None = None,
 ):
     job = None if job_version is None else MagicMock(pipeline_version=job_version)
     with (
@@ -80,34 +99,40 @@ def _dispatch(
         patch(f"{_MANAGER}.DeltaTableRef", _delta_ref()),
         patch(f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, applied={}))),
         patch(f"{_MANAGER}.ensure_position_stats", AsyncMock()),
-        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof_time)),
+        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof)),
         patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
         patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
+        # The schemas are mocks, so the registered naming cannot be read. Every history table here is legacy.
+        patch(
+            f"{_HISTORY_TABLE}.kept_history_naming",
+            side_effect=lambda schema: LEGACY_HISTORY_NAMING if schema.cdc_table_mode in ("cdc_only", "both") else None,
+        ),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
         job_objects.filter.return_value.first.return_value = job
-        return PostgresSource().source_for_pipeline(MagicMock(), MagicMock(), inputs)
+        return PostgresSource().source_for_pipeline(MagicMock(), resumable or MagicMock(), inputs)
 
 
 class TestBufferedDispatch:
-    def test_a_flipped_schema_is_consumed_here_instead_of_by_the_extraction_workflow(self):
+    def test_a_streaming_schema_is_consumed_from_the_buffer(self):
         response = _dispatch(_schema(), _inputs())
 
         assert response.name == "users"
         assert response.cdc_write_mode == "incremental_merge"
 
-    @pytest.mark.parametrize(
-        "overrides,ingest_mode",
-        [
-            ({}, "legacy"),
-            ({"cdc_table_mode": "something_new"}, "buffered"),
-            ({"initial_sync_complete": False}, "buffered"),
-        ],
-    )
-    def test_a_schema_the_buffer_does_not_serve_stays_with_the_extraction_workflow(self, overrides, ingest_mode):
-        with pytest.raises(CDCHandledExternally):
-            _dispatch(_schema(ingest_mode, **overrides), _inputs())
+    def test_an_unrecognized_table_mode_fails_the_run(self):
+        with pytest.raises(ValueError, match="cdc_table_mode"):
+            _dispatch(_schema(cdc_table_mode="something_new"), _inputs())
+
+    def test_a_streaming_schema_whose_data_was_deleted_runs_a_snapshot(self):
+        with (
+            patch(f"{_SOURCE}.source_requires_ssl", return_value=False),
+            patch(f"{_SOURCE}.postgres_source") as snapshot,
+        ):
+            _dispatch(_schema(initial_sync_complete=False), _inputs())
+
+        snapshot.assert_called_once()
 
     def test_a_cdc_only_schema_is_consumed_into_its_companion_table(self):
         response = _dispatch(_schema(cdc_table_mode="cdc_only"), _inputs())
@@ -126,20 +151,12 @@ class TestBufferedDispatch:
         modes = [lane.cdc_write_mode for lane in response.lanes or []]
         assert modes == ["incremental_merge", "scd2_append"]
 
-    def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
-        # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must
-        # fail rather than consume without recording a load position.
-        with pytest.raises(ValueError, match="requires v3"):
-            _dispatch(_schema(), _inputs(), job_version="v2-non-dlt")
-
     def test_a_missing_job_row_fails_the_run(self):
         # Every lane reads its resume point off its own Delta table, which needs the job row.
         with pytest.raises(ValueError, match="no job row"):
             _dispatch(_schema(), _inputs(), job_version=None)
 
     def test_a_delivery_still_in_flight_no_ops_the_tick(self):
-        # Reading now would stage rows alongside batches that are still landing. An empty response
-        # keeps the schedule alive and declares no lanes, so nothing is listed, read or deleted.
         response = _dispatch(_schema(cdc_table_mode="both"), _inputs(), in_flight=True)
 
         assert list(response.items()) == []
@@ -168,9 +185,18 @@ class TestBufferedDispatch:
 
         retire.assert_called_once()
 
-    def test_a_reset_on_a_streaming_buffered_schema_is_refused(self):
-        with pytest.raises(ValueError, match="cdc_mode='snapshot'"):
-            _dispatch(_schema(), _inputs(reset_pipeline=True))
+    def test_a_reset_on_a_streaming_buffered_schema_is_handed_to_capture(self):
+        hand_reset, clear = MagicMock(), MagicMock()
+        schema = _schema(cdc_table_mode="both")
+        inputs = _inputs(reset_pipeline=True)
+
+        response = _dispatch(schema, inputs, hand_reset=hand_reset, clear_listing=clear)
+
+        assert hand_reset.call_args_list == [call(schema, ANY, start_capture=False)]
+        assert response.reset_handed_over is True
+        assert response.lanes is None
+        assert list(response.items()) == []
+        clear.assert_called_once_with(inputs.job_id, inputs.team_id)
 
     @pytest.mark.parametrize(
         "proof_days_ago, expired, reset",
@@ -184,7 +210,7 @@ class TestBufferedDispatch:
         schema = _schema(cdc_table_mode="both")
 
         response = _dispatch(
-            schema, _inputs(), proof_time=_days_ago(proof_days_ago), hand_reset=hand_reset, expired=expired_check
+            schema, _inputs(), proof=_proof_days_ago(proof_days_ago), hand_reset=hand_reset, expired=expired_check
         )
 
         assert hand_reset.call_args_list == ([call(schema, ANY, start_capture=False)] if reset else [])
@@ -201,3 +227,68 @@ class TestBufferedDispatch:
         _dispatch(schema, inputs, clear_listing=clear, hand_reset=MagicMock(), expired=AsyncMock(return_value=True))
 
         clear.assert_called_once_with(inputs.job_id, inputs.team_id)
+
+
+class TestSnapshotPosition:
+    @staticmethod
+    def _snapshot(
+        cdc_table_mode: str, *, adapter: object, reset: bool = False, resuming: bool = False, recorded: bool = False
+    ) -> MagicMock:
+        schema = _schema(cdc_mode="snapshot", cdc_table_mode=cdc_table_mode, initial_sync_complete=False)
+        schema.delta_revive_required = None
+        schema.sync_type_config = {CDC_SNAPSHOT_POSITION_KEY: 1} if recorded else {}
+        resumable = MagicMock()
+        resumable.can_resume.return_value = resuming
+        write = MagicMock()
+        with (
+            patch(f"{_SOURCE}.source_requires_ssl", return_value=False),
+            patch(f"{_SOURCE}.postgres_source") as snapshot,
+            patch(f"{_MIXIN}.get_cdc_adapter", return_value=adapter),
+            patch(_CONFIG_WRITE, write),
+        ):
+            _dispatch(schema, _inputs(reset_pipeline=reset), resumable=resumable)
+        snapshot.assert_called_once()
+        return write
+
+    @pytest.mark.parametrize(
+        "cdc_table_mode, reset, recorded",
+        [
+            pytest.param("both", False, False, id="first_snapshot_both"),
+            pytest.param("cdc_only", False, False, id="first_snapshot_cdc_only"),
+            pytest.param("both", True, True, id="reset_replaces_the_old_position"),
+        ],
+    )
+    def test_a_snapshot_in_a_history_mode_records_the_position_before_it_reads(
+        self, cdc_table_mode: str, reset: bool, recorded: bool
+    ):
+        db = SourceDatabase([_USERS])
+        db.commit(insert(_USERS, id=1))
+        db.commit(insert(_USERS, id=2))
+
+        write = self._snapshot(cdc_table_mode, adapter=FakeCDCAdapter(db), reset=reset, recorded=recorded)
+
+        write.assert_called_once_with(ANY, ANY, updates={CDC_SNAPSHOT_POSITION_KEY: db.head})
+
+    @pytest.mark.parametrize(
+        "cdc_table_mode, resuming, recorded",
+        [
+            pytest.param("both", True, False, id="resumed_read"),
+            pytest.param("both", False, True, id="restarted_read_after_an_earlier_attempt"),
+            pytest.param("consolidated", False, False, id="no_history_table"),
+        ],
+    )
+    def test_the_recorded_position_is_left_alone(self, cdc_table_mode: str, resuming: bool, recorded: bool):
+        adapter = MagicMock()
+
+        write = self._snapshot(cdc_table_mode, adapter=adapter, resuming=resuming, recorded=recorded)
+
+        write.assert_not_called()
+        adapter.management_connection.assert_not_called()
+
+    def test_a_position_that_cannot_be_read_is_recorded_as_unknown(self):
+        adapter = MagicMock()
+        adapter.management_connection.side_effect = OSError("connection refused")
+
+        write = self._snapshot("both", adapter=adapter, reset=True, recorded=True)
+
+        write.assert_called_once_with(ANY, ANY, updates={CDC_SNAPSHOT_POSITION_KEY: None})

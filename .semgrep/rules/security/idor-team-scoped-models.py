@@ -5,8 +5,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.models import Insight
 from products.actions.backend.models.action import Action
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.integration import Integration
 from posthog.models.project import Project
+from posthog.models.id_jag_identity import IdJagIdentity
 from posthog.models.user_scene_personalisation import UserScenePersonalisation
+from products.product_tours.backend.models import ProductTour
 
 from ee.models.rbac.role import Role, RoleMembership
 
@@ -336,6 +339,12 @@ def vulnerable_org_filter_from_data(request):
     return RoleMembership.objects.filter(pk=membership_id)
 
 
+def vulnerable_org_get_id_jag_identity(request):
+    identity_id = request.data.get("identity_id")
+    # ruleid: idor-taint-user-input-to-org-model, idor-lookup-without-org
+    return IdJagIdentity.objects.get(pk=identity_id)
+
+
 # ok: idor-taint-user-input-to-org-model
 def safe_org_get_with_organization(request, organization):
     project_id = request.GET.get("project_id")
@@ -355,6 +364,13 @@ def safe_org_filter_with_role_organization(request, organization):
     membership_id = request.data.get("membership_id")
     # ok: idor-lookup-without-org
     return RoleMembership.objects.filter(pk=membership_id, role__organization=organization)
+
+
+# ok: idor-taint-user-input-to-org-model
+def safe_org_get_id_jag_identity_with_config(request, idp_config):
+    identity_id = request.data.get("identity_id")
+    # ok: idor-lookup-without-org
+    return IdJagIdentity.objects.get(pk=identity_id, identity_provider_config=idp_config)
 
 
 # ============================================================
@@ -387,6 +403,14 @@ obj, created = Role.objects.get_or_create(name="test")
 
 # ok: idor-lookup-without-org
 obj, created = Role.objects.get_or_create(name="test", organization=organization)
+
+# ruleid: idor-lookup-without-org
+identity, created = IdJagIdentity.objects.get_or_create(subject=subject, defaults={"user": user})
+
+# ok: idor-lookup-without-org
+identity, created = IdJagIdentity.objects.get_or_create(
+    identity_provider_config=idp_config, subject=subject, defaults={"user": user}
+)
 
 # ruleid: idor-lookup-without-org
 obj = Role.objects.aget_or_create(name="test")
@@ -822,3 +846,42 @@ def safe_user_team_aget(request, user, team):
     settings_id = request.GET.get("settings_id")
     # ok: idor-lookup-without-user-and-team
     return UserScenePersonalisation.objects.aget(pk=settings_id, user=user, team=team)
+
+
+# ============================================================
+# environment-model-scoped-by-project (ERROR - project filter on an environment-scoped model)
+# ============================================================
+
+
+def env_model_filtered_by_project(team, integration_id, project_ids):
+    # ruleid: environment-model-scoped-by-project
+    integrations = Integration.objects.filter(kind="slack", team__project_id=team.project_id)
+
+    # ruleid: environment-model-scoped-by-project
+    tours = ProductTour.all_objects.filter(team__project_id__in=project_ids)
+
+    # ruleid: environment-model-scoped-by-project
+    integration = get_object_or_404(Integration, id=integration_id, team__project_id=team.project_id)
+
+    return integrations, tours, integration
+
+
+def project_model_filtered_by_project(team, cohort_id, action_id):
+    # ok: environment-model-scoped-by-project
+    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id)
+
+    # ok: environment-model-scoped-by-project
+    action = get_object_or_404(Action, id=action_id, team__project_id=team.project_id)
+
+    return cohort, action
+
+
+def env_model_filtered_by_team(team):
+    # ok: environment-model-scoped-by-project
+    return Integration.objects.filter(kind="slack", team_id=team.id)
+
+
+def env_model_project_wide_on_purpose(team):
+    # ok: environment-model-scoped-by-project
+    # nosemgrep: environment-model-scoped-by-project -- fixture for an intended project-wide read
+    return Integration.objects.filter(kind="slack", team__project_id=team.project_id)

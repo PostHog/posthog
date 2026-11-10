@@ -25,6 +25,7 @@ import {
     prettifyScoutSkillName,
     runTouchedReports,
 } from '../utils/scoutRunsWindow'
+import { isReportUnreachable, rememberUnreachableReport } from '../utils/unreachableReports'
 import { ScoutEmissionRow, ScoutReportAction } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
@@ -391,22 +392,30 @@ export const findingsLogic = kea<findingsLogicType>([
                     }
                     const touchedIds = new Set(touched.map(({ id }) => id))
                     // Targeted refresh fetches only the named (still-touched) ids; a full load
-                    // fetches the whole capped set.
-                    const fetchIds = ids ? [...new Set(ids)].filter((id) => touchedIds.has(id)) : [...touchedIds]
+                    // fetches the whole capped set. Ids a previous round found unreachable are
+                    // dropped: a deleted report stays deleted, so re-asking only burns requests.
+                    const fetchIds = (
+                        ids ? [...new Set(ids)].filter((id) => touchedIds.has(id)) : [...touchedIds]
+                    ).filter((id) => !isReportUnreachable(id))
                     if (fetchIds.length === 0) {
                         return values.scoutReports
                     }
                     const settled = await Promise.allSettled(fetchIds.map((id) => api.signalReports.get(id)))
                     const byId = new Map<string, SignalReport>()
-                    for (const result of settled) {
+                    let transientFailure = false
+                    settled.forEach((result, index) => {
                         if (result.status === 'fulfilled') {
                             byId.set(result.value.id, result.value)
+                            return
                         }
-                    }
-                    // Every fetch rejected — throw BEFORE merging cached rows, so an outage flags
-                    // `scoutReportsLoadFailed` (warning banner over the stale set kea-loaders keeps)
-                    // instead of laundering the cache into a "successful" refresh.
-                    if (byId.size === 0) {
+                        transientFailure =
+                            !rememberUnreachableReport(fetchIds[index], result.reason) || transientFailure
+                    })
+                    // Every fetch rejected and at least one can recover — throw BEFORE merging cached
+                    // rows, so an outage flags `scoutReportsLoadFailed` (warning banner over the stale
+                    // set kea-loaders keeps) instead of laundering the cache into a "successful"
+                    // refresh. An all-404 round is not an outage: those reports are simply gone.
+                    if (byId.size === 0 && transientFailure) {
                         throw new Error('Failed to load the reports scouts touched')
                     }
                     // Keep prior resolved reports for still-touched ids that weren't (successfully)

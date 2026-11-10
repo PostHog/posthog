@@ -4,6 +4,7 @@ import {
   type ChannelItemSort,
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_SORT,
+  migrateLegacySources,
   migrateSourceFilter,
 } from "@posthog/core/canvas/channelItems";
 import type { SpaceActivityType } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
@@ -47,6 +48,9 @@ export const useSpaceActivityViewStore = create<SpaceActivityViewState>()(
         const savedTypes = saved?.types?.filter((type) =>
           ALL_SPACE_ACTIVITY_TYPES.includes(type),
         );
+        const savedFilters = saved?.filters
+          ? migrateSourceFilter(saved.filters)
+          : {};
         return {
           ...current,
           ...saved,
@@ -54,7 +58,10 @@ export const useSpaceActivityViewStore = create<SpaceActivityViewState>()(
             savedTypes && savedTypes.length > 0 ? savedTypes : current.types,
           filters: {
             ...current.filters,
-            ...(saved?.filters ? migrateSourceFilter(saved.filters) : {}),
+            ...savedFilters,
+            ...(savedFilters.sources
+              ? { sources: migrateLegacySources(savedFilters.sources) }
+              : {}),
             kind: "any",
           },
         };

@@ -12,15 +12,14 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 import { ExperimentStatus } from '~/types'
 
-import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
-
 import {
     getExperimentChangeDescription,
     getHoldoutChangeDescription,
     getSharedMetricChangeDescription,
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
-} from './activity-descriptions'
+} from 'products/experiments/frontend/components/activity-descriptions'
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 
 const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element => {
     return (

@@ -330,6 +330,13 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
         .describe('Mapping from assignment rule UUID to its new evaluation order.'),
 })
 
+export const ErrorTrackingBuiltInFiltersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('`true` drops matching exceptions for this project. `false` stops dropping them.'),
+})
+
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
@@ -376,7 +383,7 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod
         config: zod
             .record(zod.string(), zod.string())
             .describe(
-                'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID.'
             ),
         issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
     })
@@ -568,7 +575,7 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
+ * Fetch one error tracking issue with impact counts, trend, top in_app frame, first and latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const errorTrackingQueryIssueCreateBodyFilterTestAccountsDefault = true
@@ -577,6 +584,7 @@ export const errorTrackingQueryIssueCreateBodyVolumeResolutionMin = 0
 export const errorTrackingQueryIssueCreateBodyVolumeResolutionMax = 200
 
 export const errorTrackingQueryIssueCreateBodyIncludeSparklineDefault = false
+export const errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault = false
 
 export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
     issueId: zod.uuid().describe('Error tracking issue ID.'),
@@ -602,11 +610,19 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingQueryIssueCreateBodyVolumeResolutionMin)
         .max(errorTrackingQueryIssueCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssueCreateBodyVolumeResolutionDefault)
-        .describe('Volume buckets. Maximum 200.'),
+        .describe(
+            "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true."
+        ),
     includeSparkline: zod
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyIncludeSparklineDefault)
         .describe('Set true to include a compact numeric occurrence sparkline. Defaults to false.'),
+    includeBreakdown: zod
+        .boolean()
+        .default(errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault)
+        .describe(
+            'Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.'
+        ),
 })
 
 /**
@@ -819,6 +835,12 @@ export const errorTrackingQueryIssuesListCreateBodyUrlMax = 1000
 export const errorTrackingQueryIssuesListCreateBodyFilePathMax = 1000
 
 export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object({
+    firstSeenAfter: zod
+        .string()
+        .optional()
+        .describe(
+            'Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.'
+        ),
     dateRange: zod
         .object({
             date_from: zod
@@ -960,13 +982,13 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
             'Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.'
         ),
     orderBy: zod
-        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
         .describe(
-            '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
+            '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions\n\* `severity` - severity'
         )
         .default(errorTrackingQueryIssuesListCreateBodyOrderByDefault)
         .describe(
-            'Field used to sort issues. Defaults to occurrences.\n\n\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
+            'Field used to sort issues. Defaults to occurrences.\n\n\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions\n\* `severity` - severity'
         ),
     orderDirection: zod
         .enum(['ASC', 'DESC'])
@@ -990,7 +1012,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .max(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault)
         .describe(
-            'Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.'
+            "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets."
         ),
     library: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
@@ -1000,7 +1022,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyReleaseMax)
         .optional()
-        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_releases.'),
+        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_release.'),
     fingerprint: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
@@ -1072,6 +1094,10 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
 })
 
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    adaptive_ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe('Project preference for adaptive ingestion. Turning this on does not currently change ingestion.'),
     project_rate_limit_value: zod
         .number()
         .min(1)
@@ -1096,6 +1122,12 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .min(1)
         .nullish()
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
+    ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.'
+        ),
 })
 
 export const errorTrackingSeverityRulesCreateBodyOrderKeyDefault = 0
@@ -1303,6 +1335,14 @@ export const ErrorTrackingSymbolSetsBulkDeleteCreateBody = /* @__PURE__ */ zod.o
 })
 
 export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */ zod.object({
+    upload_attempt_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID from the corresponding bulk start request for upload analytics.'),
+    upload_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID shared by every batch in one CLI upload run, including release-ID retries.'),
     content_hashes: zod.record(zod.string(), zod.string()).describe('Map of symbol set ID to uploaded content hash.'),
 })
 
@@ -1343,6 +1383,14 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
         .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+    upload_attempt_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID used to correlate upload analytics across start and finish requests.'),
+    upload_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID shared by every batch in one CLI upload run, including release-ID retries.'),
     chunk_ids: zod
         .array(zod.string())
         .optional()

@@ -15,14 +15,17 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_TIMESTAMP_COLUMN,
     DELETED_AT_COLUMN,
     DELETED_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
     ChangeEventBatcher,
+    HistoryNaming,
     build_scd2_table,
-    deduplicate_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    is_history_table_mode,
+    reserved_column_collisions,
+    reserved_column_names,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -300,80 +303,6 @@ class TestEventsToTableEdgeCases:
         assert table.column("seats").type == pa.string()
 
 
-class TestDeduplicateTable:
-    def _make_raw_table(self, events):
-        batcher = ChangeEventBatcher()
-        for ev in events:
-            batcher.add(ev)
-        return batcher.flush()["users"]
-
-    @parameterized.expand(
-        [
-            (
-                "single_event_unchanged",
-                [("I", {"id": 1})],
-                ["id"],
-                1,
-                None,
-            ),
-            (
-                "two_updates_same_pk_keeps_last",
-                [("U", {"id": 1, "name": "Alice"}), ("U", {"id": 1, "name": "Bob"})],
-                ["id"],
-                1,
-                {"name": "Bob"},
-            ),
-            (
-                "different_pks_both_kept",
-                [("I", {"id": 1, "name": "Alice"}), ("I", {"id": 2, "name": "Bob"})],
-                ["id"],
-                2,
-                None,
-            ),
-            (
-                "insert_then_delete_keeps_delete",
-                [("I", {"id": 1, "name": "Alice"}), ("D", {"id": 1})],
-                ["id"],
-                1,
-                {"_ph_cdc_op": "D"},
-            ),
-            (
-                "empty_pk_returns_unchanged",
-                [("I", {"id": 1}), ("I", {"id": 2})],
-                [],
-                2,
-                None,
-            ),
-            (
-                "missing_pk_col_returns_unchanged",
-                [("I", {"id": 1}), ("I", {"id": 2})],
-                ["nonexistent_col"],
-                2,
-                None,
-            ),
-        ],
-    )
-    def test_deduplicate(self, _name, ops_and_cols, pk_columns, expected_rows, expected_values):
-        events = [
-            _make_event(op=op, columns=cols, position=f"0/{i}00") for i, (op, cols) in enumerate(ops_and_cols, start=1)
-        ]
-        table = self._make_raw_table(events)
-        result = deduplicate_table(table, pk_columns)
-        assert result.num_rows == expected_rows
-        if expected_values:
-            for col, val in expected_values.items():
-                assert result.column(col)[0].as_py() == val
-
-    def test_preserves_row_order(self):
-        events = [
-            _make_event(op="I", columns={"id": 2, "name": "Bob"}, position="0/100"),
-            _make_event(op="I", columns={"id": 1, "name": "Alice"}, position="0/200"),
-        ]
-        table = self._make_raw_table(events)
-        result = deduplicate_table(table, ["id"])
-        assert result.column("id").to_pylist() == [2, 1]
-
-
 class TestBuildScd2Table:
     def _make_raw_table(self, events):
         batcher = ChangeEventBatcher()
@@ -437,15 +366,15 @@ class TestBuildScd2Table:
             for i, (op, cols, ts) in enumerate(ops_cols_ts, start=1)
         ]
         table = self._make_raw_table(events)
-        result = build_scd2_table(table, pk_columns)
-        assert result.column(SCD2_VALID_TO_COLUMN).to_pylist() == expected_valid_to
-        assert result.column(SCD2_VALID_FROM_COLUMN).to_pylist() == expected_valid_from
+        result = build_scd2_table(table, pk_columns, HISTORY_NAMING)
+        assert result.column(HISTORY_NAMING.valid_to).to_pylist() == expected_valid_to
+        assert result.column(HISTORY_NAMING.valid_from).to_pylist() == expected_valid_from
 
     def test_valid_from_equals_cdc_timestamp(self):
         ts = datetime(2026, 3, 15, 10, 30, 0, tzinfo=UTC)
         table = self._make_raw_table([_make_event(timestamp=ts)])
-        result = build_scd2_table(table, ["id"])
-        assert result.column(SCD2_VALID_FROM_COLUMN)[0].as_py() == ts
+        result = build_scd2_table(table, ["id"], HISTORY_NAMING)
+        assert result.column(HISTORY_NAMING.valid_from)[0].as_py() == ts
         assert result.column(CDC_TIMESTAMP_COLUMN)[0].as_py() == ts
 
 
@@ -515,6 +444,20 @@ class TestEnrichDeleteRows:
         assert result.column(CDC_TIMESTAMP_COLUMN)[1].as_py() == ts_delete
         assert result.column(DELETED_AT_COLUMN)[1].as_py() == ts_delete
         assert result.column(DELETED_COLUMN)[1].as_py() is True
+
+    def test_only_the_stamped_validity_columns_are_metadata(self):
+        # A new history table frees `valid_from` for the source, so a delete must carry the source's
+        # last value for it while keeping its own stamp.
+        ts_insert = datetime(2025, 1, 1, tzinfo=UTC)
+        ts_delete = datetime(2025, 6, 1, tzinfo=UTC)
+        events = [
+            _make_event(op="I", columns={"id": 1, "valid_from": "2020-01-01"}, timestamp=ts_insert),
+            _make_event(op="D", columns={"id": 1}, timestamp=ts_delete),
+        ]
+        table = build_scd2_table(self._make_raw_table(events), ["id"], HISTORY_NAMING)
+        result = enrich_delete_rows(table, ["id"], history=HISTORY_NAMING)
+        assert result.column("valid_from")[1].as_py() == "2020-01-01"
+        assert result.column(HISTORY_NAMING.valid_from)[1].as_py() == ts_delete
 
     def test_empty_pk_columns_returns_unchanged(self):
         table = self._make_raw_table([_make_event(op="D", columns={"id": 1})])
@@ -688,19 +631,17 @@ class TestSeqColumn:
 
         assert CDC_SEQ_COLUMN not in table.column_names
 
-    def test_source_column_named_like_seq_wins_and_append_is_skipped(self):
-        # A user column literally named _ph_cdc_seq must pass through with its own
-        # values; the engine seq append is skipped rather than shadowing it.
+    @parameterized.expand([(CDC_SEQ_COLUMN,), ("_PH_CDC_SEQ",), ("_phDeletedAt",)])
+    def test_a_source_column_that_loads_like_a_capture_column_is_refused(self, column: str) -> None:
+        # The load renames `_PH_CDC_SEQ` to `_ph_cdc_seq`, so the snapshot would put customer values
+        # in the column every position decision reads.
         batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
-        batcher.add(_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42}))
-        table = batcher.flush()["users"]
+        batcher.add(_make_event(op="I", position="0/100", columns={"id": 1, column: 42}))
 
-        assert table.column_names.count(CDC_SEQ_COLUMN) == 1
-        assert table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
-        # Not last: the caller's strip-by-last-field rule must not remove it.
-        assert table.schema.field(table.num_columns - 1).name != CDC_SEQ_COLUMN
-        # Unstamped, so the load side cannot mistake these user values for engine positions.
-        assert table.schema.field(CDC_SEQ_COLUMN).metadata is None
+        tables = batcher.flush()
+
+        assert "users" not in tables
+        assert column in str(batcher.reserved_collisions["users"])
 
     def test_engine_seq_stamp_survives_the_whole_transform_chain(self):
         # The load side gates every position decision on this stamp, and each transform below
@@ -722,8 +663,7 @@ class TestSeqColumn:
         assert has_engine_seq(table)
         assert has_engine_seq(toasted)
         assert has_engine_seq(enriched)
-        assert has_engine_seq(deduplicate_table(enriched, ["id"]))
-        assert has_engine_seq(build_scd2_table(enriched, ["id"]))
+        assert has_engine_seq(build_scd2_table(enriched, ["id"], HISTORY_NAMING))
 
     def test_engine_seq_is_stamped_and_survives_a_parquet_round_trip(self):
         # The load side tells our column from a same-named source column by this stamp, and it
@@ -769,16 +709,10 @@ class TestSeqColumn:
 
 
 class TestScd2TimestampType:
-    """`valid_from` carries the timestamp column's own values, so it must carry its type too.
-
-    The buffered path normalizes timestamps to naive before the loader derives SCD2; the legacy
-    path derives it in the extraction activity, where they are still UTC-aware. Declaring a fixed
-    type made pyarrow reject the whole batch on the buffered path.
-    """
-
-    @parameterized.expand([("naive", None), ("utc_aware", "UTC")])
-    def test_scd2_columns_match_the_timestamp_column(self, _name, tz):
-        ts = pa.timestamp("us", tz=tz)
+    def test_scd2_columns_match_the_timestamp_column(self):
+        # `valid_from` carries the timestamp column's own values, so it must carry its type too:
+        # declaring a fixed UTC type made pyarrow reject every naive batch.
+        ts = pa.timestamp("us")
         table = pa.table(
             {
                 "id": pa.array([1, 1], pa.int64()),
@@ -786,16 +720,94 @@ class TestScd2TimestampType:
             }
         )
 
-        result = build_scd2_table(table, ["id"])
+        result = build_scd2_table(table, ["id"], HISTORY_NAMING)
 
-        assert result.schema.field(SCD2_VALID_FROM_COLUMN).type == ts
-        assert result.schema.field(SCD2_VALID_TO_COLUMN).type == ts
-        assert result.column(SCD2_VALID_TO_COLUMN).to_pylist()[0] is not None
+        assert result.schema.field(HISTORY_NAMING.valid_from).type == ts
+        assert result.schema.field(HISTORY_NAMING.valid_to).type == ts
+        assert result.column(HISTORY_NAMING.valid_to).to_pylist()[0] is not None
+
+
+class TestReservedColumnCollisions:
+    @parameterized.expand(
+        [
+            ("legacy_validity_name", ["id", "valid_to"], LEGACY_HISTORY_NAMING, None, None, ["valid_to"]),
+            (
+                "legacy_name_the_load_renames",
+                ["id", "validFrom", "VALID_TO"],
+                LEGACY_HISTORY_NAMING,
+                None,
+                None,
+                ["VALID_TO", "validFrom"],
+            ),
+            ("legacy_validity_name_on_a_new_table", ["id", "valid_from"], HISTORY_NAMING, None, None, []),
+            (
+                "new_validity_name_on_a_legacy_table",
+                ["id", "_PH_VALID_FROM"],
+                LEGACY_HISTORY_NAMING,
+                None,
+                None,
+                ["_PH_VALID_FROM"],
+            ),
+            ("capture_name_the_load_renames", ["id", "_PH_CDC_SEQ"], None, None, None, ["_PH_CDC_SEQ"]),
+            ("validity_name_without_history", ["id", "valid_from"], None, None, None, []),
+            ("left_out_of_enabled_columns", ["id", "validFrom"], LEGACY_HISTORY_NAMING, ["id"], None, []),
+            (
+                "kept_as_the_incremental_field",
+                ["id", "valid_from"],
+                LEGACY_HISTORY_NAMING,
+                [],
+                "valid_from",
+                ["valid_from"],
+            ),
+        ]
+    )
+    def test_names_the_source_columns_that_collide(
+        self,
+        _name: str,
+        column_names: list[str],
+        history: HistoryNaming | None,
+        enabled_columns: list[str] | None,
+        incremental_field: str | None,
+        expected: list[str],
+    ) -> None:
+        assert (
+            reserved_column_collisions(
+                column_names,
+                reserved_column_names(history),
+                enabled_columns=enabled_columns,
+                primary_keys=["id"],
+                incremental_field=incremental_field,
+            )
+            == expected
+        )
+
+
+class TestIsHistoryTableMode:
+    @parameterized.expand(
+        [
+            ("cdc_only", "cdc_only", True),
+            ("both", "both", True),
+            ("consolidated", "consolidated", False),
+            ("missing", None, False),
+            ("list", [], False),
+            ("dict", {}, False),
+        ]
+    )
+    def test_reads_only_a_history_mode_string(self, _name: str, cdc_table_mode: object, expected: bool) -> None:
+        assert is_history_table_mode(cdc_table_mode) is expected
 
 
 class TestScd2ReservedColumns:
-    @parameterized.expand([(SCD2_VALID_FROM_COLUMN,), (SCD2_VALID_TO_COLUMN,)])
-    def test_a_source_column_named_like_the_stamp_fails_before_the_writer(self, taken):
+    @parameterized.expand(
+        [
+            ("legacy_valid_from", LEGACY_HISTORY_NAMING, LEGACY_HISTORY_NAMING.valid_from),
+            ("legacy_valid_to", LEGACY_HISTORY_NAMING, LEGACY_HISTORY_NAMING.valid_to),
+            ("new_valid_from", HISTORY_NAMING, HISTORY_NAMING.valid_from),
+        ]
+    )
+    def test_a_source_column_named_like_the_stamp_fails_before_the_writer(
+        self, _name: str, history: HistoryNaming, taken: str
+    ) -> None:
         # Delta refuses the duplicate name at write time, but by then a batch is half built and
         # the error names a qualified field, not the customer's column. A silent skip here is
         # worse still: the writer would close rows against the customer's own values.
@@ -810,4 +822,4 @@ class TestScd2ReservedColumns:
         )
 
         with pytest.raises(CDCReservedColumnError, match=taken):
-            build_scd2_table(table, ["id"])
+            build_scd2_table(table, ["id"], history)

@@ -19,7 +19,8 @@ jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => 
 jest.mock('scenes/notebooks/NotebookPanel/notebookPanelLogic', () => ({
     notebookPanelLogic: { kind: 'notebookPanel' },
 }))
-jest.mock('../EventStream/AccountEventStreamToggle', () => ({ AccountEventStreamToggle: () => null }))
+jest.mock('../AccountNotes/AccountNotesViewSelector', () => ({ AccountNotesViewSelector: () => null }))
+jest.mock('../AccountNotes/NotesCreatedByFilter', () => ({ NotesCreatedByFilter: () => null }))
 jest.mock('../CustomerTasks/CustomerTasksTabContent', () => ({ CustomerTasksTabContent: () => null }))
 jest.mock('../CustomerTasks/customerTasksLogic', () => ({ customerTasksLogic: () => ({ kind: 'tasks' }) }))
 jest.mock('./AccountBillingExpansion', () => ({ AccountBillingExpansion: () => null }))
@@ -76,6 +77,9 @@ describe('AccountNotebooksExpansion', () => {
                         pagination: undefined,
                         searchTerm: '',
                         sorting: undefined,
+                        tagsFilter: [],
+                        updatingShortId: null,
+                        createdByFilter: [],
                     }
                 default:
                     return {}

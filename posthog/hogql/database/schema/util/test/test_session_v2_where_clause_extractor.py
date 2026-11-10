@@ -25,9 +25,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 
-from posthog.models import EventDefinition
 from posthog.models.utils import uuid7
 from posthog.schema_enums import SessionsV2JoinMode
+
+from products.event_definitions.backend.models import EventDefinition
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -54,9 +55,13 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
 
     @property
     def inliner(self):
+        return self._inliner()
+
+    def _inliner(self, session_timestamp_buffer_minutes: Optional[int] = None):
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
         modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionTimestampBufferMinutes = session_timestamp_buffer_minutes
         context = HogQLContext(
             team_id=team.pk,
             team=team,
@@ -124,10 +129,22 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
         actual = self.inliner.get_inner_where(parse("SELECT event, count() FROM sessions GROUP BY event LIMIT 10"))
         assert actual is None
 
-    def test_handles_select_with_eq(self):
-        actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))
+    @parameterized.expand(
+        [
+            ("default_buffer", None, "toIntervalDay(3)"),
+            ("modifier_buffer", 60, "toIntervalMinute(60)"),
+            ("modifier_cannot_widen", 10_000_000, "toIntervalDay(3)"),
+            ("negative_modifier_clamped", -60, "toIntervalMinute(0)"),
+        ]
+    )
+    def test_handles_select_with_eq(self, _name, buffer_minutes, interval):
+        actual = f(
+            self._inliner(buffer_minutes).get_inner_where(
+                parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")
+            )
+        )
         expected = f(
-            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3)) AND fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= ('2021-01-01' + toIntervalDay(3))"
+            f"fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - {interval}) AND fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= ('2021-01-01' + {interval})"
         )
         assert expected == actual
 

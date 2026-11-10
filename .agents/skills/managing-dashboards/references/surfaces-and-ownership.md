@@ -2,7 +2,7 @@
 
 ## Start from the domain model
 
-- `Dashboard` owns project-scoped metadata, dashboard filters, variables, sharing state, restriction level, and tile relations.
+- `Dashboard` owns project-scoped metadata, dashboard filters, variables, sharing state, and tile relations.
 - `DashboardTile` owns one tile relation and per-breakpoint layout JSON.
 - A tile is exactly one insight, text card, button, or widget.
 - `DashboardTemplate` stores a copyable dashboard definition. It is not a live dashboard.
@@ -31,7 +31,7 @@ Also check product-created unlisted dashboards. `Dashboard.CreationMode.UNLISTED
 | Templates endpoint  | `products/dashboards/backend/api/dashboard_templates.py`                                         |
 | Product routes      | `products/dashboards/backend/routes.py`                                                          |
 | Scene state         | `frontend/src/scenes/dashboard/dashboardLogic.tsx`                                               |
-| Main layout         | `frontend/src/scenes/dashboard/DashboardItems.tsx`, `tileLayouts.ts`                             |
+| Main layout         | `products/dashboards/frontend/DashboardItems.tsx`, `tileLayouts.ts`                              |
 | Shared/export host  | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`  |
 
 ## API contract changes

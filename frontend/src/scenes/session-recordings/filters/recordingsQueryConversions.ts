@@ -157,9 +157,11 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         recommended_only: universalFilters.recommended_only,
+        event_match_scope: universalFilters.event_match_scope,
         operand: deriveOperand(universalFilters.filter_group),
         limit: universalFilters.limit,
         session_ids: universalFilters.session_ids,
+        person_uuid: universalFilters.person_uuid,
         experiment_exposure: universalFilters.experiment_exposure,
     }
 }
@@ -198,5 +200,7 @@ export function recordingsQueryToUniversalFilters(
         // dropping it on the round-trip would silently widen the scanner to every recording.
         experiment_exposure: query?.experiment_exposure,
         recommended_only: query?.recommended_only,
+        event_match_scope: query?.event_match_scope,
+        person_uuid: query?.person_uuid,
     }
 }

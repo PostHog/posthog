@@ -28,7 +28,6 @@ from .prompt import SearchIntentPrompt, current_search_intent_prompt
 logger = structlog.get_logger(__name__)
 
 SEARCH_INTENT_FEATURE_FLAG = "taxonomic-filter-search-intent"
-SEARCH_INTENT_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 MIN_QUERY_CHARS = 2
 MAX_QUERY_CHARS = 64
 # The picker waits for no answer, so a late answer is worth nothing and a short timeout frees the worker.
@@ -63,7 +62,7 @@ _QUESTION_ID = "tab"
 _CACHED_INTENT = TypeAdapter(SearchIntent)
 
 
-def search_intent_enabled(distinct_id: str, organization_id: str, flag: str = SEARCH_INTENT_FEATURE_FLAG) -> bool:
+def search_intent_enabled(distinct_id: str, organization_id: str) -> bool:
     """Any flag value other than off enables the endpoint, because every arm of an experiment asks the model.
 
     Dark launch: only local development and the US cloud, so no flag change can bring it up in the EU or on
@@ -76,7 +75,7 @@ def search_intent_enabled(distinct_id: str, organization_id: str, flag: str = SE
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                flag,
+                SEARCH_INTENT_FEATURE_FLAG,
                 distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -237,9 +236,7 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
         return _skipped()
 
     state = search_intent_state(model_query, request.active_group_type, request.scene)
-    key = _cache_key(
-        request.team_id, SEARCH_INTENT_MODEL, state, prompt.instructions, options, prompt.confident_threshold
-    )
+    key = _cache_key(request.team_id, prompt.model, state, prompt.instructions, options, prompt.confident_threshold)
     if use_cache:
         cached = _cached_intent(key)
         if cached is not None:
@@ -247,7 +244,7 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
 
     # No TypeSafe fallback: a search is customer text, and TypeSafe is a third party.
     client = build_system_one_client(
-        model=SEARCH_INTENT_MODEL,
+        model=prompt.model,
         ai_product="taxonomic_filter",
         distinct_id=team_distinct_id(request.team_id),
         timeout=SEARCH_INTENT_TIMEOUT_SECONDS,

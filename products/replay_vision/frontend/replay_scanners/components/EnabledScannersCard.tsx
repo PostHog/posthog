@@ -1,13 +1,15 @@
 import { useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannersLogic } from '../replayScannersLogic'
-import { SCANNER_TYPE_OPTIONS } from '../types'
+import { scannerTypeOptions } from '../types'
 
 export function EnabledScannersCard({ className }: { className?: string }): JSX.Element {
     const { scannerStats } = useValues(replayScannersLogic)
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     return (
         <div className={cn('bg-bg-light border rounded p-4 flex flex-col', className)}>
@@ -20,17 +22,19 @@ export function EnabledScannersCard({ className }: { className?: string }): JSX.
                 </span>
             </div>
             <div className="flex flex-wrap gap-1.5 mt-3">
-                {SCANNER_TYPE_OPTIONS.map(({ value }) => {
-                    const { enabled = 0, total = 0 } = scannerStats?.by_type?.[value] ?? {}
-                    return (
-                        <ScannerTypeBadge
-                            key={value}
-                            scannerType={value}
-                            variant={total > 0 ? 'default' : 'muted'}
-                            suffix={`${enabled}/${total}`}
-                        />
-                    )
-                })}
+                {scannerTypeOptions(experimentScanners || !!scannerStats?.by_type?.experiment?.total).map(
+                    ({ value }) => {
+                        const { enabled = 0, total = 0 } = scannerStats?.by_type?.[value] ?? {}
+                        return (
+                            <ScannerTypeBadge
+                                key={value}
+                                scannerType={value}
+                                variant={total > 0 ? 'default' : 'muted'}
+                                suffix={`${enabled}/${total}`}
+                            />
+                        )
+                    }
+                )}
             </div>
         </div>
     )

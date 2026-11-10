@@ -1,14 +1,13 @@
-import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryFn } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
-import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { UserType } from '~/types'
+import { OrganizationType, UserType } from '~/types'
 
 import { WelcomeDialog } from './WelcomeDialog'
 import { welcomeDialogLogic } from './welcomeDialogLogic'
@@ -120,8 +119,15 @@ const EMPTY_PAYLOAD = {
     is_organization_first_user: false,
 }
 
+// The dialog only opens in the first weeks of org membership, so join the day before `mockDate`.
+const RECENTLY_JOINED_ORGANIZATION: OrganizationType = {
+    ...MOCK_DEFAULT_USER.organization!,
+    membership_joined_at: '2026-04-16T00:00:00Z',
+}
+
 const INVITED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    organization: RECENTLY_JOINED_ORGANIZATION,
     first_name: 'Fern',
     is_organization_first_user: false,
 }
@@ -129,6 +135,7 @@ const INVITED_USER: UserType = {
 // A partner-provisioned account: no inviter (first org user), onboarding skipped as 'provisioned'.
 const PROVISIONED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    organization: RECENTLY_JOINED_ORGANIZATION,
     first_name: 'Robin',
     is_organization_first_user: true,
     onboarding_skipped_reason: 'provisioned',
@@ -182,16 +189,12 @@ NoInviter.decorators = [
     }),
 ]
 
-// Partner-provisioned account: the dialog leads with the background-install card and the flagship
-// product tour (a different card order than invited users get).
+// Partner-provisioned account: the dialog leads with the flagship product tour (a different card
+// order than invited users get).
 function ProvisionedTemplate(): JSX.Element {
     useMountedLogic(userLogic)
-    useMountedLogic(activeCloudRunLogic)
     useEffect(() => {
         welcomeDialogLogic.mount()
-        // Seed an active cloud run so the "we're setting up PostHog in your repo" card shows
-        // (storybook app context sets current_project to MOCK_TEAM_ID).
-        activeCloudRunLogic.actions.setActiveCloudRun('task-1', 'run-1', new Date().toISOString(), MOCK_TEAM_ID)
     }, [])
     return <WelcomeDialog />
 }

@@ -4,6 +4,8 @@ import {
     LOGS_ALERT_AUTO_DISABLED_EVENT_ID,
     LOGS_ALERT_ERRORED_EVENT_ID,
     LOGS_ALERT_FIRING_EVENT_ID,
+    LOGS_ALERT_INCIDENT_CLOSED_EVENT_ID,
+    LOGS_ALERT_INCIDENT_OPENED_EVENT_ID,
     LOGS_ALERT_RESOLVED_EVENT_ID,
 } from 'lib/constants'
 
@@ -16,11 +18,14 @@ import {
     SlackChannelType,
 } from '~/types'
 
+import {
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
+    pagerDutyDestinationLabel,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
-export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored'
-
-export const LOGS_ALERT_EVENT_KIND_ORDER: LogsAlertEventKind[] = ['firing', 'resolved', 'broken', 'errored']
+export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored' | 'incident_opened' | 'incident_closed'
 
 export const LOGS_ALERT_EVENT_KIND_META: Record<LogsAlertEventKind, { label: string; description: string }> = {
     firing: {
@@ -39,6 +44,15 @@ export const LOGS_ALERT_EVENT_KIND_META: Record<LogsAlertEventKind, { label: str
         label: 'Errored',
         description: "Sent when an alert check can't evaluate.",
     },
+    incident_opened: {
+        label: 'Trigger incident',
+        description: 'Opens an incident when the alert starts firing.',
+    },
+    incident_closed: {
+        label: 'Resolve incident',
+        description:
+            'Resolves the incident when the alert stops firing, including when you disable, snooze, or edit it, or it is auto-disabled.',
+    },
 }
 
 export function getHogFunctionEventKind(hf: HogFunctionType): LogsAlertEventKind | null {
@@ -52,6 +66,10 @@ export function getHogFunctionEventKind(hf: HogFunctionType): LogsAlertEventKind
             return 'broken'
         case LOGS_ALERT_ERRORED_EVENT_ID:
             return 'errored'
+        case LOGS_ALERT_INCIDENT_OPENED_EVENT_ID:
+            return 'incident_opened'
+        case LOGS_ALERT_INCIDENT_CLOSED_EVENT_ID:
+            return 'incident_closed'
         default:
             return null
     }
@@ -90,6 +108,11 @@ export function dispatchPreEnableCheck(result: PreEnableCheckResult, onConfirm: 
     onConfirm()
 }
 
+export const CUSTOM_MESSAGE_TAG = {
+    label: 'Custom message',
+    tooltip: 'This destination was edited, so it sends what you configured instead of the standard alert message.',
+}
+
 export const SNOOZE_DURATIONS = [
     { label: '30 minutes', minutes: 30 },
     { label: '1 hour', minutes: 60 },
@@ -100,10 +123,18 @@ export const SNOOZE_DURATIONS = [
 export const LOGS_ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_TEAMS = 'teams' as const
+export const LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY = 'pagerduty' as const
+export function logsAlertEventKindsFor(type: LogsAlertNotificationType): LogsAlertEventKind[] {
+    return type === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
+        ? ['incident_opened', 'incident_closed']
+        : ['firing', 'resolved', 'broken', 'errored']
+}
+
 export type LogsAlertNotificationType =
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_SLACK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
+    | typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
 
 export type PendingLogsAlertNotification =
     | {
@@ -119,6 +150,12 @@ export type PendingLogsAlertNotification =
     | {
           type: typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
           webhookUrl: string
+      }
+    | {
+          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
+          routingKey: string
+          severity: AlertPagerDutySeverity
+          region: AlertPagerDutyRegion
       }
 
 // Filter used to list every HogFunction tied to a given alert, regardless of which
@@ -221,6 +258,11 @@ export function groupLogsAlertDestinations(
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${webhookUrl ?? hf.id}`
             label = webhookUrl ? `Webhook ${webhookUrl}` : 'Webhook'
+        } else if (templateId === 'template-pagerduty') {
+            const destinationSegment = pagerDutyDestinationLabel(hf)
+            type = LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
+            key = `pagerduty:${destinationSegment ?? hf.id}`
+            label = destinationSegment ?? 'PagerDuty'
         } else {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `unknown:${hf.id}`

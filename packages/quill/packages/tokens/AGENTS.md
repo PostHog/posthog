@@ -21,6 +21,8 @@ src/*.ts  ──(tsx src/build.ts)──▶  dist/*.css
 | `tailwind-lib.css` | `@theme` + `@custom-variant` only                            | library packages                       |
 | `*.scoped.css`     | same, gated behind `[data-quill]`                            | consumers with their own design system |
 
+The color-system files also emit the inverted surface: a `[data-quill-inverted]` subtree gets the other mode's tokens. See the Inverted surface section of `../primitives/AGENTS.md`.
+
 After changing anything in `src/`, **rerun the build** so `dist/` matches.
 (The quill storybook also watches `src/` via `quillTokensWatcher` in its
 `main.ts`, so it hot-reloads without a manual build.)

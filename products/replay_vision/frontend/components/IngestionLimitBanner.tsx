@@ -2,7 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -27,7 +27,10 @@ export function IngestionLimitBanner(): JSX.Element | null {
               : 'Your organization has reached its Session replay limit, so new recordings may not be captured. Scanners may have nothing new to scan until the limit is raised.'
     return (
         <LemonBanner type="warning">
-            {message} <Link to={urls.organizationBilling()}>Manage billing limits</Link>
+            {message}{' '}
+            <Link data-attr="vision-open-billing-ingestion-limit" to={urls.organizationBilling()}>
+                Manage billing limits
+            </Link>
         </LemonBanner>
     )
 }

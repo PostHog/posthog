@@ -1,5 +1,6 @@
 from posthog.migration_helpers.concurrent_index import (
     CreateIndexConcurrently,
+    DropFieldIndexesConcurrently,
     DropIndexConcurrently,
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
@@ -18,6 +19,7 @@ __all__ = [
     "CreateIndexConcurrently",
     "DropColumnConstraints",
     "DropForeignKey",
+    "DropFieldIndexesConcurrently",
     "DropIndexConcurrently",
     "SafeAddIndexConcurrently",
     "SafeDropTable",

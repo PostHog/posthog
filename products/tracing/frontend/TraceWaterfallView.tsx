@@ -10,6 +10,16 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
+import {
+    buildSpanTree,
+    collectCollapsibleSpanIds,
+    connectorLinesOf,
+    countDescendants,
+    flattenTree,
+    getTimelineTicks,
+    parseTimestampUs,
+    type SpanNode,
+} from './spanTree'
 import type { Span } from './types'
 
 interface TraceWaterfallViewProps {
@@ -24,93 +34,6 @@ interface TraceWaterfallViewProps {
     onLoadMore?: () => void
 }
 
-interface SpanNode {
-    span: Span
-    children: SpanNode[]
-    depth: number
-    isLastChild: boolean
-    connectorLines: boolean[]
-}
-
-function buildSpanTree(spans: Span[]): SpanNode[] {
-    const byId = new Map<string, SpanNode>()
-    const roots: SpanNode[] = []
-
-    for (const span of spans) {
-        byId.set(span.span_id, { span, children: [], depth: 0, isLastChild: false, connectorLines: [] })
-    }
-
-    for (const node of byId.values()) {
-        if (node.span.parent_span_id && byId.has(node.span.parent_span_id)) {
-            const parent = byId.get(node.span.parent_span_id)!
-            parent.children.push(node)
-        } else {
-            roots.push(node)
-        }
-    }
-
-    function setDepths(nodes: SpanNode[], depth: number, parentConnectors: boolean[]): void {
-        for (let i = 0; i < nodes.length; i++) {
-            const node = nodes[i]
-            node.depth = depth
-            node.isLastChild = i === nodes.length - 1
-            node.connectorLines = [...parentConnectors]
-            node.children.sort((a, b) => new Date(a.span.timestamp).getTime() - new Date(b.span.timestamp).getTime())
-            setDepths(node.children, depth + 1, [...parentConnectors, !node.isLastChild])
-        }
-    }
-    setDepths(roots, 0, [])
-
-    return roots
-}
-
-function sortChildren(nodes: SpanNode[]): SpanNode[] {
-    return [...nodes].sort((a, b) => parseTimestampUs(a.span.timestamp) - parseTimestampUs(b.span.timestamp))
-}
-
-function countDescendants(node: SpanNode): number {
-    let total = 0
-    for (const child of node.children) {
-        total += 1 + countDescendants(child)
-    }
-    return total
-}
-
-/** Depth-first flatten for rendering, skipping the subtree of any collapsed span. */
-function flattenTree(nodes: SpanNode[], collapsedSpanIds: Set<string>): SpanNode[] {
-    const result: SpanNode[] = []
-    function walk(node: SpanNode): void {
-        result.push(node)
-        if (collapsedSpanIds.has(node.span.span_id)) {
-            return
-        }
-        for (const child of sortChildren(node.children)) {
-            walk(child)
-        }
-    }
-    for (const root of sortChildren(nodes)) {
-        walk(root)
-    }
-    return result
-}
-
-/** span_ids of every node that has children — the set of spans that can be collapsed. */
-function collectCollapsibleSpanIds(nodes: SpanNode[]): Set<string> {
-    const ids = new Set<string>()
-    function walk(node: SpanNode): void {
-        if (node.children.length > 0) {
-            ids.add(node.span.span_id)
-        }
-        for (const child of node.children) {
-            walk(child)
-        }
-    }
-    for (const root of nodes) {
-        walk(root)
-    }
-    return ids
-}
-
 export function formatDuration(durationNano: number): string {
     const us = durationNano / 1_000
     if (us < 100) {
@@ -123,54 +46,11 @@ export function formatDuration(durationNano: number): string {
     return `${(ms / 1000).toFixed(2)}s`
 }
 
-/**
- * Parse an ISO 8601 timestamp string to microseconds since epoch.
- * `Date.getTime()` only gives millisecond resolution, losing sub-ms
- * precision from timestamps like "2024-01-15T10:30:00.123456Z".
- */
-function parseTimestampUs(iso: string): number {
-    const ms = new Date(iso).getTime()
-    // Extract fractional seconds beyond milliseconds
-    const dot = iso.indexOf('.')
-    if (dot === -1) {
-        return ms * 1_000
-    }
-    // Find the end of fractional digits (before 'Z')
-    const fracEnd = iso.search(/[Z+-](\d\d:\d\d)?$/i)
-    if (fracEnd === -1) {
-        return ms * 1_000
-    }
-    const fracStr = iso.slice(dot + 1, fracEnd)
-    // Pad or truncate to 6 digits (microseconds)
-    const padded = fracStr.padEnd(6, '0').slice(0, 6)
-    const totalUs = parseInt(padded, 10)
-    // ms already includes the first 3 fractional digits, so add the remaining sub-ms part
-    const subMsUs = totalUs % 1_000
-    return ms * 1_000 + subMsUs
-}
-
 export function buildServiceColorMap(spans: Span[]): Map<string, number> {
     const services = [...new Set(spans.map((s) => s.service_name))].sort()
     const map = new Map<string, number>()
     services.forEach((service, i) => map.set(service, i))
     return map
-}
-
-/** Generate evenly spaced tick marks for the timeline (in microseconds) */
-function getTimelineTicks(durationUs: number): number[] {
-    if (durationUs <= 0) {
-        return []
-    }
-    const targetTickCount = 5
-    const rawInterval = durationUs / targetTickCount
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)))
-    const niceIntervals = [1, 2, 5, 10]
-    const interval = niceIntervals.find((n) => n * magnitude >= rawInterval)! * magnitude
-    const ticks: number[] = []
-    for (let t = interval; t < durationUs; t += interval) {
-        ticks.push(t)
-    }
-    return ticks
 }
 
 const INDENT_PX = 16
@@ -223,11 +103,12 @@ function TreeIndent({ node }: { node: SpanNode }): JSX.Element | null {
     }
 
     const mid = INDENT_PX / 2
+    const connectorLines = connectorLinesOf(node)
 
     return (
         <span className="flex shrink-0 items-stretch self-stretch overflow-visible">
             {/* Continuation lines for ancestor levels */}
-            {node.connectorLines.slice(0, -1).map((hasContinuation, i) => (
+            {connectorLines.slice(0, -1).map((hasContinuation, i) => (
                 <span
                     key={i}
                     className="shrink-0 relative overflow-visible"
@@ -310,7 +191,7 @@ function WaterfallRow({
     collapsedSpanIds,
     onToggleCollapse,
 }: Omit<WaterfallRowData, 'flatSpans' | 'dynamicRowHeight'> & { node: SpanNode }): JSX.Element {
-    const { span } = node
+    const { span, isMissingParent = false } = node
     const hasChildren = node.children.length > 0
     const isCollapsed = collapsedSpanIds.has(span.span_id)
     const hiddenDescendants = isCollapsed ? countDescendants(node) : 0
@@ -328,7 +209,6 @@ function WaterfallRow({
     // Select by span_id (the OTel id the tree is keyed by, and what the inspector/URL resolve),
     // not the ClickHouse row uuid.
     const isSelected = selectedSpanId === span.span_id
-
     return (
         <div>
             <div
@@ -385,9 +265,9 @@ function WaterfallRow({
                             <IconWarning className="text-danger shrink-0 mr-1" fontSize={14} />
                         </Tooltip>
                     )}
-                    <Tooltip title={span.name}>
+                    <Tooltip title={isMissingParent ? `span ${span.span_id} not found` : span.name}>
                         <span
-                            className={`text-xs truncate ${isError ? 'text-danger' : ''} ${
+                            className={`text-xs truncate ${isError || isMissingParent ? 'text-danger' : ''} ${
                                 isSelected || isError ? 'font-semibold' : 'font-medium'
                             } ${isUnmatched ? 'opacity-40' : ''}`}
                         >
@@ -423,35 +303,37 @@ function WaterfallRow({
                     })}
 
                     {/* Span bar */}
-                    <Tooltip
-                        title={
-                            <span>
-                                <strong>{span.name}</strong>
-                                <br />
-                                {span.service_name} · {formatDuration(span.duration_nano)}
-                                {isError ? ' · Error' : ''}
-                            </span>
-                        }
-                    >
-                        <div
-                            className="absolute h-full flex items-center px-1.5 overflow-hidden"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                left: `${leftPct}%`,
-                                width: `${widthPct}%`,
-                                minWidth: 2,
-                                backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
-                                borderLeft: `1px solid ${barColor}`,
-                            }}
+                    {!isMissingParent && (
+                        <Tooltip
+                            title={
+                                <span>
+                                    <strong>{span.name}</strong>
+                                    <br />
+                                    {span.service_name} · {formatDuration(span.duration_nano)}
+                                    {isError ? ' · Error' : ''}
+                                </span>
+                            }
                         >
-                            <span
-                                className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
+                            <div
+                                className="absolute h-full flex items-center px-1.5 overflow-hidden"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    left: `${leftPct}%`,
+                                    width: `${widthPct}%`,
+                                    minWidth: 2,
+                                    backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
+                                    borderLeft: `1px solid ${barColor}`,
+                                }}
                             >
-                                <span className="text-muted-alt font-medium">{span.service_name}</span>
-                                <span className="text-muted">{formatDuration(span.duration_nano)}</span>
-                            </span>
-                        </div>
-                    </Tooltip>
+                                <span
+                                    className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
+                                >
+                                    <span className="text-muted-alt font-medium">{span.service_name}</span>
+                                    <span className="text-muted">{formatDuration(span.duration_nano)}</span>
+                                </span>
+                            </div>
+                        </Tooltip>
+                    )}
                 </div>
             </div>
         </div>

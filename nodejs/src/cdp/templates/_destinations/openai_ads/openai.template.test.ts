@@ -62,8 +62,8 @@ describe('openai template', () => {
                     source_url: 'https://posthog.com/checkout',
                     oppref: 'openai-id',
                     user: {
-                        email_sha256: EMAIL_SHA256,
-                        external_id_sha256: EXTERNAL_ID_SHA256,
+                        emails_sha256: [EMAIL_SHA256],
+                        external_ids_sha256: [EXTERNAL_ID_SHA256],
                     },
                     data: {
                         type: 'contents',
@@ -150,14 +150,14 @@ describe('openai template', () => {
             'email',
             { oppref: null, external_id: null },
             (conversion: Record<string, any>) => {
-                expect(conversion.user).toEqual({ email_sha256: EMAIL_SHA256 })
+                expect(conversion.user).toEqual({ emails_sha256: [EMAIL_SHA256] })
             },
         ],
         [
             'externalId',
             { oppref: null, email: null },
             (conversion: Record<string, any>) => {
-                expect(conversion.user).toEqual({ external_id_sha256: EXTERNAL_ID_SHA256 })
+                expect(conversion.user).toEqual({ external_ids_sha256: [EXTERNAL_ID_SHA256] })
             },
         ],
     ])('sends the conversion when only %s is available', async (_, personProperties, assertIdentifiers) => {

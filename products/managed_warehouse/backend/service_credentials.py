@@ -43,6 +43,7 @@ from rest_framework import status
 from products.managed_warehouse.backend.facade.contracts import (
     ServiceCredential,
     ServiceCredentialConnect,
+    ServiceCredentialTrinoConnect,
     ServiceCredentialUnavailable,
 )
 
@@ -55,6 +56,7 @@ __all__ = [
     "ServiceCredentialUnavailable",
     "mint_service_credential",
     "refresh_service_credential",
+    "renew_service_credential",
 ]
 
 logger = structlog.get_logger(__name__)
@@ -92,7 +94,7 @@ def _redact_payload(data: Any) -> Any:
 
 def mint_service_credential(
     organization_id: str,
-    team_id: int,
+    team_id: int | None = None,
     *,
     principal: str,
     ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
@@ -160,6 +162,7 @@ def refresh_service_credential(
     credential_id: str,
     *,
     ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
+    timeout_seconds: int | None = None,
 ) -> ServiceCredential:
     """Rotate the secret on a known credential before it lapses.
 
@@ -177,6 +180,10 @@ def refresh_service_credential(
 
     ttl_seconds = max(MIN_CREDENTIAL_TTL_SECONDS, min(ttl_seconds, MAX_CREDENTIAL_TTL_SECONDS))
 
+    request_kwargs: dict[str, Any] = {}
+    if timeout_seconds is not None:
+        request_kwargs["timeout"] = timeout_seconds
+
     response = _request(
         "POST",
         organization_id,
@@ -186,6 +193,7 @@ def refresh_service_credential(
             "ttl_seconds": ttl_seconds,
         },
         require_enabled=False,
+        **request_kwargs,
     )
     if not status.is_success(response.status_code):
         raise ServiceCredentialUnavailable(
@@ -201,6 +209,47 @@ def refresh_service_credential(
         expires_at=credential.expires_at.isoformat(),
         connect_host=credential.connect.host,
         connect_port=credential.connect.port,
+    )
+    return credential
+
+
+def renew_service_credential(
+    organization_id: str,
+    credential_id: str,
+    *,
+    credential_secret: str,
+    ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
+    timeout_seconds: int = 10,
+) -> ServiceCredential:
+    """Extend a Trino grant without changing the gateway's query-owner credential."""
+    from products.managed_warehouse.backend.presentation.views import (
+        _request,  # noqa: PLC0415 -- breaks the provisioning facade import cycle
+    )
+
+    response = _request(
+        "POST",
+        organization_id,
+        "/service-credentials/refresh",
+        json_body={
+            "credential_id": credential_id,
+            "ttl_seconds": max(MIN_CREDENTIAL_TTL_SECONDS, min(ttl_seconds, MAX_CREDENTIAL_TTL_SECONDS)),
+            "rotate_secret": False,
+        },
+        require_enabled=False,
+        timeout=timeout_seconds,
+    )
+    if not status.is_success(response.status_code) or not isinstance(response.data, dict):
+        raise ServiceCredentialUnavailable("Trino service credential renewal failed")
+    data = response.data
+    # Older control planes ignore rotate_secret and rotate; never silently switch query ownership.
+    if data.get("secret_rotated") is not False or data.get("credential_secret"):
+        raise ServiceCredentialUnavailable("The control plane does not support Trino service credential renewal")
+    credential = _parse_credential_response({**data, "credential_secret": credential_secret}, action="renew")
+    logger.info(
+        "trino_service_credential_renewed",
+        organization_id=organization_id,
+        credential_id=credential_id,
+        expires_at=credential.expires_at.isoformat(),
     )
     return credential
 
@@ -232,6 +281,7 @@ def _parse_credential_response(data: dict[str, Any], *, action: str) -> ServiceC
         credential_secret=str(credential_secret),
         expires_at=expires_at,
         connect=connect,
+        trino_connect=_parse_trino_connect(data),
     )
 
 
@@ -262,3 +312,27 @@ def _parse_connect(data: dict[str, Any], *, action: str = "mint") -> ServiceCred
     if not host or not database or not sslmode or port <= 0:
         raise ServiceCredentialUnavailable(f"{action} returned incomplete connect block: {_redact_payload(data)!r}")
     return ServiceCredentialConnect(host=str(host), port=port, database=str(database), sslmode=str(sslmode))
+
+
+def _parse_trino_connect(data: dict[str, Any]) -> ServiceCredentialTrinoConnect | None:
+    raw = data.get("trino_connect")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ServiceCredentialUnavailable("Invalid Trino service credential target")
+    host, catalog, username = raw.get("host"), raw.get("catalog"), raw.get("username")
+    port = raw.get("port")
+    if (
+        not isinstance(host, str)
+        or not host.strip()
+        or not isinstance(catalog, str)
+        or not catalog.strip()
+        or not isinstance(username, str)
+        or not username.strip()
+        or isinstance(port, bool)
+        or not isinstance(port, int)
+        or not 1 <= port <= 65535
+        or raw.get("http_scheme") != "https"
+    ):
+        raise ServiceCredentialUnavailable("Invalid Trino service credential target")
+    return ServiceCredentialTrinoConnect(host=host, port=port, catalog=catalog, username=username, http_scheme="https")

@@ -141,13 +141,14 @@ describe('AccountCustomPropertyEditor', () => {
         'retains an attempted %s selection when the save does not succeed',
         (display_type) => {
             const onSave = jest.fn()
+            const onCancel = jest.fn()
             const value = '2026-01-01T00:00:00+00:00'
             const { container } = render(
                 <AccountCustomPropertyEditor
                     definition={{ ...definition, display_type }}
                     value={value}
                     onSave={onSave}
-                    onCancel={jest.fn()}
+                    onCancel={onCancel}
                 />
             )
             fireEvent.click(container.querySelector('[data-attr="account-property-date-input"]')!)
@@ -158,6 +159,7 @@ describe('AccountCustomPropertyEditor', () => {
             fireEvent.click(day)
             fireEvent.click(calendar.querySelector('[data-attr="lemon-calendar-select-apply"]')!)
             expect(onSave).toHaveBeenCalledTimes(1)
+            expect(onCancel).not.toHaveBeenCalled()
             const attempted = onSave.mock.calls[0][0]
             expect(dayjs(attempted).date()).toBe(15)
             expect(container.querySelector('[data-attr="account-property-date-input"]')).toHaveTextContent(

@@ -1,12 +1,13 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+
+import { dashboardTemplateVariablesLogic } from 'products/dashboards/frontend/dashboardTemplateVariablesLogic'
 
 import { NewDashboardModal } from './NewDashboardModal'
 
@@ -28,25 +29,27 @@ jest.mock('scenes/dashboard/newDashboardLogic', () => ({
     newDashboardLogic: { __mock: 'newDashboardLogic' },
 }))
 
-jest.mock('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic', () => ({
+jest.mock('products/dashboards/frontend/dashboards/templates/dashboardTemplatesLogic', () => ({
     dashboardTemplatesLogic: jest.fn(),
 }))
 
-jest.mock('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic', () => {
+jest.mock('products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic', () => {
     const actual = jest.requireActual<
-        typeof import('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic')
-    >('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic')
+        typeof import('products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic')
+    >('products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic')
     return {
         ...actual,
         dashboardTemplateChooserLogic: jest.fn(),
     }
 })
 
-jest.mock('./dashboards/templates/DashboardTemplateChooser', () => ({
-    DashboardTemplateChooser: () => <div data-attr="dashboard-template-chooser" />,
+jest.mock('products/dashboards/frontend/dashboards/templates/DashboardTemplateChooser', () => ({
+    DashboardTemplateChooser: ({ redirectAfterCreation }: { redirectAfterCreation?: boolean }) => (
+        <div data-attr="dashboard-template-chooser" data-redirect-after-creation={String(redirectAfterCreation)} />
+    ),
 }))
 
-jest.mock('./DashboardTemplateVariables', () => ({
+jest.mock('products/dashboards/frontend/DashboardTemplateVariables', () => ({
     DashboardTemplateVariables: () => <div data-attr="dashboard-template-variables" />,
 }))
 
@@ -65,10 +68,10 @@ const mockedUseActions = useActions as jest.Mock
 const mockedUseMountedLogic = useMountedLogic as jest.Mock
 const mockedDashboardTemplatesLogic = jest.requireMock<{
     dashboardTemplatesLogic: jest.Mock
-}>('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic').dashboardTemplatesLogic
+}>('products/dashboards/frontend/dashboards/templates/dashboardTemplatesLogic').dashboardTemplatesLogic
 const mockedDashboardTemplateChooserLogic = jest.requireMock<{
     dashboardTemplateChooserLogic: jest.Mock
-}>('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic').dashboardTemplateChooserLogic
+}>('products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic').dashboardTemplateChooserLogic
 
 const mockTemplatesLogic = { __mock: 'dashboardTemplatesLogic' as const }
 const mockChooserLogic = { __mock: 'dashboardTemplateChooserLogic' as const }
@@ -109,11 +112,13 @@ const Z_INDEX_CLASS = 'z-[calc(var(--z-popover)-1)]'
 
 describe('NewDashboardModal', () => {
     let newDashboardValues: Record<string, unknown>
+    let createDashboardFromTemplate: jest.Mock
 
     beforeEach(() => {
         jest.clearAllMocks()
         mockedUseValues.mockReset()
         mockedUseActions.mockReset()
+        createDashboardFromTemplate = jest.fn()
 
         newDashboardValues = {
             newDashboardModalVisible: true,
@@ -169,7 +174,7 @@ describe('NewDashboardModal', () => {
                 return {
                     hideNewDashboardModal: jest.fn(),
                     clearActiveDashboardTemplate: jest.fn(),
-                    createDashboardFromTemplate: jest.fn(),
+                    createDashboardFromTemplate,
                 }
             }
 
@@ -218,5 +223,28 @@ describe('NewDashboardModal', () => {
         render(<NewDashboardModal />)
         expectDialogStacking()
         expect(document.querySelector('[data-attr="dashboard-template-chooser"]')).toBeInTheDocument()
+    })
+
+    it('keeps the user on the current page when creating a Home dashboard from a template', () => {
+        render(<NewDashboardModal redirectAfterCreation={false} />)
+
+        fireEvent.click(screen.getByText('Create'))
+
+        expect(createDashboardFromTemplate).toHaveBeenCalledWith(newDashboardValues.activeDashboardTemplate, [], false)
+    })
+
+    it('passes the Home redirect behavior to the template chooser', () => {
+        newDashboardValues = {
+            newDashboardModalVisible: true,
+            activeDashboardTemplate: null,
+            variableSelectModalVisible: false,
+        }
+
+        render(<NewDashboardModal redirectAfterCreation={false} />)
+
+        expect(document.querySelector('[data-attr="dashboard-template-chooser"]')).toHaveAttribute(
+            'data-redirect-after-creation',
+            'false'
+        )
     })
 })

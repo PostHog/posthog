@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 
 import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '@/api/client'
+import { wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
@@ -59,7 +60,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     })
 
     if (!insightResult.success) {
-        throw new Error(`Failed to get insight: ${insightResult.error.message}`)
+        throw wrapError(`Failed to get insight: ${insightResult.error.message}`, insightResult.error)
     }
 
     const queryResult = await context.api.insights({ projectId }).query({
@@ -67,7 +68,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     })
 
     if (!queryResult.success) {
-        throw new Error(`Failed to query insight: ${queryResult.error.message}`)
+        throw wrapError(`Failed to query insight: ${queryResult.error.message}`, queryResult.error)
     }
 
     // Carry the overrides into the link as query params so opening the insight in

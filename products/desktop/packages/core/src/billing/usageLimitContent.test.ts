@@ -95,4 +95,18 @@ describe("usageLimitContent", () => {
     expect(content.description).toContain("organization administrator");
     expect(content.actionLabel).toBeNull();
   });
+
+  it.each([true, false] as const)(
+    "never sends a billing prompt for a user limit (canManageBilling=%s)",
+    (canManageBilling) => {
+      const content = usageLimitContent({
+        cause: "user_limit",
+        resetLabel: null,
+        subscribed: true,
+        canManageBilling,
+      });
+      expect(content.description).toContain("Switch to a smaller model");
+      expect(content.actionLabel).toBeNull();
+    },
+  );
 });

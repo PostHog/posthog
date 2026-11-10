@@ -1,11 +1,12 @@
 import json
 import time
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Optional
 
 from django.conf import settings
 from django.core.cache import cache, caches
+from django.core.cache.backends.base import BaseCache
 
 import structlog
 import redis.exceptions
@@ -31,6 +32,8 @@ _REDIS_READ_ERRORS = (
     OSError,
 )
 
+
+TOKEN_CACHE_KEY_PREFIX = "cache/team_tokens/"
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 DEFAULT_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
@@ -157,6 +160,15 @@ def emit_cache_sync_metrics(
         CACHE_SYNC_COUNTER.labels(result=result, namespace=namespace, value=value).inc()
 
 
+_ZREM_IF_SCORE_UNCHANGED = """
+local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
+if score and tonumber(score) == tonumber(ARGV[2]) then
+    return redis.call('ZREM', KEYS[1], ARGV[1])
+end
+return 0
+"""
+
+
 class HyperCacheStoreMissing:
     pass
 
@@ -248,11 +260,28 @@ class HyperCache:
         if self.token_based:
             if isinstance(key, Team):
                 key = key.api_token
-            return f"cache/team_tokens/{key}/{self.namespace}/{self.value}"
+            return f"{TOKEN_CACHE_KEY_PREFIX}{key}/{self.namespace}/{self.value}"
         else:
             if isinstance(key, Team):
                 key = key.id
             return f"cache/teams/{key}/{self.namespace}/{self.value}"
+
+    def iter_object_storage_tokens(self) -> Iterator[str]:
+        """Yield the token of each object-storage entry of this token-based cache.
+
+        All token-based caches share one key prefix. The listing covers that prefix and
+        skips the keys of the other caches. Raises ObjectStorageError when the listing fails.
+        """
+        if not self.token_based:
+            raise ValueError("iter_object_storage_tokens requires a token-based cache")
+        # A custom token can contain "/", so the token is the text between the prefix and this cache's suffix.
+        suffix = f"/{self.namespace}/{self.value}"
+        for key in object_storage.iter_keys(TOKEN_CACHE_KEY_PREFIX):
+            if not key.endswith(suffix):
+                continue
+            token = key.removeprefix(TOKEN_CACHE_KEY_PREFIX).removesuffix(suffix)
+            if token and self.get_cache_key(token) == key:
+                yield token
 
     def get_etag_key(self, key: KeyType) -> str:
         return f"{self.get_cache_key(key)}:etag"
@@ -327,6 +356,29 @@ class HyperCache:
         self._set_cache_value_redis(key, data)
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
+
+    def peek_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str | None]:
+        """
+        Reads Redis, then S3, and writes nothing. Unlike get_from_cache_with_source, a miss in both
+        tiers returns (None, None) instead of loading the value and filling Redis, so a debug view
+        sees the cache as it is. (None, "redis") means Redis holds the "missing" marker.
+        """
+        cache_key = self.get_cache_key(key)
+        try:
+            data = self.cache_client.get(cache_key)
+        except _REDIS_READ_ERRORS as e:
+            # A debug view must still show the S3 copy during a Redis outage, like get_from_cache_with_source does.
+            capture_exception(e)
+            data = None
+        if data == _HYPER_CACHE_EMPTY_VALUE:
+            return None, "redis"
+        if data:
+            return json.loads(data), "redis"
+        if self.s3_enabled:
+            data = object_storage.read(cache_key, missing_ok=True)
+            if data:
+                return json.loads(data), "s3"
+        return None, None
 
     def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str, str | None]]:
         """
@@ -605,34 +657,73 @@ class HyperCache:
         """Test helper alias for delete_cache_entry."""
         return self.delete_cache_entry(key, kinds)
 
-    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None):
+    def delete_cache_entry(
+        self,
+        key: KeyType,
+        kinds: Optional[list[str]] = None,
+        *,
+        strict_mirror: bool = False,
+        tracked_expiry_score: float | None = None,
+    ):
         """Hard-delete an entry from the given tiers (default redis + s3).
 
         Production-safe: the gateway credential projection uses this to revoke a
         credential's blob immediately — a missing key fails closed at the gateway.
+
+        A failed Redis delete raises after the object-storage delete ran. With strict_mirror,
+        a failed delete on the secondary cache raises too. Otherwise the secondary delete is
+        best-effort.
+
+        The method removes the expiry tracking member even when a delete fails. With
+        tracked_expiry_score, it removes the member only after every delete succeeds and only while
+        the member still holds that score. The caller must pass a score that _track_expiry cannot
+        write. A write during the delete then re-scores the member, and the member stays.
         """
         kinds = kinds or ["redis", "s3"]
+        redis_error: Exception | None = None
+        deleted = False
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                # One DEL per cache drops the payload and its ETag together. A reader that
-                # checks the ETag first would otherwise answer 304 for a payload that is
-                # already gone. The ETag key goes even when enable_etag is off, to clear a
-                # stale ETag from when it was on.
-                redis_keys = [cache_key, self.get_etag_key(key)]
-                # Mirror the delete so the secondary never serves an entry the primary dropped,
-                # and mirror first so a primary failure cannot block it.
-                self._mirror_to_secondary(lambda c: c.delete_many(redis_keys))
-                self.cache_client.delete_many(redis_keys)
+                # Single-key DELs: the keys can hash to different cluster slots. The ETag is deleted before
+                # and after the payload so a reader or racing write never sees an ETag without its payload,
+                # and even with enable_etag off, to clear a stale one.
+                etag_key = self.get_etag_key(key)
+                redis_keys = (etag_key, cache_key, etag_key)
+
+                def delete_each(client: BaseCache) -> None:
+                    # Every key is attempted, so a failed ETag DEL cannot leave the payload behind.
+                    first_error: Exception | None = None
+                    for redis_key in redis_keys:
+                        try:
+                            client.delete(redis_key)
+                        except Exception as e:
+                            first_error = first_error or e
+                    if first_error is not None:
+                        raise first_error
+
+                # Mirror first so a primary failure cannot block the secondary.
+                mirror_error = self._mirror_to_secondary(delete_each)
+                try:
+                    delete_each(self.cache_client)
+                except Exception as e:
+                    redis_error = e
+                else:
+                    redis_error = mirror_error if strict_mirror else None
+            # The object-storage copy has no TTL, so a Redis failure must not skip its delete.
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
+            if redis_error is not None:
+                raise redis_error
+            deleted = True
         finally:
-            self._remove_expiry_tracking(key)
+            if deleted or tracked_expiry_score is None:
+                self._remove_expiry_tracking(key, if_score=tracked_expiry_score)
 
-    def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
-        """Best-effort mirror op; failures are logged and captured, never propagated."""
+    def _mirror_to_secondary(self, op: Callable[..., None]) -> Exception | None:
+        """Best-effort mirror op; failures are logged, captured and returned, never raised."""
         if self.secondary_cache_client is None:
-            return
+            return None
         try:
             op(self.secondary_cache_client)
         except Exception as e:
@@ -646,6 +737,8 @@ class HyperCache:
                 exc_info=True,
             )
             capture_exception(e)
+            return e
+        return None
 
     def _set_cache_value_redis(
         self,
@@ -707,7 +800,7 @@ class HyperCache:
             # Use sort_keys for deterministic serialization (consistent ETags)
             object_storage.write(key, json.dumps(data, sort_keys=True))
 
-    def _remove_expiry_tracking(self, key: KeyType) -> None:
+    def _remove_expiry_tracking(self, key: KeyType, if_score: float | None = None) -> None:
         """
         Remove cache expiration entry from Redis sorted set.
 
@@ -729,7 +822,12 @@ class HyperCache:
                 return
 
             redis_client = get_client(self.redis_url)
-            redis_client.zrem(self.expiry_sorted_set_key, identifier)
+            if if_score is None:
+                redis_client.zrem(self.expiry_sorted_set_key, identifier)
+            else:
+                redis_client.register_script(_ZREM_IF_SCORE_UNCHANGED)(
+                    keys=[self.expiry_sorted_set_key], args=[identifier, repr(if_score)]
+                )
         except Exception as e:
             logger.warning(
                 "Failed to remove cache expiry tracking",
@@ -756,6 +854,9 @@ class HyperCache:
         try:
             identifier = self.get_cache_identifier(team)
             ttl_seconds = ttl if ttl is not None else self.cache_ttl
+            # The score must stay a whole number of seconds. cleanup_stale_expiry_tracking marks
+            # its retry members with a fractional score. delete_cache_entry compares scores to tell
+            # a rewrite from that marker.
             expiry_timestamp = int(time.time()) + ttl_seconds
 
             redis_client = get_client(self.redis_url)

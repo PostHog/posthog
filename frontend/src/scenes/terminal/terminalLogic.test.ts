@@ -19,6 +19,7 @@ import { PosthogFilesystem } from './posthogFilesystem'
 import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
+import { TerminalNetplay } from './terminalNetplay'
 import { TerminalRuntime } from './terminalRuntime'
 import { TerminalSession } from './TerminalSession'
 
@@ -68,32 +69,19 @@ describe('terminal lifecycle', () => {
 
     afterEach(() => jest.restoreAllMocks())
 
-    it.each([false, true])('opens folders with the simple side panel enabled: %s', (enabled) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
-            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: enabled,
-        })
+    it('opens folder links in the files tab and other links in the scene', () => {
         const push = jest.spyOn(router.actions, 'push')
-        const url = urls.projectFiles('Research & notes/Reports')
-        terminalLogic.actions.openUrl(url)
-        if (enabled) {
-            expect(push).not.toHaveBeenCalled()
-            expect(panelLayoutLogic.values.navExperimentActiveTab).toBe('files')
-            expect(projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).values.expandedFolders).toContain(
-                'project://Research & notes/Reports'
-            )
-        } else {
-            expect(push).toHaveBeenCalledWith(url)
-        }
+        terminalLogic.actions.openUrl(urls.projectFiles('Research & notes/Reports'))
+        expect(push).not.toHaveBeenCalled()
+        expect(panelLayoutLogic.values.navExperimentActiveTab).toBe('files')
+        expect(projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).values.expandedFolders).toContain(
+            'project://Research & notes/Reports'
+        )
         terminalLogic.actions.openUrl('/insights/example')
         expect(push).toHaveBeenCalledWith('/insights/example')
     })
 
     it.each([true, false])('keeps project-qualified folder links in their own project: %s', (sameProject) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
-            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-        })
         const push = jest.spyOn(router.actions, 'push')
         const projectId = MOCK_DEFAULT_TEAM.id + (sameProject ? 0 : 1)
         const url = `/project/${projectId}/files?folder=Reports`
@@ -159,7 +147,8 @@ describe('terminal lifecycle', () => {
             expect.anything(),
             expect.anything(),
             expect.any(Function),
-            '/posthog/files/Research'
+            '/posthog/files/Research',
+            expect.any(TerminalNetplay)
         )
         const view = jest.mocked(TerminalSession).mock.results[0].value.view
         view.focus.mockClear()

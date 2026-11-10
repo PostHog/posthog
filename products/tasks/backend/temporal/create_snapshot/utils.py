@@ -1,11 +1,13 @@
 from typing import Optional
 
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 
 
-def get_github_token(github_integration_id: int) -> Optional[str]:
-    integration = Integration.objects.get(id=github_integration_id)
-    github_integration = GitHubIntegration(integration)
+def get_github_token(team_id: int, github_integration_id: int) -> Optional[str]:
+    integration = IntegrationManager.github.oauth.get(team_id, github_integration_id)
+    github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()

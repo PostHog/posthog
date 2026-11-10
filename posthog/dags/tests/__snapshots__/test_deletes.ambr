@@ -2,15 +2,15 @@
 # name: test_cleanup_old_events_delete_query_format
   list([
     '''
-      DELETE FROM posthog_test.sharded_events IN PARTITION '202408' WHERE 
+      DELETE FROM posthog_test.sharded_events IN PARTITION '202406' WHERE 
                       team_id IN %(team_ids)s
-                      AND age('month', timestamp, now()) >= %(min_age_months)s
+                      AND timestamp < %(before)s
                   
     ''',
     '''
-      DELETE FROM posthog_test.sharded_events_json IN PARTITION '202408' WHERE 
+      DELETE FROM posthog_test.sharded_events_json IN PARTITION '202406' WHERE 
                       team_id IN %(team_ids)s
-                      AND age('month', timestamp, now()) >= %(min_age_months)s
+                      AND timestamp < %(before)s
                   
     ''',
   ])

@@ -84,6 +84,15 @@ pub fn sum_kafka_log_row_bytes(rows: &[KafkaLogRow]) -> u64 {
     rows.iter().map(KafkaLogRow::byte_count).sum()
 }
 
+/// Earliest row `timestamp` in a batch, as epoch microseconds. Feeds the `min_timestamp` Kafka
+/// header. The Node consumer compares it with the team's shortest retention to decide, without
+/// decoding the batch, whether any row can already be past retention.
+pub fn min_kafka_log_row_timestamp_micros(rows: &[KafkaLogRow]) -> Option<i64> {
+    rows.iter()
+        .map(|row| row.timestamp.timestamp_micros())
+        .min()
+}
+
 impl KafkaLogRow {
     /// Set `bytes_uncompressed` from the row's variable-length content. Consuming
     /// builder; the `mut self` is encapsulated and never escapes.
@@ -100,6 +109,7 @@ impl KafkaLogRow {
         record: LogRecord,
         resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
+        max_past: TimeDelta,
     ) -> Result<(Self, bool)> {
         // Extract body - convert any AnyValue type to JSON string
         let body = match record.body {
@@ -111,20 +121,20 @@ impl KafkaLogRow {
             None => "".to_string(),
         };
 
-        let mut severity_text = normalize_severity_text(record.severity_text);
-        let mut severity_number = record.severity_number;
-
-        if let Some(parsed_severity) = try_extract_severity(&body) {
-            severity_text = parsed_severity.to_string();
-            severity_number = convert_severity_text_to_number(&severity_text);
-        }
-
-        // severity_number takes priority if both provided
-        if record.severity_number > 0 {
-            severity_text = convert_severity_number_to_text(record.severity_number);
+        // severity_number takes priority over the severity text and the body
+        let (severity_text, severity_number) = if record.severity_number > 0 {
+            (
+                convert_severity_number_to_text(record.severity_number),
+                record.severity_number,
+            )
         } else {
-            severity_number = convert_severity_text_to_number(&severity_text);
-        }
+            let severity_text = match try_extract_severity(&body) {
+                Some(parsed_severity) => parsed_severity.to_string(),
+                None => normalize_severity_text(record.severity_text),
+            };
+            let severity_number = convert_severity_text_to_number(&severity_text);
+            (severity_text, severity_number)
+        };
 
         let resource_attributes = extract_resource_attributes(resource);
 
@@ -161,7 +171,8 @@ impl KafkaLogRow {
             _ => DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?),
         };
 
-        let (timestamp, was_overridden) = apply_timestamp_override(raw_timestamp, &mut attributes);
+        let (timestamp, was_overridden) =
+            apply_timestamp_override_with_past_limit(raw_timestamp, &mut attributes, max_past);
 
         let observed_timestamp = Utc::now();
 
@@ -192,30 +203,61 @@ impl KafkaLogRow {
     }
 }
 
-const TIMESTAMP_OVERRIDE_HOURS: i64 = 24;
+const DEFAULT_MAX_PAST_HOURS: i64 = 24;
 
-/// Override timestamps outside of 24 hours from now. Returns the final timestamp
-/// and the original if it was overridden.
+pub fn default_max_past() -> TimeDelta {
+    TimeDelta::hours(DEFAULT_MAX_PAST_HOURS)
+}
+
+/// Never widens with the past bound. A timestamp ahead of the ingest time is always a client
+/// clock error, so widening both together would let one client write past every other query range.
+const MAX_FUTURE_HOURS: i64 = 24;
+
+/// Returns the final timestamp, and the original when it was overridden.
 pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
-    let now = Utc::now();
-    let max_delta = TimeDelta::hours(TIMESTAMP_OVERRIDE_HOURS);
+    override_timestamp_with_past_limit(timestamp, default_max_past())
+}
 
-    if timestamp < now - max_delta || timestamp > now + max_delta {
+pub fn override_timestamp_with_past_limit(
+    timestamp: DateTime<Utc>,
+    max_past: TimeDelta,
+) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
+    let now = Utc::now();
+
+    // `Sub` panics when the result leaves chrono's year range, which a large ceiling reaches.
+    let earliest = now
+        .checked_sub_signed(max_past)
+        .unwrap_or(DateTime::<Utc>::MIN_UTC);
+
+    if timestamp < earliest || timestamp > now + TimeDelta::hours(MAX_FUTURE_HOURS) {
         (now, Some(timestamp))
     } else {
         (timestamp, None)
     }
 }
 
-/// `override_timestamp` plus the `$originalTimestamp` attribute the consumer reads back; every intake
+pub const ORIGINAL_TIMESTAMP_ATTRIBUTE: &str = "posthog.original_timestamp";
+
+/// `override_timestamp` plus the `ORIGINAL_TIMESTAMP_ATTRIBUTE` the consumer reads back; every intake
 /// goes through here so the attribute name and format stay one contract.
 pub(crate) fn apply_timestamp_override(
     raw: DateTime<Utc>,
     attributes: &mut HashMap<String, String>,
 ) -> (DateTime<Utc>, bool) {
-    let (timestamp, original) = override_timestamp(raw);
+    apply_timestamp_override_with_past_limit(raw, attributes, default_max_past())
+}
+
+pub(crate) fn apply_timestamp_override_with_past_limit(
+    raw: DateTime<Utc>,
+    attributes: &mut HashMap<String, String>,
+    max_past: TimeDelta,
+) -> (DateTime<Utc>, bool) {
+    let (timestamp, original) = override_timestamp_with_past_limit(raw, max_past);
     if let Some(original) = original {
-        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+        attributes.insert(
+            ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+            original.to_rfc3339(),
+        );
     }
     (timestamp, original.is_some())
 }
@@ -340,7 +382,13 @@ pub fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String
 }
 
 // TODO - pull this from PG
-const SEVERITY_KEYS: [&str; 4] = ["level", "severity", "log.level", "config.log_level"];
+const SEVERITY_KEYS: &[&str] = &[
+    "level",
+    "severity",
+    "log.level",
+    "config.log_level",
+    "levelname",
+];
 
 pub(crate) fn try_extract_severity(body: &str) -> Option<&'static str> {
     if !body.trim_start().starts_with('{') {
@@ -476,6 +524,25 @@ mod tests {
     }
 
     #[test]
+    fn test_min_kafka_log_row_timestamp_is_the_oldest_row_wherever_it_sits() {
+        let now = Utc::now();
+        let oldest = now - TimeDelta::days(400);
+        let rows: Vec<KafkaLogRow> = [now, oldest, now - TimeDelta::hours(1)]
+            .into_iter()
+            .map(|timestamp| KafkaLogRow {
+                timestamp,
+                ..sample_row()
+            })
+            .collect();
+
+        assert_eq!(
+            min_kafka_log_row_timestamp_micros(&rows),
+            Some(oldest.timestamp_micros())
+        );
+        assert_eq!(min_kafka_log_row_timestamp_micros(&[]), None);
+    }
+
+    #[test]
     fn test_compute_kafka_log_row_bytes_excludes_fixed_width_fields() {
         // Two rows differing only in fixed-width numeric/timestamp fields should compute
         // identical bytes_uncompressed.
@@ -562,7 +629,7 @@ mod tests {
     #[test]
     fn test_new_populates_bytes_uncompressed() {
         let log_record = LogRecord::default();
-        let (row, _) = KafkaLogRow::new(log_record, None, None).expect("ok");
+        let (row, _) = KafkaLogRow::new(log_record, None, None, default_max_past()).expect("ok");
         assert!(row.bytes_uncompressed.is_some());
         assert_eq!(
             row.bytes_uncompressed.unwrap(),
@@ -571,47 +638,111 @@ mod tests {
     }
 
     #[test]
-    fn test_override_timestamp_within_range_is_unchanged() {
-        let now = Utc::now();
-        let one_hour_ago = now - TimeDelta::hours(1);
-        let (final_ts, original) = override_timestamp(one_hour_ago);
-        assert_eq!(final_ts, one_hour_ago);
+    fn new_resolves_severity_from_number_text_and_body() {
+        for (severity_text, severity_number, body, expected) in [
+            ("", 17, r#"{"levelname":"WARNING"}"#, ("error", 17)),
+            ("ERROR", 0, r#"{"levelname":"WARNING"}"#, ("warn", 13)),
+            ("ERROR", 0, "plain text", ("error", 17)),
+        ] {
+            let log_record = LogRecord {
+                severity_text: severity_text.to_string(),
+                severity_number,
+                body: Some(AnyValue {
+                    value: Some(Value::StringValue(body.to_string())),
+                }),
+                ..Default::default()
+            };
+            let (row, _) =
+                KafkaLogRow::new(log_record, None, None, default_max_past()).expect("ok");
+            assert_eq!(
+                (row.severity_text.as_str(), row.severity_number),
+                expected,
+                "{severity_text} {severity_number} {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn override_timestamp_keeps_a_timestamp_inside_the_window() {
+        let wide_past = TimeDelta::days(500);
+
+        for (case, offset, max_past) in [
+            ("an hour ago", TimeDelta::hours(-1), default_max_past()),
+            (
+                "just inside the default bound",
+                TimeDelta::hours(-22),
+                default_max_past(),
+            ),
+            (
+                "400 days ago, inside a widened bound",
+                TimeDelta::days(-400),
+                wide_past,
+            ),
+        ] {
+            let now = Utc::now();
+            let timestamp = now + offset;
+
+            let (final_ts, original) = override_timestamp_with_past_limit(timestamp, max_past);
+
+            assert_eq!(final_ts, timestamp, "{case}");
+            assert!(original.is_none(), "{case}");
+        }
+    }
+
+    #[test]
+    fn override_timestamp_replaces_a_timestamp_outside_the_window() {
+        let wide_past = TimeDelta::days(500);
+
+        for (case, offset, max_past) in [
+            (
+                "just past the default bound",
+                TimeDelta::hours(-24) - TimeDelta::seconds(1),
+                default_max_past(),
+            ),
+            ("two days ago", TimeDelta::hours(-48), default_max_past()),
+            (
+                "400 days ago, past a narrower widened bound",
+                TimeDelta::days(-400),
+                TimeDelta::days(300),
+            ),
+            (
+                "a day ahead, widened past bound",
+                TimeDelta::hours(25),
+                wide_past,
+            ),
+        ] {
+            let now = Utc::now();
+            let timestamp = now + offset;
+
+            let (final_ts, original) = override_timestamp_with_past_limit(timestamp, max_past);
+
+            assert!(
+                (final_ts - now).num_seconds().abs() < 2,
+                "{case}: expected the ingest time, got {final_ts}"
+            );
+            assert_eq!(original.unwrap(), timestamp, "{case}");
+        }
+    }
+
+    #[test]
+    fn override_timestamp_keeps_a_timestamp_under_an_oversized_past_bound() {
+        let timestamp = Utc::now() - TimeDelta::days(400);
+
+        // A bound this wide makes `now - max_past` leave chrono's range.
+        let (final_ts, original) =
+            override_timestamp_with_past_limit(timestamp, TimeDelta::days(200_000_000));
+
+        assert_eq!(final_ts, timestamp);
         assert!(original.is_none());
     }
 
     #[test]
-    fn test_override_timestamp_far_past_is_overridden() {
-        let now = Utc::now();
-        let two_days_ago = now - TimeDelta::hours(48);
-        let (final_ts, original) = override_timestamp(two_days_ago);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), two_days_ago);
-    }
+    fn override_timestamp_applies_a_24_hour_past_bound() {
+        // Asserts the original only: the replacement is the ingest time, which races the clock.
+        let inside = Utc::now() - TimeDelta::hours(23);
+        let outside = Utc::now() - TimeDelta::hours(25);
 
-    #[test]
-    fn test_override_timestamp_far_future_is_overridden() {
-        let now = Utc::now();
-        let two_days_ahead = now + TimeDelta::hours(48);
-        let (final_ts, original) = override_timestamp(two_days_ahead);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), two_days_ahead);
-    }
-
-    #[test]
-    fn test_override_timestamp_at_boundary_is_not_overridden() {
-        let now = Utc::now();
-        let just_within = now - TimeDelta::hours(22);
-        let (final_ts, original) = override_timestamp(just_within);
-        assert_eq!(final_ts, just_within);
-        assert!(original.is_none());
-    }
-
-    #[test]
-    fn test_override_timestamp_just_past_boundary_is_overridden() {
-        let now = Utc::now();
-        let just_outside = now - TimeDelta::hours(24) - TimeDelta::seconds(1);
-        let (final_ts, original) = override_timestamp(just_outside);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), just_outside);
+        assert!(override_timestamp(inside).1.is_none());
+        assert_eq!(override_timestamp(outside).1, Some(outside));
     }
 }

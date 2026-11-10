@@ -122,6 +122,7 @@ class Resolution:
     # Set only when the resolver reads a tree and the path is not in it, such as a file that a change
     # adds when the tree is the version before the change.
     added: Addition | None = None
+    sensitive: bool = False
 
     @property
     def is_owned(self) -> bool:
@@ -144,6 +145,7 @@ class WireResolution(TypedDict):
     source: str | None
     additions: list[str]
     added: WireAddition | None
+    sensitive: bool
 
 
 class WireAddition(TypedDict):
@@ -159,6 +161,7 @@ def resolution_to_wire(r: Resolution) -> WireResolution:
         "source": r.source,
         "additions": r.additions,
         "added": {"path": r.added.path, "additions": r.added.additions} if r.added is not None else None,
+        "sensitive": r.sensitive,
     }
 
 
@@ -176,6 +179,7 @@ class ParsedOwnershipFile:
     name: str  # OWNERS_FILENAME or one of the configured alias file names
     parsed: OwnersFile | None
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def is_alias(self) -> bool:
@@ -188,6 +192,7 @@ class _Merged:
     status: str | _Unset = UNSET
     source: str | None = None
     additions: list[str] = field(default_factory=list)
+    sensitive: bool | _Unset = UNSET
 
 
 def _union(*groups: Iterable[str]) -> list[str]:
@@ -270,6 +275,46 @@ class DiskSource:
         except (FileNotFoundError, NotADirectoryError):
             return None
         return "dir" if stat.S_ISDIR(mode) else "file"
+
+
+class GitRefSource:
+    """Ownership files as a git ref holds them, for a check on what a push carries rather than the worktree."""
+
+    def __init__(self, repo_root: Path, ref: str = "HEAD") -> None:
+        self._git = ["git", "-C", str(repo_root)]
+        self.ref = ref
+        listing = subprocess.run(
+            [*self._git, "ls-tree", "-r", "-z", "--name-only", ref], capture_output=True, text=True, check=True
+        )
+        self.files: frozenset[str] = frozenset(path for path in listing.stdout.split("\0") if path)
+        self._texts_by_name: dict[str, dict[str, str]] = {}
+
+    def read(self, path: str) -> str | None:
+        if path not in self.files:
+            return None
+        name = path.rsplit(SEP, 1)[-1]
+        if name not in self._texts_by_name:
+            self._texts_by_name[name] = self._cat([p for p in self.files if p.rsplit(SEP, 1)[-1] == name])
+        return self._texts_by_name[name][path]
+
+    def _cat(self, paths: list[str]) -> dict[str, str]:
+        """One ``git cat-file --batch`` per file name. The resolver asks for an ownership file per
+        directory, and a ``git show`` for each takes seconds on this repo."""
+        batch = subprocess.run(
+            [*self._git, "cat-file", "--batch"],
+            input="".join(f"{self.ref}:{path}\n" for path in paths).encode(),
+            capture_output=True,
+            check=True,
+        ).stdout
+        texts: dict[str, str] = {}
+        position = 0
+        for path in paths:
+            header_end = batch.index(b"\n", position)
+            size = int(batch[position:header_end].rsplit(b" ", 1)[-1])
+            position = header_end + 1
+            texts[path] = batch[position : position + size].decode()
+            position += size + 1
+        return texts
 
 
 def first_new_path(path: str, path_kind: Callable[[str], PathKind | None]) -> str | None:
@@ -400,6 +445,7 @@ class OwnersResolver:
             inherit=f.inherit,
             is_alias=f.is_alias,
             additions=_union(f.additions, *(rule.additions for rule in matched)),
+            sensitive=f.sensitive,
         )
         for rule in matched:
             if not isinstance(rule.owners, _Unset):
@@ -408,6 +454,8 @@ class OwnersResolver:
                 contrib.status = rule.status
             if not isinstance(rule.inherit, _Unset):
                 contrib.inherit = rule.inherit
+            if not isinstance(rule.sensitive, _Unset):
+                contrib.sensitive = rule.sensitive
         return contrib
 
     def ownership_file_paths(self, paths: list[str]) -> list[str]:
@@ -444,6 +492,9 @@ class OwnersResolver:
 
             if not isinstance(contrib.status, _Unset):
                 merged.status = contrib.status
+
+            if not isinstance(contrib.sensitive, _Unset):
+                merged.sensitive = contrib.sensitive
 
             if contrib.additions:
                 merged.additions = _union(merged.additions, contrib.additions)
@@ -522,6 +573,7 @@ class OwnersResolver:
             unowned_by_design=unowned_by_design,
             additions=merged.additions,
             added=added,
+            sensitive=merged.sensitive is True,
         )
 
     def _rel(self, path: Path) -> str:
@@ -576,12 +628,19 @@ class OwnersResolver:
             if not rel_dir and name != OWNERS_FILENAME:
                 continue
             abs_path = self.repo_root / rel
+            errors: list[str] = []
+            warnings: list[str] = []
             if name != OWNERS_FILENAME:
                 parsed = parse_alias_file_as_owners(abs_path.read_text(), path=abs_path, directory=rel_dir)
-                errors: list[str] = []
             else:
-                parsed, errors = parse_owners_file(abs_path.read_text(), path=abs_path, directory=rel_dir)
-            entries.append(ParsedOwnershipFile(path=abs_path, rel_dir=rel_dir, name=name, parsed=parsed, errors=errors))
+                parsed, errors = parse_owners_file(
+                    abs_path.read_text(), path=abs_path, directory=rel_dir, warnings=warnings
+                )
+            entries.append(
+                ParsedOwnershipFile(
+                    path=abs_path, rel_dir=rel_dir, name=name, parsed=parsed, errors=errors, warnings=warnings
+                )
+            )
         self._parsed_ownership = entries
         return entries
 

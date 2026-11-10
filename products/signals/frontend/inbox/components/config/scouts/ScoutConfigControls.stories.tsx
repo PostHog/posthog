@@ -87,3 +87,23 @@ export const SlackChannelDestination: Story = {
         />
     ),
 }
+
+// A scout that measures something on a schedule: the collapsed section names the fields of the
+// record it writes, so what the scout produces is readable without opening it.
+export const StructuredOutput: Story = {
+    render: () => (
+        <EditableConfigForm
+            initialConfig={{
+                ...mockScoutConfigs[0],
+                structured_output_schema: {
+                    type: 'object',
+                    properties: {
+                        verdict: { enum: ['good', 'bad', 'unsure'] },
+                        reason: { type: 'string' },
+                    },
+                    required: ['verdict', 'reason'],
+                },
+            }}
+        />
+    ),
+}

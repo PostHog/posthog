@@ -1,5 +1,6 @@
 import { IconPlusSmall } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
@@ -19,7 +20,12 @@ export function SceneAddToNotebookDropdownMenu({
     shortId,
     dataAttrKey,
     disabledReasons,
-}: SceneNotebookDropdownMenuProps): JSX.Element {
+}: SceneNotebookDropdownMenuProps): JSX.Element | null {
+    // The rail redesign (`today-rail-nav`) deprecates adding to notebooks from outside a notebook. See QuillNotebookSelectButton to bring it back.
+    const hidden = useFeatureFlag('TODAY_RAIL_NAV')
+    if (hidden) {
+        return null
+    }
     const isDisabled = disabledReasons ? Object.values(disabledReasons).some(Boolean) : false
     return (
         <DropdownMenu>

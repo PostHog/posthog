@@ -135,9 +135,10 @@ describe('KafkaConsumerV2', () => {
     const startConsuming = async (
         eachBatch: jest.Mock,
         partitions = [{ topic: 'test-topic', partition: 0 }],
-        onPartitionsRevoked?: (assignments: { topic: string; partition: number }[]) => Promise<void>
+        onPartitionsRevoked?: (assignments: { topic: string; partition: number }[]) => Promise<void>,
+        onOffsetsStored?: jest.Mock
     ) => {
-        await consumer.connect(eachBatch, onPartitionsRevoked)
+        await consumer.connect(eachBatch, onPartitionsRevoked, onOffsetsStored)
         registeredRebalanceCb!({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, partitions)
         // The loop is currently inside the IDLE keepalive consume(1, cb). Release it with
         // an empty batch so the loop processes ASSIGN and arms a fresh consume() in CONSUMING.
@@ -222,7 +223,8 @@ describe('KafkaConsumerV2', () => {
                     ? Promise.resolve({ backgroundTask: processBatch(messages) })
                     : joiner.handleBatch(messages)
             )
-            await startConsuming(eachBatch)
+            const onOffsetsStored = jest.fn()
+            await startConsuming(eachBatch, undefined, undefined, onOffsetsStored)
 
             consumeCallback!(null, [createMessage({ offset: 1, partition: 0 })])
             await delay(5)
@@ -237,6 +239,7 @@ describe('KafkaConsumerV2', () => {
             await delay(5)
             expect(mockRdKafka.consume).toHaveBeenCalledTimes(pollsAfterFirstBatch)
             expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+            expect(onOffsetsStored).not.toHaveBeenCalled()
 
             p1.resolve()
             await delay(5)
@@ -245,8 +248,25 @@ describe('KafkaConsumerV2', () => {
                 [[{ topic: 'test-topic', partition: 0, offset: 2 }]],
                 [[{ topic: 'test-topic', partition: 0, offset: 3 }]],
             ])
+            expect(onOffsetsStored.mock.calls).toEqual(mockRdKafka.offsetsStore.mock.calls)
         }
     )
+
+    it('reports only the offsets that librdkafka accepted to store', async () => {
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        const onOffsetsStored = jest.fn()
+        await startConsuming(eachBatch, undefined, undefined, onOffsetsStored)
+        mockRdKafka.offsetsStore.mockImplementationOnce(() => {
+            throw new Error('Local: Erroneous state')
+        })
+
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], Promise.resolve())
+        await dispatchBatch(eachBatch, [createMessage({ offset: 2, partition: 0 })], Promise.resolve())
+        await delay(10)
+
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledTimes(2)
+        expect(onOffsetsStored.mock.calls).toEqual([[[{ topic: 'test-topic', partition: 0, offset: 3 }]]])
+    })
 
     it('REVOKE drain: incrementalUnassign called only after every settled completes', async () => {
         ;(consumer as any).maxBackgroundTasks = 5
@@ -802,7 +822,8 @@ describe('KafkaConsumerV2', () => {
         // committing past the lost events.
         ;(consumer as any).maxBackgroundTasks = 4
         const eachBatch = jest.fn(() => Promise.resolve({}))
-        await startConsuming(eachBatch)
+        const onOffsetsStored = jest.fn()
+        await startConsuming(eachBatch, undefined, undefined, onOffsetsStored)
         ;((consumer as any).loopDone as Promise<void>).catch(() => {})
 
         const failure = new Error('column "X" does not exist')
@@ -824,6 +845,7 @@ describe('KafkaConsumerV2', () => {
             offsets.some((o: any) => o.partition === 0)
         )
         expect(partition0Stores).toEqual([])
+        expect(onOffsetsStored).not.toHaveBeenCalled()
     })
 
     it('fails unfinished background work at the configured timeout without advancing offsets', async () => {

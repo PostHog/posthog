@@ -2,10 +2,12 @@ from posthog.api.routing import RouterRegistry
 
 from products.business_knowledge.backend.api import (
     BusinessKnowledgePlaygroundChatViewSet,
+    BusinessKnowledgeRepositoriesViewSet,
     BusinessKnowledgeSandboxViewSet,
     BusinessKnowledgeSettingsViewSet,
     KnowledgeDocumentViewSet,
     KnowledgeGapSuggestionViewSet,
+    KnowledgeLibraryViewSet,
     KnowledgeSourceViewSet,
 )
 
@@ -41,6 +43,20 @@ def register_routes(routers: RouterRegistry) -> None:
         r"business_knowledge/sandbox",
         BusinessKnowledgeSandboxViewSet,
         "project_business_knowledge_sandbox",
+        ["team_id"],
+    )
+    # Before the settings viewset so `repositories` is not captured as that viewset's detail pk.
+    routers.projects.register(
+        r"business_knowledge/repositories",
+        BusinessKnowledgeRepositoriesViewSet,
+        "project_business_knowledge_repositories",
+        ["team_id"],
+    )
+    # Before the settings viewset so `libraries` is not captured as that viewset's detail pk.
+    routers.projects.register(
+        r"business_knowledge/libraries",
+        KnowledgeLibraryViewSet,
+        "project_business_knowledge_libraries",
         ["team_id"],
     )
     # After the nested resource prefixes so `sources`/`documents`/`gap_suggestions`

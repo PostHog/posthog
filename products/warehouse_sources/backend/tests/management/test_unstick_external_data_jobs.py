@@ -25,14 +25,14 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import sync_lock
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
-    _ensure_tables,
-    _get_test_database_url,
-    _truncate_tables,
-)
 from products.warehouse_sources.backend.tests.management.test_manage_warehouse_queue import (
     _failed_status_counts_by_run,
     _seed_active_run,
+)
+from products.warehouse_sources_queue.backend.testing import (
+    ensure_queue_tables as _ensure_tables,
+    get_test_database_url as _get_test_database_url,
+    truncate_queue_tables as _truncate_tables,
 )
 
 pytestmark = [pytest.mark.django_db]

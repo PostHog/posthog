@@ -17,6 +17,12 @@ class MetricDrifted(APIException):
     default_code = "metric_drifted"
 
 
+class MetricChanged(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "This metric changed after you saved it. Review the latest version before approving it."
+    default_code = "metric_changed"
+
+
 class SourceInsightUnavailable(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "The source insight is no longer available. Edit the definition directly or unlink the insight."
@@ -45,3 +51,13 @@ class CatalogConflict(APIException):
         super().__init__(detail=detail)
         if extra is not None:
             self.extra = extra
+
+
+class MetricNameTaken(CatalogConflict):
+    """A create named a live metric without ``overwrite``, or one hidden from the caller.
+
+    ``extra.existing_metric`` holds the name and status of a visible metric. A hidden metric gets no ``extra``.
+    """
+
+    default_detail = "A metric with this name already exists. Use a different name, or overwrite the existing metric."
+    default_code = "metric_name_taken"

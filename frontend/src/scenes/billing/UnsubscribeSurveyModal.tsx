@@ -20,20 +20,21 @@ import {
 import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { billingProductDisplayName } from 'lib/logic/billing/billingProductDisplayName'
+import { inStorybook } from 'lib/utils/dom'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
-import { billingLogic } from './billingLogic'
-import { billingProductDisplayName } from './billingProductDisplayName'
 import {
     UNSUBSCRIBE_REASONS,
     billingProductLogic,
     isPlatformAndSupportAddon,
     randomizeReasons,
 } from './billingProductLogic'
+import { EventsRetentionDowngradeNotice } from './EventsRetentionDowngradeNotice'
 
 const HedgehogHeart = pngHoggie(heartPng)
 
@@ -44,9 +45,15 @@ export const UnsubscribeSurveyModal = ({
 }): JSX.Element | null => {
     const { trigger, HogfettiComponent } = useHogfetti()
 
-    const { surveyID, surveyResponse, isAddonProduct, unsubscribeModalStep, unsubscribeReasonQuestions } = useValues(
-        billingProductLogic({ product, hogfettiTrigger: trigger })
-    )
+    const {
+        surveyID,
+        surveyResponse,
+        isAddonProduct,
+        unsubscribeModalStep,
+        unsubscribeReasonQuestions,
+        productsToDeactivate,
+        eventsRetentionPlansAfterUnsubscribe,
+    } = useValues(billingProductLogic({ product, hogfettiTrigger: trigger }))
     const {
         setSurveyResponse,
         toggleSurveyReason,
@@ -57,12 +64,15 @@ export const UnsubscribeSurveyModal = ({
         triggerMoreHedgehogs,
     } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
-    const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
+    const { unsubscribeError, billingLoading, billing, isExternallyBilled } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
-        inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
+        inStorybook() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
+    const invoicesUrl = isExternallyBilled
+        ? billing?.external_billing_provider_invoices_url
+        : billing?.stripe_portal_url
     const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
     const isOnDiscountedPrice = isAddonProduct && (product as BillingProductV2AddonType).default_unit_amount_usd != null
 
@@ -78,7 +88,7 @@ export const UnsubscribeSurveyModal = ({
             setUnsubscribeModalStep(2)
             triggerMoreHedgehogs()
         } else {
-            deactivateProduct(billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type)
+            deactivateProduct(productsToDeactivate)
         }
     }
 
@@ -103,9 +113,7 @@ export const UnsubscribeSurveyModal = ({
                     loading={billingLoading}
                     onClick={() => {
                         setHedgehogSatisfied(true)
-                        deactivateProduct(
-                            billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type
-                        )
+                        deactivateProduct(productsToDeactivate)
                     }}
                 >
                     Never enough, proceed with {action}
@@ -201,13 +209,18 @@ export const UnsubscribeSurveyModal = ({
                                 We're sorry to see you go! Please note, you'll lose access to platform features and
                                 usage limits will apply immediately. And if you have any outstanding invoices, they will
                                 be billed immediately.{' '}
-                                <Link to={billing?.stripe_portal_url} target="_blank">
-                                    View invoices
-                                </Link>
+                                {invoicesUrl && (
+                                    <Link to={invoicesUrl} target="_blank">
+                                        View invoices
+                                    </Link>
+                                )}
                             </p>
                         )}
 
                         {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
+                        {eventsRetentionPlansAfterUnsubscribe && (
+                            <EventsRetentionDowngradeNotice plansAfterChange={eventsRetentionPlansAfterUnsubscribe} />
+                        )}
 
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'

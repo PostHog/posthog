@@ -85,6 +85,15 @@ async function buildTLSConfig() {
     }
 }
 
+function buildPayloadCodec(): EncryptionCodec {
+    if (!config.secretKey) {
+        throw new Error(
+            'TEMPORAL_SECRET_KEY must be set: every activity input is encrypted, so a worker without the key fails every render'
+        )
+    }
+    return new EncryptionCodec(config.secretKey, config.fallbackKeys)
+}
+
 function startMetricsServer(): http.Server {
     let ready = false
 
@@ -112,6 +121,7 @@ function startMetricsServer(): http.Server {
 }
 
 async function main(): Promise<void> {
+    const payloadCodec = buildPayloadCodec()
     const metricsServer = startMetricsServer() as http.Server & { setReady: (value: boolean) => void }
 
     const address = `${config.temporalHost}:${config.temporalPort}`
@@ -133,16 +143,29 @@ async function main(): Promise<void> {
         namespace: config.temporalNamespace,
         taskQueue: config.taskQueue,
         activities: createActivities(pool, playerHtml),
-        maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
-        dataConverter: config.secretKey
-            ? { payloadCodecs: [new EncryptionCodec(config.secretKey, config.fallbackKeys)] }
-            : undefined,
+        // A render's memory grows for minutes after pickup, so a fixed slot count keeps taking work on a
+        // pod that is already near its limit. The tuner stops taking work above these targets, and the
+        // ramp throttle gives each new render time to show its memory before the next slot opens.
+        tuner: {
+            tunerOptions: {
+                targetMemoryUsage: config.tunerTargetMemoryUsage,
+                targetCpuUsage: config.tunerTargetCpuUsage,
+            },
+            activityTaskSlotOptions: {
+                minimumSlots: 1,
+                maximumSlots: config.maxConcurrentActivities,
+                rampThrottle: config.tunerRampThrottleMs,
+            },
+        },
+        dataConverter: { payloadCodecs: [payloadCodec] },
         // Throttle heartbeat *server flushes* (not heartbeat() calls) to 2s. Without
         // this override, the SDK throttles to 80% of the activity's heartbeat_timeout
         // (30s → 24s), which means capture-phase frame progress never reaches the
         // parent workflow on short recordings. 2s matches the summary polling cadence.
         defaultHeartbeatThrottleInterval: '2s',
         maxHeartbeatThrottleInterval: '5s',
+        // Let in-flight renders finish after shutdown() instead of cancelling them right away (SDK default 0).
+        shutdownGraceTime: config.shutdownGraceTimeMs,
     })
 
     metricsServer.setReady(true)

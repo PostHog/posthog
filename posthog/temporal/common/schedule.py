@@ -64,6 +64,17 @@ async def a_create_schedule(
     )
 
 
+def _keep_pause(schedule: Schedule, current: ScheduleDescription) -> None:
+    """Carry a pause, and the note that gives its reason, onto a replacement definition.
+
+    An update replaces the whole schedule, its state included, so a definition built unpaused would
+    otherwise unpause a schedule that something paused on purpose.
+    """
+    if current.schedule.state.paused:
+        schedule.state.paused = True
+        schedule.state.note = current.schedule.state.note
+
+
 @async_to_sync
 async def update_schedule(
     temporal: Client,
@@ -71,6 +82,7 @@ async def update_schedule(
     schedule: Schedule,
     keep_tz: bool = False,
     search_attributes: TypedSearchAttributes | None = None,
+    keep_paused: bool = False,
 ) -> None:
     """Update a Temporal Schedule."""
     handle = temporal.get_schedule_handle(id)
@@ -79,7 +91,9 @@ async def update_schedule(
         desc = await handle.describe()
         schedule.spec.time_zone_name = desc.schedule.spec.time_zone_name
 
-    async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
+    async def updater(update_input: ScheduleUpdateInput) -> ScheduleUpdate:
+        if keep_paused:
+            _keep_pause(schedule, update_input.description)
         return ScheduleUpdate(schedule=schedule, search_attributes=search_attributes)
 
     return await handle.update(
@@ -92,11 +106,14 @@ async def a_update_schedule(
     id: str,
     schedule: Schedule,
     search_attributes: TypedSearchAttributes | None = None,
+    keep_paused: bool = False,
 ) -> None:
     """Async update a Temporal Schedule."""
     handle = temporal.get_schedule_handle(id)
 
-    async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
+    async def updater(update_input: ScheduleUpdateInput) -> ScheduleUpdate:
+        if keep_paused:
+            _keep_pause(schedule, update_input.description)
         return ScheduleUpdate(schedule=schedule, search_attributes=search_attributes)
 
     return await handle.update(

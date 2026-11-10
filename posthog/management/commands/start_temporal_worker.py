@@ -1,13 +1,14 @@
 import os
+import time
 import signal
 import typing
 import asyncio
 import datetime as dt
-import functools
 import threading
 import faulthandler
 import collections.abc
 from collections import defaultdict
+from enum import StrEnum
 
 import structlog
 from temporalio import workflow
@@ -19,8 +20,10 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand, CommandError
 
+from posthog.hogql import parser as hogql_parser
+
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
@@ -42,6 +45,10 @@ from posthog.temporal.backfill_materialized_property import (
     ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
     BackfillMaterializedPropertiesBatchWorkflow,
 )
+from posthog.temporal.billing_active_sync import (
+    ACTIVITIES as BILLING_ACTIVE_SYNC_ACTIVITIES,
+    WORKFLOWS as BILLING_ACTIVE_SYNC_WORKFLOWS,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -50,7 +57,9 @@ from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
+from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
+from posthog.temporal.common.zombie_exit import ZombieActivityExit
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     SEMANTIC_ENRICHMENT_ACTIVITIES,
@@ -105,6 +114,7 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
+from posthog.temporal.session_replay.copy_recording import COPY_RECORDING_ACTIVITIES, COPY_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.count_playlist_items import (
     COUNT_PLAYLIST_ITEMS_ACTIVITIES,
     COUNT_PLAYLIST_ITEMS_WORKFLOWS,
@@ -131,16 +141,13 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
-from posthog.temporal.sync_person_distinct_ids import (
-    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
-    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
-)
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
 )
 from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
+    AGGREGATION_ACTIVITIES as USAGE_REPORTS_AGGREGATION_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
 from posthog.temporal.warehouse_sources_queue_partition_management import (
@@ -152,7 +159,20 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.aeo.backend.facade.temporal import (
+    ACTIVITIES as AEO_BRAND_SENTIMENT_ACTIVITIES,
+    WORKFLOWS as AEO_BRAND_SENTIMENT_WORKFLOWS,
+)
+from products.ai_observability.backend.facade.temporal import (
+    ACTIVITIES as AI_OBSERVABILITY_PRODUCT_ACTIVITIES,
+    WORKFLOWS as AI_OBSERVABILITY_PRODUCT_WORKFLOWS,
+)
 from products.alerts.backend.facade.temporal import (
+    PLATFORM_AI_QUEUE_ACTIVITIES as INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
+    PLATFORM_EVALUATION_ACTIVITIES as INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
+    PLATFORM_EVALUATION_WORKFLOWS as INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
+)
+from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES as ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS as ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES as ALERTS_PLATFORM_EVALUATION_ACTIVITIES,
@@ -164,19 +184,21 @@ from products.autoresearch.backend.facade.temporal import (
     ACTIVITIES as AUTORESEARCH_ACTIVITIES,
     WORKFLOWS as AUTORESEARCH_WORKFLOWS,
 )
-from products.batch_exports.backend.temporal import (
+from products.batch_exports.backend.facade.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
 from products.billing_alerts.backend.temporal import (
     ACTIVITIES as BILLING_ALERTS_ACTIVITIES,
+    PLATFORM_EVALUATION_ACTIVITIES as BILLING_PLATFORM_EVALUATION_ACTIVITIES,
+    PLATFORM_EVALUATION_WORKFLOWS as BILLING_PLATFORM_EVALUATION_WORKFLOWS,
     WORKFLOWS as BILLING_ALERTS_WORKFLOWS,
 )
 from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
-from products.canvas.backend.temporal.registry import (
+from products.canvas.backend.facade.temporal import (
     ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
     WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
 )
@@ -220,18 +242,23 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
+    EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
-)
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
     WORKFLOWS as GROWTH_WORKFLOWS,
 )
+from products.knowledge_writer.backend.facade.temporal import (
+    ACTIVITIES as KNOWLEDGE_WRITER_ACTIVITIES,
+    WORKFLOWS as KNOWLEDGE_WRITER_WORKFLOWS,
+)
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    PLATFORM_SIGNAL_ACTIVITIES as LOGS_PLATFORM_SIGNAL_ACTIVITIES,
+    PLATFORM_SIGNAL_WORKFLOWS as LOGS_PLATFORM_SIGNAL_WORKFLOWS,
     SOURCE_EVALUATION_ACTIVITIES as LOGS_SOURCE_EVALUATION_ACTIVITIES,
     SOURCE_EVALUATION_WORKFLOWS as LOGS_SOURCE_EVALUATION_WORKFLOWS,
     VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
@@ -245,6 +272,16 @@ from products.logs.backend.temporal.retention_entitlements import (
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
+)
+from products.messaging.backend.facade.temporal import (
+    ACTIVITIES as MESSAGING_IMPORT_ACTIVITIES,
+    WORKFLOWS as MESSAGING_IMPORT_WORKFLOWS,
+)
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ACTIVITIES,
+    METRICS_ALERT_EVALUATION_ACTIVITIES,
+    METRICS_ALERT_EVALUATION_WORKFLOWS,
+    WORKFLOWS as METRICS_WORKFLOWS,
 )
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
@@ -267,7 +304,7 @@ from products.replay_vision.backend.temporal import (
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
-from products.review_hog.backend.temporal import (
+from products.review_hog.backend.facade.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
 )
@@ -275,21 +312,37 @@ from products.security.backend.facade.temporal import (
     ACTIVITIES as SECURITY_ACTIVITIES,
     WORKFLOWS as SECURITY_WORKFLOWS,
 )
-from products.signals.backend.emission.temporal_settings import (
+from products.signals.backend.facade.temporal import (
+    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-)
-from products.signals.backend.temporal import (
-    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    SELF_DRIVING_ACTIVITIES,
+    SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
+)
+from products.slack_app.backend.facade.temporal import (
+    ACTIVITIES as SLACK_APP_ACTIVITIES,
+    WORKFLOWS as SLACK_APP_WORKFLOWS,
 )
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
 )
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
+)
+from products.today.backend.facade.temporal import (
+    ACTIVITIES as TODAY_ACTIVITIES,
+    WORKFLOWS as TODAY_WORKFLOWS,
+)
+from products.tracing.backend.facade.temporal import (
+    TRACES_ALERT_EVALUATION_ACTIVITIES,
+    TRACES_ALERT_EVALUATION_WORKFLOWS,
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
@@ -299,20 +352,31 @@ from products.warehouse_sources.backend.facade.temporal import (
     PERSON_PROPERTY_BACKFILL_WORKFLOWS,
     PERSON_PROPERTY_SYNC_ACTIVITIES,
     PERSON_PROPERTY_SYNC_WORKFLOWS,
+    WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
+    WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
+)
+from products.warehouse_suggestions.backend.facade.temporal import (
+    ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
+    WORKFLOWS as WAREHOUSE_SUGGESTIONS_WORKFLOWS,
 )
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
+)
+from products.web_analytics.backend.temporal.page_history.registry import (
+    ACTIVITIES as HEATMAP_PAGE_HISTORY_ACTIVITIES,
+    WORKFLOWS as HEATMAP_PAGE_HISTORY_WORKFLOWS,
 )
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
-# When adding modules to a queue, also update the corresponding CI trigger
-# in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
+# When adding modules to a queue, also add their paths to that fleet's filter: the
+# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml, or
+# .github/shared-image-releases.yaml for fleets published through their own channel
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -349,8 +413,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
-        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS,
-        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES,
+        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS + WAREHOUSE_SUGGESTIONS_WORKFLOWS,
+        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES + WAREHOUSE_SUGGESTIONS_ACTIVITIES,
     ),
     (
         settings.GENERAL_PURPOSE_TASK_QUEUE,
@@ -361,10 +425,10 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
         + DLQ_REPLAY_WORKFLOWS
-        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENT_CANARY_WORKFLOWS
         + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
+        + EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + [BackfillMaterializedPropertiesBatchWorkflow]
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
@@ -378,7 +442,9 @@ _task_queue_specs = [
         + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
-        + SECURITY_WORKFLOWS,
+        + SECURITY_WORKFLOWS
+        + TODAY_WORKFLOWS
+        + METRICS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -387,10 +453,10 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_ACTIVITIES
         + LLM_ANALYTICS_ACTIVITIES
         + DLQ_REPLAY_ACTIVITIES
-        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + EXPERIMENT_CANARY_ACTIVITIES
         + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
+        + EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
@@ -404,7 +470,9 @@ _task_queue_specs = [
         + NOTEBOOKS_ACTIVITIES
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
-        + SECURITY_ACTIVITIES,
+        + SECURITY_ACTIVITIES
+        + TODAY_ACTIVITIES
+        + METRICS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -421,10 +489,29 @@ _task_queue_specs = [
         CANVAS_BUILD_WORKFLOWS,
         CANVAS_BUILD_ACTIVITIES,
     ),
+    # Messaging provider imports. MESSAGING_IMPORT_TASK_QUEUE defaults to the general-purpose queue name (so it
+    # merges into that fleet until a dedicated worker exists).
+    (
+        settings.MESSAGING_IMPORT_TASK_QUEUE,
+        MESSAGING_IMPORT_WORKFLOWS,
+        MESSAGING_IMPORT_ACTIVITIES,
+    ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
         EXPERIMENTS_RECALCULATION_WORKFLOWS,
         EXPERIMENTS_RECALCULATION_ACTIVITIES,
+    ),
+    # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+    # recalculation ClickHouse queries run at the same time.
+    (
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -447,13 +534,10 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        # PostHog Desktop Slack workflows are also registered on MAX_AI_TASK_QUEUE.
-        # First step of merging them onto this queue — once master traffic has
-        # cut over and any in-flight runs have drained, drop them from
-        # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
-        # products/slack_app to settings.TASKS_TASK_QUEUE.
-        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
-        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
+        # PostHog Desktop Slack workflows share this queue with ProcessTaskWorkflow,
+        # which they hand off to once a repo is picked.
+        TASKS_WORKFLOWS + SLACK_APP_WORKFLOWS,
+        TASKS_ACTIVITIES + SLACK_APP_ACTIVITIES,
     ),
     (
         settings.WIZARD_TASK_QUEUE,
@@ -463,7 +547,7 @@ _task_queue_specs = [
     (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
-        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
+        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES + INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     ),
     (
         settings.TEST_TASK_QUEUE,
@@ -472,12 +556,18 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS + BILLING_ALERTS_WORKFLOWS,
+        QUOTA_LIMITING_WORKFLOWS
+        + SALESFORCE_ENRICHMENT_WORKFLOWS
+        + USAGE_REPORTS_WORKFLOWS
+        + BILLING_ALERTS_WORKFLOWS
+        + BILLING_ACTIVE_SYNC_WORKFLOWS,
         QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
-        + BILLING_ALERTS_ACTIVITIES,
+        + BILLING_ALERTS_ACTIVITIES
+        + BILLING_ACTIVE_SYNC_ACTIVITIES,
     ),
+    (settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE, [], USAGE_REPORTS_AGGREGATION_ACTIVITIES),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
         SIGNALS_PRODUCT_WORKFLOWS
@@ -485,17 +575,20 @@ _task_queue_specs = [
         + BUSINESS_KNOWLEDGE_WORKFLOWS
         + CONVERSATIONS_WORKFLOWS
         + CUSTOMER_ANALYTICS_WORKFLOWS
+        + KNOWLEDGE_WRITER_WORKFLOWS
         + REVIEW_HOG_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
         + CONVERSATIONS_ACTIVITIES
         + CUSTOMER_ANALYTICS_ACTIVITIES
+        + KNOWLEDGE_WRITER_ACTIVITIES
         + REVIEW_HOG_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
         COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + COPY_RECORDING_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
@@ -503,6 +596,7 @@ _task_queue_specs = [
         + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
@@ -524,14 +618,15 @@ _task_queue_specs = [
         WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
     ),
     (
+        # AEO brand sentiment rides this queue because its image is the one that carries the ONNX sentiment model.
         settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
+        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS + AEO_BRAND_SENTIMENT_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES + AEO_BRAND_SENTIMENT_ACTIVITIES,
     ),
     (
         settings.LLMA_TASK_QUEUE,
-        LLM_ANALYTICS_WORKFLOWS,
-        LLM_ANALYTICS_ACTIVITIES,
+        LLM_ANALYTICS_WORKFLOWS + AI_OBSERVABILITY_PRODUCT_WORKFLOWS,
+        LLM_ANALYTICS_ACTIVITIES + AI_OBSERVABILITY_PRODUCT_ACTIVITIES,
     ),
     (
         # MCP analytics clustering. MCPA_TASK_QUEUE defaults to the
@@ -558,6 +653,11 @@ _task_queue_specs = [
         EVENT_SCREENSHOTS_ACTIVITIES,
     ),
     (
+        settings.WEB_ANALYTICS_TASK_QUEUE,
+        HEATMAP_PAGE_HISTORY_WORKFLOWS,
+        HEATMAP_PAGE_HISTORY_ACTIVITIES,
+    ),
+    (
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
@@ -575,6 +675,11 @@ _task_queue_specs = [
         AUTORESEARCH_ACTIVITIES,
     ),
     (
+        settings.SELF_DRIVING_TASK_QUEUE,
+        SELF_DRIVING_WORKFLOWS,
+        SELF_DRIVING_ACTIVITIES,
+    ),
+    (
         settings.STAMPHOG_TASK_QUEUE,
         STAMPHOG_WORKFLOWS,
         STAMPHOG_ACTIVITIES,
@@ -586,13 +691,25 @@ _task_queue_specs = [
     ),
     (
         settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        ALERTS_PLATFORM_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS,
-        ALERTS_PLATFORM_EVALUATION_ACTIVITIES + LOGS_SOURCE_EVALUATION_ACTIVITIES,
+        ALERTS_PLATFORM_EVALUATION_WORKFLOWS
+        + LOGS_SOURCE_EVALUATION_WORKFLOWS
+        + INSIGHT_PLATFORM_EVALUATION_WORKFLOWS
+        + BILLING_PLATFORM_EVALUATION_WORKFLOWS
+        + WAREHOUSE_ALERT_EVALUATION_WORKFLOWS
+        + METRICS_ALERT_EVALUATION_WORKFLOWS
+        + TRACES_ALERT_EVALUATION_WORKFLOWS,
+        ALERTS_PLATFORM_EVALUATION_ACTIVITIES
+        + LOGS_SOURCE_EVALUATION_ACTIVITIES
+        + INSIGHT_PLATFORM_EVALUATION_ACTIVITIES
+        + BILLING_PLATFORM_EVALUATION_ACTIVITIES
+        + WAREHOUSE_ALERT_EVALUATION_ACTIVITIES
+        + METRICS_ALERT_EVALUATION_ACTIVITIES
+        + TRACES_ALERT_EVALUATION_ACTIVITIES,
     ),
     (
         settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
-        ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
-        ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
+        ALERTS_PLATFORM_DELIVERY_WORKFLOWS + LOGS_PLATFORM_SIGNAL_WORKFLOWS,
+        ALERTS_PLATFORM_DELIVERY_ACTIVITIES + LOGS_PLATFORM_SIGNAL_ACTIVITIES,
     ),
 ]
 
@@ -616,7 +733,7 @@ def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
-if settings.DEBUG:
+if settings.DEBUG or settings.TEMPORAL_USE_SINGLE_TASK_QUEUE:
     TASK_QUEUE_METRIC_PREFIXES = {}
 else:
     TASK_QUEUE_METRIC_PREFIXES = {
@@ -624,6 +741,33 @@ else:
     }
 
 LOGGER = get_logger(__name__)
+
+
+class WorkerRole(StrEnum):
+    ALL = "all"
+    WORKFLOWS = "workflows"
+    ACTIVITIES = "activities"
+
+
+def apply_hogql_shadow_sample_rate_override() -> None:
+    """Sets HogQL's cpp shadow parse rate for this worker from `HOGQL_PARSER_SHADOW_SAMPLE_RATE`.
+
+    The cpp shadow parse holds the GIL for the whole parse, and on a large expression that stalls
+    workflow tasks past Temporal's 2s deadlock detector. Remove this once the parser reads the
+    variable itself.
+    """
+    raw = os.environ.get("HOGQL_PARSER_SHADOW_SAMPLE_RATE")
+    if raw is None:
+        return
+    try:
+        rate = float(raw)
+    except ValueError:
+        LOGGER.warning("Ignoring invalid HOGQL_PARSER_SHADOW_SAMPLE_RATE", value=raw)
+        return
+    if not 0.0 <= rate <= 1.0:
+        LOGGER.warning("Ignoring invalid HOGQL_PARSER_SHADOW_SAMPLE_RATE", value=raw)
+        return
+    hogql_parser._SHADOW_SAMPLE_RATE = rate
 
 
 class Command(BaseCommand):
@@ -687,6 +831,12 @@ class Command(BaseCommand):
             type=int,
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
+        )
+        parser.add_argument(
+            "--worker-role",
+            choices=[role.value for role in WorkerRole],
+            default=settings.TEMPORAL_WORKER_ROLE,
+            help="Poll only the workflow tasks or only the activity tasks of the task queue, or both",
         )
         parser.add_argument(
             "--use-pydantic-converter",
@@ -766,6 +916,15 @@ class Command(BaseCommand):
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
 
+        # Temporal keeps workflow tasks and activity tasks apart even on one queue name, so a workflows
+        # worker and an activities worker on the same queue split its work between them. This runs after
+        # the source preload, because an activities-only data-sync worker still runs the syncs.
+        worker_role = WorkerRole(options["worker_role"])
+        if worker_role == WorkerRole.WORKFLOWS:
+            activities = []
+        elif worker_role == WorkerRole.ACTIVITIES:
+            workflows = []
+
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
 
@@ -773,6 +932,10 @@ class Command(BaseCommand):
 
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
+        # `kill -USR1 <pid>` dumps every thread's stack to stderr and leaves the worker running. It
+        # works while a thread holds the GIL, and in containers where py-spy cannot ptrace.
+        faulthandler.register(signal.SIGUSR1)
+        apply_hogql_shadow_sample_rate_override()
 
         metrics_port = int(options["metrics_port"])
 
@@ -808,12 +971,40 @@ class Command(BaseCommand):
 
             logger.info("Initiating shutdown")
 
+            # Each activity that runs now holds this pod until it returns or the graceful shutdown
+            # timeout ends, so this list shows what a slow shutdown waits on.
+            running_activities = get_liveness_tracker().get_running_activities()
+            now = time.time()
+            logger.info("Activities running at shutdown", count=len(running_activities))
+            for running in running_activities:
+                logger.info(
+                    "Activity running at shutdown",
+                    activity_type=running.activity_type,
+                    workflow_type=running.workflow_type,
+                    workflow_id=running.workflow_id,
+                    attempt=running.attempt,
+                    running_seconds=round(now - running.started_at),
+                )
+
             # Shutdown health server first so k8s stops sending traffic
             if health_srv:
                 await health_srv.stop()
 
+            zombie_exit: ZombieActivityExit | None = None
+            if settings.TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED:
+                zombie_exit = ZombieActivityExit(
+                    tracker=get_liveness_tracker(),
+                    grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
+                    task_queue=task_queue,
+                )
+                zombie_exit.start()
+
             # Then shutdown the worker
-            await worker.shutdown()
+            try:
+                await worker.shutdown()
+            finally:
+                if zombie_exit is not None:
+                    zombie_exit.stop()
 
         def shutdown_on_signal(
             worker: ManagedWorker,
@@ -837,6 +1028,7 @@ class Command(BaseCommand):
                 port=temporal_port,
                 namespace=namespace,
                 task_queue=task_queue,
+                worker_role=worker_role,
                 graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
@@ -846,6 +1038,8 @@ class Command(BaseCommand):
                 health_port=health_port,
                 health_max_idle_seconds=health_max_idle_seconds,
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
+                zombie_exit_enabled=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED,
+                zombie_exit_grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
             )
             logger.info("Starting Temporal Worker")
 
@@ -918,13 +1112,21 @@ class Command(BaseCommand):
                     f"No healthcheck server due to health_port={health_port} and health_max_idle_seconds={health_max_idle_seconds}"
                 )
 
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    functools.partial(shutdown_on_signal, worker=worker, health_srv=health_server, sig=sig, loop=loop),
-                )
+            signal_listener = ShutdownSignalListener()
+            signal_listener.install()
 
-            runner.run(worker.run())
+            async def run_until_worker_stops() -> None:
+                async def shut_down_on_first_signal() -> None:
+                    sig = await signal_listener.wait()
+                    shutdown_on_signal(worker=worker, health_srv=health_server, sig=sig, loop=loop)
+
+                signal_watcher = asyncio.create_task(shut_down_on_first_signal())
+                try:
+                    await worker.run()
+                finally:
+                    _ = signal_watcher.cancel()
+
+            runner.run(run_until_worker_stops())
 
             if shutdown_task:
                 logger.info("Waiting on shutdown_task")

@@ -12,6 +12,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -26,7 +27,6 @@ import { BillingChart } from './BillingChart'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
-import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { billingSpendLogic } from './billingSpendLogic'
 import { TOP_PROJECTS_OPTIONS } from './constants'
@@ -58,8 +58,8 @@ export function BillingSpendView(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
+        reportedProjectIdsLoading,
         teamOptions,
-        teamIdOptionsLoading,
         billingPeriodMarkers,
     } = useValues(logic)
     const {
@@ -110,7 +110,7 @@ export function BillingSpendView(): JSX.Element {
                     {/* Projects */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Projects</LemonLabel>
-                        {teamIdOptionsLoading ? (
+                        {reportedProjectIdsLoading ? (
                             <LemonInput className="w-50 h-10" placeholder="Loading projects…" disabled />
                         ) : (
                             <LemonInputSelect

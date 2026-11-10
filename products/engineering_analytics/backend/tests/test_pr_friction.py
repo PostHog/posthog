@@ -217,6 +217,8 @@ class TestPRFrictionView(_WarehouseMixin):
             query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
         )
         assert response.columns == list(pr_friction.FIELDS)
+        # A materialization would store a UInt8 flag as Int16, which a stored read cannot use as a condition.
+        assert dict(response.types or [])["is_bot"] == "Nullable(Bool)"
         return {row[2]: dict(zip(response.columns, row)) for row in response.results}
 
     def _seed_depot_ci(self) -> None:
@@ -224,6 +226,7 @@ class TestPRFrictionView(_WarehouseMixin):
         self._create_depot_table(
             [
                 _depot_attempt_row(
+                    run_id="00000003fc",
                     ref="refs/pull/36/merge",
                     head_sha="sha36",
                     workflow_name="Backend CI on Depot",
@@ -281,6 +284,8 @@ class TestPRFrictionView(_WarehouseMixin):
 
         assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39, 40, 41, 42, 43, 44}
         assert view_figures == timeline_figures
+        assert view_figures[31]["flake_red_count"] == 1
+        assert view_figures[31]["ci_running"] == 20 * 60
         if with_depot_ci:
             assert view_figures[36]["ci_running"] > 0
 

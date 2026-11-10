@@ -3,7 +3,11 @@
 // three tab types (reports / pull requests / runs), suggested-reviewer ("for
 // you") reports, conventional-commit titles, and varying agent-run volume.
 
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { SignalNode } from 'scenes/debug/signals/types'
+
+import type { SignalReportAssigneeApi, _UserApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../types'
 
@@ -133,6 +137,42 @@ export const reportTabReports: SignalReport[] = [
 ]
 
 // ── Pull requests tab ───────────────────────────────────────────────────────
+
+type ClaimUser = Pick<_UserApi, 'id' | 'uuid' | 'first_name' | 'email'>
+
+export function userClaim(user: ClaimUser): SignalReportAssigneeApi {
+    const person = { ...user, last_name: '' }
+    return {
+        claim_id: null,
+        kind: 'user',
+        user: person,
+        task_id: null,
+        agent: null,
+        claimed_at: BASE_DATE,
+        responsible_user: person,
+    }
+}
+
+export function agentClaim(user: ClaimUser, agent: string): SignalReportAssigneeApi {
+    return { ...userClaim(user), kind: 'agent', agent }
+}
+
+export const myClaim = userClaim(MOCK_DEFAULT_USER)
+export const myAgentClaim = agentClaim(MOCK_DEFAULT_USER, 'claude-code')
+export const teammateClaim = userClaim({
+    id: 2,
+    uuid: 'teammate-uuid',
+    first_name: 'Robin',
+    email: 'robin@example.com',
+})
+
+// The Reports tab rows with one claimed by the current user, one by their agent, and one by a teammate.
+const CLAIMS_BY_ROW: (SignalReportAssigneeApi | null)[] = [myClaim, teammateClaim, null, myAgentClaim]
+
+export const claimedReports: SignalReport[] = reportTabReports.map((report, index) => ({
+    ...report,
+    assignee: CLAIMS_BY_ROW[index] ?? null,
+}))
 
 export const pullRequestReports: SignalReport[] = [
     makeReport({
@@ -268,9 +308,31 @@ export const allReports: SignalReport[] = [...reportTabReports, ...pullRequestRe
 
 // ── Detail-endpoint payloads ────────────────────────────────────────────────
 
+/** Answers `POST signals/reports/source_metadata/` from the given reports, as the inbox list loads its source line. */
+export function mockSourceMetadata(
+    reports: SignalReport[]
+): ({ request }: { request: Request }) => Promise<[number, { reports: object[] }]> {
+    return async ({ request }) => {
+        const { report_ids } = (await request.json()) as { report_ids: string[] }
+        const byId = new Map(reports.map((report) => [report.id, report]))
+        return [
+            200,
+            {
+                reports: report_ids.map((id) => ({
+                    id,
+                    source_products: byId.get(id)?.source_products ?? [],
+                    scout_name: byId.get(id)?.scout_name ?? null,
+                })),
+            },
+        ]
+    }
+}
+
 export function mockSignals(reportId: string, count = 4): SignalNode[] {
     return Array.from({ length: count }).map((_, i) => ({
         signal_id: `${reportId}-sig-${i}`,
+        total_spend: null,
+        spend_accounting_failed_stages: [],
         content: [
             'User clicked **Submit** with an empty recipient row; the request returned `500` from `/api/invites`.',
             'Session shows three retries of the same failing checkout call before the user gave up.',
@@ -467,7 +529,7 @@ export function mockTaskRun(taskId: string, runId: string): any {
 }
 
 /**
- * A single-message agent run log as JSONL — what the `/runs/:runId/logs` endpoint returns (one
+ * A single-message agent run log as JSONL — what the `/runs/:runId/log_entries` endpoint returns (one
  * `StoredLogEntry` per line). One `agent_message` frame so the run viewer renders a single assistant
  * bubble instead of the "conversation backing run not found" error.
  */

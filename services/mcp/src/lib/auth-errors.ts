@@ -7,28 +7,28 @@
 
 import type { CloudRegion } from '@/tools/types'
 
-import {
-    buildInsufficientScopeChallenge,
-    ErrorCode,
-    findPostHogPermissionError,
-    formatPermissionErrorMessage,
-} from './errors'
+import { ErrorCode, findPostHogPermissionError, formatPermissionErrorMessage, PostHogPermissionError } from './errors'
 import { isIdJagAccessToken } from './id-jag'
+import { buildInsufficientScopeChallenge, InsufficientScopeError, insufficientScopeResponse } from './missing-scope'
 import { MCP_DOCS_URL } from './oauth-constants'
 import { getPublicUrl } from './routing'
 
 // Map a thrown error to the appropriate auth response, or null if not auth-related.
 // Callers handle the null case (typically by emitting observability + returning 500).
 export function mapErrorToAuthResponse(error: unknown): Response | null {
+    if (error instanceof InsufficientScopeError) {
+        return insufficientScopeResponse(error.message, error.challenge)
+    }
+
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {
-        return new Response(formatPermissionErrorMessage(permissionError), {
-            status: 403,
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
-            },
-        })
+        // A request can fail here before token introspection has run, so the API's own challenge
+        // is the step-up signal. The API sends one only for a token whose app supports step-up,
+        // which is the same token flag introspection reports.
+        return insufficientScopeResponse(
+            formatPermissionErrorMessage(permissionError),
+            permissionError.challengeScopes && buildInsufficientScopeChallenge(permissionError.requiredScopes ?? [])
+        )
     }
 
     if (error instanceof Error) {
@@ -36,6 +36,25 @@ export function mapErrorToAuthResponse(error: unknown): Response | null {
     }
 
     return null
+}
+
+// Other items of a batch may already have run tools, and a step-up client replays the whole
+// request after re-consent, so a batch's 403 must not carry the challenge.
+export function withoutStepUpChallenge(error: unknown): unknown {
+    const permissionError = findPostHogPermissionError(error)
+    if (!permissionError?.challengeScopes) {
+        return error
+    }
+    return new PostHogPermissionError({
+        detail: permissionError.detail,
+        missingScope: permissionError.missingScope,
+        url: permissionError.url,
+        method: permissionError.method,
+    })
+}
+
+export function isStepUpChallengeError(error: unknown): boolean {
+    return error instanceof InsufficientScopeError || findPostHogPermissionError(error)?.challengeScopes !== undefined
 }
 
 export type McpAuthFailureReason =
@@ -55,9 +74,15 @@ export interface McpAuthFailure {
 export function classifyAuthFailure(error: unknown): McpAuthFailure {
     const status = mapErrorToAuthResponse(error)?.status
 
+    if (error instanceof InsufficientScopeError) {
+        return { reason: 'insufficient_scope', status, missingScope: error.requiredScopes.join(' ') }
+    }
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {
-        return { reason: 'insufficient_scope', status, missingScope: permissionError.missingScope }
+        const missingScope = permissionError.challengeScopes
+            ? permissionError.requiredScopes?.join(' ')
+            : permissionError.missingScope
+        return { reason: 'insufficient_scope', status, missingScope }
     }
 
     const message = error instanceof Error ? error.message : ''
@@ -75,31 +100,79 @@ export function classifyAuthFailure(error: unknown): McpAuthFailure {
 // marker in the body (e.g. SDK transport wrappers).
 export function mapKnownErrorMessage(text: string): Response | null {
     if (text.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-        return new Response('OAuth token is inactive', { status: 401 })
+        return buildRejectedTokenResponse('OAuth token is inactive')
     }
     if (text.includes(ErrorCode.INVALID_API_KEY)) {
-        return new Response('Invalid API key', { status: 401 })
+        return buildRejectedTokenResponse('Invalid API key')
     }
     return null
+}
+
+// RFC 6750 requires a `WWW-Authenticate` challenge on every 401. Without `error="invalid_token"`,
+// an OAuth client reads the 401 as a plain failure and keeps sending the rejected token.
+// The challenge has no `resource_metadata`, because the Hono runtime sits behind the worker proxy
+// and does not know the origin the client connected to. The worker adds it, and a client that
+// connects to Hono directly discovers the metadata from its own server URL.
+function buildRejectedTokenResponse(description: string): Response {
+    return new Response(description, {
+        status: 401,
+        headers: { 'WWW-Authenticate': `Bearer error="invalid_token", error_description="${description}"` },
+    })
+}
+
+export function isRejectedTokenChallenge(response: Response): boolean {
+    return response.status === 401 && (response.headers.get('WWW-Authenticate') ?? '').includes('error="invalid_token"')
+}
+
+export function isInsufficientScopeChallenge(response: Response): boolean {
+    return (
+        response.status === 403 &&
+        (response.headers.get('WWW-Authenticate') ?? '').includes('error="insufficient_scope"')
+    )
+}
+
+// The worker answers the protected-resource metadata request, so the metadata URL must name the
+// origin the client connected to, not the regional Hono origin that the proxy rewrites it to.
+export function withResourceMetadata(
+    response: Response,
+    request: Request,
+    effectiveRegion: CloudRegion | null
+): Response {
+    const challenge = response.headers.get('WWW-Authenticate')
+    if (!challenge) {
+        return response
+    }
+    const rewritten = new Response(response.body, response)
+    rewritten.headers.set(
+        'WWW-Authenticate',
+        `${challenge}, resource_metadata="${buildResourceMetadataUrl(request, effectiveRegion)}"`
+    )
+    return rewritten
+}
+
+// Per RFC 9728, the well-known path goes between the host and the resource path:
+// resource /mcp has its metadata at /.well-known/oauth-protected-resource/mcp.
+function buildResourceMetadataUrl(request: Request, effectiveRegion: CloudRegion | null): string {
+    const metadataUrl = getPublicUrl(request)
+    metadataUrl.pathname = `/.well-known/oauth-protected-resource${new URL(request.url).pathname}`
+    metadataUrl.search = ''
+    if (effectiveRegion) {
+        metadataUrl.searchParams.set('region', effectiveRegion)
+    }
+    return metadataUrl.toString()
 }
 
 // Build the RFC 9728 `WWW-Authenticate` response for an unauthenticated request.
 // The `resource_metadata` URL points clients at the protected-resource metadata so
 // they can discover the authorization server.
 export function buildMissingTokenResponse(request: Request, effectiveRegion: CloudRegion | null): Response {
-    const url = new URL(request.url)
-    const metadataUrl = getPublicUrl(request)
-    metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
-    metadataUrl.search = ''
-    if (effectiveRegion) {
-        metadataUrl.searchParams.set('region', effectiveRegion)
-    }
-
     return new Response(
         `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
         {
             status: 401,
-            headers: { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"` },
+            headers: {
+                'WWW-Authenticate': `Bearer resource_metadata="${buildResourceMetadataUrl(request, effectiveRegion)}"`,
+            },
         }
     )
 }

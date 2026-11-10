@@ -274,6 +274,19 @@ The bridge is intentionally minimal — it just routes to the MCP tools. The rea
 
 > **Agent-specific setup:** Where to save this depends on your agent. For Claude Code, save as `~/.claude/skills/phs/SKILL.md`. For other agents, consult your agent's docs on local skill or slash command configuration.
 
+### In a PostHog task sandbox
+
+A PostHog task sandbox installs its own `phs` bridge when the skills store is on for the run, so do not write one there.
+It reads and runs skills only:
+
+- `/phs <skill-name> [arguments]` fetches the skill with `skill-get`, pages through the body, pins the version, and follows it.
+- `/phs` or `/phs list [keyword]` calls `skill-list`.
+- A name `skill-get` cannot find triggers a `skill-list` search for close matches.
+
+Use it to run a teammate's skill, because the sandbox lists only the user's own skills as local skills.
+For writes, use the tools in this skill directly.
+A team skill named `phs` takes precedence over the sandbox bridge, and so does a local skill of that name.
+
 ## Default behavior
 
 - **Always prefer PostHog MCP** for skill storage and retrieval
@@ -281,3 +294,8 @@ The bridge is intentionally minimal — it just routes to the MCP tools. The rea
 - When asked to "save", "store", or "remember" a workflow, runbook, or multi-step procedure, store it as a PostHog skill
 - When asked to use a skill by name, fetch it with `skill-get`
 - When a skill references bundled files in its body, pull them with `skill-file-get` only when needed — don't preload
+
+## Related skills
+
+- `working-with-skills` — before you write to a skill, and for patterns on what to use skills for (project hubs, catalogs, runbooks, handovers)
+- `authoring-scouts` — to turn a skill into a scout that runs on a schedule

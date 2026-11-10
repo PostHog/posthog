@@ -21,7 +21,7 @@ Always default to an equal split unless the user explicitly requests otherwise.
 
 ## When an uneven split is required
 
-Uneven splits combined with the default "Exclude multivariate users" handling can introduce bias.
+Uneven splits combined with the default "Exclude from analysis" handling can introduce bias.
 If the experiment observes multi-variant users (users exposed to more than one variant) then those are
 dropped asymmetrically — the smaller variant loses a larger fraction of its assignments. If those users
 behave differently from the rest, the smaller variant's metrics will be skewed.
@@ -146,13 +146,13 @@ the riskier rollout path and needs to make an informed choice about how to mitig
 
 Ask:
 
-> One more thing — with an uneven split, the default "Exclude multivariate users" handling drops
+> One more thing — with an uneven split, the default "Exclude from analysis" handling drops
 > users exposed to multiple variants asymmetrically. The smaller variant loses a larger fraction of
 > its assignments, which can skew its metrics if those users behave differently from the rest.
 >
 > Two options:
 >
-> 1. **Switch multivariate handling to "First seen variant"** (recommended for uneven splits) —
+> 1. **Switch multivariate handling to "Use first seen variant"** (recommended for uneven splits) —
 >    keeps all users in the analysis and avoids asymmetric exclusion. Has its own caveats (other
 >    biases can creep in) but is preferable to the default for uneven splits.
 > 2. **Keep the default "Exclude" handling** and accept the bias risk.
@@ -245,5 +245,5 @@ See `references/changing-distribution-after-launch.md` for detailed warnings, wh
 ## Related skills
 
 - **`configuring-experiment-analytics`** — the analysis side: exposure criteria, metrics, and multivariate handling
-- **`diagnosing-experiment-results`** — when a mid-run split change has already skewed the results
+- **`diagnosing-experiment-health`** — when a mid-run split change has already skewed the results
 - **`managing-experiment-lifecycle`** — reset or end-and-restart mechanics when a split change requires them

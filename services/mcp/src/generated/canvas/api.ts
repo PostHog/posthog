@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -22,14 +22,23 @@ export const CanvasesListParams = () => zod.object({
         ),
 })
 
+export const canvasesListQueryLimitMax = 1000
+
 export const CanvasesListQueryParams = () => zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
+    created_by: zod.string().optional().describe('Only return canvases created by the user with this UUID.'),
     kind: zod
         .enum(['component', 'freeform', 'grid'])
         .optional()
         .describe('Only return canvases of this kind. kind=component lists the component store.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(canvasesListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-created_at', '-updated_at'])
+        .optional()
+        .describe(
+            'Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.'
+        ),
     search: zod
         .string()
         .optional()
@@ -140,6 +149,88 @@ export const CanvasesBuildsRetrieveQueryParams = () => zod.object({
 })
 
 /**
+ * The comment threads on this canvas, newest first. Open threads only unless include_resolved is set.
+ */
+export const CanvasesCommentsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesCommentsListQueryCursorMax = 256
+
+export const canvasesCommentsListQueryIncludeResolvedDefault = false
+export const canvasesCommentsListQueryLimitDefault = 50
+export const canvasesCommentsListQueryLimitMax = 100
+
+export const CanvasesCommentsListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(canvasesCommentsListQueryCursorMax)
+        .optional()
+        .describe('Opaque cursor returned by the previous page.'),
+    include_resolved: zod
+        .boolean()
+        .default(canvasesCommentsListQueryIncludeResolvedDefault)
+        .describe('Whether to include resolved comment threads.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(canvasesCommentsListQueryLimitMax)
+        .default(canvasesCommentsListQueryLimitDefault)
+        .describe('Maximum number of root comments to return.'),
+})
+
+/**
+ * One comment thread on this canvas: the root comment and its replies, oldest first.
+ */
+export const CanvasesCommentsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    root_comment_id: zod.string(),
+})
+
+export const canvasesCommentsRetrieveQueryContentOffsetDefault = 0
+export const canvasesCommentsRetrieveQueryContentOffsetMin = 0
+
+export const canvasesCommentsRetrieveQueryCursorMax = 256
+
+export const canvasesCommentsRetrieveQueryLimitDefault = 50
+export const canvasesCommentsRetrieveQueryLimitMax = 100
+
+export const CanvasesCommentsRetrieveQueryParams = () => zod.object({
+    comment_id: zod
+        .string()
+        .optional()
+        .describe('Comment id whose truncated body should continue. Use with content_offset.'),
+    content_offset: zod
+        .number()
+        .min(canvasesCommentsRetrieveQueryContentOffsetMin)
+        .default(canvasesCommentsRetrieveQueryContentOffsetDefault)
+        .describe('Byte offset returned as content_next_offset for the selected comment.'),
+    cursor: zod
+        .string()
+        .min(1)
+        .max(canvasesCommentsRetrieveQueryCursorMax)
+        .optional()
+        .describe('Opaque cursor returned by the previous page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(canvasesCommentsRetrieveQueryLimitMax)
+        .default(canvasesCommentsRetrieveQueryLimitDefault)
+        .describe('Maximum number of comments in the thread to return.'),
+})
+
+/**
  * Stage a complete source project as a draft version and build it, without publishing.
  *
  * The draft gets the same validation, versioning, and server-side build as
@@ -188,6 +279,10 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax = 200
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogToolsMax = 32
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
@@ -338,6 +433,17 @@ export const CanvasesDraftCreateBody = () => zod
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
                                 ),
+                            tools: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax)
+                                )
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogToolsMax)
+                                .optional()
+                                .describe(
+                                    "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review."
+                                ),
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
@@ -414,11 +520,6 @@ export const CanvasesDraftsRetrieveParams = () => zod.object({
         ),
 })
 
-export const CanvasesDraftsRetrieveQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
 /**
  * Publish file edits against the canvas's current source project.
  *
@@ -451,6 +552,10 @@ export const canvasesEditCreateBodyCapabilitiesOnePosthogStateMax = 2
 export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax = 64
 
 export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogToolsItemMax = 200
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogToolsMax = 32
 
 export const canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax = 2048
@@ -538,6 +643,13 @@ export const CanvasesEditCreateBody = () => zod
                         .optional()
                         .describe(
                             "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                        ),
+                    tools: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogToolsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogToolsMax)
+                        .optional()
+                        .describe(
+                            "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review."
                         ),
                     agentRequests: zod
                         .boolean()
@@ -1068,6 +1180,10 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsIte
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax = 200
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogToolsMax = 32
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -1219,6 +1335,17 @@ export const CanvasesPublishCreateBody = () => zod
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
                                 ),
+                            tools: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax)
+                                )
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogToolsMax)
+                                .optional()
+                                .describe(
+                                    "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review."
+                                ),
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
@@ -1352,6 +1479,8 @@ export const CanvasesStateRetrieveParams = () => zod.object({
         ),
 })
 
+export const canvasesStateRetrieveQueryCursorMax = 2048
+
 export const canvasesStateRetrieveQueryKeyMax = 200
 
 export const canvasesStateRetrieveQueryKeyPrefixMax = 200
@@ -1363,6 +1492,14 @@ export const canvasesStateRetrieveQueryOffsetDefault = 0
 export const canvasesStateRetrieveQueryOffsetMin = 0
 
 export const CanvasesStateRetrieveQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(canvasesStateRetrieveQueryCursorMax)
+        .optional()
+        .describe(
+            'Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.'
+        ),
     key: zod.string().min(1).max(canvasesStateRetrieveQueryKeyMax).optional().describe('Only read this exact key.'),
     key_prefix: zod
         .string()
@@ -1385,7 +1522,9 @@ export const CanvasesStateRetrieveQueryParams = () => zod.object({
         .number()
         .min(canvasesStateRetrieveQueryOffsetMin)
         .default(canvasesStateRetrieveQueryOffsetDefault)
-        .describe('Entry offset from next_offset. Keep filters unchanged between pages.'),
+        .describe(
+            'Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.'
+        ),
     scope: zod
         .enum(['user', 'shared'])
         .optional()
@@ -1510,6 +1649,10 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax = 200
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogToolsMax = 32
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
@@ -1659,6 +1802,17 @@ export const CanvasesValidateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
+                            tools: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax)
+                                )
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogToolsMax)
+                                .optional()
+                                .describe(
+                                    "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review."
                                 ),
                             agentRequests: zod
                                 .boolean()

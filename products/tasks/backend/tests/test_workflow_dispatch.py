@@ -1,3 +1,5 @@
+import os
+import signal
 import asyncio
 import threading
 from datetime import timedelta
@@ -6,8 +8,8 @@ from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
-from django.db import transaction
-from django.test import SimpleTestCase, TestCase
+from django.db import OperationalError, transaction
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from asgiref.sync import async_to_sync
@@ -26,10 +28,10 @@ from products.tasks.backend.facade.api import (
     maintain_workflow_dispatch_outbox,
     resume_task_run_in_cloud,
 )
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
-    WorkflowDispatchFlags,
     WorkflowDispatchOptions,
     build_create_payload,
     build_restart_payload,
@@ -46,6 +48,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
 )
 from products.tasks.backend.management.commands.run_task_workflow_dispatcher import (
     Command,
+    _capture_run_feature_flags_in_worker_thread,
     _scheduled_run_usage_error,
     _user_can_dispatch,
     dispatch_attempt_already_started,
@@ -54,6 +57,9 @@ from products.tasks.backend.metrics import WORKFLOW_DISPATCH_ATTEMPT_TOTAL
 from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
+
+SIGNAL_REPORT_PROFILE = get_task_profile("signals.custom_agent")
+SLACK_PROFILE = get_task_profile("slack")
 
 
 class TestWorkflowDispatchPayload(SimpleTestCase):
@@ -191,9 +197,20 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual([row.id for row in claimed], [dispatch.id])
         client = Mock(start_workflow=AsyncMock())
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture,
+        ):
             async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
 
+        dispatch_event = next(
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.args
+            and call.args[0] == "task_startup_step_completed"
+            and call.kwargs["properties"]["step"] == "dispatch"
+        )
+        self.assertEqual(dispatch_event["status"], "FAILED" if scheduled and (limited or deactivated) else "COMPLETED")
         dispatch.refresh_from_db()
         self.task_run.refresh_from_db()
         if scheduled and (limited or deactivated):
@@ -337,19 +354,43 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
         terminalize.assert_called_once_with(str(self.task_run.id), "invalid restart payload")
 
-    @patch("products.tasks.backend.feature_flags.is_workflow_dispatch_restart_enabled")
-    def test_restart_flag_is_evaluated_before_locking_run(self, restart_enabled: Mock) -> None:
-        baseline_atomic_depth = len(transaction.get_connection().atomic_blocks)
+    @parameterized.expand([(False,), (True,)])
+    def test_failed_restart_preserves_concurrent_state(self, use_dispatch: bool) -> None:
+        run = self.task_run
+        original_state = {"mode": "background", "sandbox_id": "old-sandbox", "pr_authorship_mode": "bot"}
+        run.status = TaskRun.Status.COMPLETED
+        run.environment = TaskRun.Environment.CLOUD
+        run.state = original_state.copy()
+        run.save(update_fields=["status", "environment", "state"])
+        concurrent_state = {
+            "unprocessed_request_ids": ["pending"],
+            "token_cost": {"model": {"provider": {"request_ids": ["settled"], "cost_microusd": 10_000}}},
+            "compute_cost": 3,
+            "token_cost_incomplete": True,
+            "task_summary": "Updated summary",
+        }
 
-        def assert_outside_transaction(*_args: object) -> bool:
-            self.assertEqual(len(transaction.get_connection().atomic_blocks), baseline_atomic_depth)
-            return True
+        def fail_restart(*args: object) -> None:
+            TaskRun.update_state_atomic(run.id, updates=concurrent_state)
+            raise RuntimeError("unavailable")
 
-        restart_enabled.side_effect = assert_outside_transaction
+        with (
+            override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=use_dispatch),
+            patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True),
+            patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow", side_effect=fail_restart),
+        ):
+            outcome, _, _ = resume_task_run_in_cloud(run.id, run.task_id, self.team.id, run.task.created_by_id)
 
-        outcome, _, _ = resume_task_run_in_cloud(self.task_run.id, self.task_run.task_id, self.team.id, None)
-
-        self.assertEqual(outcome, "already_active")
+        if use_dispatch:
+            assert outcome == "resumed"
+            dispatch = claim_dispatches("dispatcher-1", 1, timedelta(minutes=1))[0]
+            TaskRun.update_state_atomic(run.id, updates=concurrent_state)
+            assert mark_dead(dispatch.id, "dispatcher-1", "unavailable") == 1
+        else:
+            assert outcome == "workflow_failed"
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.COMPLETED
+        assert run.state == {**original_state, **concurrent_state}
 
     def test_reenqueuing_restart_resets_dispatch_age(self) -> None:
         snapshot = RestartSnapshot(
@@ -466,29 +507,20 @@ class TestWorkflowDispatchPersistence(TestCase):
         pending[1].refresh_from_db()
         self.assertEqual(pending[1].status, TaskWorkflowDispatch.Status.PENDING)
 
+    @parameterized.expand([("outbox_off", False, 0), ("outbox_on", True, 1)])
     @patch("products.tasks.backend.metrics.WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc")
-    @patch("products.tasks.backend.facade.api.is_workflow_dispatch_shadow_enabled", return_value=False)
-    def test_missing_intent_metric_stays_quiet_before_shadow_rollout(
-        self, _shadow_enabled: Mock, increment_missing_intent: Mock
-    ) -> None:
-        uncovered = filter_uncovered_workflow_dispatch_run_ids([self.task_run.id])
-
-        self.assertEqual(uncovered, [self.task_run.id])
-        increment_missing_intent.assert_not_called()
-
-    @patch("products.tasks.backend.metrics.WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc")
-    @patch("products.tasks.backend.facade.api.is_workflow_dispatch_shadow_enabled", return_value=True)
-    def test_missing_intent_counts_bare_runs_but_not_restart_rollout_gaps(
-        self, _shadow_enabled: Mock, increment_missing_intent: Mock
+    def test_missing_intent_counts_bare_runs_only_with_outbox(
+        self, _name: str, outbox_enabled: bool, expected_count: int, increment_missing_intent: Mock
     ) -> None:
         resumed_run = TaskRun.objects.create(
             task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED, state={"same_run_resume": True}
         )
 
-        uncovered = filter_uncovered_workflow_dispatch_run_ids([self.task_run.id, resumed_run.id])
+        with override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=outbox_enabled):
+            uncovered = filter_uncovered_workflow_dispatch_run_ids([self.task_run.id, resumed_run.id])
 
         self.assertEqual(uncovered, [self.task_run.id, resumed_run.id])
-        increment_missing_intent.assert_called_once()
+        self.assertEqual(increment_missing_intent.call_count, expected_count)
 
     def test_deferred_start_create_and_run_persists_dispatch_marker(self) -> None:
         creator_id = self.task_run.task.created_by_id
@@ -497,7 +529,7 @@ class TestWorkflowDispatchPersistence(TestCase):
             team=self.team,
             title="Deferred start",
             description="Created without starting the workflow",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             user_id=creator_id,
             create_pr=False,
             mode="interactive",
@@ -521,7 +553,7 @@ class TestWorkflowDispatchPersistence(TestCase):
             team=self.team,
             title="Scheduled follow-up",
             description="Review the report after more data arrives",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNAL_REPORT_PROFILE,
             user_id=creator_id,
             create_pr=False,
             scheduled_at=scheduled_at,
@@ -577,8 +609,10 @@ class TestWorkflowDispatchPersistence(TestCase):
             state=state,
         )
 
-        self.assertEqual(materialize_due_scheduled_task_runs(100), 1)
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
+            self.assertEqual(materialize_due_scheduled_task_runs(100), 1)
 
+        log_started.assert_called_once_with(due, [self.task_run.id])
         due.refresh_from_db()
         future.refresh_from_db()
         local.refresh_from_db()
@@ -798,16 +832,59 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
         self.assertEqual(materialize_due_scheduled_task_runs(10), 0)
 
+    def test_due_run_on_task_deleted_out_of_band_is_cancelled(self) -> None:
+        now = django_timezone.now()
+        deleted_task = Task.objects.create(
+            team=self.team,
+            created_by=self.task_run.task.created_by,
+            title="Deleted task",
+            description="Deleted without the scheduled-run cleanup",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        state = {
+            "pending_dispatch": {
+                "user_id": self.task_run.task.created_by_id,
+                "create_pr": False,
+                "posthog_mcp_scopes": "full",
+            }
+        }
+        orphaned = TaskRun.objects.create(
+            task=deleted_task,
+            team=self.team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now - timedelta(minutes=2),
+            state=state,
+        )
+        live = TaskRun.objects.create(
+            task=self.task_run.task,
+            team=self.team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now - timedelta(minutes=1),
+            state=state,
+        )
+        Task.objects.filter(id=deleted_task.id).update(deleted=True, deleted_at=now)
+
+        self.assertEqual(materialize_due_scheduled_task_runs(10), 1)
+
+        orphaned.refresh_from_db()
+        live.refresh_from_db()
+        self.assertEqual(orphaned.status, TaskRun.Status.CANCELLED)
+        self.assertIsNotNone(orphaned.completed_at)
+        assert orphaned.error_message is not None
+        self.assertIn("canceled because the task was deleted", orphaned.error_message)
+        self.assertFalse(TaskWorkflowDispatch.objects.unscoped().filter(task_run=orphaned).exists())
+        self.assertEqual(live.status, TaskRun.Status.QUEUED)
+        self.assertEqual(materialize_due_scheduled_task_runs(10), 0)
+
     @parameterized.expand(
         [
-            ("already_started_keeps_run_alive", WorkflowAlreadyStartedError("wf", "process-task"), False, "queued"),
-            ("durable_dispatch_leaves_retry_to_dispatcher", RuntimeError("temporal down"), True, "queued"),
-            ("no_durable_dispatch_terminalizes", RuntimeError("temporal down"), False, "failed"),
+            ("already_started_keeps_run_alive", WorkflowAlreadyStartedError("wf", "process-task"), "queued"),
+            ("start_failure_terminalizes", RuntimeError("temporal down"), "failed"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.sync_connect")
-    def test_sync_start_failure_only_terminalizes_without_durable_dispatch(
-        self, _name: str, error: Exception, durable_dispatch: bool, expected_status: str, connect: Mock
+    def test_sync_start_failure_terminalizes_unless_already_started(
+        self, _name: str, error: Exception, expected_status: str, connect: Mock
     ) -> None:
         connect.side_effect = error
 
@@ -816,22 +893,18 @@ class TestWorkflowDispatchPersistence(TestCase):
                 task_id=str(self.task_run.task_id),
                 run_id=str(self.task_run.id),
                 team_id=self.team.id,
-                durable_dispatch=durable_dispatch,
             )
 
         self.task_run.refresh_from_db()
         self.assertEqual(self.task_run.status, expected_status)
 
-    def test_dispatch_facade_normalizes_slack_context_into_shadow_row(self) -> None:
+    def test_dispatch_facade_normalizes_slack_context_into_outbox_row(self) -> None:
         class Context:
             def to_dict(self) -> dict:
                 return {"channel": "C1", "thread_ts": "123.45"}
 
         with (
-            patch(
-                "products.tasks.backend.logic.services.workflow_dispatch.evaluate_workflow_dispatch_flags",
-                return_value=WorkflowDispatchFlags(shadow_enabled=True, async_enabled=False),
-            ),
+            override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=True),
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as start,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -846,7 +919,7 @@ class TestWorkflowDispatchPersistence(TestCase):
 
         row = TaskWorkflowDispatch.objects.unscoped().get(task_run=self.task_run)
         self.assertEqual(row.payload["slack_thread_context"], {"channel": "C1", "thread_ts": "123.45"})
-        start.assert_called_once()
+        start.assert_not_called()
 
     def test_reconciler_excludes_covered_runs_at_any_age_unlike_the_killer_view(self) -> None:
         orphan_run = TaskRun.objects.create(task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED)
@@ -918,6 +991,23 @@ class TestWorkflowDispatchPermissions(SimpleTestCase):
         else:
             usage_response.return_value = Mock(data={"error": error}) if error is not None else None
             self.assertEqual(_scheduled_run_usage_error(user, 1), error)
+        self.assertEqual(close_connections.call_count, 2)
+
+    @parameterized.expand([("captured", False), ("error", True)])
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.close_old_connections")
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    def test_flag_capture_worker_releases_connections(
+        self, _name: str, capture_fails: bool, capture_flags: Mock, close_connections: Mock
+    ) -> None:
+        if capture_fails:
+            capture_flags.side_effect = RuntimeError("database unavailable")
+            with self.assertRaises(RuntimeError):
+                _capture_run_feature_flags_in_worker_thread("run-id")
+        else:
+            capture_flags.return_value = {"agent_otel_telemetry_enabled": True}
+            self.assertEqual(
+                _capture_run_feature_flags_in_worker_thread("run-id"), {"agent_otel_telemetry_enabled": True}
+            )
         self.assertEqual(close_connections.call_count, 2)
 
     def test_scheduled_usage_checks_do_not_block_each_other(self) -> None:
@@ -1008,3 +1098,41 @@ class TestDispatcherCompletionCallback(SimpleTestCase):
         self.assertEqual(failed_total() - before, expected_delta)
         self.assertNotIn(task, in_flight)
         self.assertNotIn(dispatch.id, in_flight_ids)
+
+
+class TestDispatcherPollLoop(SimpleTestCase):
+    @override_settings(TASKS_DISPATCHER_POLL_INTERVAL_SECONDS=0)
+    def test_poll_recovers_after_connection_loss_in_poll_thread(self) -> None:
+        broken_threads: set[int] = set()
+        materialize_calls = 0
+
+        def materialize(batch_size: int) -> int:
+            nonlocal materialize_calls
+            materialize_calls += 1
+            if materialize_calls == 1:
+                broken_threads.add(threading.get_ident())
+            if threading.get_ident() in broken_threads:
+                raise OperationalError("the connection is lost")
+            return 0
+
+        def close_connections() -> None:
+            broken_threads.discard(threading.get_ident())
+
+        def claim(*args: object) -> list[TaskWorkflowDispatch]:
+            os.kill(os.getpid(), signal.SIGTERM)
+            return []
+
+        module = "products.tasks.backend.management.commands.run_task_workflow_dispatcher"
+        with (
+            patch(f"{module}.async_connect", new_callable=AsyncMock),
+            patch(f"{module}.Path"),
+            patch(f"{module}.close_old_connections", side_effect=close_connections),
+            patch(f"{module}.materialize_due_scheduled_task_runs", side_effect=materialize),
+            patch(f"{module}.sample_dispatch_metrics"),
+            patch(f"{module}.claim_dispatches", side_effect=claim) as claim_dispatches,
+            patch(f"{module}.release_claims"),
+        ):
+            asyncio.run(asyncio.wait_for(Command()._run(), timeout=10))
+
+        self.assertEqual(materialize_calls, 2)
+        claim_dispatches.assert_called_once()

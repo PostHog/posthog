@@ -1,5 +1,6 @@
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { dayjs } from 'lib/dayjs'
 import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
@@ -7,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { AvailableFeature } from '~/types'
 
 import {
+    evaluationDelayPreview,
     canSetAlertScheduleStartTime,
     getAlertScheduleStartMinute,
     getDefaultSimulationRange,
@@ -20,6 +22,34 @@ describe('alertIntervalHelpers', () => {
     beforeEach(() => {
         initKeaTests()
     })
+
+    test.each([
+        ['hour', 0, 'UTC', 0, '2026-09-29T10:30:00Z', 'Sep 29, 2026 09:00 +00:00 to Sep 29, 2026 10:00 +00:00'],
+        ['hour', 2, 'UTC', 0, '2026-09-29T10:30:00Z', 'Sep 29, 2026 07:00 +00:00 to Sep 29, 2026 08:00 +00:00'],
+        [
+            'day',
+            1,
+            'America/New_York',
+            0,
+            '2026-03-10T12:00:00Z',
+            'Mar 8, 2026 00:00 -05:00 to Mar 9, 2026 00:00 -04:00',
+        ],
+        [
+            'hour',
+            1,
+            'America/New_York',
+            0,
+            '2026-11-01T07:30:00Z',
+            'Nov 1, 2026 01:00 -04:00 to Nov 1, 2026 01:00 -05:00',
+        ],
+        ['month', 1, 'UTC', 0, '2026-03-15T12:00:00Z', 'Jan 1, 2026 00:00 +00:00 to Feb 1, 2026 00:00 +00:00'],
+        ['week', 1, 'UTC', 1, '2026-09-29T10:30:00Z', 'Sep 14, 2026 00:00 +00:00 to Sep 21, 2026 00:00 +00:00'],
+    ] as const)(
+        'previews the eligible %s interval with delay %s in %s',
+        (interval, delay, timezone, weekStart, now, expected) => {
+            expect(evaluationDelayPreview(interval, delay, timezone, weekStart, dayjs(now))).toBe(expected)
+        }
+    )
 
     describe('getDefaultSimulationRange', () => {
         it.each([

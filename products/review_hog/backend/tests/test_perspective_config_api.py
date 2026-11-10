@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -20,6 +21,7 @@ _CUSTOM = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}custom-x"
 class TestReviewPerspectiveConfigAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         sync_canonical_perspectives(self.team)
         self.base = f"/api/projects/{self.team.id}/review_hog/perspectives"
 

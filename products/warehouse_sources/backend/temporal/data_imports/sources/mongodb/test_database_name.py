@@ -13,7 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
-    _parse_connection_string,
+    UNSUPPORTED_FILE_OPTION_ERROR,
+    UnsupportedConnectionOptionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
     _DNS_RESOLUTION_FAILURE_MARKERS,
@@ -26,29 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_SERVER_TOO_OLD_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
+    _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
     MongoDBSource,
 )
 
 _SRV_NO_DB = "mongodb+srv://user:pass@cluster.abc.mongodb.net/?retryWrites=true&w=majority"
 _SRV_WITH_DB = "mongodb+srv://user:pass@cluster.abc.mongodb.net/realdb?retryWrites=true"
-
-
-class TestParseConnectionStringDatabaseOverride:
-    def test_uses_override_when_connection_string_omits_database(self):
-        # Atlas SRV strings routinely have no `/<db>` path — the separate field fills it.
-        params = _parse_connection_string(_SRV_NO_DB, database_override="mydb")
-        assert params["database"] == "mydb"
-
-    def test_connection_string_database_wins_over_override(self):
-        params = _parse_connection_string(_SRV_WITH_DB, database_override="ignored")
-        assert params["database"] == "realdb"
-
-    @pytest.mark.parametrize("override", [None, "", "   "])
-    def test_no_usable_override_leaves_database_empty(self, override):
-        # The trailing `/` makes the parsed path empty, so `database` is falsy
-        # (the downstream "is db missing" checks treat "" and None the same).
-        params = _parse_connection_string(_SRV_NO_DB, database_override=override)
-        assert not params["database"]
 
 
 class TestMongoValidateCredentialsDatabaseName:
@@ -239,6 +223,11 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 True,
             ),
             (Exception("some-internal-driver-detail"), _MONGO_CONNECT_FAILED_MESSAGE, True),
+            (
+                UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR),
+                _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+                False,
+            ),
         ],
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")

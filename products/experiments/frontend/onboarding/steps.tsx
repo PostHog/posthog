@@ -1,12 +1,10 @@
-import { ExperimentsSDKInstructions } from 'scenes/onboarding/legacy/sdks/experiments/ExperimentsSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
+import { ExperimentsSDKInstructions } from 'scenes/onboarding/sdks/experiments/ExperimentsSDKInstructions'
+import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-// `completeRedirectUrl` intentionally omitted: experiments falls through to
-// urls.default() (no curated post-onboarding landing page yet).
 export const experimentsOnboarding: ProductOnboardingProvider = {
     steps: (ctx) => [
         {

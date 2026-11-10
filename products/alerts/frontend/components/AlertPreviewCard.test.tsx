@@ -52,4 +52,22 @@ describe('AlertPreviewCard', () => {
 
         expect(within(container).queryByText(EMPTY_BREAKDOWN_TEXT)).toBeNull()
     })
+
+    it.each([false, true])('explains when the delayed %s preview runs out of loaded history', (isBreakdown) => {
+        const { container } = render(
+            <AlertPreviewCard
+                alertForm={alertForm}
+                trendsValues={[]}
+                isBreakdown={isBreakdown}
+                trendsBreakdownSeries={isBreakdown ? [{ key: 'chrome', label: 'Chrome', data: [] }] : undefined}
+                funnelPreview={null}
+                hogqlPreview={null}
+                previewHistoryTooShort
+            />
+        )
+
+        expect(within(container).getByText(/date range is too short to preview this delay/)).toBeTruthy()
+        expect(within(container).queryByText(EMPTY_BREAKDOWN_TEXT)).toBeNull()
+        expect(within(container).queryByText('No insight data available to preview.')).toBeNull()
+    })
 })

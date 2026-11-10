@@ -32,6 +32,15 @@ if (is_browser_traffic and inputs.filterKnownBotUserAgents and isKnownBotUserAge
     return null
 }
 
+// Modern Chrome never ships a 4-digit patch version. Scraper fleets that randomize the version
+// emit one on stock device UAs ending in "Safari/537.36". The end anchor skips Chromium forks
+// that put their own build there (Yandex, Opera Mobile), since their UAs end differently.
+// Mirrors the "Impossible Chrome patch version" rule in web analytics' bot_definitions.py.
+if (is_browser_traffic and inputs.filterKnownBotUserAgents and notEmpty(user_agent)
+    and match(user_agent, 'Chrome/[0-9]+[.][0-9]+[.][0-9]+[.][0-9]{4,} (Mobile )?Safari/537[.]36$')) {
+    return null
+}
+
 let bot_list := []
 
 if (notEmpty(inputs.customBotPatterns)) {

@@ -1,3 +1,4 @@
+import { isInsufficientScopeChallenge, isRejectedTokenChallenge, withResourceMetadata } from '@/lib/auth-errors'
 import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
@@ -273,7 +274,17 @@ const handleRequest = async (
     if (url.pathname.startsWith('/mcp')) {
         const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
-        return proxyToHono(request, region)
+        const response = await proxyToHono(request, region)
+        const authError = isRejectedTokenChallenge(response)
+            ? 'rejected_token'
+            : isInsufficientScopeChallenge(response)
+              ? 'insufficient_scope'
+              : undefined
+        if (authError) {
+            log.extend({ authError })
+            return withResourceMetadata(response, request, effectiveRegion)
+        }
+        return response
     }
 
     log.extend({ error: 'route_not_found' })

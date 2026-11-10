@@ -22,7 +22,7 @@ from products.feature_flags.backend.api.feature_flag import (
     FlagActionErrorSerializer,
     FlagApprovalConflictSerializer,
     FlagDeletedRejectionSerializer,
-    FlagRolloutWriteRequest,
+    FlagVersionCheckedWriteRequest,
 )
 from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -335,6 +335,19 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         assert set(response.json()) == set(FlagDeletedRejectionSerializer().fields)
 
     @parameterized.expand(ROLLOUT_ACTIONS)
+    def test_rollout_action_refuses_a_flag_in_another_config_format(self, action, body):
+        v2_filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        flag = self._flag(filters=v2_filters)
+
+        response = self._act(flag, action, {**body, "version": flag.version})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["code"] == "unsupported_config_version"
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (v2_filters, 1)
+        assert not ActivityLog.objects.filter(scope="FeatureFlag", item_id=str(flag.id), activity="updated").exists()
+
+    @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_requires_the_feature_flag_write_scope(self, action, body):
         flag = self._flag()
         read_only_key = generate_random_token_personal()
@@ -452,7 +465,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         # that landed since the read. Both actions run the same body, so one covers the window:
         # the delete lands between the pre-lock check and the lock.
         flag = self._flag()
-        original = FeatureFlagViewSet._rollout_precondition
+        original = FeatureFlagViewSet._version_precondition
         fired: list[bool] = []
 
         def precondition(view, feature_flag, version):
@@ -461,7 +474,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
                 fired.append(True)
                 FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
 
-        with patch.object(FeatureFlagViewSet, "_rollout_precondition", precondition):
+        with patch.object(FeatureFlagViewSet, "_version_precondition", precondition):
             response = self._act(
                 flag,
                 "set_release_condition_rollout",
@@ -479,7 +492,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         # already moved on; the decision has to be made against the locked row.
         flag = self._flag()
         stale_version = flag.version
-        original = FeatureFlagViewSet._rollout_precondition
+        original = FeatureFlagViewSet._version_precondition
         fired: list[bool] = []
 
         def precondition(view, feature_flag, version):
@@ -488,7 +501,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
                 fired.append(True)
                 FeatureFlag.objects.filter(pk=flag.pk).update(version=(flag.version or 0) + 1)
 
-        with patch.object(FeatureFlagViewSet, "_rollout_precondition", precondition):
+        with patch.object(FeatureFlagViewSet, "_version_precondition", precondition):
             response = self._act(
                 flag,
                 "set_release_condition_rollout",
@@ -516,7 +529,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
                 {"filters": {**TARGETING, "groups": [{"properties": [], "rollout_percentage": 100}]}},
                 team=self.team,
                 user=self.user,
-                request=FlagRolloutWriteRequest(drf_request, version=(flag.version or 0) + 5),
+                request=FlagVersionCheckedWriteRequest(drf_request, version=(flag.version or 0) + 5),
             )
 
         flag.refresh_from_db()

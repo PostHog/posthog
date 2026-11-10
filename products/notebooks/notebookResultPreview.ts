@@ -6,6 +6,7 @@ export interface NotebookResultPreviewSource<Row extends unknown[]> {
     has_more?: boolean
     stdout?: string
     stderr?: string
+    result_text?: string
 }
 
 export function notebookResultPreview<Row extends unknown[]>(
@@ -18,6 +19,7 @@ export function notebookResultPreview<Row extends unknown[]>(
     has_more: boolean
     stdout: string
     stderr: string
+    result_text?: string
     previewOnly: true
 } {
     const rows: Row[] = []
@@ -35,6 +37,7 @@ export function notebookResultPreview<Row extends unknown[]>(
         has_more: !!result.has_more || (result.row_count ?? 0) > rows.length,
         stdout: (result.stdout ?? '').slice(0, 2048),
         stderr: (result.stderr ?? '').slice(0, 2048),
+        ...(result.result_text ? { result_text: result.result_text.slice(0, 2048) } : {}),
         previewOnly: true,
     }
 }

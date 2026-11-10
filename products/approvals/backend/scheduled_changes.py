@@ -16,7 +16,7 @@ from django.db import transaction
 from django.http import HttpRequest
 
 from products.approvals.backend import decorators
-from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
+from products.approvals.backend.exceptions import ApprovalDetectionFailed, ApprovalRequired, PolicyConflict
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState, ValidationStatus
 from products.approvals.backend.notifications import send_approval_expired_notification
 from products.approvals.backend.services import apply_change_request
@@ -72,12 +72,10 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
     """
     # Deferred: feature_flags' serializer/actions transitively import posthog.tasks, which imports
     # this module — eager imports would create a circular import at startup.
-    from products.approvals.backend.actions.feature_flags import (  # noqa: PLC0415
-        DisableFeatureFlagAction,
-        EnableFeatureFlagAction,
-        UpdateFeatureFlagAction,
+    from products.feature_flags.backend.api.feature_flag import (  # noqa: PLC0415
+        FLAG_WRITE_APPROVAL_ACTIONS,
+        FeatureFlagSerializer,
     )
-    from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer  # noqa: PLC0415
 
     team = flag.team
     organization = team.organization
@@ -89,7 +87,9 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
     if serializer_data is None:
         return None
 
-    feature_flag_actions = [EnableFeatureFlagAction, DisableFeatureFlagAction, UpdateFeatureFlagAction]
+    # The actions the request-time gate offers. The product that owns the flag decides which family
+    # evaluates, so a schedule on an experiment's flag reaches the experiment family here as well.
+    feature_flag_actions = decorators._resolve_actions(list(FLAG_WRITE_APPROVAL_ACTIONS))
 
     # Build a partial-update serializer over the real flag so detect()/extract_intent() read the
     # change out of validated_data exactly as they do for an API-driven update.
@@ -115,13 +115,18 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
         try:
             if action_class.detect(http_request, serializer, *gate_args):
                 policy = decorators._check_policy_for_action(action_class, team, organization)
-                if policy:
+                if policy and decorators._policy_conditions_match(
+                    action_class, policy, http_request, serializer, gate_args, {}
+                ):
                     return _GatedAction(action_class, policy, serializer, http_request, gate_args)
-        except Exception:
+        except Exception as e:
+            # Unknown means deny. A schedule saved here fires later with no approver watching, so
+            # a detection failure must stop it being saved rather than pass it through ungated.
             logger.exception(
                 "Error detecting action for scheduled change",
                 extra={"action": action_class.key, "flag_id": flag.id},
             )
+            raise ApprovalDetectionFailed("Could not determine whether this change needs approval. Try again.") from e
 
     return None
 

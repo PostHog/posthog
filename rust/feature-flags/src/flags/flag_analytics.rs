@@ -24,6 +24,9 @@ pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> Stri
     match request_type {
         FlagRequestType::Decide => format!("posthog:decide_requests:{team_id}"),
         FlagRequestType::FlagDefinitions => format!("posthog:local_evaluation_requests:{team_id}"),
+        FlagRequestType::FlagDefinitionsNotModified => {
+            format!("posthog:local_evaluation_not_modified_requests:{team_id}")
+        }
     }
 }
 
@@ -36,6 +39,9 @@ pub fn get_team_request_library_key(
         FlagRequestType::Decide => format!("posthog:decide_requests:sdk:{team_id}:{library}"),
         FlagRequestType::FlagDefinitions => {
             format!("posthog:local_evaluation_requests:sdk:{team_id}:{library}")
+        }
+        FlagRequestType::FlagDefinitionsNotModified => {
+            format!("posthog:local_evaluation_not_modified_requests:sdk:{team_id}:{library}")
         }
     }
 }
@@ -53,6 +59,10 @@ mod tests {
         assert_eq!(
             get_team_request_key(456, FlagRequestType::FlagDefinitions),
             "posthog:local_evaluation_requests:456"
+        );
+        assert_eq!(
+            get_team_request_key(456, FlagRequestType::FlagDefinitionsNotModified),
+            "posthog:local_evaluation_not_modified_requests:456"
         );
     }
 
@@ -82,6 +92,14 @@ mod tests {
                 Library::PosthogElixir
             ),
             "posthog:local_evaluation_requests:sdk:101:posthog-elixir"
+        );
+        assert_eq!(
+            get_team_request_library_key(
+                101,
+                FlagRequestType::FlagDefinitionsNotModified,
+                Library::PosthogElixir
+            ),
+            "posthog:local_evaluation_not_modified_requests:sdk:101:posthog-elixir"
         );
         // Test Other variant
         assert_eq!(

@@ -1,4 +1,4 @@
-import { IngestionLane } from '~/ingestion/config'
+import { FlagEvaluationsMode } from '~/types'
 
 import { FlagEvaluationsEnvConfig, createFlagEvaluationsService } from './flag-evaluations-service'
 
@@ -7,14 +7,14 @@ describe('FlagEvaluationsService', () => {
         mode: string,
         teams = '*',
         excludedTeams = '',
-        topic = 'clickhouse_flag_evaluations',
-        lane: IngestionLane | null = 'main'
+        topic = 'clickhouse_flag_evaluations'
     ): FlagEvaluationsEnvConfig => ({
-        INGESTION_LANE: lane,
         INGESTION_FLAG_EVALUATIONS_MODE: mode,
         INGESTION_FLAG_EVALUATIONS_TEAMS: teams,
         INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: excludedTeams,
+        INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: false,
         INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: topic,
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: '',
     })
 
     describe('createFlagEvaluationsService', () => {
@@ -27,12 +27,6 @@ describe('FlagEvaluationsService', () => {
             ['the output topic is empty', envConfig('dual_write', '*', '', ''), false],
             ['excluded teams is the wildcard', envConfig('dual_write', '*', '*'), false],
             ['mode is dual_write', envConfig('dual_write'), true],
-            // The backfill owns history, so a delayed lane must never fork even
-            // when the env vars say dual_write.
-            ['the lane is historical', envConfig('dual_write', '*', '', 'topic', 'historical'), false],
-            ['the lane is async', envConfig('dual_write', '*', '', 'topic', 'async'), false],
-            ['the lane is overflow', envConfig('dual_write', '*', '', 'topic', 'overflow'), true],
-            ['no lane is set (local dev)', envConfig('dual_write', '*', '', 'topic', null), true],
             ['the teams allowlist is empty', envConfig('dual_write', ''), false],
         ])('builds a service when %s -> %s', (_name, config, expected) => {
             expect(createFlagEvaluationsService(config) !== undefined).toBe(expected)
@@ -50,6 +44,39 @@ describe('FlagEvaluationsService', () => {
             const service = createFlagEvaluationsService(envConfig('dual_write', teams, excluded))
 
             expect(service?.isEnabledForTeam(teamId)).toBe(expected)
+        })
+    })
+
+    describe('stopsEventsWritesFor', () => {
+        it.each([
+            [false, true],
+            [true, false],
+        ])(
+            'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED=%s -> %s for a FLAG_EVALUATIONS_ONLY team',
+            (onlyDisabled, expected) => {
+                const service = createFlagEvaluationsService({
+                    ...envConfig('dual_write'),
+                    INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: onlyDisabled,
+                })
+
+                expect(
+                    service?.stopsEventsWritesFor({ flag_evaluations_mode: FlagEvaluationsMode.FlagEvaluationsOnly })
+                ).toBe(expected)
+            }
+        )
+    })
+
+    describe('routesToRealtimeOnlyEvents', () => {
+        it.each([
+            ['realtime_only_events_json', true],
+            ['', false],
+        ])('INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC=%j -> %s', (topic, expected) => {
+            const service = createFlagEvaluationsService({
+                ...envConfig('dual_write'),
+                INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: topic,
+            })
+
+            expect(service?.routesToRealtimeOnlyEvents).toBe(expected)
         })
     })
 })

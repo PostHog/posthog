@@ -220,7 +220,7 @@ def _body_snapshot(
         include_images=False,
         organization_id=team.organization_id,
     )
-    return {
+    snapshot = {
         "text": slack_text,
         "blocks": slack_blocks,
         "author_name": author.name,
@@ -228,6 +228,9 @@ def _body_snapshot(
         "media_team_id": media_team_id,
         "images": _image_refs(comment.rich_content if isinstance(comment.rich_content, dict) else None),
     }
+    if isinstance(comment.item_context, dict) and comment.item_context.get("internal_channel_only") is True:
+        snapshot["internal_channel_only"] = True
+    return snapshot
 
 
 def _enqueue_failed_slack_body(
@@ -1045,3 +1048,38 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
         part.refresh_from_db()
         transaction.on_commit(lambda: _safe_wake(wake, part))
     return part
+
+
+def delivery_ticket_is_live(delivery: ConversationDelivery) -> bool:
+    """Whether the delivery's ticket still exists and is not deleted, so a reply may go out."""
+    if delivery.ticket_id is None:
+        return True
+    # nosemgrep: idor-lookup-without-team (ticket id comes from the claimed delivery row)
+    return Ticket.objects.filter(id=delivery.ticket_id).exists()
+
+
+def cancel_open_deliveries_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
+    """Stop outbound sends for a ticket that was just soft-deleted.
+
+    QuerySet.update skips the model save hook, so terminal_at is set here.
+    A failed row is what the worker treats as done.
+    """
+    now = timezone.now()
+    open_statuses = [ConversationDelivery.Status.PENDING, ConversationDelivery.Status.PROCESSING]
+    delivery_ids = list(
+        ConversationDelivery.objects.for_team(team_id)
+        .filter(ticket_id=ticket_id, status__in=open_statuses)
+        .values_list("id", flat=True)
+    )
+    if not delivery_ids:
+        return
+    failed = {
+        "status": ConversationDelivery.Status.FAILED,
+        "terminal_at": now,
+        "last_error_code": "ticket_deleted",
+        "updated_at": now,
+    }
+    ConversationDeliveryPart.objects.for_team(team_id).filter(
+        delivery_id__in=delivery_ids, status__in=open_statuses
+    ).update(**failed)
+    ConversationDelivery.objects.for_team(team_id).filter(id__in=delivery_ids).update(**failed)

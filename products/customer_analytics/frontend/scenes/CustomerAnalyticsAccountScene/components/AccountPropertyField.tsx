@@ -7,8 +7,9 @@ import {
     AccountCustomPropertyValue,
     AccountRelationshipMember,
     AccountRelationshipProperty,
+    accountPropertyLabel,
     AccountSidebarProperty,
-    isCustomPropertyEditable,
+    isAccountPropertyEditable,
 } from './accountPropertyTypes'
 import { AccountPropertyValue } from './AccountPropertyValue'
 import { AccountRelationshipEditor } from './AccountRelationshipEditor'
@@ -42,37 +43,36 @@ export function AccountPropertyField({
     onSaveCustomProperty,
     onSaveRelationship,
 }: AccountPropertyFieldProps): JSX.Element {
-    const editable =
-        property.editable !== false &&
-        (property.kind === 'relationship' || isCustomPropertyEditable(property.provenance))
+    const editable = isAccountPropertyEditable(property)
+    const label = accountPropertyLabel(property)
     const provenance =
         property.kind === 'custom' && property.provenance !== 'manual' ? PROVENANCE[property.provenance] : null
 
     // Keep the data-attr stable for existing selectors and autocapture.
     return (
         <div className="flex flex-col gap-1 min-w-0" data-attr="account-property-row">
-            <div className="flex items-center gap-1 min-w-0 min-h-7">
-                <span className="text-xs text-secondary truncate">{property.definition.name}</span>
-                {provenance ? (
-                    <Tooltip title={provenance.title}>
-                        <span className="flex items-center text-secondary text-xs">{provenance.icon}</span>
-                    </Tooltip>
-                ) : null}
+            <div className="flex items-center gap-2 min-w-0 min-h-7">
+                <span className="min-w-0 text-xs text-secondary truncate">{label}</span>
                 {editable && !editing ? (
                     <LemonButton
                         size="xsmall"
                         icon={<IconPencil />}
                         tooltip="Edit value"
-                        aria-label={`Edit ${property.definition.name}`}
+                        aria-label={`Edit ${label}`}
                         onClick={onEdit}
-                        className="ml-auto"
+                        className="shrink-0"
                         data-attr="account-property-edit"
                     />
+                ) : null}
+                {provenance ? (
+                    <Tooltip title={provenance.title}>
+                        <span className="flex shrink-0 items-center text-secondary text-xs">{provenance.icon}</span>
+                    </Tooltip>
                 ) : null}
             </div>
             {editing && editable ? (
                 <div className="flex flex-col gap-1.5">
-                    {property.kind === 'custom' ? (
+                    {property.kind === 'account_field' ? null : property.kind === 'custom' ? (
                         <AccountCustomPropertyEditor
                             key={property.key}
                             definition={property.definition}

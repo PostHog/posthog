@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -9,12 +10,12 @@ import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEd
 import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isEmptyObject } from 'lib/utils/guards'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
-import { CommentType } from '~/types'
+import { membersLogic } from '~/models/membersLogic'
+import { ActivityScope, CommentType } from '~/types'
 import type { OrganizationMemberType, UserType } from '~/types'
 
 import { commentsSendToSlackCreate } from 'products/platform_features/frontend/generated/api'
@@ -91,6 +92,7 @@ export interface commentsLogicValues {
     replyingCommentId: string | null
     richContentEditor: RichContentEditorType | null
     selectedCommentId: string | null
+    sendToSlackDisabledReasonFor: (comment: CommentType) => string | null
     sortedComments: CommentType[]
     threadExpansion: Record<string, boolean>
 }
@@ -369,6 +371,9 @@ export interface commentsLogicMeta {
         ) => JSONContent | null
         isMyComment: (user: UserType | null) => (comment: CommentType) => boolean
         disabledReasonFor: (user: UserType | null) => (comment: CommentType) => string | null
+        sendToSlackDisabledReasonFor: (
+            isMyComment: (comment: CommentType) => boolean
+        ) => (comment: CommentType) => string | null
     }
 }
 
@@ -629,6 +634,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         slug: discussionsSlug(props.scope, props.item_id),
                         is_task: asTask && !isReply,
                     })
+                    posthog.capture('comment created', { scope: props.scope, is_reply: isReply, is_emoji: false })
 
                     values.itemContext?.callback?.({ sent: true })
 
@@ -746,6 +752,11 @@ export const commentsLogic = kea<commentsLogicType>([
                             is_emoji: true,
                         },
                         mentions: [],
+                    })
+                    posthog.capture('comment created', {
+                        scope: props.scope,
+                        is_reply: !!sourceCommentId,
+                        is_emoji: true,
                     })
 
                     return [...existingComments, newComment]
@@ -994,6 +1005,16 @@ export const commentsLogic = kea<commentsLogicType>([
             (user: null | import('~/types').UserType) => {
                 return (comment: CommentType): string | null =>
                     comment.created_by?.uuid === user?.uuid ? null : 'You can only delete your own comments'
+            },
+        ],
+
+        sendToSlackDisabledReasonFor: [
+            (s) => [s.isMyComment],
+            (isMyComment: (comment: CommentType) => boolean) => {
+                return (comment: CommentType): string | null =>
+                    comment.scope === ActivityScope.TICKET && !isMyComment(comment)
+                        ? 'Only the person who started this discussion can send it to Slack'
+                        : null
             },
         ],
     }),

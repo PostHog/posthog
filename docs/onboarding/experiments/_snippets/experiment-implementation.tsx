@@ -57,6 +57,10 @@ export const ExperimentImplementationSnippet = memo(
             }
         `,
             'node.js': dedent`
+            import { PostHog } from 'posthog-node'
+
+            const client = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
             const experimentFlagValue = await client.getFeatureFlag('your-experiment-feature-flag', 'user distinct id')
 
             if (experimentFlagValue === 'test' ) {
@@ -65,6 +69,10 @@ export const ExperimentImplementationSnippet = memo(
                 // It's a good idea to let control variant always be the default behaviour,
                 // so if something goes wrong with flag evaluation, you don't break your app.
             }
+
+            // Flush before the handler returns, so the exposure event is not lost.
+            // In serverless environments, also set flushAt: 1 and flushInterval: 0 on the client.
+            await client.shutdown()
         `,
             python: dedent`
             experiment_flag_value = posthog.get_feature_flag("your-experiment-feature-flag", "user_distinct_id")
@@ -104,6 +112,19 @@ export const ExperimentImplementationSnippet = memo(
             if experimentFlagValue == "test" {
                 // Do something differently for this user
             } else {
+                // It's a good idea to let control variant always be the default behaviour,
+                // so if something goes wrong with flag evaluation, you don't break your app.
+            }
+        `,
+            dotnet: dedent`
+            var flags = await posthog.EvaluateFlagsAsync("distinct-id");
+
+            if (flags.GetFlag("your-experiment-feature-flag")?.VariantKey == "test")
+            {
+                // Do something differently for this user
+            }
+            else
+            {
                 // It's a good idea to let control variant always be the default behaviour,
                 // so if something goes wrong with flag evaluation, you don't break your app.
             }
@@ -151,6 +172,7 @@ export const ExperimentImplementationSnippet = memo(
             php: 'php',
             ruby: 'ruby',
             go: 'go',
+            dotnet: 'csharp',
             android: 'kotlin',
             ios: 'swift',
             flutter: 'dart',

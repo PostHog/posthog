@@ -15,11 +15,8 @@ const FETCH_COUNTER: &str = "global_rate_limiter_custom_thresholds_fetch_total";
 
 /// A pluggable source of custom-key thresholds for the global rate limiter.
 ///
-/// The refresh loop calls `fetch` on a timer and atomically swaps the returned
-/// map into the limiter. `Ok(Some(map))` replaces the current thresholds,
-/// `Ok(None)` means "no thresholds configured" (clears them), and `Err` leaves
-/// the current map untouched (fail-static). Implementations own their own
-/// connection lifecycle, including reconnecting after a transient failure.
+/// Polled by the refresh loop: `Ok(Some(map))` replaces the thresholds, while `Ok(None)`
+/// (key absent) and `Err` keep the current map. Implementations own their reconnects.
 #[async_trait]
 pub trait CustomKeyThresholdSource: Send + Sync {
     async fn fetch(&self) -> Result<Option<HashMap<String, u64>>, CustomRedisError>;

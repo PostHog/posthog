@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+from functools import cached_property
 from typing import cast
 
 from posthog.schema import (
@@ -9,7 +11,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.product_analytics.backend.facade.queries import (
     FunnelsQueryRunner,
@@ -21,6 +22,9 @@ from products.product_analytics.backend.facade.queries import (
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
     cached_response: CachedInsightActorsQueryOptionsResponse
+
+    def _child_runners(self) -> Iterable[QueryRunner]:
+        return [self.source_runner] if "source_runner" in self.__dict__ else []
 
     @cached_property
     def source_runner(self) -> QueryRunner:
@@ -45,8 +49,6 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
             return lifecycle_runner.to_actors_query_options()
         elif isinstance(self.source_runner, FunnelsQueryRunner):
-            # Only plain FunnelsActorsQuery sources land here — correlation modals wrap a
-            # FunnelCorrelationQueryRunner and keep falling through to the empty response.
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)
             return funnels_runner.to_actors_query_options()
 

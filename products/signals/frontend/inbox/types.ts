@@ -1,16 +1,26 @@
 import type { UserBasicType } from '~/types'
 
+import type { SignalActorKindEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import {
+    type SignalReportApi,
+    type PatchedSignalSourceConfigApi,
     type ReportChartApi,
     type ReportMetricApi,
+    type ReportPlanApi,
+    type ReportRankingApi,
+    type ReportSourceSuggestionApi,
+    type ReviewerRemovalReasonEnumApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
+    type SignalReportListApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
+    type SignalReportSuppressionSourceEnumApi,
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
     type SignalUserAutonomyConfigApi,
+    type SignalTeamConfigApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -18,6 +28,12 @@ import {
 // The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
 // Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+/** Why a person removed a reviewer, sent with the remove edit. The web app sends a reason only. */
+export interface ReviewerRemoval {
+    reason: ReviewerRemovalReasonEnumApi | null
+    note?: string
+}
 
 // Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
 // field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
@@ -82,12 +98,17 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
     'requires_human_input',
 ]
 
-export interface SignalReport {
+export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
+    startup_failure?: SignalReportApi['startup_failure']
+    research_context?: SignalReportApi['research_context']
+    repo_slug?: SignalReportApi['repo_slug']
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
     id: string
     title: string | null
     summary: string | null
+    /** The opening of `summary` as plain text, before its first section heading. */
+    summary_lead?: string
     status: SignalReportStatus
     total_weight: number
     signal_count: number
@@ -100,6 +121,10 @@ export interface SignalReport {
     metrics?: ReportMetricApi[]
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
+    /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
+    source_suggestion?: ReportSourceSuggestionApi | null
+    /** The plan this report leads or is a step of, with every step in it. Detail responses only. */
+    plan?: ReportPlanApi | null
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** Scout notes the work log dropped because they restate earlier ones. 0 when nothing was dropped. */
@@ -114,6 +139,8 @@ export interface SignalReport {
     source_products?: string[]
     /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
     scout_name?: string | null
+    /** Whether the report proposes an improvement to a scout. */
+    is_self_improvement_report?: boolean
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
@@ -131,12 +158,24 @@ export interface SignalReport {
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    /** Who or what suppressed the report: a person (`dismissed`) or a judge's verdict. Null unless suppressed. */
+    suppression_source?: SignalReportSuppressionSourceEnumApi | null
+    /** The judge's explanation for a held-back report, when it gave one. */
+    suppression_explanation?: string | null
     /** The report's PR refund, when one exists (one refund per report, ever). */
     refund?: SignalReportRefundApi | null
     /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
+    /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
+    ranking?: ReportRankingApi | null
+    /** Sort key from the list response's ranker, for the Recommended and Personalized sorts only. Lower keys rank first. */
+    inbox_merge_key?: number | null
+    /** For the Personalized sort: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
+    personal_tier?: SignalReportListApi['personal_tier']
+    /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
+    personal_reason?: SignalReportListApi['personal_reason']
 }
 
 export enum SignalReportStatus {
@@ -145,12 +184,16 @@ export enum SignalReportStatus {
     IN_PROGRESS = 'in_progress',
     PENDING_INPUT = 'pending_input',
     READY = 'ready',
+    MONITORING = 'monitoring',
     RESOLVED = 'resolved',
+    CLOSED = 'closed',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.
     DELETED = 'deleted',
     SUPPRESSED = 'suppressed',
 }
+
+SignalReportStatus satisfies Record<Uppercase<SignalReportApi['status']>, SignalReportApi['status']>
 
 export interface SignalReportArtefact {
     id: string
@@ -163,6 +206,8 @@ export interface SignalReportArtefact {
     created_by?: UserBasicType | null
     /** Set when an agent task produced the artefact (attribution reads "by agent"). */
     task_id?: string | null
+    /** Who produced the artefact: a person, an internal task, an external agent, or the pipeline. */
+    actor_kind?: SignalActorKindEnumApi
 }
 
 export interface SignalReportArtefactResponse {
@@ -186,6 +231,7 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    configSet?: PatchedSignalSourceConfigApi['config_set']
     /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
     viaSetupWizard?: boolean
 }
@@ -205,6 +251,8 @@ export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
 /** Linear source only: the Linear team ids it reads issues from. Absent or empty means every team. */
 export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
+/** Error tracking source only: the issue filter, compiled by the server, saved on every error tracking row. */
+export const SOURCE_ISSUE_FILTERS_KEY = 'issue_filters'
 
 // Anything that is not a list of ids reads as "every team", matching the backend's fallback.
 export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
@@ -212,18 +260,49 @@ export function linearTeamIdsFromConfig(config: Record<string, any> | null | und
     return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
 }
 
+/** Product analytics source only: which firing insight alerts become signals. */
+export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
+
+export enum SignalAlertScope {
+    InvestigatedOnly = 'investigated_only',
+    AllFiringAlerts = 'all_firing_alerts',
+    Off = 'off',
+}
+
+// Anything unknown reads as investigated only, matching the backend's fallback.
+export function alertScopeFromConfig(config: Record<string, any> | null | undefined): SignalAlertScope {
+    const scope = config?.[SOURCE_ALERT_SCOPE_KEY]
+    return scope === SignalAlertScope.AllFiringAlerts || scope === SignalAlertScope.Off
+        ? scope
+        : SignalAlertScope.InvestigatedOnly
+}
+
+/** Product analytics source only: regex patterns matched against a firing alert's name and its insight's name. */
+export const SOURCE_ALERT_ALLOW_PATTERNS_KEY = 'alert_allow_patterns'
+export const SOURCE_ALERT_BLOCK_PATTERNS_KEY = 'alert_block_patterns'
+export const SOURCE_ALERT_PATTERNS_MAX_COUNT = 20
+export const SOURCE_ALERT_PATTERN_MAX_LENGTH = 200
+
+// Anything that is not a list of strings reads as no patterns. The API rejects such a value, so only a raw write can store one.
+export function alertPatternsFromConfig(
+    config: Record<string, any> | null | undefined,
+    key: typeof SOURCE_ALERT_ALLOW_PATTERNS_KEY | typeof SOURCE_ALERT_BLOCK_PATTERNS_KEY
+): string[] {
+    const raw = config?.[key]
+    return Array.isArray(raw) ? raw.filter((pattern): pattern is string => typeof pattern === 'string') : []
+}
+
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
 
 /**
  * The inbox's page-level tabs. Each is a URL segment (`/inbox/<tab>`), so the keys are pinned.
- * The union covers both inbox layouts: the redesign (`INBOX_TAB_KEYS`, behind
- * `FEATURE_FLAGS.INBOX_REDESIGN`) and the layout it replaces (`INBOX_LEGACY_TAB_KEYS`). Each
- * layout redirects the other's segments (see `inboxTabRedirectPath`), so a link made under one
- * layout still opens under the other.
+ * The union also covers the segments of the old layout, which links still carry. The inbox
+ * redirects them to the surface that replaced them (see `inboxTabRedirectPath`).
  */
 export type InboxTabKey =
     | 'reports'
     | 'scouts'
+    | 'sources'
     | 'settings'
     | 'pulls'
     | 'not-actionable'
@@ -231,23 +310,13 @@ export type InboxTabKey =
     | 'archived'
     | 'config'
 
-/** The redesign's page tabs. */
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'settings']
-
-/** The page tabs with the redesign flag off: one tab per report list, plus Runs and Configuration. */
-export const INBOX_LEGACY_TAB_KEYS: InboxTabKey[] = [
-    'pulls',
-    'reports',
-    'scouts',
-    'not-actionable',
-    'runs',
-    'archived',
-    'config',
-]
+/** The page tabs the inbox renders. */
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'sources', 'settings']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
     scouts: 'Scouts',
+    sources: 'Sources',
     settings: 'Settings',
     pulls: 'Pull requests',
     'not-actionable': 'Not actionable',
@@ -259,20 +328,15 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     reports: 'Issues and opportunities found in your product, ready to review.',
-    scouts: 'Scheduled agents that sweep this project and file what they find.',
-    settings: 'Signal sources, PR generation, code access, and notifications.',
+    scouts: 'Scouts run on a schedule and investigate the areas you choose.',
+    sources: 'Sources send signals for self-driving to investigate.',
+    settings: 'Configure autonomy, agent instructions, code access, and notifications.',
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
     runs: 'Project-wide list of agent runs, for debugging.',
     archived: 'Reports you archived. You can restore them to the inbox at any time.',
     config: 'Set up signal sources, scouts, and how autonomously agents can act.',
-}
-
-/** With the redesign flag off, the Reports tab is only the researched reports, and its description says so. */
-export const INBOX_LEGACY_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
-    ...INBOX_TAB_DESCRIPTION,
-    reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
 }
 
 /**
@@ -287,8 +351,11 @@ export const INBOX_LEGACY_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
 export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
     'needs-decision',
+    'outcome-monitoring',
     'resolved',
+    'closed',
     'dismissed',
+    'held-back',
     'not-actionable',
 ] as const
 export type InboxReportSectionKey = (typeof INBOX_REPORT_SECTION_KEYS)[number]
@@ -302,8 +369,11 @@ export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-de
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     monitoring: 'Review and merge',
     'needs-decision': 'Needs decision',
+    'outcome-monitoring': 'Monitoring',
     resolved: 'Resolved',
+    closed: 'Closed',
     dismissed: 'Dismissed',
+    'held-back': 'Held back',
     'not-actionable': 'Not actionable',
 }
 
@@ -311,9 +381,13 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
+    'outcome-monitoring': 'Reports being monitored to verify their outcome.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
+    closed: 'Reports marked closed, including reports whose verification checks failed.',
     dismissed:
-        'Reports you dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
+        'Reports a person or agent dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
+    'held-back':
+        'Reports a safety or actionability check removed before anyone reviewed them. Each one shows why it was held back.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
 }
@@ -329,60 +403,20 @@ export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'St
     'not-actionable': 'Staff',
 }
 
-// ── Legacy inbox IA (redesign flag off): one tab per report list ─────────────
-
 /**
- * The Configuration tab holds the agent-setup widgets. It only appears when the scene is too
- * narrow for the right-hand setup rail (see `AgentSetupColumn`); on wide viewports the rail
- * replaces it. Kept a real routing key so deep links and narrow-mode navigation work.
+ * The old Configuration tab segment. Links that still carry it redirect to the Settings tab (see
+ * `inboxTabRedirectPath`).
  */
 export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
-/** Tabs only visible to staff users (internal), mirroring `INBOX_STAFF_ONLY_REPORT_SECTION_KEYS`. */
-export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
-
-/** Small tag rendered next to a tab's label in the tab bar. */
-export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
-    'not-actionable': 'Staff',
-}
-
-/** The flat report-list tabs that share the keyed `reportListLogic` + `InboxReportList` primitive. */
-export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
-export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
-
 /**
- * Each legacy report tab shows one of the redesign's sections. Both layouts share the keyed
- * `reportListLogic` instances through this map, so a report loaded under one layout is found by the
- * other and the mount-time count loaders are not duplicated. The Archive tab is the exception: it
- * lists the Resolved and Dismissed sections together, through the `resolved` instance with its own
- * filter (see `legacyTabListLogicProps`).
+ * `for-you` (suggested-reviewer reports), `claimed-by-you` (reports the user claimed), `entire-project`
+ * (all), or `teammate:<uuid>`.
  */
-export const INBOX_LEGACY_TAB_SECTION: Record<InboxFlatListTabKey, InboxReportSectionKey> = {
-    pulls: 'monitoring',
-    reports: 'needs-decision',
-    'not-actionable': 'not-actionable',
-    archived: 'resolved',
-}
-
-/** The inverse of `INBOX_LEGACY_TAB_SECTION`: the legacy tab that lists a section's reports. */
-export const INBOX_SECTION_LEGACY_TAB: Record<InboxReportSectionKey, InboxFlatListTabKey> = {
-    monitoring: 'pulls',
-    'needs-decision': 'reports',
-    'not-actionable': 'not-actionable',
-    resolved: 'archived',
-    dismissed: 'archived',
-}
-
-/**
- * The legacy counterpart of `INBOX_PRIMARY_REPORT_SECTION_KEY`: the Pull requests tab is the one
- * whose For-you count decides the default scope with the flag off.
- */
-export const INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'monitoring'
-
-/** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
-export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`
+export type InboxScope = 'for-you' | 'claimed-by-you' | 'entire-project' | `teammate:${string}`
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
+export const INBOX_SCOPE_CLAIMED_BY_YOU: InboxScope = 'claimed-by-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
@@ -407,36 +441,8 @@ export type SignalUserAutonomyConfigDraft = Partial<SignalUserAutonomyConfigApi>
 
 // ── Team-level autonomy config (backend SignalTeamConfigViewSet; singleton per team) ─
 
-export interface SignalTeamConfig {
-    id?: string
-    /** Master switch for autonomous inbox PRs. Only an explicit false disables auto-start; null (never set) leaves it on. */
-    autostart_enabled?: boolean | null
-    /** Team-wide default PR auto-start threshold (P0–P4, non-null from the API). "Never" is expressed via autostart_enabled instead. */
+export type SignalTeamConfig = Partial<Omit<SignalTeamConfigApi, 'default_autostart_priority'>> & {
     default_autostart_priority: SignalReportPriority | null
-    /** Default Slack channel for this team's inbox notifications. */
-    default_slack_notification_channel?: string | null
-    /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
-    autostart_base_branches?: Record<string, string>
-    /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */
-    issue_tracking_integration?: number | null
-    /** Where those issues land: github {repository}, linear {team_id}, jira {project_key}, plus an optional 'label'. */
-    issue_tracking_config?: Record<string, string>
-    /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
-    max_reports_per_day?: number | null
-    /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
-    default_open_pull_request_ready?: boolean
-    /** Whether self-driving comments a link to the report back on a GitHub issue that raised it. */
-    github_issue_writeback_enabled?: boolean
-    /** Whether self-driving labels every PR it opens, so GitHub search can separate them from other bot work. */
-    pull_request_label_enabled?: boolean
-    /** The label name to apply, at most 50 characters. Null or blank means the default label. */
-    pull_request_label?: string | null
-    /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
-    reports_generated_today?: number
-    /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
-    daily_report_limit_reached?: boolean
-    created_at?: string
-    updated_at?: string
 }
 
 // ── Runs (composed client-side from scout runs + signal-pipeline tasks) ───────
@@ -451,6 +457,7 @@ export type SignalRunKind = 'scout' | 'signal'
  * standalone Tasks scene (`/tasks/{task_id}`).
  */
 export interface SignalRun {
+    total_spend?: number | null
     task_id: string
     kind: SignalRunKind
     /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */

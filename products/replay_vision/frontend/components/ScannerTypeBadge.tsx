@@ -1,4 +1,4 @@
-import { IconEye, IconNotebook, IconPulse, IconTarget } from '@posthog/icons'
+import { IconEye, IconFlask, IconNotebook, IconPulse, IconTarget } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { SCANNER_TYPE_TAG_TYPE, ScannerType, scannerTypeLabel } from '../replay_scanners/types'
@@ -13,6 +13,8 @@ export function scannerTypeIcon(scannerType: ScannerType): JSX.Element {
             return <IconPulse />
         case 'summarizer':
             return <IconNotebook />
+        case 'experiment':
+            return <IconFlask />
     }
 }
 

@@ -136,6 +136,13 @@ export const createDashboardInput = z.object({
 
 export const dashboardIdInput = z.object({ id: z.string().min(1) });
 
+// Why a canvas did not open, when it did not. `missing` covers a deleted
+// canvas, another project's canvas, and a bad id alike — the API cannot tell
+// them apart and neither can we. `no_access` is the one case it can name: the
+// canvas is in this project, in a space nobody shared with the caller.
+export const canvasAvailabilitySchema = z.enum(["ok", "missing", "no_access"]);
+export type CanvasAvailability = z.infer<typeof canvasAvailabilitySchema>;
+
 export const canvasBuildsInput = z.object({
   id: z.string().min(1),
   versionId: z.string().min(1).optional(),
@@ -258,6 +265,27 @@ export const canvasActionResultSchema = z.object({
   result: z.record(z.string(), z.unknown()),
 });
 export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
+
+// One PostHog MCP tool a canvas may run, as the host renders it before running it.
+export const canvasToolDefinitionSchema = z.object({
+  name: z.string(),
+  summary: z.string(),
+  read_only: z.boolean(),
+  destructive: z.boolean(),
+});
+export type CanvasToolDefinition = z.infer<typeof canvasToolDefinitionSchema>;
+
+export const canvasToolInvokeInput = z.object({
+  id: z.string().min(1),
+  tool: z.string().min(1).max(200),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const canvasToolResultSchema = z.object({
+  tool: z.string(),
+  result: z.record(z.string(), z.unknown()),
+});
+export type CanvasToolResult = z.infer<typeof canvasToolResultSchema>;
 
 export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
   id: z.string().min(1),

@@ -16,6 +16,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
 import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
 
+import { compareText, reportCatalogTableSorted } from '../common'
+import { RelationshipProposalModal } from '../components/RelationshipProposalModal'
 import { RelationshipRow, RelationshipStatusFilter, relationshipsLogic } from '../relationshipsLogic'
 
 const STATUS_FILTER_OPTIONS: { value: RelationshipStatusFilter; label: string }[] = [
@@ -47,7 +49,7 @@ function TableRefCell({ table, refKey }: { table: string; refKey: string }): JSX
 export function RelationshipsTab(): JSX.Element {
     const { filteredRows, proposalsLoading, joinsLoading, filters, actionsInFlight, joinsById } =
         useValues(relationshipsLogic)
-    const { setFilters, acceptProposal, rejectProposal, loadProposals, loadJoins, deleteJoin } =
+    const { setFilters, acceptProposal, rejectProposal, loadProposals, loadJoins, deleteJoin, openProposal } =
         useActions(relationshipsLogic)
     const { toggleNewJoinModal, toggleEditJoinModal } = useActions(viewLinkLogic)
 
@@ -73,11 +75,21 @@ export function RelationshipsTab(): JSX.Element {
             title: 'Source',
             key: 'source',
             render: (_, row) => <TableRefCell table={row.sourceTableName} refKey={row.sourceTableKey} />,
+            sorter: (a, b) =>
+                compareText(
+                    tableRef(a.sourceTableName, a.sourceTableKey),
+                    tableRef(b.sourceTableName, b.sourceTableKey)
+                ),
         },
         {
             title: 'Joins to',
             key: 'joining',
             render: (_, row) => <TableRefCell table={row.joiningTableName} refKey={row.joiningTableKey} />,
+            sorter: (a, b) =>
+                compareText(
+                    tableRef(a.joiningTableName, a.joiningTableKey),
+                    tableRef(b.joiningTableName, b.joiningTableKey)
+                ),
         },
         {
             title: (
@@ -87,11 +99,13 @@ export function RelationshipsTab(): JSX.Element {
             ),
             key: 'field',
             render: (_, row) => row.fieldName,
+            sorter: (a, b) => compareText(a.fieldName, b.fieldName),
         },
         {
             title: 'Confidence',
             key: 'confidence',
             render: (_, row) => (row.confidence != null ? `${Math.round(row.confidence * 100)}%` : ''),
+            sorter: (a, b) => (a.confidence ?? -1) - (b.confidence ?? -1),
         },
         {
             title: 'Status',
@@ -102,11 +116,13 @@ export function RelationshipsTab(): JSX.Element {
                     {row.viaCatalog && <LemonTag type="completion">Via catalog</LemonTag>}
                 </div>
             ),
+            sorter: (a, b) => compareText(a.rowStatus, b.rowStatus) || Number(a.viaCatalog) - Number(b.viaCatalog),
         },
         {
             title: 'Reviewed by',
             key: 'reviewedBy',
             render: (_, row) => row.reviewedBy || <span className="text-secondary">-</span>,
+            sorter: (a, b) => compareText(a.reviewedBy, b.reviewedBy),
         },
         {
             key: 'actions',
@@ -160,6 +176,7 @@ export function RelationshipsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <RelationshipProposalModal />
             <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"
@@ -168,6 +185,9 @@ export function RelationshipsTab(): JSX.Element {
                     onChange={(search) => setFilters({ search })}
                 />
                 <div className="flex items-center gap-2 flex-wrap">
+                    <LemonButton size="small" onClick={() => openProposal()}>
+                        Propose a relationship
+                    </LemonButton>
                     <LemonSegmentedButton
                         value={filters.status}
                         onChange={(status) => setFilters({ status })}
@@ -198,6 +218,7 @@ export function RelationshipsTab(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                id="data-catalog-relationships"
                 data-attr="data-catalog-relationships-table"
                 dataSource={filteredRows}
                 rowKey="key"
@@ -206,6 +227,7 @@ export function RelationshipsTab(): JSX.Element {
                 pagination={{ pageSize: 20 }}
                 emptyState="No relationships match your filters."
                 nouns={['relationship', 'relationships']}
+                onSort={(sorting) => reportCatalogTableSorted('relationships', sorting)}
                 expandable={{
                     rowExpandable: (row) => !!row.reasoning || !!row.evidence || !!row.rejectionReason,
                     expandedRowRender: (row) => <RelationshipDetail row={row} />,

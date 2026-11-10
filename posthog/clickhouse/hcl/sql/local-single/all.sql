@@ -68,7 +68,7 @@ CREATE TABLE posthog.distributed_system_processes (
   initial_query_id String,
   initial_address IPv6,
   initial_port UInt16,
-  interface UInt8,
+  interface Enum8('Unknown'=0, 'TCP'=1, 'HTTP'=2, 'gRPC'=3, 'MySQL'=4, 'PostgreSQL'=5, 'Local'=6, 'TCP_Interserver'=7, 'Prometheus'=8, 'Background'=9, 'ArrowFlight'=10),
   os_user String,
   client_hostname String,
   client_name String,
@@ -78,7 +78,7 @@ CREATE TABLE posthog.distributed_system_processes (
   client_version_minor UInt64,
   client_version_patch UInt64,
   client_agent LowCardinality(String),
-  http_method UInt8,
+  http_method Enum8('UNKNOWN'=0, 'GET'=1, 'POST'=2, 'OPTIONS'=3, 'PUT'=4, 'DELETE'=5, 'HEAD'=6),
   http_user_agent String,
   http_referer String,
   forwarded_for String,
@@ -130,6 +130,33 @@ CREATE TABLE posthog.duplicate_events (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_duplicate_events _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.duplicate_events', '{replica}-{shard}') ORDER BY (team_id, distinct_id, event, inserted_at) PARTITION BY toYYYYMMDD(inserted_at) TTL inserted_at + toIntervalDay(7) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.email_status_data (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.email_status_data', '{replica}-{shard}', version) ORDER BY (team_id, message_id) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.email_status_events_data (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.email_status_events_data', '{replica}-{shard}') ORDER BY (team_id, created_at, message_id, status_at) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.error_tracking_issue_fingerprint_overrides (
   team_id Int64,
   fingerprint String,
@@ -348,6 +375,27 @@ CREATE TABLE posthog.kafka_duplicate_events (
   distinct_fields String,
   inserted_at DateTime64(3, 'UTC')
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_duplicate_events', kafka_topic_list = 'clickhouse_ingestion_events_duplicates';
+CREATE TABLE posthog.kafka_email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
+CREATE TABLE posthog.kafka_email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String)
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status_events', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
 CREATE TABLE posthog.kafka_error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -475,7 +523,10 @@ CREATE TABLE posthog.kafka_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  inserted_at DateTime64(6, 'UTC')
+  person_properties String,
+  person_created_at DateTime64(3),
+  inserted_at DateTime64(6, 'UTC'),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_max_block_size = 10000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 10000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
 CREATE TABLE posthog.kafka_groups (
   group_type_index UInt8,
@@ -599,52 +650,6 @@ CREATE TABLE posthog.kafka_message_assets (
   is_deleted UInt8,
   html String
 ) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_message_assets', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_message_assets';
-CREATE TABLE posthog.kafka_metrics_avro (
-  uuid String,
-  trace_id String,
-  span_id String,
-  trace_flags Nullable(Int32),
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  service_name Nullable(String),
-  metric_name Nullable(String),
-  metric_type Nullable(String),
-  value Nullable(Float64),
-  count Nullable(Int64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(Int64),
-  unit Nullable(String),
-  aggregation_temporality Nullable(String),
-  is_monotonic Nullable(UInt8),
-  resource_attributes Map(String, String),
-  instrumentation_scope Nullable(String),
-  attributes Map(String, String),
-  series_fingerprint Nullable(Int64)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro-new', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
-CREATE TABLE posthog.kafka_metrics_avro2 (
-  uuid String,
-  trace_id String,
-  span_id String,
-  trace_flags Nullable(Int32),
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  service_name Nullable(String),
-  metric_name Nullable(String),
-  metric_type Nullable(String),
-  value Nullable(Float64),
-  count Nullable(Int64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(Int64),
-  unit Nullable(String),
-  aggregation_temporality Nullable(String),
-  is_monotonic Nullable(UInt8),
-  resource_attributes Map(String, String),
-  instrumentation_scope Nullable(String),
-  attributes Map(String, String),
-  series_fingerprint Nullable(Int64),
-  has_labels Nullable(UInt8),
-  retention_days Nullable(Int32)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_metrics_avro4 (
   uuid String,
   trace_id String,
@@ -749,6 +754,13 @@ CREATE TABLE posthog.kafka_person_distinct_id_overrides (
   is_deleted Int8,
   version Int64
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-distinct-id-overrides', kafka_topic_list = 'clickhouse_person_distinct_id';
+CREATE TABLE posthog.kafka_person_group_membership (
+  team_id Int64,
+  distinct_id String,
+  properties String,
+  timestamp DateTime64(6, 'UTC'),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_person_group_membership', kafka_max_block_size = 10000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 10000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_person_overrides (
   team_id Int32,
   old_person_id UUID,
@@ -757,11 +769,6 @@ CREATE TABLE posthog.kafka_person_overrides (
   oldest_event DateTime64(6, 'UTC'),
   version Int32
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'kafka:9092', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-overrides', kafka_topic_list = 'clickhouse_person_override';
-CREATE TABLE posthog.kafka_person_property_mutation_log (
-  team_id Int64,
-  uuid UUID,
-  properties String
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -1040,17 +1047,6 @@ CREATE TABLE posthog.log_entries_data (
   _timestamp DateTime,
   _offset UInt64
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.log_entries_data', '{replica}', _timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp) PARTITION BY toYYYYMMDD(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.log_entries_distributed (
-  team_id UInt64,
-  log_source LowCardinality(String),
-  log_source_id String,
-  instance_id String,
-  timestamp DateTime64(6, 'UTC'),
-  level LowCardinality(String),
-  message String,
-  _timestamp DateTime,
-  _offset UInt64
-) ENGINE = Distributed('aux', 'posthog', 'log_entries_data');
 CREATE TABLE posthog.logs32 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
   original_expiry_timestamp DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
@@ -1138,6 +1134,7 @@ CREATE TABLE posthog.logs34 (
   _record_count UInt64,
   pattern String,
   pattern_version UInt8,
+  internal_source LowCardinality(String) DEFAULT '',
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -1206,7 +1203,8 @@ CREATE TABLE posthog.logs_distributed (
   _bytes_compressed UInt64,
   _record_count UInt64,
   pattern String,
-  pattern_version UInt8
+  pattern_version UInt8,
+  internal_source LowCardinality(String) DEFAULT ''
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs34');
 CREATE TABLE posthog.logs_kafka_metrics (
   _partition UInt32,
@@ -1235,8 +1233,10 @@ CREATE TABLE posthog.logs_pattern_buckets (
   severity_text LowCardinality(String),
   pattern_version UInt8,
   pattern String,
+  internal_source LowCardinality(String),
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
 CREATE TABLE posthog.logs_pattern_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -1246,6 +1246,8 @@ CREATE TABLE posthog.logs_pattern_buckets_distributed (
   severity_text LowCardinality(String),
   pattern_version UInt8,
   pattern String,
+  internal_source LowCardinality(String),
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_pattern_buckets');
 CREATE TABLE posthog.logs_volume_buckets (
@@ -1255,9 +1257,10 @@ CREATE TABLE posthog.logs_volume_buckets (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
+  internal_source LowCardinality(String),
   retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
 CREATE TABLE posthog.logs_volume_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -1265,6 +1268,7 @@ CREATE TABLE posthog.logs_volume_buckets_distributed (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
+  internal_source LowCardinality(String),
   retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_volume_buckets');
@@ -1534,35 +1538,6 @@ CREATE TABLE posthog.metrics2 (
 GROUP BY
   team_id, service_name, metric_name, metric_type, resource_fingerprint, series_fingerprint, hour)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.metrics2', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 8192, index_granularity_bytes = 104857600, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metrics2_input (
-  uuid String,
-  team_id Int32,
-  metric_name LowCardinality(String),
-  series_fingerprint UInt64,
-  resource_fingerprint UInt64,
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  original_expiry_timestamp DateTime64(6),
-  service_name LowCardinality(String),
-  metric_type LowCardinality(String),
-  value Float64,
-  count UInt64,
-  histogram_bounds Array(Float64),
-  histogram_counts Array(UInt64),
-  trace_id String,
-  span_id String,
-  trace_flags Int32,
-  has_labels Bool,
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool,
-  instrumentation_scope String,
-  resource_attributes Map(LowCardinality(String), String),
-  attributes Map(LowCardinality(String), String),
-  _partition UInt32,
-  _topic String,
-  _offset UInt64
-) ENGINE = Null();
 CREATE TABLE posthog.metrics4_attributes (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -1576,7 +1551,8 @@ CREATE TABLE posthog.metrics4_attributes (
   INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_attributes', '{replica}-{shard}') ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_input (
   uuid String,
@@ -1605,15 +1581,20 @@ CREATE TABLE posthog.metrics4_input (
   attributes Map(LowCardinality(String), String),
   _partition UInt32,
   _topic String,
-  _offset UInt64
+  _offset UInt64,
+  _source_topic String,
+  _source_partition UInt32
 ) ENGINE = Null();
 CREATE TABLE posthog.metrics4_names (
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
-  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_names', '{replica}-{shard}') ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
+  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
+  service_name LowCardinality(String),
+  metric_types SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  metric_type String ALIAS metric_types[1]
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_names', '{replica}-{shard}') ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metrics4_samples (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -1629,8 +1610,9 @@ CREATE TABLE posthog.metrics4_samples (
   has_labels SimpleAggregateFunction(max, UInt8),
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
+  histogram_bounds_hash UInt64,
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
-  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
+  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta(8), Default),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
   value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
   count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)) CODEC(T64, Default),
@@ -1644,8 +1626,11 @@ CREATE TABLE posthog.metrics4_samples (
   INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
   INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-  INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
+  INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
+  PROJECTION service_freshness_by_hour (SELECT team_id, time_bucket, service_name, max(arrayMax(timestamp_arr))
+GROUP BY
+  team_id, time_bucket, service_name)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') PRIMARY KEY (team_id, metric_name, time_bucket, series_fingerprint) ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -1667,8 +1652,17 @@ CREATE TABLE posthog.metrics4_series (
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
+  PROJECTION services_by_hour (SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  uniqExact(metric_name),
+  uniq(series_fingerprint),
+  max(timestamp)
+GROUP BY
+  team_id, time_bucket, service_name)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics_distributed (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -1767,6 +1761,12 @@ CREATE TABLE posthog.person_distinct_id_overrides (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_person_distinct_id_overrides _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id_overrides', '{replica}-{shard}', version) ORDER BY (team_id, distinct_id) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_group_membership_config', '{replica}-{shard}', version) ORDER BY (team_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.person_overrides (
   team_id Int32,
   old_person_id UUID,
@@ -1776,12 +1776,6 @@ CREATE TABLE posthog.person_overrides (
   created_at DateTime64(6, 'UTC') DEFAULT now(),
   version Int32
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_overrides', '{replica}-{shard}', version) ORDER BY (team_id, old_person_id) PARTITION BY toYYYYMM(oldest_event) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.person_property_mutation_log_data (
-  team_id Int64,
-  event_uuid UUID,
-  properties String,
-  ingested_at DateTime('UTC')
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at) ORDER BY (team_id, event_uuid) PARTITION BY toDate(ingested_at) TTL ingested_at + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.person_static_cohort (
   id UUID,
   person_id UUID,
@@ -1841,100 +1835,6 @@ CREATE TABLE posthog.property_values_distributed (
   property_count SimpleAggregateFunction(sum, UInt64),
   last_seen SimpleAggregateFunction(max, DateTime) DEFAULT now()
 ) ENGINE = Distributed('aux', 'posthog', 'property_values');
-CREATE TABLE posthog.query_log_archive_v2 (
-  hostname LowCardinality(String),
-  user LowCardinality(String),
-  query_id String,
-  initial_query_id String,
-  is_initial_query UInt8,
-  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
-  event_date Date,
-  event_time DateTime,
-  event_time_microseconds DateTime64(6),
-  query_start_time DateTime,
-  query_start_time_microseconds DateTime64(6),
-  query_duration_ms UInt64,
-  read_rows UInt64,
-  read_bytes UInt64,
-  written_rows UInt64,
-  written_bytes UInt64,
-  result_rows UInt64,
-  result_bytes UInt64,
-  memory_usage UInt64,
-  peak_threads_usage UInt64,
-  current_database LowCardinality(String),
-  query String,
-  formatted_query String,
-  normalized_query_hash UInt64,
-  query_kind LowCardinality(String),
-  exception_code Int32,
-  exception_name String ALIAS errorCodeToName(exception_code),
-  exception String,
-  stack_trace String,
-  ProfileEvents_RealTimeMicroseconds Int64,
-  ProfileEvents_OSCPUVirtualTimeMicroseconds Int64,
-  ProfileEvents_S3Clients Int64,
-  ProfileEvents_S3DeleteObjects Int64,
-  ProfileEvents_S3CopyObject Int64,
-  ProfileEvents_S3ListObjects Int64,
-  ProfileEvents_S3HeadObject Int64,
-  ProfileEvents_S3GetObjectAttributes Int64,
-  ProfileEvents_S3CreateMultipartUpload Int64,
-  ProfileEvents_S3UploadPartCopy Int64,
-  ProfileEvents_S3UploadPart Int64,
-  ProfileEvents_S3AbortMultipartUpload Int64,
-  ProfileEvents_S3CompleteMultipartUpload Int64,
-  ProfileEvents_S3PutObject Int64,
-  ProfileEvents_S3GetObject Int64,
-  ProfileEvents_ReadBufferFromS3Bytes Int64,
-  ProfileEvents_WriteBufferFromS3Bytes Int64,
-  ProfileEvents Map(String, UInt64),
-  lc_workflow LowCardinality(String),
-  lc_kind LowCardinality(String),
-  lc_id String,
-  lc_route_id String,
-  lc_access_method LowCardinality(String),
-  lc_api_key_label String,
-  lc_api_key_mask String,
-  lc_query_type LowCardinality(String),
-  lc_product LowCardinality(String),
-  lc_chargeable Bool,
-  lc_name String,
-  lc_request_name String,
-  lc_client_query_id String,
-  lc_org_id String,
-  team_id Int64,
-  lc_user_id Int64,
-  lc_is_impersonated Bool,
-  lc_session_id String,
-  lc_dashboard_id Int64,
-  lc_insight_id Int64,
-  lc_cohort_id Int64,
-  lc_batch_export_id String,
-  lc_experiment_id Int64,
-  lc_experiment_feature_flag_key String,
-  lc_alert_config_id String,
-  lc_feature LowCardinality(String),
-  lc_table_id String,
-  lc_warehouse_query Bool,
-  lc_person_on_events_mode LowCardinality(String),
-  lc_service_name String,
-  lc_workload LowCardinality(String),
-  lc_query__kind LowCardinality(String),
-  lc_query__query String,
-  lc_query String,
-  lc_temporal__workflow_namespace String,
-  lc_temporal__workflow_type String,
-  lc_temporal__workflow_id String,
-  lc_temporal__workflow_run_id String,
-  lc_temporal__activity_type String,
-  lc_temporal__activity_id String,
-  lc_temporal__attempt Int64,
-  lc_dagster__job_name String,
-  lc_dagster__run_id String,
-  lc_dagster__owner String,
-  lc_modifiers String
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.query_log_archive_new', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.raw_error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -2178,6 +2078,7 @@ CREATE TABLE posthog.sharded_events (
   INDEX minmax_$ai_experiment_id `mat_$ai_experiment_id` TYPE minmax GRANULARITY 1,
   INDEX minmax_$session_id_uuid `$session_id_uuid` TYPE minmax GRANULARITY 1,
   INDEX bloom_filter_$session_id nullIf(nullIf(`$session_id`, ''), 'null') TYPE bloom_filter GRANULARITY 1,
+  INDEX minmax_sharded_events_inserted_at inserted_at TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_0 `$group_0` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_1 `$group_1` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_2 `$group_2` TYPE minmax GRANULARITY 1,
@@ -2192,8 +2093,10 @@ CREATE TABLE posthog.sharded_events (
 CREATE TABLE posthog.sharded_events_json (
   uuid UUID,
   event String,
-  properties JSON(max_dynamic_paths=0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_origin` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_session_id` String, `$ai_span_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_tools_called` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.instance` String, `$groups.organization` String, `$groups.project` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$raw_user_agent` LowCardinality(String), `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$search_engine` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_id` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_completed` String, `$survey_id` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, _kx String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, dclid String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, entity_detection String, env String, environment String, epik String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, igshid String, index String, initial__kx String, initial_dclid String, initial_epik String, initial_fbclid String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_gclsrc String, initial_igshid String, initial_irclid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_step String, initial_ttclid String, initial_twclid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, irclid String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, li_fat_id String, machine_id String, mc_cid String, message String, method String, mode String, most_recent_app_os String, msclkid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, qclid String, query String, ramp String, rdt_cid String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, sccid String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, ttclid String, twclid String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32) TTL toDateTime(inserted_at) + toIntervalDay(60),
+  properties_null_keys Array(LowCardinality(String)),
+  temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + toIntervalDay(60),
   timestamp DateTime64(6, 'UTC') CODEC(GCD, Default),
   team_id Int64,
   distinct_id String,
@@ -2202,7 +2105,8 @@ CREATE TABLE posthog.sharded_events_json (
   _offset UInt64 CODEC(T64, Default),
   elements_chain String,
   person_id UUID,
-  person_properties JSON(max_dynamic_paths=0, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$email` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial__kx` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_current_url` String, `$initial_dclid` String, `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_epik` String, `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_igshid` String, `$initial_irclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_msclkid` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_pathname` String, `$initial_qclid` String, `$initial_raw_user_agent` LowCardinality(String), `$initial_rdt_cid` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_sccid` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_ttclid` String, `$initial_twclid` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$last_seen_survey_date` String, `$organization_id` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pathname` String, `$product_tour_last_seen_date` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$referring_domain` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$survey_last_seen_date` String, `$viewport_height` String, `$viewport_width` String, `Email Domain` String, _kx String, companyName String, customer String, dclid String, email String, epik String, fbclid String, first_name String, gad_source String, gbraid String, gclid String, gclsrc String, hubspot_score String, icp_role String, id String, igshid String, irclid String, is_email_verified String, is_signed_up String, last_name String, li_fat_id String, mc_cid String, msclkid String, name String, organization_id String, organization_member_count String, qclid String, rdt_cid String, role String, role_at_organization String, sccid String, serverMarketing String, serverMasterclass String, ttclid String, twclid String, user_email_domain String, username String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, val_region String, wbraid String),
+  person_properties JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String)),
+  person_properties_null_keys Array(LowCardinality(String)),
   group0_properties String,
   group1_properties String,
   group2_properties String,
@@ -2267,6 +2171,8 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   variant String,
   first_exposure_time DateTime64(6, 'UTC'),
   last_exposure_time DateTime64(6, 'UTC'),
@@ -2280,6 +2186,8 @@ CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,
@@ -2297,7 +2205,10 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
   $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
   $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
@@ -2307,6 +2218,8 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
   session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
   request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
+  properties_group_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))),
+  person_properties_map_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)'))),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64,
@@ -2314,8 +2227,12 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}') ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+  INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1,
+  INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter GRANULARITY 1,
+  INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter GRANULARITY 1,
+  INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1,
+  INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}', _timestamp) ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(92) SETTINGS index_granularity = 8192, materialize_ttl_recalculate_only = 1, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,
   team_id Int64,
@@ -2464,6 +2381,39 @@ CREATE TABLE posthog.sharded_performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.performance_events', '{replica}') ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalWeek(3) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_person_group_membership', '{replica}') ORDER BY (team_id, group_type_index, group_key, distinct_id) SETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0;
+CREATE TABLE posthog.sharded_platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  source_detail String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  source_kind LowCardinality(String),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.platform_alert_events', '{replica}-{shard}') PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at) ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key) PARTITION BY toYYYYMM(occurred_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_posthog_document_embeddings_buffer (
   team_id Int64,
   product LowCardinality(String),
@@ -2548,195 +2498,138 @@ CREATE TABLE posthog.sharded_precalculated_person_properties (
   _timestamp DateTime64(6),
   _offset UInt64
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_precalculated_person_properties', '{replica}', _timestamp) ORDER BY (team_id, condition, distinct_id) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.sharded_query_log_archive (
-  hostname LowCardinality(String),
-  user LowCardinality(String),
-  query_id String,
-  initial_query_id String,
-  is_initial_query UInt8,
-  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
-  event_date Date,
-  event_time DateTime,
-  event_time_microseconds DateTime64(6),
-  query_start_time DateTime,
-  query_start_time_microseconds DateTime64(6),
-  query_duration_ms UInt64,
-  read_rows UInt64,
-  read_bytes UInt64,
-  written_rows UInt64,
-  written_bytes UInt64,
-  result_rows UInt64,
-  result_bytes UInt64,
-  memory_usage UInt64,
-  peak_threads_usage UInt64,
-  current_database LowCardinality(String),
-  query String,
-  formatted_query String,
-  normalized_query_hash UInt64,
-  query_kind LowCardinality(String),
-  exception_code Int32,
-  exception String,
-  stack_trace String,
+CREATE TABLE posthog.sharded_query_log_archive_v3 (
+  initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
-  log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
-  ProfileEvents Map(String, UInt64),
-  exception_name String ALIAS errorCodeToName(exception_code),
-  ProfileEvents_RealTimeMicroseconds Int64 ALIAS ProfileEvents['RealTimeMicroseconds'],
-  ProfileEvents_OSCPUVirtualTimeMicroseconds Int64 ALIAS ProfileEvents['OSCPUVirtualTimeMicroseconds'],
-  ProfileEvents_S3Clients Int64 ALIAS ProfileEvents['S3Clients'],
-  ProfileEvents_S3DeleteObjects Int64 ALIAS ProfileEvents['S3DeleteObjects'],
-  ProfileEvents_S3CopyObject Int64 ALIAS ProfileEvents['S3CopyObject'],
-  ProfileEvents_S3ListObjects Int64 ALIAS ProfileEvents['S3ListObjects'],
-  ProfileEvents_S3HeadObject Int64 ALIAS ProfileEvents['S3HeadObject'],
-  ProfileEvents_S3GetObjectAttributes Int64 ALIAS ProfileEvents['S3GetObjectAttributes'],
-  ProfileEvents_S3CreateMultipartUpload Int64 ALIAS ProfileEvents['S3CreateMultipartUpload'],
-  ProfileEvents_S3UploadPartCopy Int64 ALIAS ProfileEvents['S3UploadPartCopy'],
-  ProfileEvents_S3UploadPart Int64 ALIAS ProfileEvents['S3UploadPart'],
-  ProfileEvents_S3AbortMultipartUpload Int64 ALIAS ProfileEvents['S3AbortMultipartUpload'],
-  ProfileEvents_S3CompleteMultipartUpload Int64 ALIAS ProfileEvents['S3CompleteMultipartUpload'],
-  ProfileEvents_S3PutObject Int64 ALIAS ProfileEvents['S3PutObject'],
-  ProfileEvents_S3GetObject Int64 ALIAS ProfileEvents['S3GetObject'],
-  ProfileEvents_ReadBufferFromS3Bytes Int64 ALIAS ProfileEvents['ReadBufferFromS3Bytes'],
-  ProfileEvents_WriteBufferFromS3Bytes Int64 ALIAS ProfileEvents['WriteBufferFromS3Bytes'],
-  lc_workflow LowCardinality(String) ALIAS log_comment.workflow,
-  lc_kind LowCardinality(String) ALIAS log_comment.kind,
-  lc_id String ALIAS CAST(log_comment.id, 'String'),
-  lc_route_id String ALIAS CAST(log_comment.route_id, 'String'),
-  lc_access_method LowCardinality(String) ALIAS log_comment.access_method,
-  lc_api_key_label String ALIAS CAST(log_comment.api_key_label, 'String'),
-  lc_api_key_mask String ALIAS CAST(log_comment.api_key_mask, 'String'),
-  lc_query_type LowCardinality(String) ALIAS log_comment.query_type,
-  lc_product LowCardinality(String) ALIAS log_comment.product,
-  lc_chargeable Bool ALIAS log_comment.chargeable,
-  lc_name String ALIAS CAST(log_comment.name, 'String'),
-  lc_request_name String ALIAS CAST(log_comment.request_name, 'String'),
-  lc_client_query_id String ALIAS CAST(log_comment.client_query_id, 'String'),
-  lc_org_id String ALIAS CAST(log_comment.org_id, 'String'),
-  lc_user_id Int64 ALIAS log_comment.user_id,
-  lc_is_impersonated Bool ALIAS log_comment.is_impersonated,
-  lc_session_id String ALIAS CAST(log_comment.session_id, 'String'),
-  lc_dashboard_id Int64 ALIAS log_comment.dashboard_id,
-  lc_insight_id Int64 ALIAS log_comment.insight_id,
-  lc_cohort_id Int64 ALIAS log_comment.cohort_id,
-  lc_batch_export_id String ALIAS CAST(log_comment.batch_export_id, 'String'),
-  lc_experiment_id Int64 ALIAS log_comment.experiment_id,
-  lc_experiment_feature_flag_key String ALIAS CAST(log_comment.experiment_feature_flag_key, 'String'),
-  lc_alert_config_id String ALIAS CAST(log_comment.alert_config_id, 'String'),
-  lc_feature LowCardinality(String) ALIAS log_comment.feature,
-  lc_table_id String ALIAS CAST(log_comment.table_id, 'String'),
-  lc_warehouse_query Bool ALIAS log_comment.warehouse_query,
-  lc_person_on_events_mode LowCardinality(String) ALIAS log_comment.person_on_events_mode,
-  lc_service_name String ALIAS CAST(log_comment.service_name, 'String'),
-  lc_workload LowCardinality(String) ALIAS log_comment.workload,
-  lc_query__kind LowCardinality(String) ALIAS if(JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'kind'), JSONExtractString(toString(log_comment), 'query', 'kind')),
-  lc_query__query String ALIAS multiIf(NOT is_initial_query, '', JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'), JSONExtractString(toString(log_comment), 'query', 'query')),
-  lc_query String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), ''),
-  lc_temporal__workflow_namespace String ALIAS CAST(log_comment.`temporal.workflow_namespace`, 'String'),
-  lc_temporal__workflow_type String ALIAS CAST(log_comment.`temporal.workflow_type`, 'String'),
-  lc_temporal__workflow_id String ALIAS CAST(log_comment.`temporal.workflow_id`, 'String'),
-  lc_temporal__workflow_run_id String ALIAS CAST(log_comment.`temporal.workflow_run_id`, 'String'),
-  lc_temporal__activity_type String ALIAS CAST(log_comment.`temporal.activity_type`, 'String'),
-  lc_temporal__activity_id String ALIAS CAST(log_comment.`temporal.activity_id`, 'String'),
-  lc_temporal__attempt Int64 ALIAS log_comment.`temporal.attempt`,
-  lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
-  lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
-  lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.sharded_query_log_archive', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets';
-CREATE TABLE posthog.sharded_query_log_archive_old (
-  hostname LowCardinality(String),
-  user LowCardinality(String),
-  query_id String,
   initial_query_id String,
-  is_initial_query UInt8,
-  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
-  event_date Date,
-  event_time DateTime,
-  event_time_microseconds DateTime64(6),
-  query_start_time DateTime,
-  query_start_time_microseconds DateTime64(6),
-  query_duration_ms UInt64,
-  read_rows UInt64,
-  read_bytes UInt64,
-  written_rows UInt64,
-  written_bytes UInt64,
-  result_rows UInt64,
-  result_bytes UInt64,
-  memory_usage UInt64,
-  peak_threads_usage UInt64,
-  current_database LowCardinality(String),
-  query String,
-  formatted_query String,
-  normalized_query_hash UInt64,
-  query_kind LowCardinality(String),
-  exception_code Int32,
+  is_initial_query SimpleAggregateFunction(max, UInt8),
+  hostname SimpleAggregateFunction(max, LowCardinality(String)),
+  user SimpleAggregateFunction(max, LowCardinality(String)),
+  type SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)),
+  event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  query_duration_ms SimpleAggregateFunction(max, UInt64),
+  read_rows SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  read_bytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  written_rows SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  written_bytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  result_rows SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  result_bytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  memory_usage SimpleAggregateFunction(max, UInt64) CODEC(T64, Default),
+  memory_usage_sum SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  peak_threads_usage SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  execution_count SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  current_database SimpleAggregateFunction(max, LowCardinality(String)),
+  query SimpleAggregateFunction(max, String) TTL toDateTime(initial_query_start_time) + toIntervalMonth(3),
+  normalized_query_hash SimpleAggregateFunction(max, UInt64),
+  query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)),
+  tables SimpleAggregateFunction(max, Array(String)),
+  exception_code SimpleAggregateFunction(max, Int32),
+  exception SimpleAggregateFunction(max, String) TTL toDateTime(initial_query_start_time) + toIntervalMonth(3),
+  stack_trace SimpleAggregateFunction(max, String),
+  ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64) CODEC(T64, Default),
+  lc_org_id SimpleAggregateFunction(max, String),
+  lc_user_id SimpleAggregateFunction(max, Int64),
+  lc_session_id SimpleAggregateFunction(max, String),
+  lc_is_impersonated SimpleAggregateFunction(max, Bool),
+  lc_workflow SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_kind SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_id SimpleAggregateFunction(max, String),
+  lc_route_id SimpleAggregateFunction(max, String),
+  lc_access_method SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_api_key_label SimpleAggregateFunction(max, String),
+  lc_api_key_mask SimpleAggregateFunction(max, String),
+  lc_query_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_product SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_chargeable SimpleAggregateFunction(max, Bool),
+  lc_name SimpleAggregateFunction(max, String),
+  lc_request_name SimpleAggregateFunction(max, String),
+  lc_client_query_id SimpleAggregateFunction(max, String),
+  lc_dashboard_id SimpleAggregateFunction(max, Int64),
+  lc_insight_id SimpleAggregateFunction(max, Int64),
+  lc_cohort_id SimpleAggregateFunction(max, Int64),
+  lc_batch_export_id SimpleAggregateFunction(max, String),
+  lc_experiment_id SimpleAggregateFunction(max, Int64),
+  lc_experiment_feature_flag_key SimpleAggregateFunction(max, String),
+  lc_alert_config_id SimpleAggregateFunction(max, String),
+  lc_feature SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_table_id SimpleAggregateFunction(max, String),
+  lc_warehouse_query SimpleAggregateFunction(max, Bool),
+  lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_service_name SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_workload SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_query__query SimpleAggregateFunction(max, String) TTL toDateTime(initial_query_start_time) + toIntervalMonth(3),
+  lc_query SimpleAggregateFunction(max, String) TTL toDateTime(initial_query_start_time) + toIntervalMonth(3),
+  lc_modifiers SimpleAggregateFunction(max, String),
+  lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__workflow_id SimpleAggregateFunction(max, String),
+  lc_temporal__workflow_run_id SimpleAggregateFunction(max, String),
+  lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__activity_id SimpleAggregateFunction(max, String),
+  lc_temporal__attempt SimpleAggregateFunction(max, Int64),
+  lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_dagster__run_id SimpleAggregateFunction(max, String),
+  lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_name SimpleAggregateFunction(max, String),
+  lc_experiment_metric_name SimpleAggregateFunction(max, String),
+  lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_precompute_table SimpleAggregateFunction(max, String),
+  lc_experiment_query_group_id SimpleAggregateFunction(max, String),
+  lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_scan_date_from SimpleAggregateFunction(max, String),
+  lc_experiment_scan_date_to SimpleAggregateFunction(max, String),
+  lc_precompute_window_start SimpleAggregateFunction(max, String),
+  lc_precompute_window_end SimpleAggregateFunction(max, String),
+  lc_plan_fingerprint SimpleAggregateFunction(max, String),
+  lc_estimated_rows SimpleAggregateFunction(max, Int64),
+  lc_estimated_bytes SimpleAggregateFunction(max, Int64),
+  query_id String ALIAS initial_query_id,
+  event_time DateTime('UTC') ALIAS toDateTime(event_time_microseconds),
+  event_date Date ALIAS toDate(event_time_microseconds),
+  query_start_time DateTime('UTC') ALIAS toDateTime(initial_query_start_time),
+  query_start_time_microseconds DateTime64(6, 'UTC') ALIAS initial_query_start_time,
+  query_kind LowCardinality(String) ALIAS tupleElement(query_kind_by_root, 2),
+  formatted_query String ALIAS '',
+  query_shape String ALIAS normalizeQuery(query),
+  hogql_shape String ALIAS normalizeQuery(lc_query__query),
   exception_name String ALIAS errorCodeToName(exception_code),
-  exception String,
-  stack_trace String,
-  ProfileEvents_RealTimeMicroseconds Int64,
-  ProfileEvents_OSCPUVirtualTimeMicroseconds Int64,
-  ProfileEvents_S3Clients Int64,
-  ProfileEvents_S3DeleteObjects Int64,
-  ProfileEvents_S3CopyObject Int64,
-  ProfileEvents_S3ListObjects Int64,
-  ProfileEvents_S3HeadObject Int64,
-  ProfileEvents_S3GetObjectAttributes Int64,
-  ProfileEvents_S3CreateMultipartUpload Int64,
-  ProfileEvents_S3UploadPartCopy Int64,
-  ProfileEvents_S3UploadPart Int64,
-  ProfileEvents_S3AbortMultipartUpload Int64,
-  ProfileEvents_S3CompleteMultipartUpload Int64,
-  ProfileEvents_S3PutObject Int64,
-  ProfileEvents_S3GetObject Int64,
-  ProfileEvents_ReadBufferFromS3Bytes Int64,
-  ProfileEvents_WriteBufferFromS3Bytes Int64,
-  ProfileEvents Map(String, UInt64),
-  lc_workflow LowCardinality(String),
-  lc_kind LowCardinality(String),
-  lc_id String,
-  lc_route_id String,
-  lc_access_method LowCardinality(String),
-  lc_api_key_label String,
-  lc_api_key_mask String,
-  lc_query_type LowCardinality(String),
-  lc_product LowCardinality(String),
-  lc_chargeable Bool,
-  lc_name String,
-  lc_request_name String,
-  lc_client_query_id String,
-  lc_org_id String,
-  team_id Int64,
-  lc_user_id Int64,
-  lc_is_impersonated Bool,
-  lc_session_id String,
-  lc_dashboard_id Int64,
-  lc_insight_id Int64,
-  lc_cohort_id Int64,
-  lc_batch_export_id String,
-  lc_experiment_id Int64,
-  lc_experiment_feature_flag_key String,
-  lc_alert_config_id String,
-  lc_feature LowCardinality(String),
-  lc_table_id String,
-  lc_warehouse_query Bool,
-  lc_person_on_events_mode LowCardinality(String),
-  lc_service_name String,
-  lc_workload LowCardinality(String),
-  lc_query__kind LowCardinality(String),
-  lc_query__query String,
-  lc_query String,
-  lc_temporal__workflow_namespace String,
-  lc_temporal__workflow_type String,
-  lc_temporal__workflow_id String,
-  lc_temporal__workflow_run_id String,
-  lc_temporal__activity_type String,
-  lc_temporal__activity_id String,
-  lc_temporal__attempt Int64,
-  lc_dagster__job_name String,
-  lc_dagster__run_id String,
-  lc_dagster__owner String,
-  lc_modifiers String
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.sharded_query_log_archive', '{replica}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192;
+  ProfileEvents Map(String, UInt64) ALIAS map('SelectedRows', ProfileEvents_SelectedRows, 'SelectedBytes', ProfileEvents_SelectedBytes, 'RealTimeMicroseconds', ProfileEvents_RealTimeMicroseconds, 'OSCPUVirtualTimeMicroseconds', ProfileEvents_OSCPUVirtualTimeMicroseconds, 'UserTimeMicroseconds', ProfileEvents_UserTimeMicroseconds, 'SystemTimeMicroseconds', ProfileEvents_SystemTimeMicroseconds, 'SelectedParts', ProfileEvents_SelectedParts, 'SelectedMarks', ProfileEvents_SelectedMarks, 'NetworkReceiveBytes', ProfileEvents_NetworkReceiveBytes, 'NetworkSendBytes', ProfileEvents_NetworkSendBytes, 'ReadBufferFromFileDescriptorReadBytes', ProfileEvents_ReadBufferFromFileDescriptorReadBytes, 'WriteBufferFromFileDescriptorWriteBytes', ProfileEvents_WriteBufferFromFileDescriptorWriteBytes, 'S3Clients', ProfileEvents_S3Clients, 'S3DeleteObjects', ProfileEvents_S3DeleteObjects, 'S3CopyObject', ProfileEvents_S3CopyObject, 'S3ListObjects', ProfileEvents_S3ListObjects, 'S3HeadObject', ProfileEvents_S3HeadObject, 'S3GetObjectAttributes', ProfileEvents_S3GetObjectAttributes, 'S3CreateMultipartUpload', ProfileEvents_S3CreateMultipartUpload, 'S3UploadPartCopy', ProfileEvents_S3UploadPartCopy, 'S3UploadPart', ProfileEvents_S3UploadPart, 'S3AbortMultipartUpload', ProfileEvents_S3AbortMultipartUpload, 'S3CompleteMultipartUpload', ProfileEvents_S3CompleteMultipartUpload, 'S3PutObject', ProfileEvents_S3PutObject, 'S3GetObject', ProfileEvents_S3GetObject, 'ReadBufferFromS3Bytes', ProfileEvents_ReadBufferFromS3Bytes, 'WriteBufferFromS3Bytes', ProfileEvents_WriteBufferFromS3Bytes),
+  INDEX initial_query_start_time_minmax initial_query_start_time TYPE minmax GRANULARITY 1,
+  INDEX event_date_minmax toDate(event_time_microseconds) TYPE minmax GRANULARITY 1,
+  INDEX event_time_minmax toDateTime(event_time_microseconds) TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_query_log_archive_v3_by_chain', '{replica}') ORDER BY (toStartOfHour(initial_query_start_time), team_id, initial_query_start_time, initial_query_id) PARTITION BY toYYYYMM(initial_query_start_time) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_raw_sessions (
   team_id Int64,
   session_id_v7 UInt128,
@@ -2830,23 +2723,20 @@ CREATE TABLE posthog.sharded_raw_sessions_v3 (
   entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   entry_has_gclid AggregateFunction(argMin, Bool, DateTime64(6, 'UTC')),
   entry_has_fbclid AggregateFunction(argMin, Bool, DateTime64(6, 'UTC')),
-  entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
   entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC')),
-  pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-  autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-  screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+  pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+  autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+  screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
   flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-  flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool),
   INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
-  INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+  INDEX flag_key_values_text flag_key_values TYPE text(tokenizer = splitByString(['='])) GRANULARITY 100000000,
   INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
   INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.raw_sessions_v3', '{replica}') ORDER BY (team_id, session_timestamp, session_id_v7) PARTITION BY toYYYYMM(session_timestamp) SETTINGS index_granularity = 8192, max_delay_to_insert = 10, parts_to_delay_insert = 250, parts_to_throw_insert = 1000;
@@ -3015,6 +2905,54 @@ CREATE TABLE posthog.sharded_usage_report_events_preagg (
   distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)),
   event_count AggregateFunction(sum, UInt64)
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_usage_report_events_preagg', '{replica}') ORDER BY (date, team_id, person_mode, lib, event) PARTITION BY date TTL date + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_warehouse_object_reads_daily (
+  team_id Int64,
+  day Date,
+  read_kind Enum8('read'=1, 'refresh'=2),
+  subject_kind Enum8('saved_query'=1, 'table'=2),
+  subject_id String,
+  workflow_id String,
+  lc_kind LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_feature LowCardinality(String),
+  lc_access_method LowCardinality(String),
+  source LowCardinality(String),
+  scene LowCardinality(String),
+  has_user_id Bool,
+  read_alone Bool,
+  requests AggregateFunction(uniq, String),
+  users AggregateFunction(uniq, Int64),
+  read_count SimpleAggregateFunction(sum, UInt64),
+  duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  max_event_time SimpleAggregateFunction(max, DateTime)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.warehouse_object_reads_daily', '{replica}-{shard}') ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone) PARTITION BY toYYYYMMDD(day) TTL day + toIntervalDay(60) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_warehouse_object_reads_daily_staging (
+  team_id Int64,
+  day Date,
+  read_kind Enum8('read'=1, 'refresh'=2),
+  subject_kind Enum8('saved_query'=1, 'table'=2),
+  subject_id String,
+  workflow_id String,
+  lc_kind LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_feature LowCardinality(String),
+  lc_access_method LowCardinality(String),
+  source LowCardinality(String),
+  scene LowCardinality(String),
+  has_user_id Bool,
+  read_alone Bool,
+  requests AggregateFunction(uniq, String),
+  users AggregateFunction(uniq, Int64),
+  read_count SimpleAggregateFunction(sum, UInt64),
+  duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  max_event_time SimpleAggregateFunction(max, DateTime)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.sharded_warehouse_object_reads_daily_staging', '{replica}-{shard}') ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone) PARTITION BY toYYYYMMDD(day) TTL day + toIntervalDay(60) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_bot_definition (
   id UInt64,
   parent_id UInt64,
@@ -3291,8 +3229,6 @@ CREATE TABLE posthog.trace_spans (
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
   INDEX idx_trace_bloom_part_v2 trace_id TYPE bloom_filter(0.05) GRANULARITY 99999,
   INDEX idx_span_id_bloom_part_v2 span_id TYPE bloom_filter(0.05) GRANULARITY 99999,
-  PROJECTION projection_index_span_id (SELECT _part_offset
-ORDER BY span_id),
   PROJECTION projection_index_team_span_id (SELECT team_id, _part_offset
 ORDER BY span_id),
   PROJECTION projection_index_team_trace_id (SELECT team_id, _part_offset
@@ -3306,9 +3242,7 @@ ORDER BY trace_id),
   is_root_span,
   count() AS event_count
 GROUP BY
-  team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span),
-  PROJECTION projection_index_trace_id (SELECT _part_offset
-ORDER BY trace_id)
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS allow_part_offset_column_in_projections = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1;
 CREATE TABLE posthog.trace_spans_distributed (
   time_bucket DateTime MATERIALIZED toStartOfInterval(timestamp, toIntervalHour(4)),
@@ -3357,7 +3291,7 @@ CREATE TABLE posthog.trace_spans_kafka_metrics (
   max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.usage_report_events_preagg (
   date Date,
   team_id Int64,
@@ -3367,6 +3301,30 @@ CREATE TABLE posthog.usage_report_events_preagg (
   distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)),
   event_count AggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_usage_report_events_preagg', sipHash64(date));
+CREATE TABLE posthog.warehouse_object_reads_daily (
+  team_id Int64,
+  day Date,
+  read_kind Enum8('read'=1, 'refresh'=2),
+  subject_kind Enum8('saved_query'=1, 'table'=2),
+  subject_id String,
+  workflow_id String,
+  lc_kind LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_feature LowCardinality(String),
+  lc_access_method LowCardinality(String),
+  source LowCardinality(String),
+  scene LowCardinality(String),
+  has_user_id Bool,
+  read_alone Bool,
+  requests AggregateFunction(uniq, String),
+  users AggregateFunction(uniq, Int64),
+  read_count SimpleAggregateFunction(sum, UInt64),
+  duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  max_event_time SimpleAggregateFunction(max, DateTime)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_warehouse_object_reads_daily');
 CREATE TABLE posthog.web_bot_definition (
   id UInt64,
   parent_id UInt64,
@@ -3853,8 +3811,10 @@ CREATE TABLE posthog.writable_events_dead_letter_queue (
 CREATE TABLE posthog.writable_events_json (
   uuid UUID,
   event String,
-  properties JSON(max_dynamic_paths=0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_origin` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_session_id` String, `$ai_span_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_tools_called` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.instance` String, `$groups.organization` String, `$groups.project` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$raw_user_agent` LowCardinality(String), `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$search_engine` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_id` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_completed` String, `$survey_id` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, _kx String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, dclid String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, entity_detection String, env String, environment String, epik String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, igshid String, index String, initial__kx String, initial_dclid String, initial_epik String, initial_fbclid String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_gclsrc String, initial_igshid String, initial_irclid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_step String, initial_ttclid String, initial_twclid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, irclid String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, li_fat_id String, machine_id String, mc_cid String, message String, method String, mode String, most_recent_app_os String, msclkid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, qclid String, query String, ramp String, rdt_cid String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, sccid String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, ttclid String, twclid String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
+  properties_null_keys Array(LowCardinality(String)),
+  temporary_properties_null_keys Array(LowCardinality(String)),
   timestamp DateTime64(6, 'UTC'),
   team_id Int64,
   distinct_id String,
@@ -3863,7 +3823,8 @@ CREATE TABLE posthog.writable_events_json (
   _offset UInt64,
   elements_chain String,
   person_id UUID,
-  person_properties JSON(max_dynamic_paths=0, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$email` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial__kx` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_current_url` String, `$initial_dclid` String, `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_epik` String, `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_igshid` String, `$initial_irclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_msclkid` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_pathname` String, `$initial_qclid` String, `$initial_raw_user_agent` LowCardinality(String), `$initial_rdt_cid` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_sccid` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_ttclid` String, `$initial_twclid` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$last_seen_survey_date` String, `$organization_id` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pathname` String, `$product_tour_last_seen_date` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$referring_domain` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$survey_last_seen_date` String, `$viewport_height` String, `$viewport_width` String, `Email Domain` String, _kx String, companyName String, customer String, dclid String, email String, epik String, fbclid String, first_name String, gad_source String, gbraid String, gclid String, gclsrc String, hubspot_score String, icp_role String, id String, igshid String, irclid String, is_email_verified String, is_signed_up String, last_name String, li_fat_id String, mc_cid String, msclkid String, name String, organization_id String, organization_member_count String, qclid String, rdt_cid String, role String, role_at_organization String, sccid String, serverMarketing String, serverMasterclass String, ttclid String, twclid String, user_email_domain String, username String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, val_region String, wbraid String),
+  person_properties JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String)),
+  person_properties_null_keys Array(LowCardinality(String)),
   group0_properties String,
   group1_properties String,
   group2_properties String,
@@ -3919,7 +3880,10 @@ CREATE TABLE posthog.writable_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
@@ -4015,7 +3979,8 @@ CREATE TABLE posthog.writable_logs34 (
   _bytes_compressed UInt64,
   _record_count UInt64,
   pattern String,
-  pattern_version UInt8
+  pattern_version UInt8,
+  internal_source LowCardinality(String) DEFAULT ''
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE TABLE posthog.writable_metrics4_attributes (
   team_id Int32,
@@ -4033,7 +3998,9 @@ CREATE TABLE posthog.writable_metrics4_names (
   metric_name LowCardinality(String),
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
-  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))
+  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
+  service_name LowCardinality(String),
+  metric_types SimpleAggregateFunction(groupUniqArrayArray, Array(String))
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_names');
 CREATE TABLE posthog.writable_metrics4_samples (
   team_id Int32,
@@ -4050,6 +4017,7 @@ CREATE TABLE posthog.writable_metrics4_samples (
   has_labels SimpleAggregateFunction(max, UInt8),
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
+  histogram_bounds_hash UInt64,
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
   timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))),
@@ -4077,6 +4045,15 @@ CREATE TABLE posthog.writable_metrics4_series (
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
   original_expiry_timestamp DateTime64(6)
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_series');
+CREATE TABLE posthog.writable_metrics_kafka_metrics (
+  _partition UInt32,
+  _topic String,
+  max_offset SimpleAggregateFunction(max, UInt64),
+  max_observed_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_created_at SimpleAggregateFunction(max, DateTime64(9)),
+  max_lag SimpleAggregateFunction(max, UInt64)
+) ENGINE = Distributed('logs', 'posthog', 'metrics_kafka_metrics');
 CREATE TABLE posthog.writable_person (
   id UUID,
   created_at DateTime64(3),
@@ -4109,6 +4086,14 @@ CREATE TABLE posthog.writable_person_distinct_id_overrides (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'person_distinct_id_overrides');
+CREATE TABLE posthog.writable_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
 CREATE TABLE posthog.writable_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -4299,16 +4284,14 @@ CREATE TABLE posthog.writable_raw_sessions_v3 (
   entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   entry_has_gclid AggregateFunction(argMin, Bool, DateTime64(6, 'UTC')),
   entry_has_fbclid AggregateFunction(argMin, Bool, DateTime64(6, 'UTC')),
-  entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
   entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC')),
-  pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-  autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-  screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+  pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+  autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+  screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
   flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-  flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
@@ -4621,6 +4604,34 @@ CREATE MATERIALIZED VIEW posthog.duplicate_events_mv TO posthog.writable_duplica
   _offset,
   _partition
 FROM posthog.kafka_duplicate_events;
+CREATE MATERIALIZED VIEW posthog.email_status_events_mv TO posthog.email_status_events_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, recipient String, function_id String, sending_domain LowCardinality(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  recipient,
+  function_id,
+  sending_domain,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status_events;
+CREATE MATERIALIZED VIEW posthog.email_status_mv TO posthog.email_status_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status
+WHERE status NOT IN ('opened', 'clicked');
 CREATE MATERIALIZED VIEW posthog.error_tracking_fingerprint_issue_state_mv TO posthog.writable_error_tracking_fingerprint_issue_state (team_id Int64, fingerprint String, issue_id UUID, issue_name Nullable(String), issue_description Nullable(String), issue_status String, issue_severity Nullable(String), assigned_user_id Nullable(Int64), assigned_role_id Nullable(UUID), first_seen DateTime64(3, 'UTC'), is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   fingerprint,
@@ -4732,18 +4743,10 @@ FROM
     SELECT
       uuid,
       event,
-      if(
-        isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'),
-        JSONCleanPostHogEventProperties(source.properties),
-        concat('{"$unparseable_properties":', toJSONString(source.properties), '}')
-      ) AS properties,
-      JSONCleanPostHogTemporaryProperties(
-        if(
-          isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'),
-          source.properties,
-          '{}'
-        )
-      ) AS temporary_properties,
+      cleaned.properties AS properties,
+      cleaned.temporary_properties AS temporary_properties,
+      cleaned.properties_null_keys AS properties_null_keys,
+      cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
       now64() AS inserted_at,
       timestamp,
       team_id,
@@ -4751,12 +4754,8 @@ FROM
       elements_chain,
       created_at,
       person_id,
-      if(
-        isValidJSON(source.person_properties)
-        AND startsWith(trimLeft(source.person_properties), '{'),
-        JSONCleanPostHogPersonProperties(source.person_properties),
-        concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}')
-      ) AS person_properties,
+      cleaned.person_properties AS person_properties,
+      cleaned.person_properties_null_keys AS person_properties_null_keys,
       person_created_at,
       group0_properties,
       group1_properties,
@@ -4774,15 +4773,28 @@ FROM
       _timestamp,
       _offset,
       _partition,
-      arrayMap(
-        i -> (_headers.value[i]),
-        arrayFilter(
-          i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
-          arrayEnumerate(_headers.name)
-        )
-      ) AS consumer_breadcrumbs
-    FROM posthog.kafka_events_json_native_json AS source
-  );
+      consumer_breadcrumbs
+    FROM
+      (
+        SELECT
+          *,
+          _timestamp,
+          _offset,
+          _partition,
+          arrayMap(
+            i -> (_headers.value[i]),
+            arrayFilter(
+              i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+              arrayEnumerate(_headers.name)
+            )
+          ) AS consumer_breadcrumbs,
+          JSONCleanPostHogEvent(properties, person_properties) AS cleaned
+        FROM posthog.kafka_events_json_native_json
+      ) AS source
+  )
+SETTINGS
+  input_format_try_infer_dates = 0,
+  input_format_try_infer_datetimes = 0;
 CREATE MATERIALIZED VIEW posthog.events_recent_json_mv TO posthog.writable_events_recent (uuid UUID, event String, properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_created_at DateTime64(3), person_properties String, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), _timestamp DateTime, _offset UInt64) AS SELECT
   uuid,
   event,
@@ -4809,7 +4821,7 @@ CREATE MATERIALIZED VIEW posthog.events_recent_json_mv TO posthog.writable_event
   _timestamp,
   _offset
 FROM posthog.sharded_events;
-CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_created_at DateTime64(3), inserted_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   event,
   properties,
@@ -4818,7 +4830,10 @@ CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_ev
   distinct_id,
   created_at,
   person_id,
-  if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
+  if(empty(person_properties), '{}', person_properties) AS person_properties,
+  person_created_at,
+  now64() AS inserted_at,
+  person_mode,
   _timestamp,
   _offset,
   _partition
@@ -4899,7 +4914,7 @@ CREATE MATERIALIZED VIEW posthog.ingestion_warnings_v2_mv TO posthog.ingestion_w
   _offset,
   _partition
 FROM posthog.kafka_ingestion_warnings_v2;
-CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8, internal_source LowCardinality(String)) AS SELECT
   uuid,
   trace_id,
   span_id,
@@ -4915,7 +4930,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
@@ -4930,7 +4945,8 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
 FROM posthog.kafka_logs_avro;
 CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_billing_metrics_mv TO posthog.logs_billing_metrics (team_id Int32, time_bucket DateTime, service_name LowCardinality(String), bytes_uncompressed SimpleAggregateFunction(sum, Float64), bytes_compressed SimpleAggregateFunction(sum, Float64), record_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
@@ -4962,7 +4978,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.log
 FROM posthog.logs34
 GROUP BY
   _partition, _topic;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro4_mv TO posthog.metrics4_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _source_topic String, _source_partition UInt32) AS SELECT
   uuid,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   ifNull(metric_name, '') AS metric_name,
@@ -5006,73 +5022,14 @@ CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_inpu
   ) AS attributes,
   _partition,
   _topic,
-  _offset
-FROM posthog.kafka_metrics_avro2
-WHERE kafka_metrics_avro2.series_fingerprint IS NOT NULL
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro4_mv TO posthog.metrics4_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
-  uuid,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  ifNull(metric_name, '') AS metric_name,
-  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-  cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  timestamp
-  + toIntervalDay(
-    assumeNotNull(
-      if(
-        (retention_days IS NOT NULL) AND (retention_days > 0),
-        retention_days,
-        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
-      )
-    )
-  ) AS original_expiry_timestamp,
-  ifNull(service_name, '') AS service_name,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(value, 0) AS value,
-  toUInt64(ifNull(count, 1)) AS count,
-  histogram_bounds,
-  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
-  trace_id,
-  span_id,
-  ifNull(trace_flags, 0) AS trace_flags,
-  toBool(ifNull(has_labels, 1)) AS has_labels,
-  ifNull(unit, '') AS unit,
-  ifNull(aggregation_temporality, '') AS aggregation_temporality,
-  ifNull(is_monotonic, 0) AS is_monotonic,
-  ifNull(instrumentation_scope, '') AS instrumentation_scope,
-  if(
-    toBool(ifNull(has_labels, 1)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-    CAST(map(), 'Map(String, String)')
-  ) AS resource_attributes,
-  if(
-    toBool(ifNull(has_labels, 1)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)),
-    CAST(map(), 'Map(String, String)')
-  ) AS attributes,
-  _partition,
-  _topic,
-  _offset
+  _offset,
+  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
+  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
 FROM posthog.kafka_metrics_avro4
 WHERE kafka_metrics_avro4.series_fingerprint IS NOT NULL
 SETTINGS
   min_insert_block_size_rows = 0,
   min_insert_block_size_bytes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_kafka_metrics_mv TO posthog.metrics_kafka_metrics (_partition UInt64, _topic LowCardinality(String), max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
-  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-  maxSimpleState(timestamp) AS max_timestamp,
-  maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.kafka_metrics_avro
-GROUP BY
-  _partition, _topic;
 CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.trace_spans (uuid String, trace_id String, span_id String, parent_span_id String, trace_state String, name String, kind Int8, flags UInt32, timestamp DateTime64(6), end_time DateTime64(6), observed_timestamp DateTime64(6), service_name String, resource_attributes Map(LowCardinality(String), String), instrumentation_scope String, attributes_map_str Map(LowCardinality(String), String), dropped_attributes_count UInt32, events Array(String), dropped_events_count UInt32, links Array(String), dropped_links_count UInt32, status_code Int16, team_id Int32, original_expiry_timestamp DateTime64(6)) AS SELECT
   uuid,
   trace_id,
@@ -5096,7 +5053,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.trace_span
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
@@ -5232,6 +5189,57 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, attributes
   );
+CREATE MATERIALIZED VIEW posthog.logs34_to_pattern_buckets TO posthog.logs_pattern_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), pattern_version UInt8, pattern String, internal_source LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  pattern_version,
+  pattern,
+  internal_source,
+  maxSimpleState(retention_days) AS retention_days,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text,
+      pattern_version,
+      pattern,
+      internal_source,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
+    FROM posthog.logs34
+    WHERE pattern_version != 0
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source;
 CREATE MATERIALIZED VIEW posthog.logs34_to_resource_attributes3 TO posthog.log_attributes3 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), severity_text LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -5261,13 +5269,14 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), internal_source LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
   service_name,
   namespace,
   environment,
   severity_text,
+  internal_source,
   maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
@@ -5291,6 +5300,7 @@ FROM
         )
       ) AS environment,
       lower(severity_text) AS severity_text,
+      internal_source,
       toUInt16(
         least(
           intDiv(
@@ -5304,7 +5314,7 @@ FROM
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text;
+  team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source;
 CREATE MATERIALIZED VIEW posthog.message_assets_mv TO posthog.message_assets_data (team_id Int64, function_kind LowCardinality(String), function_id String, parent_run_id String, invocation_id String, action_id String, kind LowCardinality(String), distinct_id String, person_id String, recipient String, subject String, status LowCardinality(String), sent_at DateTime64(6, 'UTC'), version UInt64, is_deleted UInt8, html String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   function_kind,
@@ -5326,186 +5336,6 @@ CREATE MATERIALIZED VIEW posthog.message_assets_mv TO posthog.message_assets_dat
   _offset,
   _partition
 FROM posthog.kafka_message_assets;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  );
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_attributes3 TO posthog.metric_attributes3 (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      metric_name AS metric_name,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  );
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_names3 TO posthog.metric_names3 (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))) AS SELECT
-  team_id,
-  metric_name,
-  toStartOfHour(timestamp) AS time_bucket,
-  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
-FROM posthog.metrics2_input AS input
-WHERE has_labels
-GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_series TO posthog.metric_series2 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), last_seen DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  service_name,
-  instrumentation_scope,
-  resource_attributes,
-  attributes,
-  timestamp AS last_seen,
-  original_expiry_timestamp
-FROM posthog.metrics2_input
-WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_series3 TO posthog.metric_series3 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), last_seen DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  service_name,
-  instrumentation_scope,
-  resource_attributes,
-  attributes,
-  timestamp AS last_seen,
-  original_expiry_timestamp
-FROM posthog.metrics2_input
-WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics TO posthog.metrics2 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name LowCardinality(String), metric_type LowCardinality(String), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, instrumentation_scope String, _partition UInt32, _topic String, _offset UInt64) AS SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope,
-  _partition,
-  _topic,
-  _offset
-FROM posthog.metrics2_input;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_resource_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_attributes AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  );
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_resource_attributes3 TO posthog.metric_attributes3 (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      metric_name AS metric_name,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_attributes AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  );
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_attributes TO posthog.writable_metrics4_attributes (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   metric_name,
@@ -5535,16 +5365,18 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)), service_name LowCardinality(String), metric_types SimpleAggregateFunction(groupUniqArrayArray, Array(String))) AS SELECT
   team_id,
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
+  service_name,
+  groupUniqArrayArraySimpleState([toString(metric_type)]) AS metric_types
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket;
+  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name;
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_resource_attributes TO posthog.writable_metrics4_attributes (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   metric_name,
@@ -5574,11 +5406,12 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.writable_metrics4_samples (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime, series_fingerprint UInt64, original_expiry_date Date32, resource_fingerprint UInt64, service_name String, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, has_labels UInt8, instrumentation_scope String, histogram_bounds Array(Float64), _topic String, timestamp_arr Array(DateTime64(6)), observed_timestamp_arr Array(DateTime64(6)), value_arr Array(Float64), count_arr Array(UInt64), histogram_counts_arr Array(Array(UInt64)), trace_id_arr Array(String), span_id_arr Array(String), trace_flags_arr Array(Int32)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.writable_metrics4_samples (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime, series_fingerprint UInt64, histogram_bounds_hash UInt64, original_expiry_date Date32, resource_fingerprint UInt64, service_name String, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, has_labels UInt8, instrumentation_scope String, histogram_bounds Array(Float64), _topic String, timestamp_arr Array(DateTime64(6)), value_arr Array(Float64), count_arr Array(UInt64), histogram_counts_arr Array(Array(UInt64)), trace_id_arr Array(String), span_id_arr Array(String), trace_flags_arr Array(Int32)) AS SELECT
   team_id,
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
+  if(empty(input.histogram_bounds), 0, cityHash64(input.histogram_bounds)) AS histogram_bounds_hash,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
@@ -5591,16 +5424,15 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.w
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
   groupArray(10000)(timestamp) AS timestamp_arr,
-  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
   groupArray(10000)(value) AS value_arr,
   groupArray(10000)(count) AS count_arr,
   groupArray(10000)(histogram_counts) AS histogram_counts_arr,
   groupArray(10000)(trace_id) AS trace_id_arr,
   groupArray(10000)(span_id) AS span_id_arr,
   groupArray(10000)(trace_flags) AS trace_flags_arr
-FROM posthog.metrics4_input
+FROM posthog.metrics4_input AS input
 GROUP BY
-  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date;
+  team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash, original_expiry_date;
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.writable_metrics4_series (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), timestamp DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
   team_id,
   metric_name,
@@ -5617,6 +5449,25 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.wr
   original_expiry_timestamp
 FROM posthog.metrics4_input
 WHERE has_labels;
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics_kafka_metrics TO posthog.writable_metrics_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime)) AS SELECT
+  kafka_partition AS _partition,
+  kafka_topic AS _topic,
+  maxSimpleState(kafka_offset) AS max_offset,
+  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+  maxSimpleState(now()) AS max_created_at
+FROM
+  (
+    SELECT
+      kafka_source.1 AS kafka_topic,
+      kafka_source.2 AS kafka_partition,
+      kafka_source.3 AS kafka_offset,
+      observed_timestamp
+    FROM
+      posthog.metrics4_input ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+  )
+GROUP BY
+  kafka_partition, kafka_topic;
 CREATE MATERIALIZED VIEW posthog.performance_events_mv TO posthog.writeable_performance_events (uuid UUID, session_id String, window_id String, pageview_id String, distinct_id String, timestamp DateTime64(3), time_origin DateTime64(3, 'UTC'), entry_type LowCardinality(String), name String, team_id Int64, current_url String, start_time Float64, duration Float64, redirect_start Float64, redirect_end Float64, worker_start Float64, fetch_start Float64, domain_lookup_start Float64, domain_lookup_end Float64, connect_start Float64, secure_connection_start Float64, connect_end Float64, request_start Float64, response_start Float64, response_end Float64, decoded_body_size Int64, encoded_body_size Int64, initiator_type LowCardinality(String), next_hop_protocol LowCardinality(String), render_blocking_status LowCardinality(String), response_status Int64, transfer_size Int64, largest_contentful_paint_element String, largest_contentful_paint_render_time Float64, largest_contentful_paint_load_time Float64, largest_contentful_paint_size Float64, largest_contentful_paint_id String, largest_contentful_paint_url String, dom_complete Float64, dom_content_loaded_event Float64, dom_interactive Float64, load_event_end Float64, load_event_start Float64, redirect_count Int64, navigation_type LowCardinality(String), unload_event_end Float64, unload_event_start Float64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   session_id,
@@ -5698,6 +5549,34 @@ CREATE MATERIALIZED VIEW posthog.person_distinct_id_overrides_mv TO posthog.writ
   _partition
 FROM posthog.kafka_person_distinct_id_overrides
 WHERE version > 0;
+CREATE MATERIALIZED VIEW posthog.person_group_membership_mv TO posthog.writable_person_group_membership (team_id Int64, group_type_index UInt8, group_key String, distinct_id String, first_seen DateTime64(6, 'UTC'), last_seen DateTime64(6, 'UTC')) AS SELECT
+  team_id,
+  group_type_index,
+  replaceRegexpAll(
+    JSONExtractRaw(properties, concat('$group_', toString(group_type_index))),
+    '^"|"$',
+    ''
+  ) AS group_key,
+  distinct_id,
+  min(timestamp) AS first_seen,
+  max(timestamp) AS last_seen
+FROM
+  (
+    SELECT
+      team_id,
+      dictGet('posthog.person_group_membership_config_dict', 'group_type_index', tuple(team_id)) AS group_type_index,
+      distinct_id,
+      properties,
+      timestamp
+    FROM posthog.kafka_person_group_membership
+    WHERE
+      dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
+    AND
+      (person_mode != 'propertyless')
+  )
+WHERE notEmpty(group_key)
+GROUP BY
+  team_id, group_type_index, group_key, distinct_id;
 CREATE MATERIALIZED VIEW posthog.person_mv TO posthog.writable_person (id UUID, created_at DateTime64(3), team_id Int64, properties String, is_identified Int8, is_deleted Int8, version UInt64, last_seen_at Nullable(DateTime64(3)), _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   id,
   created_at,
@@ -5876,6 +5755,214 @@ WHERE
   bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7
 GROUP BY
   team_id, toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))), cityHash64(session_id_v7), session_id_v7;
+CREATE MATERIALIZED VIEW posthog.raw_sessions_v3_mv TO posthog.writable_raw_sessions_v3 (team_id Int64, session_id_v7 Nullable(UInt128), distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')), distinct_ids AggregateFunction(groupUniqArray, String), min_timestamp DateTime64(6, 'UTC'), max_timestamp DateTime64(6, 'UTC'), max_inserted_at Nullable(DateTime64(6, 'UTC')), urls Array(Nullable(String)), entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')), last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')), browser AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), browser_version AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), os AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), os_version AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), device_type AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), viewport_width AggregateFunction(argMin, Nullable(Int64), DateTime64(6, 'UTC')), viewport_height AggregateFunction(argMin, Nullable(Int64), DateTime64(6, 'UTC')), geoip_country_code AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), geoip_subdivision_1_code AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), geoip_subdivision_1_name AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), geoip_subdivision_city_name AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), geoip_time_zone AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_utm_term AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_utm_content AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), entry_has_gclid AggregateFunction(argMin, UInt8, DateTime64(6, 'UTC')), entry_has_fbclid AggregateFunction(argMin, UInt8, DateTime64(6, 'UTC')), entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')), entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), UInt8, UInt8, Nullable(String)), DateTime64(6, 'UTC')), pageview_uniq AggregateFunction(uniq, Nullable(UUID)), autocapture_uniq AggregateFunction(uniq, Nullable(UUID)), screen_uniq AggregateFunction(uniq, Nullable(UUID)), page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)), has_autocapture UInt8, flag_key_values Array(String), event_names Array(String), hosts Array(Nullable(String)), emails Array(String), has_replay_events Bool) AS WITH
+  JSONExtract(properties, 'Tuple(\n            `$current_url` Nullable(String),\n            `$external_click_url` Nullable(String),\n            `$browser` Nullable(String),\n            `$browser_version` Nullable(String),\n            `$os` Nullable(String),\n            `$os_version` Nullable(String),\n            `$device_type` Nullable(String),\n            `$viewport_width` Nullable(Int64),\n            `$viewport_height` Nullable(Int64),\n            `$geoip_country_code` Nullable(String),\n            `$geoip_subdivision_1_code` Nullable(String),\n            `$geoip_subdivision_1_name` Nullable(String),\n            `$geoip_city_name` Nullable(String),\n            `$geoip_time_zone` Nullable(String),\n            `$referring_domain` Nullable(String),\n            `utm_source` Nullable(String),\n            `utm_campaign` Nullable(String),\n            `utm_medium` Nullable(String),\n            `utm_term` Nullable(String),\n            `utm_content` Nullable(String),\n            `gclid` Nullable(String),\n            `gad_source` Nullable(String),\n            `fbclid` Nullable(String),\n            `$host` Nullable(String),\n            `gclsrc` Nullable(String),\n            `dclid` Nullable(String),\n            `gbraid` Nullable(String),\n            `wbraid` Nullable(String),\n            `gad_campaignid` Nullable(String),\n            `srsltid` Nullable(String),\n            `msclkid` Nullable(String),\n            `twclid` Nullable(String),\n            `li_fat_id` Nullable(String),\n            `mc_cid` Nullable(String),\n            `igshid` Nullable(String),\n            `ttclid` Nullable(String),\n            `rdt_cid` Nullable(String),\n            `epik` Nullable(String),\n            `qclid` Nullable(String),\n            `sccid` Nullable(String),\n            `_kx` Nullable(String),\n            `irclid` Nullable(String),\n            `irclickid` Nullable(String),\n            `utm_id` Nullable(String),\n            `utm_source_platform` Nullable(String),\n            `utm_creative_format` Nullable(String),\n            `utm_marketing_tactic` Nullable(String),\n            `yclid` Nullable(String),\n            `tblci` Nullable(String),\n            `dicbo` Nullable(String),\n            `ndclid` Nullable(String),\n            `cjevent` Nullable(String),\n            `awc` Nullable(String),\n            `syclid` Nullable(String),\n            `_bhlid` Nullable(String),\n            `rtid` Nullable(String),\n            `oppref` Nullable(String),\n            `bfcid` Nullable(String)\n        )') AS p,
+  JSONExtractString(person_properties, 'email') AS _person_email,
+  tupleElement(p, '$current_url') AS _current_url,
+  if((event = '$pageview') OR (event = '$screen'), left(coalesce(_current_url, ''), 16384), '') AS _attribution_url,
+  tupleElement(p, '$external_click_url') AS _external_click_url,
+  tupleElement(p, '$browser') AS _browser,
+  tupleElement(p, '$browser_version') AS _browser_version,
+  tupleElement(p, '$os') AS _os,
+  tupleElement(p, '$os_version') AS _os_version,
+  tupleElement(p, '$device_type') AS _device_type,
+  tupleElement(p, '$viewport_width') AS _viewport_width,
+  tupleElement(p, '$viewport_height') AS _viewport_height,
+  tupleElement(p, '$geoip_country_code') AS _geoip_country_code,
+  tupleElement(p, '$geoip_subdivision_1_code') AS _geoip_subdivision_1_code,
+  tupleElement(p, '$geoip_subdivision_1_name') AS _geoip_subdivision_1_name,
+  tupleElement(p, '$geoip_city_name') AS _geoip_subdivision_city_name,
+  tupleElement(p, '$geoip_time_zone') AS _geoip_time_zone,
+  tupleElement(p, '$referring_domain') AS _referring_domain,
+  tupleElement(p, 'utm_source') AS _utm_source,
+  tupleElement(p, 'utm_campaign') AS _utm_campaign,
+  tupleElement(p, 'utm_medium') AS _utm_medium,
+  tupleElement(p, 'utm_term') AS _utm_term,
+  tupleElement(p, 'utm_content') AS _utm_content,
+  tupleElement(p, 'gclid') AS _gclid,
+  tupleElement(p, 'gad_source') AS _gad_source,
+  tupleElement(p, 'fbclid') AS _fbclid,
+  coalesce(nullIf(tupleElement(p, 'gclsrc'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'gclsrc')), 2048)), '')) AS gclsrc,
+  coalesce(nullIf(tupleElement(p, 'dclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'dclid')), 2048)), '')) AS dclid,
+  coalesce(nullIf(tupleElement(p, 'gbraid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'gbraid')), 2048)), '')) AS gbraid,
+  coalesce(nullIf(tupleElement(p, 'wbraid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'wbraid')), 2048)), '')) AS wbraid,
+  coalesce(nullIf(tupleElement(p, 'gad_campaignid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'gad_campaignid')), 2048)), '')) AS gad_campaignid,
+  coalesce(nullIf(tupleElement(p, 'srsltid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'srsltid')), 2048)), '')) AS srsltid,
+  coalesce(nullIf(tupleElement(p, 'msclkid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'msclkid')), 2048)), '')) AS msclkid,
+  coalesce(nullIf(tupleElement(p, 'twclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'twclid')), 2048)), '')) AS twclid,
+  coalesce(nullIf(tupleElement(p, 'li_fat_id'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'li_fat_id')), 2048)), '')) AS li_fat_id,
+  coalesce(nullIf(tupleElement(p, 'mc_cid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'mc_cid')), 2048)), '')) AS mc_cid,
+  coalesce(nullIf(tupleElement(p, 'igshid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'igshid')), 2048)), '')) AS igshid,
+  coalesce(nullIf(tupleElement(p, 'ttclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'ttclid')), 2048)), '')) AS ttclid,
+  coalesce(nullIf(tupleElement(p, 'rdt_cid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'rdt_cid')), 2048)), '')) AS rdt_cid,
+  coalesce(nullIf(tupleElement(p, 'epik'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'epik')), 2048)), '')) AS epik,
+  coalesce(nullIf(tupleElement(p, 'qclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'qclid')), 2048)), '')) AS qclid,
+  coalesce(nullIf(tupleElement(p, 'sccid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'sccid')), 2048)), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'ScCid')), 2048)), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'SsCid')), 2048)), '')) AS sccid,
+  coalesce(nullIf(tupleElement(p, '_kx'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, '_kx')), 2048)), '')) AS _kx,
+  coalesce(nullIf(tupleElement(p, 'irclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'irclid')), 2048)), '')) AS irclid,
+  coalesce(nullIf(tupleElement(p, 'irclickid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'irclickid')), 2048)), '')) AS irclickid,
+  coalesce(nullIf(tupleElement(p, 'utm_id'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'utm_id')), 2048)), '')) AS utm_id,
+  coalesce(nullIf(tupleElement(p, 'utm_source_platform'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'utm_source_platform')), 2048)), '')) AS utm_source_platform,
+  coalesce(nullIf(tupleElement(p, 'utm_creative_format'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'utm_creative_format')), 2048)), '')) AS utm_creative_format,
+  coalesce(nullIf(tupleElement(p, 'utm_marketing_tactic'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'utm_marketing_tactic')), 2048)), '')) AS utm_marketing_tactic,
+  coalesce(nullIf(tupleElement(p, 'yclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'yclid')), 2048)), '')) AS yclid,
+  coalesce(nullIf(tupleElement(p, 'tblci'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'tblci')), 2048)), '')) AS tblci,
+  coalesce(nullIf(tupleElement(p, 'dicbo'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'dicbo')), 2048)), '')) AS dicbo,
+  coalesce(nullIf(tupleElement(p, 'ndclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'ndclid')), 2048)), '')) AS ndclid,
+  coalesce(nullIf(tupleElement(p, 'cjevent'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'cjevent')), 2048)), '')) AS cjevent,
+  coalesce(nullIf(tupleElement(p, 'awc'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'awc')), 2048)), '')) AS awc,
+  coalesce(nullIf(tupleElement(p, 'syclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'syclid')), 2048)), '')) AS syclid,
+  coalesce(nullIf(tupleElement(p, '_bhlid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, '_bhlid')), 2048)), '')) AS _bhlid,
+  coalesce(nullIf(tupleElement(p, 'rtid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'rtid')), 2048)), '')) AS rtid,
+  coalesce(nullIf(tupleElement(p, 'oppref'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'oppref')), 2048)), '')) AS oppref,
+  coalesce(nullIf(tupleElement(p, 'bfcid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'bfcid')), 2048)), '')) AS bfcid,
+  CAST(arrayFilter(x -> (x IS NOT NULL), [if(gclsrc IS NOT NULL, concat('gclsrc=', gclsrc), NULL), if(dclid IS NOT NULL, concat('dclid=', dclid), NULL), if(gbraid IS NOT NULL, concat('gbraid=', gbraid), NULL), if(wbraid IS NOT NULL, concat('wbraid=', wbraid), NULL), if(gad_campaignid IS NOT NULL, concat('gad_campaignid=', gad_campaignid), NULL), if(srsltid IS NOT NULL, concat('srsltid=', srsltid), NULL), if(msclkid IS NOT NULL, concat('msclkid=', msclkid), NULL), if(twclid IS NOT NULL, concat('twclid=', twclid), NULL), if(li_fat_id IS NOT NULL, concat('li_fat_id=', li_fat_id), NULL), if(mc_cid IS NOT NULL, concat('mc_cid=', mc_cid), NULL), if(igshid IS NOT NULL, concat('igshid=', igshid), NULL), if(ttclid IS NOT NULL, concat('ttclid=', ttclid), NULL), if(rdt_cid IS NOT NULL, concat('rdt_cid=', rdt_cid), NULL), if(epik IS NOT NULL, concat('epik=', epik), NULL), if(qclid IS NOT NULL, concat('qclid=', qclid), NULL), if(sccid IS NOT NULL, concat('sccid=', sccid), NULL), if(_kx IS NOT NULL, concat('_kx=', _kx), NULL), if(irclid IS NOT NULL, concat('irclid=', irclid), NULL), if(irclickid IS NOT NULL, concat('irclickid=', irclickid), NULL), if(utm_id IS NOT NULL, concat('utm_id=', utm_id), NULL), if(utm_source_platform IS NOT NULL, concat('utm_source_platform=', utm_source_platform), NULL), if(utm_creative_format IS NOT NULL, concat('utm_creative_format=', utm_creative_format), NULL), if(utm_marketing_tactic IS NOT NULL, concat('utm_marketing_tactic=', utm_marketing_tactic), NULL), if(yclid IS NOT NULL, concat('yclid=', yclid), NULL), if(tblci IS NOT NULL, concat('tblci=', tblci), NULL), if(dicbo IS NOT NULL, concat('dicbo=', dicbo), NULL), if(ndclid IS NOT NULL, concat('ndclid=', ndclid), NULL), if(cjevent IS NOT NULL, concat('cjevent=', cjevent), NULL), if(awc IS NOT NULL, concat('awc=', awc), NULL), if(syclid IS NOT NULL, concat('syclid=', syclid), NULL), if(_bhlid IS NOT NULL, concat('_bhlid=', _bhlid), NULL), if(rtid IS NOT NULL, concat('rtid=', rtid), NULL), if(oppref IS NOT NULL, concat('oppref=', oppref), NULL), if(bfcid IS NOT NULL, concat('bfcid=', bfcid), NULL)]), 'Array(String)') AS ad_ids_set,
+  tupleElement(p, '$host') AS _host,
+  if((event = '$pageview') OR (event = '$screen'), timestamp, timestamp + toIntervalYear(1)) AS pageview_prio_timestamp_min,
+  if((event = '$pageview') OR (event = '$screen'), timestamp, timestamp - toIntervalYear(1)) AS pageview_prio_timestamp_max
+SELECT
+  team_id,
+  `$session_id_uuid` AS session_id_v7,
+  initializeAggregation('argMaxState', source_table.distinct_id, timestamp) AS distinct_id,
+  initializeAggregation('groupUniqArrayState', source_table.distinct_id) AS distinct_ids,
+  timestamp AS min_timestamp,
+  timestamp AS max_timestamp,
+  inserted_at AS max_inserted_at,
+  if(
+    (_current_url IS NOT NULL) AND ((event = '$pageview') OR (event = '$screen')),
+    [_current_url],
+    []
+  ) AS urls,
+  initializeAggregation('argMinState', _current_url, pageview_prio_timestamp_min) AS entry_url,
+  initializeAggregation('argMaxState', _current_url, pageview_prio_timestamp_max) AS end_url,
+  initializeAggregation('argMaxState', _external_click_url, timestamp) AS last_external_click_url,
+  initializeAggregation('argMinState', _browser, timestamp) AS browser,
+  initializeAggregation('argMinState', _browser_version, timestamp) AS browser_version,
+  initializeAggregation('argMinState', _os, timestamp) AS os,
+  initializeAggregation('argMinState', _os_version, timestamp) AS os_version,
+  initializeAggregation('argMinState', _device_type, timestamp) AS device_type,
+  initializeAggregation('argMinState', _viewport_width, timestamp) AS viewport_width,
+  initializeAggregation('argMinState', _viewport_height, timestamp) AS viewport_height,
+  initializeAggregation('argMinState', _geoip_country_code, timestamp) AS geoip_country_code,
+  initializeAggregation('argMinState', _geoip_subdivision_1_code, timestamp) AS geoip_subdivision_1_code,
+  initializeAggregation('argMinState', _geoip_subdivision_1_name, timestamp) AS geoip_subdivision_1_name,
+  initializeAggregation('argMinState', _geoip_subdivision_city_name, timestamp) AS geoip_subdivision_city_name,
+  initializeAggregation('argMinState', _geoip_time_zone, timestamp) AS geoip_time_zone,
+  initializeAggregation('argMinState', _referring_domain, pageview_prio_timestamp_min) AS entry_referring_domain,
+  initializeAggregation('argMinState', _utm_source, pageview_prio_timestamp_min) AS entry_utm_source,
+  initializeAggregation('argMinState', _utm_campaign, pageview_prio_timestamp_min) AS entry_utm_campaign,
+  initializeAggregation('argMinState', _utm_medium, pageview_prio_timestamp_min) AS entry_utm_medium,
+  initializeAggregation('argMinState', _utm_term, pageview_prio_timestamp_min) AS entry_utm_term,
+  initializeAggregation('argMinState', _utm_content, pageview_prio_timestamp_min) AS entry_utm_content,
+  initializeAggregation('argMinState', _gclid, pageview_prio_timestamp_min) AS entry_gclid,
+  initializeAggregation('argMinState', _gad_source, pageview_prio_timestamp_min) AS entry_gad_source,
+  initializeAggregation('argMinState', _fbclid, pageview_prio_timestamp_min) AS entry_fbclid,
+  initializeAggregation('argMinState', nullIf(_gclid, '') IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_gclid,
+  initializeAggregation('argMinState', nullIf(_fbclid, '') IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_fbclid,
+  initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) AS entry_ad_ids_set,
+  initializeAggregation(
+    'argMinState',
+    tuple(
+      _utm_source,
+      _utm_medium,
+      _utm_campaign,
+      _referring_domain,
+      nullIf(_gclid, '') IS NOT NULL,
+      nullIf(_fbclid, '') IS NOT NULL,
+      _gad_source
+    ),
+    pageview_prio_timestamp_min
+  ) AS entry_channel_type_properties,
+  initializeAggregation('uniqState', if(event = '$pageview', uuid, NULL)) AS pageview_uniq,
+  initializeAggregation('uniqState', if(event = '$autocapture', uuid, NULL)) AS autocapture_uniq,
+  initializeAggregation('uniqState', if(event = '$screen', uuid, NULL)) AS screen_uniq,
+  initializeAggregation(
+    'uniqUpToState(1)',
+    if((event = '$pageview') OR (event = '$screen'), uuid, NULL)
+  ) AS page_screen_uniq_up_to,
+  event = '$autocapture' AS has_autocapture,
+  arrayMap(
+    (k, v) -> concat(k, '=', v),
+    mapKeys(properties_group_feature_flags),
+    mapValues(properties_group_feature_flags)
+  ) AS flag_key_values,
+  [event] AS event_names,
+  if((_host IS NOT NULL) AND (_host != ''), [_host], []) AS hosts,
+  if((_person_email IS NOT NULL) AND (_person_email != ''), [_person_email], []) AS emails,
+  false AS has_replay_events
+FROM posthog.sharded_events AS source_table
+WHERE
+  (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7)
+AND
+  ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) >= (timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) <= (timestamp + toIntervalDay(31))))
+AND
+  true;
+CREATE MATERIALIZED VIEW posthog.raw_sessions_v3_recordings_mv TO posthog.writable_raw_sessions_v3 (team_id Int64, session_id_v7 UInt128, session_timestamp DateTime64(3), distinct_id AggregateFunction(argMax, String, DateTime64(6)), distinct_ids AggregateFunction(groupUniqArray, String), min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')), max_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')), max_inserted_at DateTime, urls Array(String), entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6)), end_url AggregateFunction(argMax, Nullable(String), DateTime64(6)), last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6)), browser AggregateFunction(argMin, Nullable(String), DateTime64(6)), browser_version AggregateFunction(argMin, Nullable(String), DateTime64(6)), os AggregateFunction(argMin, Nullable(String), DateTime64(6)), os_version AggregateFunction(argMin, Nullable(String), DateTime64(6)), device_type AggregateFunction(argMin, Nullable(String), DateTime64(6)), viewport_width AggregateFunction(argMin, Nullable(Int64), DateTime64(6)), viewport_height AggregateFunction(argMin, Nullable(Int64), DateTime64(6)), geoip_country_code AggregateFunction(argMin, Nullable(String), DateTime64(6)), geoip_subdivision_1_code AggregateFunction(argMin, Nullable(String), DateTime64(6)), geoip_subdivision_1_name AggregateFunction(argMin, Nullable(String), DateTime64(6)), geoip_subdivision_city_name AggregateFunction(argMin, Nullable(String), DateTime64(6)), geoip_time_zone AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_term AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_content AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_has_gclid AggregateFunction(argMin, Bool, DateTime64(6)), entry_has_fbclid AggregateFunction(argMin, Bool, DateTime64(6)), entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6)), entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6)), pageview_uniq AggregateFunction(uniq, Nullable(UUID)), autocapture_uniq AggregateFunction(uniq, Nullable(UUID)), screen_uniq AggregateFunction(uniq, Nullable(UUID)), page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)), has_autocapture Bool, flag_key_values Array(String), event_names Array(String), hosts Array(String), emails Array(String), has_replay_events Bool) AS WITH
+  min_first_timestamp AS timestamp,
+  CAST(fromUnixTimestamp64Milli(9223372036854775), 'DateTime64(6)') AS max_ts_64,
+  CAST(fromUnixTimestamp64Milli(-9223372036854775), 'DateTime64(6)') AS min_ts_64,
+  CAST(NULL, 'Nullable(String)') AS null_s,
+  CAST(NULL, 'Nullable(Int64)') AS null_i64,
+  CAST(NULL, 'Nullable(UUID)') AS null_uuid
+SELECT
+  team_id,
+  toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
+  fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))) AS session_timestamp,
+  initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) AS distinct_id,
+  initializeAggregation('groupUniqArrayState', source_table.distinct_id) AS distinct_ids,
+  timestamp AS min_timestamp,
+  timestamp AS max_timestamp,
+  fromUnixTimestamp(0) AS max_inserted_at,
+  CAST([], 'Array(String)') AS urls,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_url,
+  initializeAggregation('argMaxState', null_s, min_ts_64) AS end_url,
+  initializeAggregation('argMaxState', null_s, min_ts_64) AS last_external_click_url,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS browser,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS browser_version,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS os,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS os_version,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS device_type,
+  initializeAggregation('argMinState', null_i64, max_ts_64) AS viewport_width,
+  initializeAggregation('argMinState', null_i64, max_ts_64) AS viewport_height,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_country_code,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_subdivision_1_code,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_subdivision_1_name,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_subdivision_city_name,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_time_zone,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_referring_domain,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_source,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_campaign,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_medium,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_term,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_content,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_gclid,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_gad_source,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_fbclid,
+  initializeAggregation('argMinState', false, max_ts_64) AS entry_has_gclid,
+  initializeAggregation('argMinState', false, max_ts_64) AS entry_has_fbclid,
+  initializeAggregation('argMinState', CAST([], 'Array(String)'), max_ts_64) AS entry_ad_ids_set,
+  initializeAggregation(
+    'argMinState',
+    tuple(null_s, null_s, null_s, null_s, false, false, null_s),
+    max_ts_64
+  ) AS entry_channel_type_properties,
+  initializeAggregation('uniqState', null_uuid) AS pageview_uniq,
+  initializeAggregation('uniqState', null_uuid) AS autocapture_uniq,
+  initializeAggregation('uniqState', null_uuid) AS screen_uniq,
+  initializeAggregation('uniqUpToState(1)', null_uuid) AS page_screen_uniq_up_to,
+  false AS has_autocapture,
+  CAST([], 'Array(String)') AS flag_key_values,
+  CAST([], 'Array(String)') AS event_names,
+  CAST([], 'Array(String)') AS hosts,
+  CAST([], 'Array(String)') AS emails,
+  true AS has_replay_events
+FROM posthog.sharded_session_replay_events AS source_table
+WHERE
+  (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 15) = 7)
+AND
+  ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) >= (min_first_timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) <= (min_first_timestamp + toIntervalDay(31))))
+AND
+  true;
 CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
   session_id,
   team_id,
@@ -6328,6 +6415,31 @@ CREATE VIEW posthog.custom_metrics_test AS SELECT
   1 AS value,
   'Test to check that the metric endpoint is working' AS help,
   'gauge' AS type;
+CREATE VIEW posthog.metrics4_view AS SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  point_timestamp AS timestamp,
+  toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
+  service_name,
+  metric_type,
+  point_value AS value,
+  point_count AS count,
+  histogram_bounds,
+  point_histogram_counts AS histogram_counts,
+  point_trace_id AS trace_id,
+  point_span_id AS span_id,
+  point_trace_flags AS trace_flags,
+  toBool(has_labels) AS has_labels,
+  unit,
+  aggregation_temporality,
+  toBool(is_monotonic) AS is_monotonic,
+  instrumentation_scope
+FROM
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
 CREATE VIEW posthog.persons_batch_export AS WITH
   new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING (_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64})),
   new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING (argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64})),
@@ -6548,6 +6660,12 @@ CREATE TABLE posthog.distributed_events_recent (
   _offset UInt64,
   inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
+CREATE TABLE posthog.distributed_person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = Distributed('aux', 'posthog', 'person_group_membership_config', sipHash64(team_id));
 CREATE TABLE posthog.distributed_posthog_document_embeddings (
   team_id Int64,
   product LowCardinality(String),
@@ -6594,6 +6712,33 @@ CREATE TABLE posthog.distributed_posthog_document_embeddings_text_embedding_3_sm
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id));
+CREATE TABLE posthog.email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_data');
+CREATE TABLE posthog.email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_events_data');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -6675,8 +6820,10 @@ CREATE TABLE posthog.events (
 CREATE TABLE posthog.events_json (
   uuid UUID,
   event String,
-  properties JSON(max_dynamic_paths=0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_origin` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_session_id` String, `$ai_span_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_tools_called` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.instance` String, `$groups.organization` String, `$groups.project` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$raw_user_agent` LowCardinality(String), `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$search_engine` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_id` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_completed` String, `$survey_id` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, _kx String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, dclid String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, entity_detection String, env String, environment String, epik String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, igshid String, index String, initial__kx String, initial_dclid String, initial_epik String, initial_fbclid String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_gclsrc String, initial_igshid String, initial_irclid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_step String, initial_ttclid String, initial_twclid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, irclid String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, li_fat_id String, machine_id String, mc_cid String, message String, method String, mode String, most_recent_app_os String, msclkid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, qclid String, query String, ramp String, rdt_cid String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, sccid String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, ttclid String, twclid String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
+  properties_null_keys Array(LowCardinality(String)),
+  temporary_properties_null_keys Array(LowCardinality(String)),
   timestamp DateTime64(6, 'UTC'),
   team_id Int64,
   distinct_id String,
@@ -6685,7 +6832,8 @@ CREATE TABLE posthog.events_json (
   _offset UInt64,
   elements_chain String,
   person_id UUID,
-  person_properties JSON(max_dynamic_paths=0, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$email` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial__kx` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_current_url` String, `$initial_dclid` String, `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_epik` String, `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_igshid` String, `$initial_irclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_msclkid` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_pathname` String, `$initial_qclid` String, `$initial_raw_user_agent` LowCardinality(String), `$initial_rdt_cid` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_sccid` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_ttclid` String, `$initial_twclid` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$last_seen_survey_date` String, `$organization_id` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pathname` String, `$product_tour_last_seen_date` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$referring_domain` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$survey_last_seen_date` String, `$viewport_height` String, `$viewport_width` String, `Email Domain` String, _kx String, companyName String, customer String, dclid String, email String, epik String, fbclid String, first_name String, gad_source String, gbraid String, gclid String, gclsrc String, hubspot_score String, icp_role String, id String, igshid String, irclid String, is_email_verified String, is_signed_up String, last_name String, li_fat_id String, mc_cid String, msclkid String, name String, organization_id String, organization_member_count String, qclid String, rdt_cid String, role String, role_at_organization String, sccid String, serverMarketing String, serverMasterclass String, ttclid String, twclid String, user_email_domain String, username String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, val_region String, wbraid String),
+  person_properties JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String)),
+  person_properties_null_keys Array(LowCardinality(String)),
   group0_properties String,
   group1_properties String,
   group2_properties String,
@@ -6707,15 +6855,7 @@ CREATE TABLE posthog.events_json (
   elements_chain_href String,
   elements_chain_texts Array(String),
   elements_chain_ids Array(String),
-  elements_chain_elements Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7)),
-  $group_0 String ALIAS ifNull(properties.`$group_0`, ''),
-  $group_1 String ALIAS ifNull(properties.`$group_1`, ''),
-  $group_2 String ALIAS ifNull(properties.`$group_2`, ''),
-  $group_3 String ALIAS ifNull(properties.`$group_3`, ''),
-  $group_4 String ALIAS ifNull(properties.`$group_4`, ''),
-  $window_id String ALIAS ifNull(properties.`$window_id`, ''),
-  $session_id String ALIAS ifNull(properties.`$session_id`, ''),
-  $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull(properties.`$session_id`))
+  elements_chain_elements Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json', sipHash64(distinct_id));
 CREATE TABLE posthog.events_recent (
   uuid UUID,
@@ -6749,6 +6889,8 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   variant String,
   first_exposure_time DateTime64(6, 'UTC'),
   last_exposure_time DateTime64(6, 'UTC'),
@@ -6762,6 +6904,8 @@ CREATE TABLE posthog.experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,
@@ -6779,7 +6923,10 @@ CREATE TABLE posthog.flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   $group_0 String COMMENT 'column_materializer::$group_0',
   $group_1 String COMMENT 'column_materializer::$group_1',
   $group_2 String COMMENT 'column_materializer::$group_2',
@@ -6789,6 +6936,8 @@ CREATE TABLE posthog.flag_evaluations (
   response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response',
   session_id String COMMENT 'column_materializer::properties::$session_id',
   request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id',
+  properties_group_custom Map(String, String),
+  person_properties_map_custom Map(String, String),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
@@ -6847,6 +6996,17 @@ CREATE TABLE posthog.ingestion_warnings (
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_ingestion_warnings', rand());
 CREATE TABLE posthog.log_entries (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String,
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('aux', 'posthog', 'log_entries_data');
+CREATE TABLE posthog.log_entries_distributed (
   team_id UInt64,
   log_source LowCardinality(String),
   log_source_id String,
@@ -7077,12 +7237,38 @@ CREATE TABLE posthog.performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_performance_events', sipHash64(session_id));
-CREATE TABLE posthog.person_property_mutation_log (
+CREATE TABLE posthog.person_group_membership (
   team_id Int64,
-  event_uuid UUID,
-  properties String,
-  ingested_at DateTime('UTC')
-) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
+CREATE TABLE posthog.platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  source_detail String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  source_kind LowCardinality(String),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.preaggregation_results (
   team_id Int64,
   job_id UUID,
@@ -7114,133 +7300,252 @@ CREATE TABLE posthog.precalculated_person_properties (
   _offset UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_precalculated_person_properties', sipHash64(distinct_id));
 CREATE TABLE posthog.query_log_archive (
-  hostname LowCardinality(String),
-  user LowCardinality(String),
-  query_id String,
-  initial_query_id String,
-  is_initial_query UInt8,
-  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
-  event_date Date,
-  event_time DateTime,
-  event_time_microseconds DateTime64(6),
-  query_start_time DateTime,
-  query_start_time_microseconds DateTime64(6),
-  query_duration_ms UInt64,
-  read_rows UInt64,
-  read_bytes UInt64,
-  written_rows UInt64,
-  written_bytes UInt64,
-  result_rows UInt64,
-  result_bytes UInt64,
-  memory_usage UInt64,
-  peak_threads_usage UInt64,
-  current_database LowCardinality(String),
-  query String,
-  formatted_query String,
-  normalized_query_hash UInt64,
-  query_kind LowCardinality(String),
-  exception_code Int32,
-  exception String,
-  stack_trace String,
+  initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
-  log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
-  ProfileEvents Map(String, UInt64),
-  exception_name String ALIAS errorCodeToName(exception_code),
-  ProfileEvents_RealTimeMicroseconds Int64 ALIAS ProfileEvents['RealTimeMicroseconds'],
-  ProfileEvents_OSCPUVirtualTimeMicroseconds Int64 ALIAS ProfileEvents['OSCPUVirtualTimeMicroseconds'],
-  ProfileEvents_S3Clients Int64 ALIAS ProfileEvents['S3Clients'],
-  ProfileEvents_S3DeleteObjects Int64 ALIAS ProfileEvents['S3DeleteObjects'],
-  ProfileEvents_S3CopyObject Int64 ALIAS ProfileEvents['S3CopyObject'],
-  ProfileEvents_S3ListObjects Int64 ALIAS ProfileEvents['S3ListObjects'],
-  ProfileEvents_S3HeadObject Int64 ALIAS ProfileEvents['S3HeadObject'],
-  ProfileEvents_S3GetObjectAttributes Int64 ALIAS ProfileEvents['S3GetObjectAttributes'],
-  ProfileEvents_S3CreateMultipartUpload Int64 ALIAS ProfileEvents['S3CreateMultipartUpload'],
-  ProfileEvents_S3UploadPartCopy Int64 ALIAS ProfileEvents['S3UploadPartCopy'],
-  ProfileEvents_S3UploadPart Int64 ALIAS ProfileEvents['S3UploadPart'],
-  ProfileEvents_S3AbortMultipartUpload Int64 ALIAS ProfileEvents['S3AbortMultipartUpload'],
-  ProfileEvents_S3CompleteMultipartUpload Int64 ALIAS ProfileEvents['S3CompleteMultipartUpload'],
-  ProfileEvents_S3PutObject Int64 ALIAS ProfileEvents['S3PutObject'],
-  ProfileEvents_S3GetObject Int64 ALIAS ProfileEvents['S3GetObject'],
-  ProfileEvents_ReadBufferFromS3Bytes Int64 ALIAS ProfileEvents['ReadBufferFromS3Bytes'],
-  ProfileEvents_WriteBufferFromS3Bytes Int64 ALIAS ProfileEvents['WriteBufferFromS3Bytes'],
-  lc_workflow LowCardinality(String) ALIAS log_comment.workflow,
-  lc_kind LowCardinality(String) ALIAS log_comment.kind,
-  lc_id String ALIAS CAST(log_comment.id, 'String'),
-  lc_route_id String ALIAS CAST(log_comment.route_id, 'String'),
-  lc_access_method LowCardinality(String) ALIAS log_comment.access_method,
-  lc_api_key_label String ALIAS CAST(log_comment.api_key_label, 'String'),
-  lc_api_key_mask String ALIAS CAST(log_comment.api_key_mask, 'String'),
-  lc_query_type LowCardinality(String) ALIAS log_comment.query_type,
-  lc_product LowCardinality(String) ALIAS log_comment.product,
-  lc_chargeable Bool ALIAS log_comment.chargeable,
-  lc_name String ALIAS CAST(log_comment.name, 'String'),
-  lc_request_name String ALIAS CAST(log_comment.request_name, 'String'),
-  lc_client_query_id String ALIAS CAST(log_comment.client_query_id, 'String'),
-  lc_org_id String ALIAS CAST(log_comment.org_id, 'String'),
-  lc_user_id Int64 ALIAS log_comment.user_id,
-  lc_is_impersonated Bool ALIAS log_comment.is_impersonated,
-  lc_session_id String ALIAS CAST(log_comment.session_id, 'String'),
-  lc_dashboard_id Int64 ALIAS log_comment.dashboard_id,
-  lc_insight_id Int64 ALIAS log_comment.insight_id,
-  lc_cohort_id Int64 ALIAS log_comment.cohort_id,
-  lc_batch_export_id String ALIAS CAST(log_comment.batch_export_id, 'String'),
-  lc_experiment_id Int64 ALIAS log_comment.experiment_id,
-  lc_experiment_feature_flag_key String ALIAS CAST(log_comment.experiment_feature_flag_key, 'String'),
-  lc_alert_config_id String ALIAS CAST(log_comment.alert_config_id, 'String'),
-  lc_feature LowCardinality(String) ALIAS log_comment.feature,
-  lc_table_id String ALIAS CAST(log_comment.table_id, 'String'),
-  lc_warehouse_query Bool ALIAS log_comment.warehouse_query,
-  lc_person_on_events_mode LowCardinality(String) ALIAS log_comment.person_on_events_mode,
-  lc_service_name String ALIAS CAST(log_comment.service_name, 'String'),
-  lc_workload LowCardinality(String) ALIAS log_comment.workload,
-  lc_query__kind LowCardinality(String) ALIAS if(JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'kind'), JSONExtractString(toString(log_comment), 'query', 'kind')),
-  lc_query__query String ALIAS multiIf(NOT is_initial_query, '', JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'), JSONExtractString(toString(log_comment), 'query', 'query')),
-  lc_query String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), ''),
-  lc_temporal__workflow_namespace String ALIAS CAST(log_comment.`temporal.workflow_namespace`, 'String'),
-  lc_temporal__workflow_type String ALIAS CAST(log_comment.`temporal.workflow_type`, 'String'),
-  lc_temporal__workflow_id String ALIAS CAST(log_comment.`temporal.workflow_id`, 'String'),
-  lc_temporal__workflow_run_id String ALIAS CAST(log_comment.`temporal.workflow_run_id`, 'String'),
-  lc_temporal__activity_type String ALIAS CAST(log_comment.`temporal.activity_type`, 'String'),
-  lc_temporal__activity_id String ALIAS CAST(log_comment.`temporal.activity_id`, 'String'),
-  lc_temporal__attempt Int64 ALIAS log_comment.`temporal.attempt`,
-  lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
-  lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
-  lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
-) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive');
-CREATE TABLE posthog.query_log_archive_buffer (
-  hostname LowCardinality(String),
-  user LowCardinality(String),
-  query_id String,
   initial_query_id String,
-  is_initial_query UInt8,
-  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
+  is_initial_query SimpleAggregateFunction(max, UInt8),
+  hostname SimpleAggregateFunction(max, LowCardinality(String)),
+  user SimpleAggregateFunction(max, LowCardinality(String)),
+  type SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)),
+  event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  query_duration_ms SimpleAggregateFunction(max, UInt64),
+  read_rows SimpleAggregateFunction(sum, UInt64),
+  read_bytes SimpleAggregateFunction(sum, UInt64),
+  written_rows SimpleAggregateFunction(sum, UInt64),
+  written_bytes SimpleAggregateFunction(sum, UInt64),
+  result_rows SimpleAggregateFunction(sum, UInt64),
+  result_bytes SimpleAggregateFunction(sum, UInt64),
+  memory_usage SimpleAggregateFunction(max, UInt64),
+  memory_usage_sum SimpleAggregateFunction(sum, UInt64),
+  peak_threads_usage SimpleAggregateFunction(sum, UInt64),
+  execution_count SimpleAggregateFunction(sum, UInt64),
+  current_database SimpleAggregateFunction(max, LowCardinality(String)),
+  query SimpleAggregateFunction(max, String),
+  normalized_query_hash SimpleAggregateFunction(max, UInt64),
+  query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)),
+  tables SimpleAggregateFunction(max, Array(String)),
+  exception_code SimpleAggregateFunction(max, Int32),
+  exception SimpleAggregateFunction(max, String),
+  stack_trace SimpleAggregateFunction(max, String),
+  ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
+  lc_org_id SimpleAggregateFunction(max, String),
+  lc_user_id SimpleAggregateFunction(max, Int64),
+  lc_session_id SimpleAggregateFunction(max, String),
+  lc_is_impersonated SimpleAggregateFunction(max, Bool),
+  lc_workflow SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_kind SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_id SimpleAggregateFunction(max, String),
+  lc_route_id SimpleAggregateFunction(max, String),
+  lc_access_method SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_api_key_label SimpleAggregateFunction(max, String),
+  lc_api_key_mask SimpleAggregateFunction(max, String),
+  lc_query_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_product SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_chargeable SimpleAggregateFunction(max, Bool),
+  lc_name SimpleAggregateFunction(max, String),
+  lc_request_name SimpleAggregateFunction(max, String),
+  lc_client_query_id SimpleAggregateFunction(max, String),
+  lc_dashboard_id SimpleAggregateFunction(max, Int64),
+  lc_insight_id SimpleAggregateFunction(max, Int64),
+  lc_cohort_id SimpleAggregateFunction(max, Int64),
+  lc_batch_export_id SimpleAggregateFunction(max, String),
+  lc_experiment_id SimpleAggregateFunction(max, Int64),
+  lc_experiment_feature_flag_key SimpleAggregateFunction(max, String),
+  lc_alert_config_id SimpleAggregateFunction(max, String),
+  lc_feature SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_table_id SimpleAggregateFunction(max, String),
+  lc_warehouse_query SimpleAggregateFunction(max, Bool),
+  lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_service_name SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_workload SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_query__query SimpleAggregateFunction(max, String),
+  lc_query SimpleAggregateFunction(max, String),
+  lc_modifiers SimpleAggregateFunction(max, String),
+  lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__workflow_id SimpleAggregateFunction(max, String),
+  lc_temporal__workflow_run_id SimpleAggregateFunction(max, String),
+  lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__activity_id SimpleAggregateFunction(max, String),
+  lc_temporal__attempt SimpleAggregateFunction(max, Int64),
+  lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_dagster__run_id SimpleAggregateFunction(max, String),
+  lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_name SimpleAggregateFunction(max, String),
+  lc_experiment_metric_name SimpleAggregateFunction(max, String),
+  lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_precompute_table SimpleAggregateFunction(max, String),
+  lc_experiment_query_group_id SimpleAggregateFunction(max, String),
+  lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_scan_date_from SimpleAggregateFunction(max, String),
+  lc_experiment_scan_date_to SimpleAggregateFunction(max, String),
+  lc_precompute_window_start SimpleAggregateFunction(max, String),
+  lc_precompute_window_end SimpleAggregateFunction(max, String),
+  lc_plan_fingerprint SimpleAggregateFunction(max, String),
+  lc_estimated_rows SimpleAggregateFunction(max, Int64),
+  lc_estimated_bytes SimpleAggregateFunction(max, Int64),
+  query_id String,
+  event_time DateTime('UTC'),
   event_date Date,
-  event_time DateTime,
-  event_time_microseconds DateTime64(6),
-  query_start_time DateTime,
-  query_start_time_microseconds DateTime64(6),
-  query_duration_ms UInt64,
-  read_rows UInt64,
-  read_bytes UInt64,
-  written_rows UInt64,
-  written_bytes UInt64,
-  result_rows UInt64,
-  result_bytes UInt64,
-  memory_usage UInt64,
-  peak_threads_usage UInt64,
-  current_database LowCardinality(String),
-  query String,
-  formatted_query String,
-  normalized_query_hash UInt64,
+  query_start_time DateTime('UTC'),
+  query_start_time_microseconds DateTime64(6, 'UTC'),
   query_kind LowCardinality(String),
-  exception_code Int32,
-  exception String,
-  stack_trace String,
-  team_id Int64,
-  log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
+  formatted_query String,
+  query_shape String,
+  hogql_shape String,
+  exception_name String,
   ProfileEvents Map(String, UInt64)
-) ENGINE = Buffer('posthog', 'sharded_query_log_archive', 16, 10, 60, 10000, 1000000, 10000000, 100000000);
+) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive_v3');
+CREATE TABLE posthog.query_log_archive_v3_buffer (
+  initial_query_start_time DateTime64(6, 'UTC'),
+  team_id Int64,
+  initial_query_id String,
+  is_initial_query SimpleAggregateFunction(max, UInt8),
+  hostname SimpleAggregateFunction(max, LowCardinality(String)),
+  user SimpleAggregateFunction(max, LowCardinality(String)),
+  type SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)),
+  event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  query_duration_ms SimpleAggregateFunction(max, UInt64),
+  read_rows SimpleAggregateFunction(sum, UInt64),
+  read_bytes SimpleAggregateFunction(sum, UInt64),
+  written_rows SimpleAggregateFunction(sum, UInt64),
+  written_bytes SimpleAggregateFunction(sum, UInt64),
+  result_rows SimpleAggregateFunction(sum, UInt64),
+  result_bytes SimpleAggregateFunction(sum, UInt64),
+  memory_usage SimpleAggregateFunction(max, UInt64),
+  memory_usage_sum SimpleAggregateFunction(sum, UInt64),
+  peak_threads_usage SimpleAggregateFunction(sum, UInt64),
+  execution_count SimpleAggregateFunction(sum, UInt64),
+  current_database SimpleAggregateFunction(max, LowCardinality(String)),
+  query SimpleAggregateFunction(max, String),
+  normalized_query_hash SimpleAggregateFunction(max, UInt64),
+  query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)),
+  tables SimpleAggregateFunction(max, Array(String)),
+  exception_code SimpleAggregateFunction(max, Int32),
+  exception SimpleAggregateFunction(max, String),
+  stack_trace SimpleAggregateFunction(max, String),
+  ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
+  lc_org_id SimpleAggregateFunction(max, String),
+  lc_user_id SimpleAggregateFunction(max, Int64),
+  lc_session_id SimpleAggregateFunction(max, String),
+  lc_is_impersonated SimpleAggregateFunction(max, Bool),
+  lc_workflow SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_kind SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_id SimpleAggregateFunction(max, String),
+  lc_route_id SimpleAggregateFunction(max, String),
+  lc_access_method SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_api_key_label SimpleAggregateFunction(max, String),
+  lc_api_key_mask SimpleAggregateFunction(max, String),
+  lc_query_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_product SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_chargeable SimpleAggregateFunction(max, Bool),
+  lc_name SimpleAggregateFunction(max, String),
+  lc_request_name SimpleAggregateFunction(max, String),
+  lc_client_query_id SimpleAggregateFunction(max, String),
+  lc_dashboard_id SimpleAggregateFunction(max, Int64),
+  lc_insight_id SimpleAggregateFunction(max, Int64),
+  lc_cohort_id SimpleAggregateFunction(max, Int64),
+  lc_batch_export_id SimpleAggregateFunction(max, String),
+  lc_experiment_id SimpleAggregateFunction(max, Int64),
+  lc_experiment_feature_flag_key SimpleAggregateFunction(max, String),
+  lc_alert_config_id SimpleAggregateFunction(max, String),
+  lc_feature SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_table_id SimpleAggregateFunction(max, String),
+  lc_warehouse_query SimpleAggregateFunction(max, Bool),
+  lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_service_name SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_workload SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_query__query SimpleAggregateFunction(max, String),
+  lc_query SimpleAggregateFunction(max, String),
+  lc_modifiers SimpleAggregateFunction(max, String),
+  lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__workflow_id SimpleAggregateFunction(max, String),
+  lc_temporal__workflow_run_id SimpleAggregateFunction(max, String),
+  lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__activity_id SimpleAggregateFunction(max, String),
+  lc_temporal__attempt SimpleAggregateFunction(max, Int64),
+  lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_dagster__run_id SimpleAggregateFunction(max, String),
+  lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_name SimpleAggregateFunction(max, String),
+  lc_experiment_metric_name SimpleAggregateFunction(max, String),
+  lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_precompute_table SimpleAggregateFunction(max, String),
+  lc_experiment_query_group_id SimpleAggregateFunction(max, String),
+  lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_scan_date_from SimpleAggregateFunction(max, String),
+  lc_experiment_scan_date_to SimpleAggregateFunction(max, String),
+  lc_precompute_window_start SimpleAggregateFunction(max, String),
+  lc_precompute_window_end SimpleAggregateFunction(max, String),
+  lc_plan_fingerprint SimpleAggregateFunction(max, String),
+  lc_estimated_rows SimpleAggregateFunction(max, Int64),
+  lc_estimated_bytes SimpleAggregateFunction(max, Int64)
+) ENGINE = Buffer('posthog', 'sharded_query_log_archive_v3', 16, 10, 60, 10000, 1000000, 10000000, 100000000);
 CREATE TABLE posthog.raw_sessions (
   team_id Int64,
   session_id_v7 UInt128,
@@ -7334,16 +7639,14 @@ CREATE TABLE posthog.raw_sessions_v3 (
   entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   entry_has_gclid AggregateFunction(argMin, Bool, DateTime64(6, 'UTC')),
   entry_has_fbclid AggregateFunction(argMin, Bool, DateTime64(6, 'UTC')),
-  entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
   entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC')),
-  pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-  autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-  screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+  pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+  autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+  screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
   flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-  flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
@@ -7494,39 +7797,124 @@ CREATE TABLE posthog.sessions (
   pageview_count SimpleAggregateFunction(sum, Int64),
   autocapture_count SimpleAggregateFunction(sum, Int64)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_sessions', sipHash64(session_id));
-CREATE TABLE posthog.writable_query_log_archive (
-  hostname LowCardinality(String),
-  user LowCardinality(String),
-  query_id String,
-  initial_query_id String,
-  is_initial_query UInt8,
-  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
-  event_date Date,
-  event_time DateTime,
-  event_time_microseconds DateTime64(6),
-  query_start_time DateTime,
-  query_start_time_microseconds DateTime64(6),
-  query_duration_ms UInt64,
-  read_rows UInt64,
-  read_bytes UInt64,
-  written_rows UInt64,
-  written_bytes UInt64,
-  result_rows UInt64,
-  result_bytes UInt64,
-  memory_usage UInt64,
-  peak_threads_usage UInt64,
-  current_database LowCardinality(String),
-  query String,
-  formatted_query String,
-  normalized_query_hash UInt64,
-  query_kind LowCardinality(String),
-  exception_code Int32,
-  exception String,
-  stack_trace String,
+CREATE TABLE posthog.writable_query_log_archive_v3 (
+  initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
-  log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
-  ProfileEvents Map(String, UInt64)
-) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_buffer');
+  initial_query_id String,
+  is_initial_query SimpleAggregateFunction(max, UInt8),
+  hostname SimpleAggregateFunction(max, LowCardinality(String)),
+  user SimpleAggregateFunction(max, LowCardinality(String)),
+  type SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)),
+  event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  query_duration_ms SimpleAggregateFunction(max, UInt64),
+  read_rows SimpleAggregateFunction(sum, UInt64),
+  read_bytes SimpleAggregateFunction(sum, UInt64),
+  written_rows SimpleAggregateFunction(sum, UInt64),
+  written_bytes SimpleAggregateFunction(sum, UInt64),
+  result_rows SimpleAggregateFunction(sum, UInt64),
+  result_bytes SimpleAggregateFunction(sum, UInt64),
+  memory_usage SimpleAggregateFunction(max, UInt64),
+  memory_usage_sum SimpleAggregateFunction(sum, UInt64),
+  peak_threads_usage SimpleAggregateFunction(sum, UInt64),
+  execution_count SimpleAggregateFunction(sum, UInt64),
+  current_database SimpleAggregateFunction(max, LowCardinality(String)),
+  query SimpleAggregateFunction(max, String),
+  normalized_query_hash SimpleAggregateFunction(max, UInt64),
+  query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)),
+  tables SimpleAggregateFunction(max, Array(String)),
+  exception_code SimpleAggregateFunction(max, Int32),
+  exception SimpleAggregateFunction(max, String),
+  stack_trace SimpleAggregateFunction(max, String),
+  ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
+  ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
+  lc_org_id SimpleAggregateFunction(max, String),
+  lc_user_id SimpleAggregateFunction(max, Int64),
+  lc_session_id SimpleAggregateFunction(max, String),
+  lc_is_impersonated SimpleAggregateFunction(max, Bool),
+  lc_workflow SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_kind SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_id SimpleAggregateFunction(max, String),
+  lc_route_id SimpleAggregateFunction(max, String),
+  lc_access_method SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_api_key_label SimpleAggregateFunction(max, String),
+  lc_api_key_mask SimpleAggregateFunction(max, String),
+  lc_query_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_product SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_chargeable SimpleAggregateFunction(max, Bool),
+  lc_name SimpleAggregateFunction(max, String),
+  lc_request_name SimpleAggregateFunction(max, String),
+  lc_client_query_id SimpleAggregateFunction(max, String),
+  lc_dashboard_id SimpleAggregateFunction(max, Int64),
+  lc_insight_id SimpleAggregateFunction(max, Int64),
+  lc_cohort_id SimpleAggregateFunction(max, Int64),
+  lc_batch_export_id SimpleAggregateFunction(max, String),
+  lc_experiment_id SimpleAggregateFunction(max, Int64),
+  lc_experiment_feature_flag_key SimpleAggregateFunction(max, String),
+  lc_alert_config_id SimpleAggregateFunction(max, String),
+  lc_feature SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_table_id SimpleAggregateFunction(max, String),
+  lc_warehouse_query SimpleAggregateFunction(max, Bool),
+  lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_service_name SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_workload SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_query__query SimpleAggregateFunction(max, String),
+  lc_query SimpleAggregateFunction(max, String),
+  lc_modifiers SimpleAggregateFunction(max, String),
+  lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__workflow_id SimpleAggregateFunction(max, String),
+  lc_temporal__workflow_run_id SimpleAggregateFunction(max, String),
+  lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_temporal__activity_id SimpleAggregateFunction(max, String),
+  lc_temporal__attempt SimpleAggregateFunction(max, Int64),
+  lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_dagster__run_id SimpleAggregateFunction(max, String),
+  lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_name SimpleAggregateFunction(max, String),
+  lc_experiment_metric_name SimpleAggregateFunction(max, String),
+  lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_precompute_table SimpleAggregateFunction(max, String),
+  lc_experiment_query_group_id SimpleAggregateFunction(max, String),
+  lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)),
+  lc_experiment_scan_date_from SimpleAggregateFunction(max, String),
+  lc_experiment_scan_date_to SimpleAggregateFunction(max, String),
+  lc_precompute_window_start SimpleAggregateFunction(max, String),
+  lc_precompute_window_end SimpleAggregateFunction(max, String),
+  lc_plan_fingerprint SimpleAggregateFunction(max, String),
+  lc_estimated_rows SimpleAggregateFunction(max, Int64),
+  lc_estimated_bytes SimpleAggregateFunction(max, Int64)
+) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_v3_buffer');
 CREATE MATERIALIZED VIEW posthog.ai_events_json_mv TO posthog.ai_events (uuid UUID, event String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, person_id UUID, properties String, trace_id String, session_id Nullable(String), parent_id Nullable(String), span_id Nullable(String), span_type Nullable(String), generation_id Nullable(String), experiment_id Nullable(String), span_name Nullable(String), trace_name Nullable(String), prompt_name Nullable(String), model Nullable(String), provider Nullable(String), framework Nullable(String), total_tokens Nullable(Int64), input_tokens Nullable(Int64), output_tokens Nullable(Int64), text_input_tokens Nullable(Int64), text_output_tokens Nullable(Int64), image_input_tokens Nullable(Int64), image_output_tokens Nullable(Int64), audio_input_tokens Nullable(Int64), audio_output_tokens Nullable(Int64), video_input_tokens Nullable(Int64), video_output_tokens Nullable(Int64), reasoning_tokens Nullable(Int64), cache_read_input_tokens Nullable(Int64), cache_creation_input_tokens Nullable(Int64), web_search_count Nullable(Int64), input_cost_usd Nullable(Float64), output_cost_usd Nullable(Float64), total_cost_usd Nullable(Float64), request_cost_usd Nullable(Float64), web_search_cost_usd Nullable(Float64), audio_cost_usd Nullable(Float64), image_cost_usd Nullable(Float64), video_cost_usd Nullable(Float64), latency Nullable(Float64), time_to_first_token Nullable(Float64), is_error UInt8, error Nullable(String), error_type Nullable(String), error_normalized Nullable(String), input Nullable(String), output Nullable(String), output_choices Nullable(String), input_state Nullable(String), output_state Nullable(String), tools Nullable(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   event,
@@ -7600,65 +7988,135 @@ CREATE MATERIALIZED VIEW posthog.ai_events_json_mv TO posthog.ai_events (uuid UU
   _offset,
   _partition
 FROM posthog.kafka_ai_events_json AS src;
-CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_query_log_archive (hostname LowCardinality(String), user LowCardinality(String), query_id String, initial_query_id String, is_initial_query UInt8, type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4), event_date Date, event_time DateTime, event_time_microseconds DateTime64(6), query_start_time DateTime, query_start_time_microseconds DateTime64(6), query_duration_ms UInt64, read_rows UInt64, read_bytes UInt64, written_rows UInt64, written_bytes UInt64, result_rows UInt64, result_bytes UInt64, memory_usage UInt64, peak_threads_usage UInt64, current_database LowCardinality(String), query String, formatted_query String, normalized_query_hash UInt64, query_kind LowCardinality(String), exception_code Int32, exception String, stack_trace String, team_id Int64, log_comment String, ProfileEvents Map(LowCardinality(String), UInt64)) AS SELECT
-  hostname,
-  user,
-  query_id,
-  initial_query_id,
-  is_initial_query,
-  type,
-  event_date,
-  event_time,
-  event_time_microseconds,
-  query_start_time,
-  query_start_time_microseconds,
-  query_duration_ms,
-  read_rows,
-  read_bytes,
-  written_rows,
-  written_bytes,
-  result_rows,
-  result_bytes,
-  memory_usage,
-  peak_threads_usage,
-  current_database,
-  query,
-  formatted_query,
-  normalized_query_hash,
-  query_kind,
-  exception_code,
-  exception,
-  stack_trace,
-  JSONExtractInt(log_comment, 'team_id') AS team_id,
-  if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
-  ProfileEvents
-FROM system.query_log
-WHERE type != 'QueryStart';
-CREATE MATERIALIZED VIEW posthog.person_property_mutation_log_mv TO posthog.person_property_mutation_log (team_id Int64, event_uuid UUID, properties String, ingested_at DateTime('UTC')) AS SELECT
-  team_id,
-  uuid AS event_uuid,
-  concat(
-    '{',
-    arrayStringConcat(
-      arrayMap(
-        property -> concat(toJSONString(property.1), ':', property.2),
-        arrayFilter(
-          property -> property.1 IN ('$set', '$set_once', '$unset'),
-          JSONExtractKeysAndValuesRaw(source.properties)
-        )
-      ),
-      ','
-    ),
-    '}'
-  ) AS properties,
-  toDateTime(_timestamp, 'UTC') AS ingested_at
-FROM kafka_person_property_mutation_log AS source
-WHERE
-  JSONHas(source.properties, '$set')
-OR
-  JSONHas(source.properties, '$set_once')
-OR
-  JSONHas(source.properties, '$unset');
+CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_v3_mv TO posthog.writable_query_log_archive_v3 (initial_query_start_time DateTime64(6, 'UTC'), team_id Int64, initial_query_id String, is_initial_query SimpleAggregateFunction(max, UInt8), hostname SimpleAggregateFunction(max, LowCardinality(String)), user SimpleAggregateFunction(max, LowCardinality(String)), type SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)), event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')), query_duration_ms SimpleAggregateFunction(max, UInt64), read_rows SimpleAggregateFunction(sum, UInt64), read_bytes SimpleAggregateFunction(sum, UInt64), written_rows SimpleAggregateFunction(sum, UInt64), written_bytes SimpleAggregateFunction(sum, UInt64), result_rows SimpleAggregateFunction(sum, UInt64), result_bytes SimpleAggregateFunction(sum, UInt64), memory_usage SimpleAggregateFunction(max, UInt64), memory_usage_sum SimpleAggregateFunction(sum, UInt64), peak_threads_usage SimpleAggregateFunction(sum, UInt64), execution_count SimpleAggregateFunction(sum, UInt64), current_database SimpleAggregateFunction(max, LowCardinality(String)), query SimpleAggregateFunction(max, String), normalized_query_hash SimpleAggregateFunction(max, UInt64), query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)), tables SimpleAggregateFunction(max, Array(String)), exception_code SimpleAggregateFunction(max, Int32), exception SimpleAggregateFunction(max, String), stack_trace SimpleAggregateFunction(max, String), ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64), ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64), lc_org_id SimpleAggregateFunction(max, String), lc_user_id SimpleAggregateFunction(max, Int64), lc_session_id SimpleAggregateFunction(max, String), lc_is_impersonated SimpleAggregateFunction(max, Bool), lc_workflow SimpleAggregateFunction(max, LowCardinality(String)), lc_kind SimpleAggregateFunction(max, LowCardinality(String)), lc_id SimpleAggregateFunction(max, String), lc_route_id SimpleAggregateFunction(max, String), lc_access_method SimpleAggregateFunction(max, LowCardinality(String)), lc_api_key_label SimpleAggregateFunction(max, String), lc_api_key_mask SimpleAggregateFunction(max, String), lc_query_type SimpleAggregateFunction(max, LowCardinality(String)), lc_product SimpleAggregateFunction(max, LowCardinality(String)), lc_chargeable SimpleAggregateFunction(max, Bool), lc_name SimpleAggregateFunction(max, String), lc_request_name SimpleAggregateFunction(max, String), lc_client_query_id SimpleAggregateFunction(max, String), lc_dashboard_id SimpleAggregateFunction(max, Int64), lc_insight_id SimpleAggregateFunction(max, Int64), lc_cohort_id SimpleAggregateFunction(max, Int64), lc_batch_export_id SimpleAggregateFunction(max, String), lc_experiment_id SimpleAggregateFunction(max, Int64), lc_experiment_feature_flag_key SimpleAggregateFunction(max, String), lc_alert_config_id SimpleAggregateFunction(max, String), lc_feature SimpleAggregateFunction(max, LowCardinality(String)), lc_table_id SimpleAggregateFunction(max, String), lc_warehouse_query SimpleAggregateFunction(max, Bool), lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)), lc_service_name SimpleAggregateFunction(max, LowCardinality(String)), lc_workload SimpleAggregateFunction(max, LowCardinality(String)), lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)), lc_query__query SimpleAggregateFunction(max, String), lc_query SimpleAggregateFunction(max, String), lc_modifiers SimpleAggregateFunction(max, String), lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__workflow_id SimpleAggregateFunction(max, String), lc_temporal__workflow_run_id SimpleAggregateFunction(max, String), lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__activity_id SimpleAggregateFunction(max, String), lc_temporal__attempt SimpleAggregateFunction(max, Int64), lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)), lc_dagster__run_id SimpleAggregateFunction(max, String), lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_name SimpleAggregateFunction(max, String), lc_experiment_metric_name SimpleAggregateFunction(max, String), lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_precompute_table SimpleAggregateFunction(max, String), lc_experiment_query_group_id SimpleAggregateFunction(max, String), lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_scan_date_from SimpleAggregateFunction(max, String), lc_experiment_scan_date_to SimpleAggregateFunction(max, String), lc_precompute_window_start SimpleAggregateFunction(max, String), lc_precompute_window_end SimpleAggregateFunction(max, String), lc_plan_fingerprint SimpleAggregateFunction(max, String), lc_estimated_rows SimpleAggregateFunction(max, Int64), lc_estimated_bytes SimpleAggregateFunction(max, Int64)) AS WITH
+  JSONExtract(ql.log_comment, 'Tuple(team_id Int64, org_id String, user_id Int64, session_id String, is_impersonated Bool, workflow String, kind String, id String, route_id String, access_method String, api_key_label String, api_key_mask String, query_type String, product String, chargeable Bool, name String, request_name String, client_query_id String, dashboard_id Int64, insight_id Int64, cohort_id Int64, batch_export_id String, experiment_id Int64, experiment_feature_flag_key String, alert_config_id String, feature String, table_id String, warehouse_query Bool, person_on_events_mode String, service_name String, workload String, experiment_name String, experiment_metric_name String, experiment_execution_path String, experiment_metric_type String, experiment_funnel_order_type String, experiment_exposures_path String, experiment_metric_events_path String, experiment_query_surface String, experiment_precompute_table String, experiment_query_group_id String, experiment_precompute_skip_reason String, experiment_scan_date_from String, experiment_scan_date_to String, precompute_window_start String, precompute_window_end String, plan_fingerprint String, estimated_rows Int64, estimated_bytes Int64, temporal Tuple(workflow_namespace String, workflow_type String, workflow_id String, workflow_run_id String, activity_type String, activity_id String, attempt Int64), dagster Tuple(job_name String, run_id String, tags Tuple(owner String)), query Tuple(kind String, query String, source Tuple(kind String, query String)))') AS lc
+SELECT
+  if(
+    empty(ql.initial_query_id),
+    ql.query_start_time_microseconds,
+    ql.initial_query_start_time_microseconds
+  ) AS initial_query_start_time,
+  lc.team_id AS team_id,
+  if(empty(ql.initial_query_id), ql.query_id, ql.initial_query_id) AS initial_query_id,
+  ql.is_initial_query AS is_initial_query,
+  if(ql.is_initial_query, ql.hostname, '') AS hostname,
+  ql.user AS user,
+  ql.type AS type,
+  ql.event_time_microseconds AS event_time_microseconds,
+  if(ql.is_initial_query, ql.query_duration_ms, 0) AS query_duration_ms,
+  if(ql.is_initial_query, ql.read_rows, 0) AS read_rows,
+  if(ql.is_initial_query, ql.read_bytes, 0) AS read_bytes,
+  if(ql.is_initial_query, ql.written_rows, 0) AS written_rows,
+  if(ql.is_initial_query, ql.written_bytes, 0) AS written_bytes,
+  if(ql.is_initial_query, ql.result_rows, 0) AS result_rows,
+  if(ql.is_initial_query, ql.result_bytes, 0) AS result_bytes,
+  ql.memory_usage AS memory_usage,
+  ql.memory_usage AS memory_usage_sum,
+  ql.peak_threads_usage AS peak_threads_usage,
+  1 AS execution_count,
+  ql.current_database AS current_database,
+  if(ql.is_initial_query, ql.query, '') AS query,
+  if(ql.is_initial_query, ql.normalized_query_hash, 0) AS normalized_query_hash,
+  tuple(ql.is_initial_query, ql.query_kind) AS query_kind_by_root,
+  if(ql.is_initial_query, ql.tables, []) AS tables,
+  if(ql.is_initial_query, ql.exception_code, 0) AS exception_code,
+  if(ql.is_initial_query, ql.exception, '') AS exception,
+  if(ql.is_initial_query, ql.stack_trace, '') AS stack_trace,
+  if(ql.is_initial_query, ql.ProfileEvents['SelectedRows'], 0) AS ProfileEvents_SelectedRows,
+  if(ql.is_initial_query, ql.ProfileEvents['SelectedBytes'], 0) AS ProfileEvents_SelectedBytes,
+  ql.ProfileEvents['RealTimeMicroseconds'] AS ProfileEvents_RealTimeMicroseconds,
+  ql.ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS ProfileEvents_OSCPUVirtualTimeMicroseconds,
+  ql.ProfileEvents['UserTimeMicroseconds'] AS ProfileEvents_UserTimeMicroseconds,
+  ql.ProfileEvents['SystemTimeMicroseconds'] AS ProfileEvents_SystemTimeMicroseconds,
+  ql.ProfileEvents['SelectedParts'] AS ProfileEvents_SelectedParts,
+  ql.ProfileEvents['SelectedMarks'] AS ProfileEvents_SelectedMarks,
+  ql.ProfileEvents['NetworkReceiveBytes'] AS ProfileEvents_NetworkReceiveBytes,
+  ql.ProfileEvents['NetworkSendBytes'] AS ProfileEvents_NetworkSendBytes,
+  ql.ProfileEvents['ReadBufferFromFileDescriptorReadBytes'] AS ProfileEvents_ReadBufferFromFileDescriptorReadBytes,
+  ql.ProfileEvents['WriteBufferFromFileDescriptorWriteBytes'] AS ProfileEvents_WriteBufferFromFileDescriptorWriteBytes,
+  ql.ProfileEvents['S3Clients'] AS ProfileEvents_S3Clients,
+  ql.ProfileEvents['S3DeleteObjects'] AS ProfileEvents_S3DeleteObjects,
+  ql.ProfileEvents['S3CopyObject'] AS ProfileEvents_S3CopyObject,
+  ql.ProfileEvents['S3ListObjects'] AS ProfileEvents_S3ListObjects,
+  ql.ProfileEvents['S3HeadObject'] AS ProfileEvents_S3HeadObject,
+  ql.ProfileEvents['S3GetObjectAttributes'] AS ProfileEvents_S3GetObjectAttributes,
+  ql.ProfileEvents['S3CreateMultipartUpload'] AS ProfileEvents_S3CreateMultipartUpload,
+  ql.ProfileEvents['S3UploadPartCopy'] AS ProfileEvents_S3UploadPartCopy,
+  ql.ProfileEvents['S3UploadPart'] AS ProfileEvents_S3UploadPart,
+  ql.ProfileEvents['S3AbortMultipartUpload'] AS ProfileEvents_S3AbortMultipartUpload,
+  ql.ProfileEvents['S3CompleteMultipartUpload'] AS ProfileEvents_S3CompleteMultipartUpload,
+  ql.ProfileEvents['S3PutObject'] AS ProfileEvents_S3PutObject,
+  ql.ProfileEvents['S3GetObject'] AS ProfileEvents_S3GetObject,
+  ql.ProfileEvents['ReadBufferFromS3Bytes'] AS ProfileEvents_ReadBufferFromS3Bytes,
+  ql.ProfileEvents['WriteBufferFromS3Bytes'] AS ProfileEvents_WriteBufferFromS3Bytes,
+  lc.org_id AS lc_org_id,
+  lc.user_id AS lc_user_id,
+  lc.session_id AS lc_session_id,
+  lc.is_impersonated AS lc_is_impersonated,
+  lc.workflow AS lc_workflow,
+  lc.kind AS lc_kind,
+  lc.id AS lc_id,
+  lc.route_id AS lc_route_id,
+  lc.access_method AS lc_access_method,
+  lc.api_key_label AS lc_api_key_label,
+  lc.api_key_mask AS lc_api_key_mask,
+  lc.query_type AS lc_query_type,
+  lc.product AS lc_product,
+  lc.chargeable AS lc_chargeable,
+  lc.name AS lc_name,
+  lc.request_name AS lc_request_name,
+  lc.client_query_id AS lc_client_query_id,
+  lc.dashboard_id AS lc_dashboard_id,
+  lc.insight_id AS lc_insight_id,
+  lc.cohort_id AS lc_cohort_id,
+  lc.batch_export_id AS lc_batch_export_id,
+  lc.experiment_id AS lc_experiment_id,
+  lc.experiment_feature_flag_key AS lc_experiment_feature_flag_key,
+  lc.alert_config_id AS lc_alert_config_id,
+  lc.feature AS lc_feature,
+  lc.table_id AS lc_table_id,
+  lc.warehouse_query AS lc_warehouse_query,
+  lc.person_on_events_mode AS lc_person_on_events_mode,
+  lc.service_name AS lc_service_name,
+  lc.workload AS lc_workload,
+  if(notEmpty(lc.query.source.kind), lc.query.source.kind, lc.query.kind) AS lc_query__kind,
+  if(
+    ql.is_initial_query,
+    if(notEmpty(lc.query.source.kind), lc.query.source.query, lc.query.query),
+    ''
+  ) AS lc_query__query,
+  if(ql.is_initial_query, JSONExtractRaw(ql.log_comment, 'query'), '') AS lc_query,
+  if(ql.is_initial_query, JSONExtractRaw(ql.log_comment, 'modifiers'), '') AS lc_modifiers,
+  lc.temporal.workflow_namespace AS lc_temporal__workflow_namespace,
+  lc.temporal.workflow_type AS lc_temporal__workflow_type,
+  lc.temporal.workflow_id AS lc_temporal__workflow_id,
+  lc.temporal.workflow_run_id AS lc_temporal__workflow_run_id,
+  lc.temporal.activity_type AS lc_temporal__activity_type,
+  lc.temporal.activity_id AS lc_temporal__activity_id,
+  lc.temporal.attempt AS lc_temporal__attempt,
+  lc.dagster.job_name AS lc_dagster__job_name,
+  lc.dagster.run_id AS lc_dagster__run_id,
+  lc.dagster.tags.owner AS lc_dagster__owner,
+  lc.experiment_name AS lc_experiment_name,
+  lc.experiment_metric_name AS lc_experiment_metric_name,
+  lc.experiment_execution_path AS lc_experiment_execution_path,
+  lc.experiment_metric_type AS lc_experiment_metric_type,
+  lc.experiment_funnel_order_type AS lc_experiment_funnel_order_type,
+  lc.experiment_exposures_path AS lc_experiment_exposures_path,
+  lc.experiment_metric_events_path AS lc_experiment_metric_events_path,
+  lc.experiment_query_surface AS lc_experiment_query_surface,
+  lc.experiment_precompute_table AS lc_experiment_precompute_table,
+  lc.experiment_query_group_id AS lc_experiment_query_group_id,
+  lc.experiment_precompute_skip_reason AS lc_experiment_precompute_skip_reason,
+  lc.experiment_scan_date_from AS lc_experiment_scan_date_from,
+  lc.experiment_scan_date_to AS lc_experiment_scan_date_to,
+  lc.precompute_window_start AS lc_precompute_window_start,
+  lc.precompute_window_end AS lc_precompute_window_end,
+  lc.plan_fingerprint AS lc_plan_fingerprint,
+  lc.estimated_rows AS lc_estimated_rows,
+  lc.estimated_bytes AS lc_estimated_bytes
+FROM system.query_log AS ql
+WHERE ql.type != 'QueryStart';
 CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
 FROM posthog.custom_metrics_test
 UNION ALL
@@ -7969,16 +8427,14 @@ CREATE VIEW posthog.raw_sessions_v3_v AS SELECT
   argMinMerge(entry_fbclid) AS entry_fbclid,
   argMinMerge(entry_has_gclid) AS entry_has_gclid,
   argMinMerge(entry_has_fbclid) AS entry_has_fbclid,
-  argMinMerge(entry_ad_ids_map) AS entry_ad_ids_map,
   argMinMerge(entry_ad_ids_set) AS entry_ad_ids_set,
   argMinMerge(entry_channel_type_properties) AS entry_channel_type_properties,
-  uniqExactMerge(pageview_uniq) AS pageview_uniq,
-  uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
-  uniqExactMerge(screen_uniq) AS screen_uniq,
+  uniqMerge(pageview_uniq) AS pageview_uniq,
+  uniqMerge(autocapture_uniq) AS autocapture_uniq,
+  uniqMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
   groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
-  groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,
   groupUniqArrayArray(10)(emails) AS emails,
@@ -8023,3 +8479,4 @@ CREATE VIEW posthog.sessions_v AS SELECT
 FROM posthog.sessions
 GROUP BY
   session_id, team_id;
+CREATE OR REPLACE DICTIONARY posthog.person_group_membership_config_dict (`team_id` Int64, `group_type_index` UInt8 DEFAULT 255, `enabled` UInt8 DEFAULT 0) PRIMARY KEY team_id SOURCE(CLICKHOUSE(USER 'default' QUERY 'SELECT team_id, config.1 AS group_type_index, config.2 AS enabled FROM (SELECT team_id, argMax(tuple(group_type_index, enabled), version) AS config FROM posthog.distributed_person_group_membership_config GROUP BY team_id) WHERE enabled = 1 AND group_type_index <= 4')) LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 60 MAX 120);

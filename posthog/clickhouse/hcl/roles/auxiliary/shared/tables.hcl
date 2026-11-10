@@ -382,6 +382,33 @@ database "posthog" {
       version_column = "computed_at"
     }
   }
+  # A plain MergeTree because every row is a distinct check and nothing supersedes anything. The one
+  # duplicate this table can see is a retried insert of an identical batch, which the replicated
+  # engine drops through its own insert deduplication; the writer keys that explicitly. A
+  # ReplacingMergeTree would instead make every count over the table wrong on any part a merge has
+  # not reached, and ClickHouse never promises a merge will run.
+  #
+  # The sort key serves a source rebuilding an N-of-M window from the last rows of one alert, a
+  # comparison scanning a team over a time range, and delivery resolving one evaluation under the
+  # (team, configuration, alert) prefix plus the time bound it already holds.
+  #
+  # `expires_at` is insert time rather than `occurred_at` plus 90 days, so a backfill of old checks
+  # does not land rows that are already expired.
+  table "sharded_platform_alert_events" {
+    order_by     = ["team_id", "configuration_id", "alert_id", "occurred_at", "evaluation_key"]
+    primary_key  = ["team_id", "configuration_id", "alert_id", "occurred_at"]
+    partition_by = "toYYYYMM(occurred_at)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_platform_alert_events_columns"
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.platform_alert_events"
+      replica_name = "{replica}-{shard}"
+    }
+  }
   table "sharded_session_replay_features" {
     order_by     = ["team_id", "session_id"]
     partition_by = "toYYYYMM(min_first_timestamp)"
@@ -1074,6 +1101,189 @@ database "posthog" {
       group_name           = "clickhouse_hog_invocation_results"
       format               = "JSONEachRow"
       skip_broken_messages = 100
+    }
+  }
+  table "sharded_warehouse_object_reads_daily" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_warehouse_object_reads_daily_columns"
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.warehouse_object_reads_daily"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+  table "sharded_warehouse_object_reads_daily_staging" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_warehouse_object_reads_daily_columns"
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.sharded_warehouse_object_reads_daily_staging"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "email_status_data" {
+    order_by     = ["team_id", "message_id"]
+    partition_by = "toYYYYMMDD(created_at)"
+    ttl          = "toDate(created_at) + toIntervalDay(31)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_email_status_columns"
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.email_status_data"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+  table "email_status_events_data" {
+    order_by     = ["team_id", "created_at", "message_id", "status_at"]
+    partition_by = "toYYYYMMDD(created_at)"
+    ttl          = "toDate(created_at) + toIntervalDay(31)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_email_status_events_columns"
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.email_status_events_data"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+  table "kafka_email_status" {
+    extend = "_email_status_columns"
+    engine "kafka" {
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+  table "kafka_email_status_events" {
+    extend = "_email_status_events_columns"
+    engine "kafka" {
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status_events"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+  materialized_view "email_status_mv" {
+    to_table = "posthog.email_status_data"
+    query    = file("sql/email_status_mv.sql")
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+  materialized_view "email_status_events_mv" {
+    to_table = "posthog.email_status_events_data"
+    query    = file("sql/email_status_events_mv.sql")
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
     }
   }
 }

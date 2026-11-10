@@ -1,34 +1,39 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { noEventsBannerLogic } from './noEventsBannerLogic'
-import { projectNoticeLogic } from './projectNoticeLogic'
+import { ProjectNoticeVariant, projectNoticeLogic } from './projectNoticeLogic'
 
 const LAYOUT_WITH_HORIZONTAL_MARGIN: SceneConfig['layout'][] = ['app-raw', 'app-raw-no-header']
 
-export function ProjectNotice({ className }: { className?: string }): JSX.Element | null {
+export function ProjectNotice({
+    className,
+    hiddenVariants,
+}: {
+    className?: string
+    hiddenVariants?: ProjectNoticeVariant[]
+}): JSX.Element | null {
     const { projectNotice, projectNoticeVariant } = useValues(projectNoticeLogic)
+    const hidden = !!projectNoticeVariant && !!hiddenVariants?.includes(projectNoticeVariant)
     const { reportNoticeShown } = useActions(projectNoticeLogic)
     const { sceneConfig } = useValues(sceneLogic)
-    const hideProjectNotice = useFeatureFlag('UX_HIDE_PROJECT_NOTICE')
 
     const requiresHorizontalMargin = sceneConfig?.layout && LAYOUT_WITH_HORIZONTAL_MARGIN.includes(sceneConfig.layout)
 
     // KLUDGE: We can't really depend on `projectNotice` being set inside the logic
     // to trigger the action from inside the logic, so let's do it here.
     useEffect(() => {
-        if (projectNoticeVariant && !hideProjectNotice) {
+        if (projectNoticeVariant && !hidden) {
             reportNoticeShown()
         }
-    }, [projectNoticeVariant, reportNoticeShown, hideProjectNotice])
+    }, [projectNoticeVariant, hidden, reportNoticeShown])
 
-    if (!projectNotice || hideProjectNotice) {
+    if (!projectNotice || hidden) {
         return null
     }
 

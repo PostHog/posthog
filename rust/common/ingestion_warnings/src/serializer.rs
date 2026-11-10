@@ -77,6 +77,10 @@ impl Warning {
         }
     }
 
+    pub fn warning_type(&self) -> WarningType {
+        self.warning
+    }
+
     pub fn with_detail(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.details.insert(key.into(), value.into());
         self
@@ -146,6 +150,7 @@ impl Warning {
             timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         })
     }
 

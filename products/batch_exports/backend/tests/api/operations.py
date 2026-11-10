@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 from contextlib import contextmanager
 
 from django.conf import settings
@@ -22,6 +23,9 @@ def start_test_worker(temporal: TemporalClient):
         task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
         activities=ACTIVITIES,
+        # The worker stops after the last test that needs it. Cancellation tests leave mocked
+        # activities that never finish, so a grace period only delays the shutdown.
+        graceful_shutdown_timeout=dt.timedelta(0),
     ):
         yield
 
@@ -192,12 +196,12 @@ def cancel_batch_export_backfill_ok(client: TestClient, team_id: int, batch_expo
 
 @async_to_sync
 async def wait_for_workflow_executions(
-    temporal: temporalio.client.Client, query: str, timeout: int = 30, sleep: int = 1
+    temporal: temporalio.client.Client, query: str, timeout: float = 30, sleep: float = 0.2
 ):
     """Wait for Workflow Executions matching query."""
     workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
 
-    total = 0
+    total = 0.0
     while not workflows:
         if total > timeout:
             raise TimeoutError(f"No backfill Workflow Executions after {timeout} seconds")

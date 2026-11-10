@@ -1,6 +1,7 @@
-import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -8,7 +9,14 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
+import { expect, userEvent } from 'storybook/test'
+
+import { modelLab } from './aiLabs'
+import { labMark } from './brandMarks'
+import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
@@ -48,7 +56,7 @@ const DAILY_TOTALS: [string, number, number][] = [
     ['2026-06-07', 5300, 168],
 ]
 
-const ACTIVITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors]) => [day, calls - errors, errors])
+const ACTIVITY_RESULTS = DAILY_TOTALS.map(([bucket, calls, errors]) => ({ bucket, successes: calls - errors, errors }))
 
 const TOOL_DAILY_SHARES: [string, number][] = [
     ['exec', 0.58],
@@ -60,7 +68,7 @@ const TOOL_DAILY_SHARES: [string, number][] = [
 ]
 
 const TOOL_DAILY_RESULTS = DAILY_TOTALS.flatMap(([day, calls]) =>
-    TOOL_DAILY_SHARES.map(([tool, share]) => [day, tool, Math.round(calls * share)])
+    TOOL_DAILY_SHARES.map(([tool, share]) => ({ bucket: day, tool, calls: Math.round(calls * share) }))
 )
 
 const SESSION_RESULTS = [
@@ -72,14 +80,42 @@ const SESSION_RESULTS = [
     ['0193f2a1-aaaa-bbbb-cccc-000000000006', 22, 3, 13.6, 410, 6, '2026-06-06T16:20:00Z'],
 ]
 
+// An invented icon for the custom harness below, as a team would paste it in settings.
+const ACME_AGENT_ICON =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoklEQVR42u2WyxGAIAwF4ZXhwcIs0MI82IbemUHyh8yYMwnshl8pfyjjPvZHk4/ZALCg11jIa6ClllrIaaBHK7GQz8CIkmshlwEqHceC2sB2XjXEALe31PGwoNdYgOeLR8mDVe+lFuD93o/yYbnzJRbgSU+pA+tzz7UAb/pRPXjcehwLiKD/qguvO586vkbR9xa31n8ggr6dZx0DUfSz5uvGCwGCWU5qX8y4AAAAAElFTkSuQmCC'
+
+const CUSTOM_HARNESSES = [
+    {
+        id: '0193f2a1-0000-7000-8000-000000000001',
+        name: 'Acme agent',
+        match_pattern: 'acme-agent',
+        icon: ACME_AGENT_ICON,
+        created_at: '2026-06-01T10:00:00Z',
+        updated_at: '2026-06-01T10:00:00Z',
+    },
+]
+
 // MCPHarnessBreakdownQuery returns already-labelled rows (the runner resolves the
 // harness server-side), so these are customer labels, not raw client strings.
 const HARNESS_RESULTS = [
     { harness: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
     { harness: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
+    // A team-defined custom harness name. It shows the icon the team pasted in settings.
+    { harness: 'Acme agent', total_calls: 1500, errors: 30, error_rate_pct: 2.0, sessions: 260 },
     { harness: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
     { harness: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
     { harness: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
+]
+
+const MODEL_BREAKDOWN_RESULTS = [
+    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+    { model: 'example-fast', total_calls: 3100 },
+    { model: 'example-balanced', total_calls: 1800 },
+    { model: 'example-model-d', total_calls: 500 },
+    { model: 'example-model-e', total_calls: 200 },
+    { model: 'example-model-f', total_calls: 1 },
+    { model: 'Other', total_calls: 179 },
+    { model: 'Unknown', total_calls: 600 },
 ]
 
 const SESSION_LIST = {
@@ -158,6 +194,9 @@ const TOOL_CALL_LIST = {
             is_error: true,
             error_message: 'Estimated query execution time is too long (max_execution_time=600)',
             duration_ms: 610000,
+            parameters: '{"query":"SELECT event, count() FROM events GROUP BY event","timeout_seconds":600}',
+            error_type: 'timeout',
+            error_status: '',
         },
     ],
 }
@@ -651,10 +690,24 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 return durationMs
             }
             if (column.endsWith('-- Client')) {
-                return clientName
+                if (!column.startsWith('withIcon(')) {
+                    return clientName
+                }
+                const mark =
+                    {
+                        'claude-code': 'Claude',
+                        'claude-ai': 'Claude',
+                        cursor: 'Cursor',
+                        'posthog-cli': 'PostHog',
+                        windsurf: 'Windsurf',
+                    }[clientName] ?? 'Other harnesses'
+                return ['__hx_tag', 'BrandMarkLabel', 'label', clientName || 'Other', 'mark', mark]
             }
             if (column.endsWith('-- Model')) {
-                return model
+                if (!column.startsWith('withIcon(')) {
+                    return model
+                }
+                return ['__hx_tag', 'BrandMarkLabel', 'label', model, 'mark', labMark(modelLab(model))]
             }
             return null
         })
@@ -673,6 +726,72 @@ const INTENT_DIGEST = {
     intent_count: 100,
 }
 
+// Leaderboard home tab. Counts are invented; the model names only need to map to the labs the tab groups by.
+const MODEL_SHARES: [string, number][] = [
+    ['claude-sonnet-4-5', 0.34],
+    ['gpt-5-codex', 0.2],
+    ['claude-opus-4-1', 0.12],
+    ['gemini-2.5-pro', 0.1],
+    ['gpt-5', 0.08],
+    ['composer-1', 0.05],
+    ['grok-4', 0.04],
+    ['qwen3-coder', 0.03],
+    ['Unknown', 0.04],
+]
+
+const PROTOCOL_SHARES: [string, number][] = [
+    ['2025-06-18', 0.5],
+    ['2025-11-25', 0.35],
+    ['2025-03-26', 0.1],
+    ['Unknown', 0.05],
+]
+
+const bucketedShareResults = (shares: [string, number][]): [string, string, number][] =>
+    DAILY_TOTALS.flatMap(([day, calls]) =>
+        shares.map(([label, share]): [string, string, number] => [day, label, Math.round(calls * share)])
+    )
+
+// [label, calls, users, errors] per leaderboard facet.
+const TOOL_FACET_RESULTS = TOOL_RESULTS.map((r) => [r[0], r[1], 100, r[2]])
+const ERROR_TYPE_FACET_RESULTS = [
+    ['timeout', 90, 40, 90],
+    ['validation', 60, 30, 60],
+    ['auth', 30, 15, 30],
+    ['rate_limit', 15, 9, 15],
+]
+
+const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
+    day,
+    calls,
+    errors,
+    700 + index * 20,
+    3100 + index * 90,
+])
+
+const DASHBOARD_SECTIONS: Record<string, unknown[]> = {
+    kpis: KPI_RESULTS,
+    periodTotals: [[1840, 1655, 2050, 2180]],
+    toolRows: TOOL_RESULTS,
+    sessionRows: SESSION_RESULTS,
+    harnessRows: HARNESS_RESULTS,
+    modelRows: MODEL_BREAKDOWN_RESULTS,
+    activityRows: ACTIVITY_RESULTS,
+    toolDailyRows: TOOL_DAILY_RESULTS,
+    model: bucketedShareResults(MODEL_SHARES),
+    protocolVersion: bucketedShareResults(PROTOCOL_SHARES),
+    tool: TOOL_FACET_RESULTS,
+    errorType: ERROR_TYPE_FACET_RESULTS,
+    labUsers: [
+        ['Anthropic', 190],
+        ['OpenAI', 150],
+        ['Google', 80],
+        ['Open weights', 20],
+        ['Unknown', 40],
+    ],
+    namedModelUsers: [[260]],
+    reliability: RELIABILITY_RESULTS,
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/MCP Analytics',
@@ -683,6 +802,7 @@ const meta: Meta = {
             })(Story, context),
         mswDecorator({
             get: {
+                '/api/projects/:team_id/mcp_analytics/custom_harnesses/': CUSTOM_HARNESSES,
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
                 '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': ACTIVITY_OVERVIEW,
                 '/api/projects/:team_id/mcp_analytics/sessions/': SESSION_LIST,
@@ -705,22 +825,21 @@ const meta: Meta = {
                     const query: string = body?.query?.query ?? ''
                     // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
                     // resolves the harness server-side) — match on its kind, not a SQL string.
-                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                    if (body?.query?.kind === 'MCPDashboardQuery') {
                         return [
                             200,
                             {
-                                results: [
-                                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
-                                    { model: 'example-fast', total_calls: 3100 },
-                                    { model: 'example-balanced', total_calls: 1800 },
-                                    { model: 'example-model-d', total_calls: 500 },
-                                    { model: 'example-model-e', total_calls: 200 },
-                                    { model: 'example-model-f', total_calls: 1 },
-                                    { model: 'Other', total_calls: 179 },
-                                    { model: 'Unknown', total_calls: 600 },
-                                ],
+                                results: Object.fromEntries(
+                                    body.query.sections.map((section: string) => [
+                                        section,
+                                        { results: DASHBOARD_SECTIONS[section] ?? [] },
+                                    ])
+                                ),
                             },
                         ]
+                    }
+                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                        return [200, { results: MODEL_BREAKDOWN_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
@@ -794,28 +913,10 @@ const meta: Meta = {
                         ]
                     }
                     if (body?.query?.kind === 'MCPToolCallBreakdownQuery') {
-                        return [
-                            200,
-                            {
-                                results: TOOL_DAILY_RESULTS.map(([bucket, tool, calls]) => ({
-                                    bucket,
-                                    tool,
-                                    calls,
-                                })),
-                            },
-                        ]
+                        return [200, { results: TOOL_DAILY_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPToolCallsAndErrorsQuery') {
-                        return [
-                            200,
-                            {
-                                results: ACTIVITY_RESULTS.map(([bucket, successes, errors]) => ({
-                                    bucket,
-                                    successes,
-                                    errors,
-                                })),
-                            },
-                        ]
+                        return [200, { results: ACTIVITY_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPToolCategoriesQuery') {
                         return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
@@ -838,15 +939,6 @@ const meta: Meta = {
                                 results: [[true, ACTIVITY_OVERVIEW.stats.total_calls, 72, '2026-05-15T09:00:00Z']],
                             },
                         ]
-                    }
-                    if (query.includes('AS session_id')) {
-                        return [200, { results: SESSION_RESULTS }]
-                    }
-                    if (query.includes('p95_duration_ms')) {
-                        return [200, { results: TOOL_RESULTS }]
-                    }
-                    if (query.includes('AS bucket')) {
-                        return [200, { results: KPI_RESULTS }]
                     }
                     return [200, { results: [] }]
                 },
@@ -877,6 +969,13 @@ export const DashboardNarrow: Story = {
     ),
 }
 
+export const DashboardLeaderboardHome: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME],
+        testOptions: { viewportWidths: ['medium', 'wide'] },
+    },
+}
+
 export const DashboardWithMenuBar: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.SCENE_MENU_BAR],
@@ -886,9 +985,109 @@ export const DashboardWithMenuBar: Story = {
 // The default landing tab for low-volume projects. The feed mock has enough rows to overflow its
 // viewport and reports more data, covering both scrolling and the load-more affordance.
 export const Activity: Story = {
+    tags: ['manual-icons'],
     parameters: {
         pageUrl: urls.mcpAnalyticsActivity(),
     },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findAllByText('claude-opus-5-5', {}, { timeout: 15000 })).not.toHaveLength(0)
+        await expect(canvasElement.querySelector('[data-attr=hogqlx-brand-mark-label] svg')).toBeVisible()
+    },
+}
+
+const WEEKLY_REPORT_BUTTON = '[data-attr=mcp-analytics-activity-next-step-weekly-report]'
+
+const WEEKLY_REPORT_OFFER_GET_MOCKS = {
+    '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
+    '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
+    '/api/projects/:team_id/subscriptions': EMPTY_PAGINATED_RESPONSE,
+}
+
+const CREATED_WEEKLY_REPORT = {
+    id: 1,
+    title: 'MCP tool health',
+    enabled: true,
+    target_type: 'email',
+    target_value: MOCK_DEFAULT_USER.email,
+    next_delivery_date: '2026-06-08T09:00:00Z',
+}
+
+const WEEKLY_REPORT_OFFER_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+    msw: {
+        mocks: {
+            get: WEEKLY_REPORT_OFFER_GET_MOCKS,
+            post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
+        },
+    },
+    testOptions: { waitForSelector: WEEKLY_REPORT_BUTTON },
+}
+
+async function clickWeeklyReportButton(): Promise<void> {
+    // A bare querySelector misses while the card is still loading, and the click would silently do nothing.
+    const button = await waitFor(() => {
+        const element = document.querySelector<HTMLElement>(WEEKLY_REPORT_BUTTON)
+        if (!element) {
+            throw new Error('The weekly report button is not rendered')
+        }
+        return element
+    })
+    await userEvent.click(button)
+}
+
+export const ActivityWeeklyReportOffer: Story = {
+    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, pageUrl: urls.mcpAnalyticsActivity() },
+}
+
+export const ActivityWeeklyReportOfferNarrow: Story = {
+    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, layout: 'padded' },
+    render: () => (
+        <div className="w-[520px]">
+            <ActivityNextSteps />
+        </div>
+    ),
+}
+
+export const ActivityWeeklyReportOfferFailed: Story = {
+    parameters: {
+        ...WEEKLY_REPORT_OFFER_PARAMETERS,
+        pageUrl: urls.mcpAnalyticsActivity(),
+        msw: {
+            mocks: {
+                get: WEEKLY_REPORT_OFFER_GET_MOCKS,
+                post: {
+                    '/api/projects/:team_id/subscriptions': (): [number, { detail: string }] => [
+                        400,
+                        { detail: 'Your plan is limited to 5 subscriptions.' },
+                    ],
+                },
+            },
+        },
+        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-steps] [role=alert]' },
+    },
+    play: clickWeeklyReportButton,
+}
+
+export const ActivityWeeklyReportOfferNeedsConsent: Story = {
+    parameters: {
+        ...WEEKLY_REPORT_OFFER_PARAMETERS,
+        pageUrl: urls.mcpAnalyticsActivity(),
+        msw: {
+            mocks: {
+                get: {
+                    ...WEEKLY_REPORT_OFFER_GET_MOCKS,
+                    '/api/organizations/@current/': {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        is_ai_data_processing_approved: false,
+                    },
+                },
+                post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
+            },
+        },
+        testOptions: { waitForSelector: '[data-attr=ai-consent-approve]' },
+    },
+    play: clickWeeklyReportButton,
 }
 
 export const Sessions: Story = {
@@ -911,5 +1110,18 @@ export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+    },
+}
+
+// The journey chart is the last section of a pane sized to the viewport, so the default 720px
+// snapshot ends above it. A taller viewport brings it into the snapshot.
+export const IntentClusteringJourney: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        testOptions: {
+            viewport: { width: 1280, height: 1800 },
+            waitForSelector: '[data-attr=mcp-cluster-journey-sankey] [data-attr=hog-chart-sankey-node-label]',
+        },
     },
 }

@@ -138,8 +138,10 @@ FROM
 SELECT
 uuid,
 event,
-if(isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'), JSONCleanPostHogEventProperties(source.properties), concat('{"$unparseable_properties":', toJSONString(source.properties), '}')) AS properties,
-JSONCleanPostHogTemporaryProperties(if(isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'), source.properties, '{}')) AS temporary_properties,
+cleaned.properties AS properties,
+cleaned.temporary_properties AS temporary_properties,
+cleaned.properties_null_keys AS properties_null_keys,
+cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
 now64() AS inserted_at,
 timestamp,
 team_id,
@@ -147,7 +149,8 @@ distinct_id,
 elements_chain,
 created_at,
 person_id,
-if(isValidJSON(source.person_properties) AND startsWith(trimLeft(source.person_properties), '{'), JSONCleanPostHogPersonProperties(source.person_properties), concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}')) AS person_properties,
+cleaned.person_properties AS person_properties,
+cleaned.person_properties_null_keys AS person_properties_null_keys,
 person_created_at,
 group0_properties,
 group1_properties,
@@ -165,15 +168,26 @@ coalesce(captured_at, created_at) AS captured_at,
 _timestamp,
 _offset,
 _partition,
+consumer_breadcrumbs
+FROM
+(
+SELECT
+*,
+_timestamp,
+_offset,
+_partition,
 arrayMap(
     i -> (_headers.value[i]),
     arrayFilter(
         i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
         arrayEnumerate(_headers.name)
     )
-) as consumer_breadcrumbs
-FROM posthog.kafka_events_json_native_json AS source
+) AS consumer_breadcrumbs,
+JSONCleanPostHogEvent(properties, person_properties) AS cleaned
+FROM posthog.kafka_events_json_native_json
+) AS source
 )
+SETTINGS input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0
 SQL
 
     column "uuid" {

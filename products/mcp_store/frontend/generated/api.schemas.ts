@@ -677,6 +677,8 @@ export interface ResolvedToolPolicyApi {
     input_schema: ResolvedToolPolicyApiInputSchema
     /** Whether the canonical gateway heuristic treats this tool as destructive. */
     is_destructive: boolean
+    /** Whether the tool only reads data: the server marks it readOnlyHint and its name starts with a read verb and has no write or destructive verb. */
+    is_read_only: boolean
     /** Effective state for the scope.
      *
      * * `approved` - Approved
@@ -868,6 +870,11 @@ export interface MCPServerInstallationApi {
     readonly id: string
     /** @nullable */
     readonly template_id: string | null
+    /**
+     * ID of the MCP server this connection belongs to. The MCP server page takes this ID, not the connection id. Null for older connections that are not linked to a server yet.
+     * @nullable
+     */
+    readonly gateway_server_id: string | null
     readonly name: string
     /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
     readonly icon_key: string

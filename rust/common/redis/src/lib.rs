@@ -215,6 +215,12 @@ pub trait Client: Send + Sync {
     /// Add a single (member, score) pair to a sorted set.
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 
+    /// Add a (member, score) pair only when the member is absent, so repeated writes keep
+    /// the first score. `zadd` overwrites it.
+    async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
+
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError>;
+
     async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError>;
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
@@ -284,6 +290,12 @@ pub trait Client: Send + Sync {
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
     async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
+    /// Like `mget`, but sends one pipelined `GET` per key, so the keys do not need to share a
+    /// cluster hash slot.
+    async fn get_multiple(
+        &self,
+        keys: Vec<String>,
+    ) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError>;
     async fn batch_sadd_expire(
         &self,
@@ -294,6 +306,7 @@ pub trait Client: Send + Sync {
         &self,
         items: Vec<(String, String, usize)>, // (key, value, ttl_seconds)
     ) -> Result<Vec<bool>, CustomRedisError>;
+    /// Sends one pipelined `DEL` per key, so the keys do not need to share a cluster hash slot.
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
     /// Execute a batch of pipeline commands atomically in a single round-trip.
     ///
@@ -319,6 +332,11 @@ pub trait Client: Send + Sync {
     /// default no-op. Must be cheap to call repeatedly -- implementations own
     /// their own cooldown.
     async fn heal(&self) {}
+
+    /// Return whether a fresh connection replaced the old one. Test clients do not reconnect.
+    async fn reconnect(&self) -> bool {
+        false
+    }
 }
 
 /// Extension trait providing the `.pipeline()` builder method.

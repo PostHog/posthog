@@ -44,7 +44,7 @@ def track_workflow_event(input: TrackWorkflowEventInput) -> None:
             event=input.event_name,
             properties=input.properties,
             groups=input.groups or {},
-            send_feature_flags=True,
+            send_feature_flags=not input.event_name.startswith("agent_first_"),
         )
     except Exception:
         logger.exception(

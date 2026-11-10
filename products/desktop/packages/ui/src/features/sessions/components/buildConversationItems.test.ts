@@ -349,27 +349,68 @@ describe("buildConversationItems", () => {
     },
   );
 
-  it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
-    // A successful compaction sends a terminal `status: compacting, isComplete:
-    // true`. It must flip the existing status row, not append a second one.
+  it.each([
+    { name: "one start signal", starts: 1 },
+    { name: "a repeated start signal", starts: 3 },
+  ])(
+    "clears the compacting spinner on a successful completion status, without duplicating the row, for $name",
+    ({ starts }) => {
+      // A successful compaction sends a terminal `status: compacting, isComplete:
+      // true`. It must flip the existing status row, not append a second one.
+      const result = buildConversationItems(
+        [
+          userPromptMsg(1, 1, "hi"),
+          ...Array.from({ length: starts }, (_, i) =>
+            statusMsg(2 + i, "compacting"),
+          ),
+          statusMsg(10, "compacting", true),
+        ],
+        null,
+      );
+
+      const statusItems = result.items.filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      );
+      expect(statusItems).toHaveLength(1);
+      expect(
+        (statusItems[0].update as { isComplete?: boolean }).isComplete,
+      ).toBe(true);
+      expect(result.isCompacting).toBe(false);
+    },
+  );
+
+  it("shows a new compaction after a turn was cancelled during compaction", () => {
+    const cancelledResponse: AcpMessage = {
+      type: "acp_message",
+      ts: 3,
+      message: { jsonrpc: "2.0", id: 1, result: { stopReason: "cancelled" } },
+    };
     const result = buildConversationItems(
       [
-        userPromptMsg(1, 1, "hi"),
+        userPromptMsg(1, 1, "first"),
         statusMsg(2, "compacting"),
-        statusMsg(3, "compacting", true),
+        cancelledResponse,
+        userPromptMsg(4, 2, "second"),
+        statusMsg(5, "compacting"),
       ],
       null,
     );
 
-    const statusItems = result.items.filter(
-      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
-        i.type === "session_update" && i.update.sessionUpdate === "status",
-    );
-    expect(statusItems).toHaveLength(1);
-    expect((statusItems[0].update as { isComplete?: boolean }).isComplete).toBe(
-      true,
-    );
-    expect(result.isCompacting).toBe(false);
+    const statusRows = result.items
+      .filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      )
+      .map((i) => ({
+        turn: i.id.split("-item-")[0],
+        isComplete: (i.update as { isComplete?: boolean }).isComplete,
+      }));
+    expect(statusRows).toEqual([
+      { turn: "turn-1-1", isComplete: true },
+      { turn: "turn-4-2", isComplete: undefined },
+    ]);
+    expect(result.isCompacting).toBe(true);
   });
 
   it("builds a compact boundary without optional metadata", () => {
@@ -582,6 +623,56 @@ describe("buildConversationItems", () => {
         toModel: "claude-opus-4-8",
       },
     ]);
+  });
+
+  it.each([
+    {
+      name: "a memory watchdog kill as a status row",
+      params: {
+        pid: 4242,
+        comm: "vitest",
+        treeRssBytes: 13.46 * 1024 ** 3,
+        memoryCurrentBytes: 15 * 1024 ** 3,
+        memoryLimitBytes: 16 * 1024 ** 3,
+        signal: "SIGTERM",
+        at: "2026-01-01T00:00:00.000Z",
+      },
+      expected: [
+        {
+          sessionUpdate: "status",
+          status: "process_killed",
+          message:
+            "The sandbox stopped vitest because it was using 13.5 GiB of the 16.0 GiB available. The agent is still running.",
+        },
+      ],
+    },
+    {
+      name: "nothing for a kill without sizes",
+      params: { comm: "vitest" },
+      expected: [],
+    },
+  ])("renders $name", ({ params, expected }) => {
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "hi"),
+        {
+          type: "acp_message",
+          ts: 2,
+          message: {
+            jsonrpc: "2.0",
+            method: "_posthog/process_killed",
+            params,
+          },
+        },
+      ],
+      null,
+    );
+
+    const statusItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" && i.update.sessionUpdate === "status",
+    );
+    expect(statusItems.map((i) => i.update)).toEqual(expected);
   });
 
   it("marks cloud turns complete from structured turn completion notifications", () => {

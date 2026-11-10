@@ -14,7 +14,7 @@ It never touches the processor's state directly.
 The seeder is a set of replicas polling Postgres, every 15 seconds by default.
 Each tick it:
 
-1. discovers runs in `awaiting_boundary` or `seeding` for allowlisted teams and enabled kinds, where person runs need `SEEDER_PERSON_SEEDS_ENABLED`,
+1. discovers runs in `awaiting_boundary` or `seeding` for teams in its env list or granted in the team access table for at least 120 seconds, and for enabled kinds, where person runs need `SEEDER_PERSON_SEEDS_ENABLED`,
 2. sets the boundary on newly discovered runs,
 3. validates each run's pinned payload and plans its chunks,
 4. fails chunks abandoned at the attempt cap, and fails runs that hold an exhausted chunk,
@@ -82,7 +82,12 @@ It stays in `seeding`, holding the cohort's run slot, until an operator cancels 
 ### Claiming and fencing
 
 A worker claims the next chunk with one statement using `FOR UPDATE SKIP LOCKED`.
-It picks the oldest day first across all seeding runs, and admits:
+It picks behavioral chunks before person chunks.
+Within a kind, it serves the team that holds the fewest of this replica's claim slots, then the run that holds the fewest, and only then the newest day.
+A heavy run's chunk can hold its slot for hours, so under day order alone that run ends up with every slot.
+With this order, each slot that frees goes to the team and run that hold the fewest, so the split moves toward an even share.
+A claim never takes a slot back, and a team that is alone gets every slot.
+It admits:
 
 - pending chunks and failed chunks past their backoff, both under the attempt cap,
 - `scanning` chunks whose lease expired, under the attempt cap,
@@ -106,7 +111,7 @@ Max-merge makes that harmless.
 
 ### Scanning
 
-One chunk is one streaming ClickHouse query:
+One chunk is one streaming ClickHouse query per table it reads:
 
 ```text
 SELECT <projected columns>, canonical person_id
@@ -116,14 +121,20 @@ WHERE team_id = <team>
   AND timestamp in [start of day, start of next day) in the run's timezone
   AND event IN (<event names of the conditions whose window still covers this day>)
   AND coalesce(inserted_at, _timestamp) < S_chunk
+  [AND <row filter>]
   [AND hash(person) % bands = band]
 ```
 
+- **Flag calls table.** The run's pinned payload can name `events` or `flag_evaluations` in `flag_calls_table`. A missing key reads as `events`, and an unknown value fails the run. A chunk of a run pinned to `flag_evaluations` reads `$feature_flag_called` from `flag_evaluations` and its other event names from `events`, in two queries that fold into one set of tiles. Each query projects and filters only for the conditions on its own event names. The `flag_evaluations` query selects an empty `elements_chain`, because the table has none, and bounds arrival on `inserted_at` alone. The backfill in `posthog/dags/flag_evaluations_backfill.py` copies rows from `events` without `inserted_at`, so the column's `DEFAULT timestamp` sets it to the row's `timestamp`. A copied row therefore passes the `S_chunk` bound even when the backfill writes it after the chunk's claim. While the backfill runs, a chunk can miss rows that are not yet copied, and two queries over the same chunk can read different rows. Django must therefore pin `flag_evaluations` for a team only after the backfill covers the run's whole lookback. A chunk that queries `flag_evaluations` also fails once its day reaches the table's TTL, checked before its queries and again after them, because the TTL may have dropped some of the day's rows.
 - **Canonical persons.** The join maps each distinct id through the latest person override, so events of merged persons count toward the survivor.
 - **Timezone days.** The day's bounds are computed in the run's pinned timezone.
 - **Arrival bound.** Only events that reached ClickHouse before `S_chunk` count.
 - **Active conditions.** Conditions whose window has slid past this day by scan time are left out.
   If none remain, the chunk is done without a query.
+- **Row filter.** When every active condition on an event name compares event properties to string values, only rows that can match one of them leave ClickHouse.
+  See [Row filter](#row-filter).
+- **Column-backed keys.** When every active condition reads its event properties only through exact string equalities, the scan reads them from materialized columns instead of the `properties` blob.
+  See [Column-backed keys](#column-backed-keys).
 
 ### Evaluating and producing
 
@@ -149,7 +160,14 @@ At the end of the chunk, each count becomes one **day tile**:
 Tiles are keyed `"{team_id}:{person_id}"`, so each lands on the partition of the worker that owns the person.
 A shared rate limiter paces production, and a cap bounds the tiles in flight.
 
-The chunk then moves to `produced`, which means every tile was handed to the producer, waits for every acknowledgment, and moves to `confirmed`.
+On a condition where every leaf of the run keeps only the newest matching day, as a `performed_event` leaf does, an older tile changes nothing.
+Each run keeps an in-memory index of the newest day it has scanned for each person on such a condition.
+A chunk records its days right after its scan, and skips a tile when the index holds a strictly newer day.
+Losing the index on a restart only sends more tiles.
+`SEEDER_NEWEST_DAY_INDEX_MAX_ENTRIES` caps the entries of all indexes together, and past the cap a new pair sends every day.
+`seeder_tiles_skipped_total` counts the skipped tiles, and `seeder_newest_day_index_entries` shows how full the cap is.
+
+The chunk then moves to `produced`, which means every tile it sends was handed to the producer, waits for every acknowledgment, and moves to `confirmed`.
 
 ### Chunk states and retries
 
@@ -176,6 +194,29 @@ A reclaimed chunk is scanned and produced again from scratch.
 The duplicate tiles are absorbed by max-merge.
 A graceful shutdown before a chunk is marked produced returns it to `pending`, even if some of its tiles already reached Kafka.
 
+### Resource breaker
+
+The retry backoff delays one failed chunk, while the run's other pending chunks stay claimable at once.
+So a run whose scans do not fit ClickHouse would refill every freed slot with a new scan that fails the same way, and each of those scans takes memory from the other tenants of the cluster until it fails.
+
+The seeder classifies each chunk failure by the ClickHouse error behind it.
+Codes 241 (memory limit), 159 (timeout), 160 (too slow) and 202 (too many simultaneous queries) are resource errors.
+So is a response that ClickHouse cuts after it has started it, labelled `response_cut`.
+The client reads no error code then, and a scan that the memory or time limit stops mid-stream fails this way.
+Per run:
+
+1. After `SEEDER_CH_BREAKER_THRESHOLD` resource failures in a row (default 3), the seeder stops claiming the run's chunks for a cooldown (`SEEDER_CH_BREAKER_COOLDOWN_BASE_SECS`, default 300 s).
+   Chunks already running finish, and their results do not count, whether they fail or confirm.
+2. After the cooldown, once none of the run's chunks is still running, the seeder scans one chunk of the run.
+   A confirmed chunk closes the breaker and resets its count.
+   A resource failure opens it again for twice as long, up to `SEEDER_CH_BREAKER_COOLDOWN_CAP_SECS` (default 1800 s).
+3. The opening that reaches `SEEDER_CH_BREAKER_MAX_TRIPS` (default 4) without a confirmed chunk in between fails the run, with the last error in its `error`.
+   If that write does not apply, the next probe decides again.
+
+Any other failure leaves the breaker as it is.
+The breaker lives in the seeder process, so each replica keeps its own and a restart closes them.
+`seeder_clickhouse_resource_errors_total`, `seeder_run_breaker_trips_total`, `seeder_runs_failed_breaker_total` and `seeder_run_breakers_open` report it.
+
 ## Person-property runs
 
 A person run seeds the person record instead of behavioral leaves.
@@ -186,6 +227,10 @@ It scans persons whose record changed within the run's **horizon**, a pinned num
 Planning a person run needs a scan, so it runs off the poll loop, one at a time per replica, under a cluster-wide advisory lock per run.
 The seeder streams the ids of the team's persons that changed within the horizon, keeps every Nth id as a boundary, and inserts chunks that tile the whole id space.
 The insert is all or nothing.
+
+The boundaries only size the chunks, because the chunks tile the whole id space and each chunk's scan applies the exact person predicate.
+So the boundary scan filters person versions by `_timestamp` and does not collapse them: deleted persons count toward the stride, which only makes some chunks smaller.
+It builds no set of ids, so its memory does not grow with the team.
 
 Person chunks have their own claim slots, so they run alongside behavioral work.
 If a person run has no surviving condition at all while a participation is active, the seeder fails it.
@@ -244,6 +289,7 @@ When every chunk of a run is confirmed and the planning proof is stamped, the se
 If unconfirmed chunks show up after the move anyway, it reverts the run to `seeding`.
 
 A watcher then tails the marker topic and records, per participation, which partitions have reported.
+A `reconcile_withheld` marker instead supersedes its participation at once, in the same transaction that records the watcher's position, and counts `seeder_reconcile_cohorts_withheld_total{kind, reason}`.
 When every cohort of the run has all 64 markers, the seeder marks them all complete at once, with no further check.
 To call a cohort short, the seeder first needs proof that no more markers are coming: the processor's seed consumer must have committed past every reconcile request, and the watcher must have read the marker topic to the end captured after that.
 Until that proof arrives, the run's complete cohorts wait with the short ones.
@@ -258,7 +304,8 @@ Then each participation is marked complete, retryable, or superseded, and the ru
   A property blob comes back rebuilt with only the keys the conditions read.
   Without projection, most of the seeder's CPU goes to parsing JSON and assembling globals.
   In local measurements, a chunk ran about 3 times faster with keys rebuilt and about 60 times faster when no blob was needed.
-  Rebuilding keys costs ClickHouse more, so the gain is on the seeder's side.
+  Rebuilding keys does not reduce what ClickHouse reads: the rebuild decompresses and parses the whole blob of every selected row, so the gain is on the seeder's side.
+  Only [column-backed keys](#column-backed-keys) or an unread blob keep ClickHouse off the blob.
   On real data, projection raised client throughput per core by more than an order of magnitude.
   One side effect: a row whose skipped blob is malformed, which the live path would drop, is still evaluated here on its other fields.
 - **Shadow compare.**
@@ -266,6 +313,10 @@ Then each participation is marked complete, retryable, or superseded, and the ru
   It is on by default in code, adds a full-width query per chunk and roughly doubles scan memory, so it is meant to be turned off once projection is proven.
 - **Scan-time window gate.**
   A chunk whose day has slid out of every active window issues no query.
+- **Row filter.**
+  See [Row filter](#row-filter).
+- **Column-backed keys.**
+  See [Column-backed keys](#column-backed-keys).
 - **Bands.**
   Splitting a day by person hash bounds one chunk's memory, at the cost of reading the day once per band.
 - **Pacing.**
@@ -292,7 +343,7 @@ p-1 hashes to partition 26.
    The pinned condition resolves to a 7-day sliding window.
    The seeder plans 7 chunks, for 2026-03-03 through 2026-03-09, one band each, and stamps the planning proof.
 3. **Claim.**
-   Workers claim chunks oldest day first.
+   Workers claim chunks newest day first.
    At 15:00:20 one of them claims the 2026-03-05 chunk.
    `S_chunk` is 15:00:20 and the claim epoch is 1.
 4. **Scan.**
@@ -310,10 +361,103 @@ p-1 hashes to partition 26.
 7. **Completion.**
    When the other six chunks confirm, the seeder moves R to `reconciling` and sends 64 reconcile requests for cohort 42.
 
+### Row filter
+
+A behavioral chunk's scan can leave rows in ClickHouse that no active condition can match.
+The accumulator evaluates a row only against the active conditions of the row's event name, and a row no condition matches adds nothing to any tile, so dropping such a row changes no tile.
+
+1. **Recognizing a condition.**
+   A static pass over each condition's bytecode recognizes one exact shape: `event == '<name>'` in an `AND` with equalities of event properties to string literals, alone or in an `OR` of such equalities.
+   This is what the compiler emits for an event filter with the `exact` operator.
+   Any other opcode leaves the condition without a filter.
+   Another comparison in the same `AND`, such as a person property, is allowed and ignored.
+2. **Deriving the chunk's filter.**
+   An event name is filtered only when every active condition on it has a filter whose event is that name.
+   One condition without a filter keeps every row of the event.
+3. **Rendering it.**
+   The filter is one more `WHERE` conjunct: every unfiltered event passes, and a row of a filtered event passes when some condition's property test holds.
+   Conditions that each test one key render as one test per key over the union of their values, which keeps many flag cohorts under the length limit below.
+
+HogVM equality coerces across types, so the property test is a superset of it.
+The test reads `replaceRegexpAll(JSONExtractRaw(properties, key), '^"|"$', '')`, the value's raw JSON text without its outer quotes.
+It admits the value itself, text holding a backslash (an escaped string), and text starting with `{` (the VM compares a temporal object by epoch).
+The value itself also covers a JSON boolean, because the cohort VM compares a boolean with a string as its text, `true` or `false`.
+A value that parses as a number is never filtered on, because the VM also equates it with a JSON number.
+The test also admits a blob that ClickHouse cannot parse, such as one holding an integer past 64 bits: ClickHouse then extracts '' for every key, while `serde_json` reads the blob.
+Ingestion writes event properties with `JSON.stringify` of a parsed object, so a key appears once and the first-value and last-value readings of ClickHouse and `serde_json` agree.
+`tests/ch_event_row_filter.rs` checks all of this against a live ClickHouse, with the VM as the oracle.
+
+Where possible, the test reads a materialized column instead of the blob.
+Before each chunk with a row filter or [column-backed keys](#column-backed-keys), the seeder looks in `system.columns` for a `String` column of the scanned table's data table (`sharded_events` or `sharded_flag_evaluations`) whose default expression is exactly that extraction for the key, and that also exists on the table the scan reads.
+On `flag_evaluations` that finds `flag_key` for `$feature_flag`.
+The lookup serves both together, split into queries that each fit a GET.
+Only such a column is used, because a column with another expression, such as a typed `JSONExtract`, reads different values for the same row.
+The column holds '' for a blob ClickHouse cannot parse, so the test admits '' there instead of reading the blob.
+Without one, the test extracts from the blob: ClickHouse still decompresses the blob for the event's rows, but only the matching rows are transferred and evaluated.
+The filter is dropped when the query would grow past the 8192 bytes the client sends by GET, since the `cohort_seeder` profile refuses the POST form.
+`seeder_scan_row_filter_total{outcome,table}` reports, once for each table a scanned chunk reads, whether the filter read materialized columns, read the blob, did not apply, or was dropped for length.
+
+### Column-backed keys
+
+A projected chunk rebuilds `properties` from the blob, so ClickHouse reads the whole blob of every selected row even when the conditions need one key.
+When a materialized column can stand in for every projected key, the scan builds the object from the columns and never references the blob.
+On local data with blobs of about 10 KB, the same scan read about 100 times fewer bytes this way.
+
+A trim-quotes column holds the value's raw JSON text with a string's quotes removed, so it loses the JSON type.
+The scan takes valid JSON text as it is and puts quotes back around anything else:
+
+```sql
+concat('{', '"$current_url":', if(isValidJSON(e.`mat_$current_url`), e.`mat_$current_url`, concat('"', e.`mat_$current_url`, '"')), '}')
+```
+
+That gives back every value except two kinds.
+A string whose text is JSON comes back typed (`"5"` becomes `5`), and an absent key comes back as `""`.
+HogVM equality gives the same answer for both only when the condition compares the key with a literal that is not empty, does not parse as a number, and is not JSON text.
+
+1. **Deciding per key.**
+   The static pass that recognizes row filters also lists the keys each condition reads only through `properties.<key> == <literal>` with such a literal.
+   A key qualifies on a chunk when every active condition that reads it is on that list for it.
+2. **Deciding per chunk.**
+   The scan uses columns only when every projected key qualifies and has a column.
+   One key left on the blob would read the whole blob again.
+   The scan keeps the rebuild when the column form makes the query too long to send by GET.
+   When the column form and the row filter do not both fit, the row filter is dropped, because the columns keep ClickHouse off the blob for every row.
+   The shadow compare's wide arm still reads the blob, so the compare checks the columns against it.
+
+Some rows still differ, because the column has no type:
+
+- **A blob ClickHouse cannot parse**, such as one holding an integer past 64 bits, stores `''` in every column, while `serde_json` reads the blob (under-count).
+- **A string whose text is JSON nested deeper than 128 levels** comes back typed, so the rebuilt object fails to parse and the row is skipped (under-count).
+- **A blob that does not parse at all, or whose root is an array**, still becomes an object, so the row is evaluated on its other globals where the live path drops it (over-count).
+  This is the same over-count an unread blob takes, described under column projection.
+
+`tests/ch_materialized_properties.rs` checks against a live ClickHouse that only these rows differ, with the VM as the oracle.
+A column holds the first value of a repeated key where `serde_json` reads the last, which the row filter already assumes never happens.
+
+A column must also be stored in the parts the scan reads.
+ClickHouse computes a column added after the data was written from `properties` at read time, until a merge or `ALTER TABLE ... MATERIALIZE COLUMN` stores it.
+The materializer backfills only `MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS`, which defaults to 0.
+So check `system.parts_columns` for the lookback before a long run: an old partition without the column reads the blob as before.
+
+`seeder_scan_properties_source_total{source,table}` reports, once for each table a scanned chunk reads, where `properties` came from.
+`columns` and `empty` keep ClickHouse off the blob.
+`rebuilt_inexact_key`, `rebuilt_no_column` and `rebuilt_too_long` name why a chunk kept the rebuild, and `rebuilt_no_column` includes a failed or timed-out lookup.
+
+### ClickHouse settings
+
+The client sends `max_execution_time`, the two external-spill byte thresholds, `max_bytes_in_set` and `join_algorithm` with every query.
+It also sends `max_threads` (`SEEDER_CH_MAX_THREADS`), `max_memory_usage` (`SEEDER_CH_MAX_MEMORY_USAGE`) and `distributed_replica_max_ignored_errors` (`SEEDER_CH_DISTRIBUTED_REPLICA_MAX_IGNORED_ERRORS`), but only when set.
+These three have no default because the `cohort_seeder` profile can constrain them, and ClickHouse fails a query that sends a value above a constraint's maximum or a disallowed value.
+Set them only to go below the profile.
+
 ## Things that surprise people
 
 - `B` is the moment the seeder first saw the run, not when the run was created, except for disaster-recovery runs, whose `B` Django pins.
-- Claims take the oldest day first across every run, so a small new cohort's recent days wait behind a large team run's older days.
+- Claims share slots between teams first, then between a team's runs, and only then take the newest day.
+  A run that holds no slot can still wait, because a team that holds fewer slots goes first.
+  With one slot per kind, or when more teams wait than slots free, the newest day decides, so the older days of a long-window run wait behind the newer days of other runs.
+  If none of its chunks moves for `--stalled-for-hours`, `manage_cohort_backfill_runs inventory` lists it as a `seeding-stalled` cancel candidate, even though it is only queued.
+  Each replica counts only the slots it holds, so with more than one replica the split is fair on each replica, not exactly across them.
 - A chunk in `produced` has enqueued its tiles but may not have all acknowledgments yet.
 - The seeder writes the claim epoch into every tile, but the processor ignores it.
   Fencing is purely a Postgres concern, and duplicates are absorbed by max-merge.

@@ -8,7 +8,8 @@ Three subcommands:
   ``--viewport-width`` so they scale correctly on HiDPI captures.
 - ``animate``: stitch ordered (annotated) frames into an animated WebP, with an
   optional GIF fallback. WebP keeps full 24-bit color and is typically several
-  times smaller than a palette GIF at the same readability.
+  times smaller than a palette GIF at the same readability. ``--frames-dir``
+  takes the evenly timed frames of a rendered feature reel instead.
 - ``video``: transcode a recorded demo-pass session (WebM from the browser
   tool's video recording) into a compact H.264 MP4. Requires ``ffmpeg``.
 
@@ -227,8 +228,16 @@ def _parse_frame(value: str) -> Frame:
     return Frame(Path(value), DEFAULT_FRAME_MS)
 
 
+def _frames_from_dir(frames_dir: Path, fps: int) -> list[Frame]:
+    if not 1 <= fps <= 60:
+        raise SystemExit(f"--fps must be between 1 and 60 (got {fps})")
+    if not frames_dir.is_dir():
+        raise SystemExit(f"missing frames directory: {frames_dir}")
+    return [Frame(path, round(1000 / fps)) for path in sorted(frames_dir.glob("*.png"))]
+
+
 def animate(args: argparse.Namespace) -> int:
-    frames: list[Frame] = args.frame
+    frames: list[Frame] = _frames_from_dir(args.frames_dir, args.fps) if args.frames_dir else args.frame
     missing = [f.path for f in frames if not f.path.is_file()]
     if missing:
         raise SystemExit(f"missing frame file(s): {', '.join(str(p) for p in missing)}")
@@ -266,7 +275,8 @@ def animate(args: argparse.Namespace) -> int:
         duration=durations,
         loop=0,
         quality=82,
-        method=6,
+        # method 6 is far slower on a long reel for a slightly smaller file
+        method=4,
     )
     outputs = [args.output]
     if args.gif:
@@ -368,14 +378,20 @@ def main() -> int:
     annotate_parser.set_defaults(func=annotate)
 
     animate_parser = subparsers.add_parser("animate", help="assemble frames into an animated WebP")
-    animate_parser.add_argument(
+    frame_source = animate_parser.add_mutually_exclusive_group(required=True)
+    frame_source.add_argument(
         "--frame",
         type=_parse_frame,
         action="append",
-        required=True,
         metavar="PATH[:DURATION_MS]",
         help=f"ordered frame with optional per-frame duration (default {DEFAULT_FRAME_MS} ms); repeatable",
     )
+    frame_source.add_argument(
+        "--frames-dir",
+        type=Path,
+        help="directory of evenly timed PNG frames in name order, e.g. from reel-render.mjs",
+    )
+    animate_parser.add_argument("--fps", type=int, default=15, help="frame rate for --frames-dir")
     animate_parser.add_argument("--output", type=Path, required=True, help="animated WebP output path")
     animate_parser.add_argument("--gif", type=Path, help="also write a GIF fallback to this path")
     animate_parser.add_argument("--max-width", type=int, default=MAX_ANIMATION_WIDTH, help="cap frame width")

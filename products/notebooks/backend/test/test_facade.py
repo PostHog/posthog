@@ -1,14 +1,23 @@
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.apps import apps
 
+from asgiref.sync import async_to_sync
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
+
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.notebooks.backend import logic
 from products.notebooks.backend.analytics import NotebookCreationSource
 from products.notebooks.backend.facade import api, content
-from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentEditNotAllowed
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS
 
@@ -23,14 +32,18 @@ class TestNotebooksFacade(BaseTest):
     def _doc(self, text: str = "hello") -> dict:
         return {"type": "doc", "content": [content.create_paragraph_with_text(text)]}
 
-    def test_create_notebook_returns_contract(self):
-        data = api.create_notebook(
-            self.team.id,
-            title="My notebook",
-            content=self._doc(),
-            created_by_id=self.user.id,
-            last_modified_by_id=self.user.id,
-        )
+    @patch("products.notebooks.backend.facade.api.capture_notebook_created")
+    def test_create_notebook_returns_contract(self, capture):
+        with self.captureOnCommitCallbacks(execute=True):
+            data = api.create_notebook(
+                self.team.id,
+                title="My notebook",
+                content=self._doc(),
+                created_by_id=self.user.id,
+                last_modified_by_id=self.user.id,
+            )
+            capture.assert_not_called()
+        capture.assert_called_once()
         self.assertEqual(data.title, "My notebook")
         self.assertEqual(data.visibility, Notebook.Visibility.DEFAULT)
         self.assertEqual(data.created_by_id, self.user.id)
@@ -138,6 +151,64 @@ class TestNotebooksFacadeAsync(BaseTest):
     def _doc(self, text: str = "hi") -> dict:
         return {"type": "doc", "content": [content.create_paragraph_with_text(text)]}
 
+    @parameterized.expand([("update",), ("upsert",)])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_shared_content_validation_preserves_notebook(self, writer: str, _feature_enabled: Mock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="daily_summary",
+            query={"kind": "HogQLQuery", "query": "SELECT 5 AS total"},
+            columns={"total": "Integer"},
+        )
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+        notebook = Notebook.objects.create(team=self.team, title="Original", content=self._doc())
+        SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "daily",
+                        "query": {"kind": "HogQLQuery", "query": "SELECT total FROM daily_summary"},
+                    },
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(NotebookContentEditNotAllowed, "daily_summary"):
+            if writer == "update":
+                async_to_sync(api.aupdate_notebook_content)(
+                    self.team.id,
+                    notebook.short_id,
+                    user=self.user,
+                    title="Updated",
+                    content=new_content,
+                    text_content="Updated",
+                )
+            else:
+                async_to_sync(api.aupsert_notebook)(
+                    self.team.id,
+                    notebook.short_id,
+                    user=self.user,
+                    created_by_id=self.user.id,
+                    title="Updated",
+                    content=new_content,
+                    text_content="Updated",
+                )
+        original_version = notebook.version
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.content, self._doc())
+        self.assertEqual(notebook.title, "Original")
+        self.assertEqual(notebook.version, original_version)
+
     @pytest.mark.asyncio
     async def test_anotebook_exists_and_aget(self):
         notebook = await Notebook.objects.acreate(team=self.team, title="async", content=self._doc())
@@ -153,7 +224,7 @@ class TestNotebooksFacadeAsync(BaseTest):
             self.team.id,
             "abc123",
             created_by_id=self.user.id,
-            last_modified_by_id=self.user.id,
+            user=self.user,
             title="first",
             content=self._doc("first"),
         )
@@ -167,7 +238,7 @@ class TestNotebooksFacadeAsync(BaseTest):
             self.team.id,
             "abc123",
             created_by_id=self.user.id,
-            last_modified_by_id=self.user.id,
+            user=self.user,
             title="second",
             content=self._doc("second"),
         )
@@ -187,7 +258,7 @@ class TestNotebooksFacadeAsync(BaseTest):
             content=self._doc("updated"),
             title="t2",
             text_content="updated",
-            last_modified_by_id=self.user.id,
+            user=self.user,
         )
         assert data is not None
         self.assertEqual(data.title, "t2")
@@ -216,7 +287,7 @@ class TestNotebooksFacadeAsync(BaseTest):
                 content=self._cells_doc(MAX_NOTEBOOK_CELLS + 1),
                 title="t",
                 text_content="",
-                last_modified_by_id=self.user.id,
+                user=self.user,
             )
 
     @pytest.mark.asyncio
@@ -228,7 +299,7 @@ class TestNotebooksFacadeAsync(BaseTest):
                 self.team.id,
                 "cap002",
                 created_by_id=self.user.id,
-                last_modified_by_id=self.user.id,
+                user=self.user,
                 title="t",
                 content=self._cells_doc(MAX_NOTEBOOK_CELLS + 1),
             )

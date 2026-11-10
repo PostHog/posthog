@@ -33,6 +33,7 @@ export function ItemMetricEventDetail({ item }: ItemMetricEventProps): JSX.Eleme
                 <div className="flex items-center justify-between gap-2 min-w-0">
                     <span className="text-secondary shrink-0">Experiment</span>
                     <Link
+                        data-attr="inspector-metric-open-experiment"
                         to={urls.experiment(experimentId)}
                         target="_blank"
                         className="truncate"

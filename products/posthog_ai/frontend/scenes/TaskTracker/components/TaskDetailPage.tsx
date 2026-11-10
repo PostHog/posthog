@@ -4,13 +4,18 @@ import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { nextTaskTitle } from '../../../lib/task-title'
 import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { QuillTaskHeaderActions } from './QuillTaskHeaderActions'
+import { QuillTaskShareControl } from './QuillTaskShareControl'
 import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
+import { TaskRunTabs } from './TaskRunArtifacts'
 import { TaskRunLog } from './TaskRunLog'
 import { TaskRunSceneShell } from './TaskRunSceneShell'
 
@@ -27,6 +32,10 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const { runTask, deleteTask, loadTask, updateTask } = useActions(sceneLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
     const isActiveCreation = activeCreation?.taskId === taskId
+    const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const skin = useThreadSkin()
+    const piAcpEnabled = useFeatureFlag('PI_ACP')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (taskNotFound && !task) {
         return <NotFound object="task" />
@@ -47,11 +56,21 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             updateTask({ data: { title: nextTitle } })
         }
     }
+    const canRun =
+        !!task && (!isPiTaskRuntime(task.runtime) || piAcpEnabled) && !isLatestRunInProgress && !isLatestRunCompleted
     const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (
                 <TaskHeaderActionsSkeleton />
             )
+        ) : skin === 'quill' || todayRailNav ? (
+            <QuillTaskHeaderActions
+                desktopUrl={hasDesktopAccess ? urls.codeTaskLink(task.id) : null}
+                prUrl={prUrl}
+                runLabel={canRun && latestRun ? runButtonText : null}
+                onRun={runTask}
+                running={runTaskInFlight}
+            />
         ) : (
             <div className="flex flex-wrap items-center gap-2">
                 {hasDesktopAccess && (
@@ -76,7 +95,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
                         View PR
                     </LemonButton>
                 )}
-                {!isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted && (
+                {canRun && (
                     <LemonButton
                         type="primary"
                         size="small"
@@ -97,13 +116,25 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const optimisticStreamKey = isActiveCreation ? activeCreation?.streamKey : undefined
     const optimisticRunId = isActiveCreation ? activeCreation?.runId : undefined
 
+    const runLog = (
+        <TaskRunLog
+            taskId={taskId}
+            optimisticStreamKey={optimisticStreamKey}
+            optimisticRunId={optimisticRunId}
+            interactionKey={isActiveCreation ? activeCreation?.interactionKey : undefined}
+            autoFocus={isActiveCreation && activeCreation?.composerWasFocused}
+        />
+    )
+
     return (
         <TaskRunSceneShell
             task={task}
             selectedRun={selectedRun}
             isHeaderLoading={isHeaderLoading && !isActiveCreation}
+            headerDivider={!artifactsTabEnabled}
             titleActions={
                 <div className="flex flex-wrap items-center gap-2">
+                    {todayRailNav && task && <QuillTaskShareControl taskId={task.id} />}
                     {taskActions}
                     {titleActions}
                 </div>
@@ -114,13 +145,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             onRetry={loadTask}
             isMobile={isMobile}
         >
-            <TaskRunLog
-                taskId={taskId}
-                optimisticStreamKey={optimisticStreamKey}
-                optimisticRunId={optimisticRunId}
-                interactionKey={isActiveCreation ? activeCreation?.interactionKey : undefined}
-                autoFocus={isActiveCreation && activeCreation?.composerWasFocused}
-            />
+            {artifactsTabEnabled ? <TaskRunTabs taskId={taskId} conversation={runLog} /> : runLog}
         </TaskRunSceneShell>
     )
 }

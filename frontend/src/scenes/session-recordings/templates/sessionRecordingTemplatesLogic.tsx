@@ -49,7 +49,7 @@ const getPageviewFilterValue = (pageview: string): UniversalFiltersGroupValue =>
     }
 }
 
-export type ReplayTemplateUsedSource = 'templates_tab' | 'filters_panel'
+export type ReplayTemplateUsedSource = 'filters_panel'
 
 export interface ReplayTemplateLogicPropsType {
     template: ReplayTemplateType
@@ -110,7 +110,7 @@ export interface sessionReplayTemplatesLogicActions {
         value: true
     }
     reportTemplateUsed: (source: ReplayTemplateUsedSource) => {
-        source: ReplayTemplateUsedSource
+        source: 'filters_panel'
     }
     resetVariable: (variable: ReplayTemplateVariableType) => {
         variable: ReplayTemplateVariableType

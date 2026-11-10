@@ -14,7 +14,15 @@ import { METRIC_FILTER_OPERATOR_ALLOWLIST } from './metricsViewerLogic'
  * applied-filters row: picking an attribute opens the chip for value selection, with
  * suggestions fed by the metrics attribute endpoints. Must render inside the row's
  * `UniversalFilters` provider. */
-export function MetricsClauseFilterBar({ disabledReason }: { disabledReason: string | null }): JSX.Element {
+export function MetricsClauseFilterBar({
+    disabledReason,
+    addFilterTitle = 'Filter',
+    addFilterType = 'secondary',
+}: {
+    disabledReason: string | null
+    addFilterTitle?: string
+    addFilterType?: 'secondary' | 'tertiary'
+}): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
@@ -48,8 +56,8 @@ export function MetricsClauseFilterBar({ disabledReason }: { disabledReason: str
             )}
             <UniversalFilters.AddFilterButton
                 size="small"
-                type="secondary"
-                title="Filter"
+                type={addFilterType}
+                title={addFilterTitle}
                 disabledReason={disabledReason}
             />
         </div>

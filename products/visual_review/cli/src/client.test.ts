@@ -51,6 +51,19 @@ describe('VisualReviewClient', () => {
         expect(mockFetch.mock.calls[0][0]).toContain('limit=100')
     })
 
+    it.each([
+        ['72855643533', { check_run_id: '72855643533' }],
+        [undefined, {}],
+    ])('sends the completing job ID %s when completing a run', async (checkRunId, expectedBody) => {
+        mockFetch.mockResolvedValueOnce(jsonResponse({ id: 'run-1', status: 'completed' }))
+
+        await client.completeRun('run-1', checkRunId)
+
+        const [url, init] = mockFetch.mock.calls[0]
+        expect(url).toContain('/visual_review/runs/run-1/complete/')
+        expect(JSON.parse(init.body)).toEqual(expectedBody)
+    })
+
     it('throws immediately on 4xx errors without retrying', async () => {
         mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
 

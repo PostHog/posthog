@@ -12,12 +12,44 @@ import {
 } from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
+    pickResponseFields,
     withInformationalResponse,
     omitResponseFields,
     type WithPostHogUrl,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const AccountNotesListSchema = () => {
+    const AccountNotesListQueryParams = orvalSchemas.AccountNotesListQueryParams()
+    return AccountNotesListQueryParams
+}
+
+const accountNotesList = (): ToolBase<
+    ReturnType<typeof AccountNotesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAccountNoteList>
+> => ({
+    name: 'account-notes-list',
+    schema: AccountNotesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountNotesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountNoteList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_notes/`,
+            query: {
+                account_id: params.account_id,
+                assigned_to: params.assigned_to,
+                created_by: params.created_by,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
+                tags: params.tags,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
 
 const AccountRelationshipDefinitionsCreateSchema = () => {
     const AccountRelationshipDefinitionsCreateBody = orvalSchemas.AccountRelationshipDefinitionsCreateBody()
@@ -97,9 +129,16 @@ const accountRelationshipDefinitionsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                pagination: params.pagination,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'name', 'description', 'is_single_holder'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
     },
 })
 
@@ -202,6 +241,9 @@ const accountsCreate = (): ToolBase<ReturnType<typeof AccountsCreateSchema>, Sch
         }
         if (params.churned_at !== undefined) {
             body['churned_at'] = params.churned_at
+        }
+        if (params.ignored_at !== undefined) {
+            body['ignored_at'] = params.ignored_at
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
@@ -311,6 +353,7 @@ const accountsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
                 all_roles_unassigned: params.all_roles_unassigned,
+                inactive_last: params.inactive_last,
                 include_churned: params.include_churned,
                 include_ignored: params.include_ignored,
                 limit: params.limit,
@@ -320,7 +363,18 @@ const accountsList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/customer_analytics/accounts/${item.id}`)
+                    )
+                ),
+            },
+            '/customer_analytics'
+        )
     },
 })
 
@@ -379,6 +433,9 @@ const accountsNotebooksCreate = (): ToolBase<
         if (params.text_content !== undefined) {
             body['text_content'] = params.text_content
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.AccountNotebook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
@@ -424,13 +481,44 @@ const accountsNotebooksList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
             query: {
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
                 search: params.search,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const AccountsNotebooksPartialUpdateSchema = () => {
+    const AccountsNotebooksPartialUpdateBody = orvalSchemas.AccountsNotebooksPartialUpdateBody()
+    const AccountsNotebooksPartialUpdateParams = orvalSchemas.AccountsNotebooksPartialUpdateParams()
+    return AccountsNotebooksPartialUpdateParams.omit({ project_id: true }).extend(
+        AccountsNotebooksPartialUpdateBody.shape
+    )
+}
+
+const accountsNotebooksPartialUpdate = (): ToolBase<
+    ReturnType<typeof AccountsNotebooksPartialUpdateSchema>,
+    Schemas.AccountNotebook
+> => ({
+    name: 'accounts-notebooks-partial-update',
+    schema: AccountsNotebooksPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsNotebooksPartialUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.AccountNotebook>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -493,6 +581,9 @@ const accountsPartialUpdate = (): ToolBase<ReturnType<typeof AccountsPartialUpda
         }
         if (params.churned_at !== undefined) {
             body['churned_at'] = params.churned_at
+        }
+        if (params.ignored_at !== undefined) {
+            body['ignored_at'] = params.ignored_at
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',
@@ -665,6 +756,7 @@ const announcementsCreatePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'announcements-create',
+            inputSchema: AnnouncementsCreateSchema(),
             actionLabel: 'send announcement',
             messageTemplate:
                 "About to send this announcement as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
@@ -684,8 +776,8 @@ const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchema
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof AnnouncementsCreateSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'announcements-create',
+            inputSchema: AnnouncementsCreateSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -697,6 +789,9 @@ const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchema
         const body: Record<string, unknown> = {}
         if (params.message !== undefined) {
             body['message'] = params.message
+        }
+        if (params.send_as !== undefined) {
+            body['send_as'] = params.send_as
         }
         if (params.channels !== undefined) {
             body['channels'] = params.channels
@@ -841,9 +936,24 @@ const customPropertyDefinitionsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                pagination: params.pagination,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'name',
+                    'description',
+                    'display_type',
+                    'target_type',
+                    'group_type_index',
+                    'is_big_number',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
     },
 })
 
@@ -1051,6 +1161,12 @@ const customPropertySourcesPartialUpdate = (): ToolBase<
         }
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
+        }
+        if (params.column_property_map !== undefined) {
+            body['column_property_map'] = params.column_property_map
+        }
+        if (params.column_descriptions !== undefined) {
+            body['column_descriptions'] = params.column_descriptions
         }
         if (params.is_enabled !== undefined) {
             body['is_enabled'] = params.is_enabled
@@ -1271,12 +1387,6 @@ const customerTasksPartialUpdate = (): ToolBase<
         if (params.account_id !== undefined) {
             body['account_id'] = params.account_id
         }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
         if (params.assigned_to_id !== undefined) {
             body['assigned_to_id'] = params.assigned_to_id
         }
@@ -1285,6 +1395,12 @@ const customerTasksPartialUpdate = (): ToolBase<
         }
         if (params.status !== undefined) {
             body['status'] = params.status
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         const result = await context.api.request<Schemas.CustomerTask>({
             method: 'PATCH',
@@ -1783,6 +1899,41 @@ const featureRequestsHistoryList = (): ToolBase<
     },
 })
 
+const FeatureRequestsLinkGithubCreateSchema = () => {
+    const FeatureRequestsLinkGithubCreateBody = orvalSchemas.FeatureRequestsLinkGithubCreateBody()
+    const FeatureRequestsLinkGithubCreateParams = orvalSchemas.FeatureRequestsLinkGithubCreateParams()
+    return FeatureRequestsLinkGithubCreateParams.omit({ project_id: true }).extend(
+        FeatureRequestsLinkGithubCreateBody.shape
+    )
+}
+
+const featureRequestsLinkGithubCreate = (): ToolBase<
+    ReturnType<typeof FeatureRequestsLinkGithubCreateSchema>,
+    WithPostHogUrl<Schemas.FeatureRequest>
+> => ({
+    name: 'feature-requests-link-github-create',
+    schema: FeatureRequestsLinkGithubCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureRequestsLinkGithubCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.issue_url !== undefined) {
+            body['issue_url'] = params.issue_url
+        }
+        if (params.expected_version !== undefined) {
+            body['expected_version'] = params.expected_version
+        }
+        const result = await context.api.request<Schemas.FeatureRequest>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_requests/${encodeURIComponent(String(params.id))}/link_github/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/customer_analytics/feature-requests/${result.id}`)
+    },
+})
+
 const FeatureRequestsListSchema = () => {
     const FeatureRequestsListQueryParams = orvalSchemas.FeatureRequestsListQueryParams()
     return FeatureRequestsListQueryParams
@@ -2218,6 +2369,7 @@ const usageMetricsRetrieve = (): ToolBase<ReturnType<typeof UsageMetricsRetrieve
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'account-notes-list': accountNotesList,
     'account-relationship-definitions-create': accountRelationshipDefinitionsCreate,
     'account-relationship-definitions-destroy': accountRelationshipDefinitionsDestroy,
     'account-relationship-definitions-list': accountRelationshipDefinitionsList,
@@ -2232,6 +2384,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-notebooks-create': accountsNotebooksCreate,
     'accounts-notebooks-destroy': accountsNotebooksDestroy,
     'accounts-notebooks-list': accountsNotebooksList,
+    'accounts-notebooks-partial-update': accountsNotebooksPartialUpdate,
     'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
     'accounts-relationships-create': accountsRelationshipsCreate,
@@ -2279,6 +2432,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-requests-archive-create': featureRequestsArchiveCreate,
     'feature-requests-create': featureRequestsCreate,
     'feature-requests-history-list': featureRequestsHistoryList,
+    'feature-requests-link-github-create': featureRequestsLinkGithubCreate,
     'feature-requests-list': featureRequestsList,
     'feature-requests-partial-update': featureRequestsPartialUpdate,
     'feature-requests-remove-evidence-create': featureRequestsRemoveEvidenceCreate,

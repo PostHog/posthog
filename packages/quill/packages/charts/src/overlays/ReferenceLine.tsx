@@ -1,5 +1,5 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './TooltipSurface'
@@ -38,7 +38,7 @@ export interface ReferenceLineProps {
     style?: ReferenceLineStyle
     /** Optional filled half-plane on one side of the line. */
     fillSide?: ReferenceLineFillSide
-    /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin grey). Defaults to `goal`. */
+    /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (thin dashed, axis label color). Defaults to `goal`. */
     variant?: ReferenceLineVariant
     /** Which y-axis this line references. Only used for horizontal lines. Defaults to the primary axis. */
     yAxisId?: string
@@ -62,7 +62,7 @@ interface ResolvedStyle {
 const VARIANT_DEFAULTS: Record<ReferenceLineVariant, ResolvedStyle> = {
     goal: { color: 'rgba(0, 0, 0, 0.4)', stroke: 'dashed', width: 2 },
     alert: { color: '#db3707', stroke: 'dashed', width: 2 },
-    marker: { color: 'rgba(0, 0, 0, 0.5)', stroke: 'solid', width: 1 },
+    marker: { color: 'var(--color-graph-axis-label)', stroke: 'dashed', width: 1 },
 }
 
 /** Approximate rendered height of the label bubble — used only to keep it inside the plot near
@@ -102,11 +102,7 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
     const { axis } = useChartLayout()
     const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = axis.orientation } = props
-    const resolved = useMemo(
-        () => resolveStyle(variant, style),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [variant, style?.color, style?.stroke, style?.width]
-    )
+    const resolved = resolveStyle(variant, style)
 
     const common: ResolvedProps = {
         resolved,

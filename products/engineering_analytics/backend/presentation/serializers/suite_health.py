@@ -81,16 +81,13 @@ class TrunkQuarantinedTestSerializer(DataclassSerializer):
                 "help_text": "Owning team slug from the repository's ownership files, or 'unowned' when the "
                 "test's file cannot be placed or no team claims its path.",
             },
-            "status": {"help_text": "Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'."},
-            "quarantine_setting": {
-                "help_text": "How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'.",
-            },
+            "status": {"help_text": "Trunk's current health verdict on the test, e.g. 'flaky' or 'broken'."},
             "quarantined_at": {"help_text": "When Trunk quarantined the test."},
             "age_days": {"help_text": "Whole days since the quarantine started."},
             "overdue": {"help_text": "True once age_days exceeds ttl_days: the quarantine has outlived the TTL."},
             "trunk_url": {
-                "help_text": "The Trunk app's page for this test; null when the connected source has no "
-                "organization slug or the row carries no test case id.",
+                "help_text": "The Trunk app's page for this test; null when Trunk returned no URL and the "
+                "source has no organization slug or the row carries no test id.",
             },
         }
 
@@ -165,6 +162,7 @@ class BrokenTestRowSerializer(DataclassSerializer):
     class Meta:
         dataclass = BrokenTestRow
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "fingerprint": {
                 "help_text": "Stable identity of this distinct failure: the failing test's node id plus a "
                 "normalized error signature, so the same failure across runs groups into one row.",

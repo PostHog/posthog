@@ -2,16 +2,15 @@ import { useValues } from 'kea'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { OnboardingProductConfiguration } from 'scenes/onboarding/legacy/OnboardingProductConfiguration'
-import { type ProductConfigOption } from 'scenes/onboarding/legacy/onboardingProductConfigurationLogic'
-import { OnboardingSessionReplayConfiguration } from 'scenes/onboarding/legacy/OnboardingSessionReplayConfiguration'
-import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
+import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
+import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
+import { OnboardingSessionReplayConfiguration } from 'scenes/onboarding/OnboardingSessionReplayConfiguration'
+import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import {
     ProductAnalyticsSDKInstructions,
     ProductAnalyticsSDKTagOverrides,
-} from 'scenes/onboarding/legacy/sdks/product-analytics/ProductAnalyticsSDKInstructions'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
-import { urls } from 'scenes/urls'
+} from 'scenes/onboarding/sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
@@ -150,5 +149,4 @@ export const productAnalyticsOnboarding: ProductOnboardingProvider = {
             },
         ]
     },
-    completeRedirectUrl: () => urls.insightQuickStart(),
 }

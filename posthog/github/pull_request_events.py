@@ -9,7 +9,7 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.github.attribution import _merged_by_attribution, _resolve_github_login_distinct_id
+from posthog.github.attribution import _closed_by_attribution, _merged_by_attribution, _resolve_github_login_distinct_id
 from posthog.github.installations import _resolve_external_team
 from posthog.github.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
 
@@ -142,6 +142,8 @@ def capture_pr_event(
             merger_properties, merger_distinct_id = _merged_by_attribution(payload, attribution.team_id)
             properties.update(merger_properties)
             distinct_id = merger_distinct_id or distinct_id
+        elif event == "pr_closed":
+            properties.update(_closed_by_attribution(payload, attribution.team_id))
         elif event == "pr_reviewed":
             review = payload.get("review") or {}
             reviewer = review.get("user") or {}

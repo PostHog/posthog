@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any, Protocol, cast
 from uuid import UUID
 
+from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.db.models import Count, F, Min, Q
 from django.utils import timezone as django_timezone
@@ -24,7 +25,7 @@ from products.tasks.backend.metrics import (
     WORKFLOW_DISPATCH_READY,
     observe_task_run_dispatch_callback,
 )
-from products.tasks.backend.models import TaskRun, TaskWorkflowDispatch, execute_after_commit
+from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch, execute_after_commit
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
 DISPATCH_PAYLOAD_VERSION = 1
@@ -49,12 +50,6 @@ class RestartSnapshot:
     completed_at: str | None
     queued_at: str | None
     state: dict[str, Any]
-
-
-@frozen
-class WorkflowDispatchFlags:
-    shadow_enabled: bool
-    async_enabled: bool
 
 
 class SlackThreadContextLike(Protocol):
@@ -223,7 +218,6 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
                 status=TaskRun.Status.NOT_STARTED,
                 environment=TaskRun.Environment.CLOUD,
                 scheduled_at__lte=now,
-                task__deleted=False,
             )
             .select_related("team")
             .only("id", "task_id", "team_id", "team__parent_team_id", "state", "scheduled_at")
@@ -233,6 +227,11 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
         if not task_runs:
             return 0
 
+        deleted_task_ids = set(
+            Task.objects.filter(id__in={task_run.task_id for task_run in task_runs}, deleted=True).values_list(
+                "id", flat=True
+            )
+        )
         existing_dispatches = {
             task_run_id: (workflow_id, status)
             for task_run_id, workflow_id, status in TaskWorkflowDispatch.objects.unscoped()
@@ -245,8 +244,12 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
         dispatches: list[TaskWorkflowDispatch] = []
         valid_run_ids: list[UUID] = []
         invalid_run_ids: list[UUID] = []
+        cancelled_run_ids: list[UUID] = []
         prefixed_runs: list[TaskRun] = []
         for task_run in task_runs:
+            if task_run.task_id in deleted_task_ids:
+                cancelled_run_ids.append(task_run.id)
+                continue
             try:
                 dispatch = _prepare_scheduled_dispatch(task_run, existing_dispatches.get(task_run.id), now)
             except ValueError:
@@ -274,11 +277,33 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
             ),
             updated_at=now,
         )
+        TaskRun.objects.filter(id__in=cancelled_run_ids, status=TaskRun.Status.NOT_STARTED).update(
+            status=TaskRun.Status.CANCELLED,
+            completed_at=now,
+            error_message="This scheduled run was canceled because the task was deleted.",
+            updated_at=now,
+        )
 
     SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="materialized").inc(len(valid_run_ids))
     WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(len(dispatches))
     SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="invalid").inc(len(invalid_run_ids))
+    SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="cancelled").inc(len(cancelled_run_ids))
+    _observe_runs_started_beside_live_runs(valid_run_ids)
     return len(valid_run_ids)
+
+
+def _observe_runs_started_beside_live_runs(run_ids: list[UUID]) -> None:
+    if not run_ids:
+        return
+    with transaction.atomic():
+        tasks = {
+            task.id: task
+            for task in Task.objects.select_for_update()
+            .filter(id__in=TaskRun.objects.filter(id__in=run_ids).values("task_id"))
+            .order_by("id")
+        }
+        for task_run in TaskRun.objects.filter(id__in=run_ids).select_related("task"):
+            tasks[task_run.task_id].observe_run_started_beside_live_runs(task_run)
 
 
 def claim_dispatches(instance_id: str, batch_size: int, lease: timedelta) -> list[TaskWorkflowDispatch]:
@@ -434,7 +459,7 @@ def mark_dead(dispatch_id: Any, instance_id: str, error: str, reason: str = "pay
             run.environment = snapshot.environment
             run.completed_at = datetime.fromisoformat(snapshot.completed_at) if snapshot.completed_at else None
             run.queued_at = datetime.fromisoformat(snapshot.queued_at) if snapshot.queued_at else None
-            run.state = snapshot.state
+            run.restore_cloud_resume_state(snapshot.state)
             run.error_message = "Failed to start cloud workflow"
         else:
             from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run  # noqa: PLC0415
@@ -472,29 +497,10 @@ def renew_leases_in_worker_thread(instance_id: str, dispatch_ids: list[Any], lea
         close_old_connections()
 
 
-def evaluate_workflow_dispatch_flags(task_run: TaskRun) -> WorkflowDispatchFlags:
-    from products.tasks.backend.feature_flags import (
-        is_workflow_dispatch_async_enabled,
-        is_workflow_dispatch_shadow_enabled,
-    )
-
-    distinct_id = (
-        task_run.task.created_by.distinct_id
-        if task_run.task.created_by and task_run.task.created_by.distinct_id
-        else str(task_run.id)
-    )
-    organization_id = str(task_run.task.team.organization_id)
-    return WorkflowDispatchFlags(
-        shadow_enabled=is_workflow_dispatch_shadow_enabled(),
-        async_enabled=is_workflow_dispatch_async_enabled(organization_id, distinct_id),
-    )
-
-
 def enqueue_or_start_workflow(
     task_run: TaskRun,
     *,
     options: WorkflowDispatchOptions,
-    precomputed_flags: WorkflowDispatchFlags | None = None,
     start_workflow: Callable[..., None] | None = None,
 ) -> None:
     if start_workflow is None:
@@ -502,25 +508,19 @@ def enqueue_or_start_workflow(
 
         start_workflow = execute_task_processing_workflow
 
-    flags = precomputed_flags or evaluate_workflow_dispatch_flags(task_run)
     workflow_id = TaskRun.get_workflow_id(str(task_run.task_id), str(task_run.id), options.workflow_id_prefix)
     if options.workflow_id_prefix:
         TaskRun.update_state_atomic(task_run.id, updates={"workflow_id": workflow_id})
         task_run.state = {**(task_run.state or {}), "workflow_id": workflow_id}
-    dispatch_written = False
-    if flags.shadow_enabled or flags.async_enabled:
+    if settings.TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED:
         if transaction.get_connection().in_atomic_block:
             create_dispatch(task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id)
         else:
             with transaction.atomic():
-                locked_run = (
-                    TaskRun.objects.select_for_update().select_related("task", "task__team").get(id=task_run.id)
-                )
+                locked_run = TaskRun.objects.select_for_update().get(id=task_run.id)
                 create_dispatch(
                     locked_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id
                 )
-        dispatch_written = True
-    if flags.async_enabled:
         return
 
     def start_synchronously() -> None:
@@ -544,8 +544,6 @@ def enqueue_or_start_workflow(
             workflow_kwargs["initial_message"] = options.initial_message
         if options.skip_user_check:
             workflow_kwargs["skip_user_check"] = True
-        if dispatch_written:
-            workflow_kwargs["durable_dispatch"] = True
         start_workflow(**workflow_kwargs)
 
     execute_after_commit(start_synchronously)

@@ -30,6 +30,8 @@ const DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
     diffWordWrap: 'inherit',
     fontSize: 12,
     lineNumbers: 'on',
+    // Monaco reserves five digits per line-number column by default. Columns still widen for longer files.
+    lineNumbersMinChars: 2,
     minimap: { enabled: false },
     renderOverviewRuler: false,
     overviewRulerLanes: 0,
@@ -42,6 +44,8 @@ const DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
     renderGutterMenu: false,
     guides: { indentation: false },
     padding: { top: 4, bottom: 4 },
+    // Re-measures when the box grows to fit wrapped lines. Without it Monaco keeps its first, shorter size and clips them.
+    automaticLayout: true,
     // Don't trap the thread's scroll when the cursor is over the diff.
     scrollbar: { alwaysConsumeMouseWheel: false, vertical: 'auto', horizontal: 'auto' },
 }

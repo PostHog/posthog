@@ -1,10 +1,11 @@
-//! App layer: one chunk's `scan → enqueue → mark → await → confirm` pipeline and the single recovery
-//! resolver. Depends on `clickhouse`, `kafka`, `store`, `domain`, and its `app` siblings.
+//! App layer: one chunk's `scan → record → enqueue → mark → await → confirm` pipeline and the single
+//! recovery resolver. Depends on `clickhouse`, `kafka`, `store`, `domain`, and its `app` siblings.
 //!
-//! The store's `mark_produced` sits between the two deliver phases: deliver owns Kafka, execute owns
-//! the store gating. Every halt funnels through [`resolve_halt`], which applies the exact recovery
-//! matrix — a pre-mark halt during shutdown unclaims (no attempt spent); everything else fails for
-//! retry — encoded once in [`FailureDisposition::resolve`] and pinned by its unit test.
+//! The store's `mark_produced` sits between the two deliver phases: deliver owns Kafka,
+//! execute owns the store gating. Every halt funnels through [`resolve_halt`], which applies the
+//! exact recovery matrix — a pre-mark halt during shutdown unclaims (no attempt spent); everything
+//! else fails for retry — encoded once in [`FailureDisposition::resolve`] and pinned by its unit
+//! test.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,19 +15,23 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::clickhouse::scanner::ChunkScanner;
+use crate::clickhouse::ResourceError;
 use crate::domain::{
     ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProducedChunk,
     RetryBackoffPolicy, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
-use crate::observability::metrics::{CHUNKS_CONFIRMED, CHUNKS_FAILED, TILES_PRODUCED};
+use crate::observability::metrics::{
+    CHUNKS_CONFIRMED, CHUNKS_FAILED, CLICKHOUSE_RESOURCE_ERRORS, TILES_PRODUCED, TILES_SKIPPED,
+};
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::lease::LeaseHandle;
 use crate::store::runs::RunKind;
 use crate::store::RenderedError;
 
 use super::deliver::{self, ProduceError};
+use super::newest_day::NewestDayIndex;
 use super::person_execute::PersonChunkStats;
 use super::prepare::PreparedBehavioral;
 use super::settings::ProducerSettings;
@@ -36,6 +41,7 @@ pub(super) struct ChunkTaskContext {
     pub(super) chunk: ClaimedChunk,
     pub(super) lease: LeaseHandle,
     pub(super) prepared: Arc<PreparedBehavioral>,
+    pub(super) newest_day: Arc<NewestDayIndex>,
     pub(super) store: PgChunkStore,
     pub(super) scanner: ChunkScanner,
     pub(super) producer: SeedTileProducer,
@@ -52,6 +58,7 @@ pub(super) async fn execute_chunk(
         chunk,
         lease,
         prepared,
+        newest_day,
         store,
         scanner,
         producer,
@@ -75,10 +82,16 @@ pub(super) async fn execute_chunk(
         Ok(scanned) => scanned,
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
-    // PreMark: pace and enqueue every tile, holding the in-flight deliveries.
-    let (scanned, inflight) = match deliver::enqueue_tiles(
+    // PreMark: record this scan's days before enqueuing, so an older day's chunk skips its tiles.
+    // A large chunk takes seconds, so the worker's other tasks move to another thread meanwhile.
+    tokio::task::block_in_place(|| newest_day.record(scanned.tiles()));
+    let scanned_tiles = scanned.tiles().len() as u64;
+    // PreMark: pace and enqueue every tile not superseded by a newer day, holding the in-flight
+    // deliveries.
+    let (streamed, inflight) = match deliver::enqueue_tiles(
         &producer,
         scanned,
+        &newest_day,
         &pacer,
         producer_settings,
         &lease_cancel,
@@ -90,7 +103,7 @@ pub(super) async fn execute_chunk(
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
     // PreMark: CAS `scanning`→`produced` — the row is still `scanning` on failure.
-    let enqueued = match store.mark_produced(scanned).await {
+    let enqueued = match store.mark_produced(streamed).await {
         Ok(enqueued) => enqueued,
         Err(halt) => {
             return resolve_halt(&store, mark_produced_halt(halt), &shutdown, retry_backoff).await
@@ -100,6 +113,7 @@ pub(super) async fn execute_chunk(
     let produced = match deliver::await_deliveries(enqueued, inflight, &lease_cancel).await {
         Ok(produced) => {
             counter!(TILES_PRODUCED).increment(produced.tiles_produced());
+            counter!(TILES_SKIPPED).increment(scanned_tiles - produced.tiles_produced());
             produced
         }
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
@@ -193,7 +207,7 @@ impl FailureDisposition {
 /// The retry wait is drawn from the chunk's own attempt count, so a chunk failing repeatedly waits
 /// longer each time while a first failure retries almost immediately. An unclaim draws none: it
 /// refunds the attempt and is not a failure.
-pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
+pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error + 'static>(
     store: &PgChunkStore,
     halt: Halted<S, E>,
     shutdown: &CancellationToken,
@@ -202,12 +216,17 @@ pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
     let spec = halt.state.spec();
     let lease = spec.lease;
     let detail = render_reason(&halt.reason);
+    let resource = match &halt.reason {
+        HaltReason::Failed(error) => ResourceError::classify(error),
+        HaltReason::Cancelled(_) => None,
+    };
     match FailureDisposition::resolve(S::STAGE, shutdown.is_cancelled()) {
         FailureDisposition::Unclaim => match store.unclaim(lease).await {
             Ok(()) => ChunkOutcome::Unclaimed { lease },
             Err(recovery) => ChunkOutcome::RecoveryFailed {
                 lease,
                 detail: detail.as_str().to_string(),
+                resource,
                 recovery,
             },
         },
@@ -217,11 +236,13 @@ pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
                 Ok(()) => ChunkOutcome::Failed {
                     lease,
                     detail: detail.as_str().to_string(),
+                    resource,
                     retry_delay,
                 },
                 Err(recovery) => ChunkOutcome::RecoveryFailed {
                     lease,
                     detail: detail.as_str().to_string(),
+                    resource,
                     recovery,
                 },
             }
@@ -265,20 +286,60 @@ pub(super) enum ChunkOutcome {
     Failed {
         lease: ChunkLease,
         detail: String,
+        resource: Option<ResourceError>,
         retry_delay: Duration,
     },
     Unclaimed {
         lease: ChunkLease,
     },
+    /// The failure still counts toward the breaker like `Failed`.
     RecoveryFailed {
         lease: ChunkLease,
         detail: String,
+        resource: Option<ResourceError>,
         recovery: ChunkStoreError,
     },
 }
 
+/// What a settled chunk tells its run's breaker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BreakerSignal {
+    Success,
+    ResourceFailure(ResourceError),
+    /// An unclaim refunds the attempt, and any other failure says nothing about ClickHouse load.
+    Ignore,
+}
+
+impl ChunkOutcome {
+    pub(super) fn run_id(&self) -> crate::domain::RunId {
+        match self {
+            Self::Confirmed { lease, .. }
+            | Self::Failed { lease, .. }
+            | Self::Unclaimed { lease }
+            | Self::RecoveryFailed { lease, .. } => lease.run_id(),
+        }
+    }
+
+    pub(super) fn breaker_signal(&self) -> BreakerSignal {
+        match self {
+            Self::Confirmed { .. } => BreakerSignal::Success,
+            Self::Failed {
+                resource: Some(resource),
+                ..
+            }
+            | Self::RecoveryFailed {
+                resource: Some(resource),
+                ..
+            } => BreakerSignal::ResourceFailure(*resource),
+            Self::Failed { resource: None, .. }
+            | Self::RecoveryFailed { resource: None, .. }
+            | Self::Unclaimed { .. } => BreakerSignal::Ignore,
+        }
+    }
+}
+
 pub(super) fn record_task_result(
-    result: Result<ChunkOutcome, tokio::task::JoinError>,
+    result: &Result<ChunkOutcome, tokio::task::JoinError>,
     kind: RunKind,
 ) {
     match result {
@@ -304,12 +365,15 @@ pub(super) fn record_task_result(
         Ok(ChunkOutcome::Failed {
             lease,
             detail,
+            resource,
             retry_delay,
         }) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
+            record_resource_error(kind, *resource);
             warn!(
                 ?lease,
                 error = %detail,
+                clickhouse_code = resource.map(ResourceError::as_str),
                 retry_delay_secs = retry_delay.as_secs_f64(),
                 "chunk failed and was released for retry"
             );
@@ -320,15 +384,34 @@ pub(super) fn record_task_result(
         Ok(ChunkOutcome::RecoveryFailed {
             lease,
             detail,
+            resource,
             recovery,
         }) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
-            warn!(?lease, error = %detail, recovery_error = %recovery, "chunk recovery update did not apply");
+            record_resource_error(kind, *resource);
+            warn!(
+                ?lease,
+                error = %detail,
+                clickhouse_code = resource.map(ResourceError::as_str),
+                recovery_error = %recovery,
+                "chunk recovery update did not apply"
+            );
         }
         Err(error) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(error = %error, "chunk task failed unexpectedly");
         }
+    }
+}
+
+fn record_resource_error(kind: RunKind, resource: Option<ResourceError>) {
+    if let Some(resource) = resource {
+        counter!(
+            CLICKHOUSE_RESOURCE_ERRORS,
+            "kind" => kind.as_str(),
+            "code" => resource.as_str(),
+        )
+        .increment(1);
     }
 }
 
@@ -346,6 +429,48 @@ mod tests {
         assert_eq!(<StreamedChunk as ChunkState>::STAGE, FailureStage::PreMark);
         assert_eq!(<EnqueuedChunk as ChunkState>::STAGE, FailureStage::PostMark);
         assert_eq!(<ProducedChunk as ChunkState>::STAGE, FailureStage::PostMark);
+    }
+
+    #[test]
+    fn only_a_confirmed_chunk_or_a_resource_failure_reaches_the_breaker() {
+        let lease = ChunkLease::new(
+            crate::domain::ChunkId(uuid::Uuid::from_u128(1)),
+            crate::domain::RunId(uuid::Uuid::from_u128(2)),
+            crate::domain::ClaimEpoch(1),
+        );
+        let memory = ResourceError::MemoryLimitExceeded;
+        let failed = |resource| ChunkOutcome::Failed {
+            lease,
+            detail: String::new(),
+            resource,
+            retry_delay: Duration::ZERO,
+        };
+        let recovery_failed = |resource| ChunkOutcome::RecoveryFailed {
+            lease,
+            detail: String::new(),
+            resource,
+            recovery: ChunkStoreError::TilesProducedOutOfRange(0),
+        };
+        for (outcome, expected) in [
+            (
+                ChunkOutcome::Confirmed {
+                    lease,
+                    tiles_produced: 0,
+                    detail: ConfirmedDetail::Behavioral,
+                },
+                BreakerSignal::Success,
+            ),
+            (failed(Some(memory)), BreakerSignal::ResourceFailure(memory)),
+            (
+                recovery_failed(Some(memory)),
+                BreakerSignal::ResourceFailure(memory),
+            ),
+            (failed(None), BreakerSignal::Ignore),
+            (recovery_failed(None), BreakerSignal::Ignore),
+            (ChunkOutcome::Unclaimed { lease }, BreakerSignal::Ignore),
+        ] {
+            assert_eq!(outcome.breaker_signal(), expected, "{outcome:?}");
+        }
     }
 
     #[test]

@@ -67,7 +67,7 @@ describe('HttpImageFetcher', () => {
         )
     })
 
-    it('identifies every request as PostHogImageFetcherBot', async () => {
+    it('identifies every request as PostHogImageFetcherBot referred by us.posthog.com', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
 
         await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
@@ -78,6 +78,7 @@ describe('HttpImageFetcher', () => {
                 headers: expect.objectContaining({
                     'user-agent':
                         'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)',
+                    referer: 'https://us.posthog.com/',
                 }),
             })
         )

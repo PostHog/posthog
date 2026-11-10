@@ -8,6 +8,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.schema import DateRange, HogQLFilters, IntervalType
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import ast
 
 from posthog.dataclasses import frozen
@@ -17,6 +18,11 @@ from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_
 
 # The date-only forms `relative_date_parse_with_delta_mapping` accepts: extended, then basic ISO.
 CALENDAR_DAY_RE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{8}")
+
+# The most date buckets that all_values() can return for one query. The date range and the interval
+# come from the request, and all_values() creates one datetime for each bucket. The limit must stay above
+# an hour interval over "all time", which starts at the 2015-01-01 floor of the earliest event timestamp.
+MAX_DATE_BUCKETS = 250_000
 
 
 @frozen
@@ -40,7 +46,6 @@ def compare_interval_length(
         return ORDERED_INTERVALS.index(interval1) >= ORDERED_INTERVALS.index(interval2)
 
 
-# Originally similar to the legacy QueryDateRange (now posthog/hogql_queries/properties_timeline/query_date_range.py) but rewritten to be used in HogQL queries
 class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
@@ -311,11 +316,34 @@ class QueryDateRange:
         end: datetime = self.date_to()
         delta = self.interval_relativedelta()
 
+        bucket_count = self._bucket_count(start, end)
+        if bucket_count > MAX_DATE_BUCKETS:
+            raise QueryError(
+                f"This date range splits into {bucket_count:,} {self.interval_name} intervals, "
+                f"and a query can use at most {MAX_DATE_BUCKETS:,}. "
+                "Choose a shorter date range or a longer interval."
+            )
+
         values: list[datetime] = []
         while start <= end:
             values.append(start)
             start += delta
         return values
+
+    def _bucket_count(self, start: datetime, end: datetime) -> int:
+        """The number of buckets that all_values() steps through from `start` to `end`, calculated
+        from the span so that the limit check does not create the buckets."""
+        if end < start:
+            return 0
+        period = interval_spec(self.interval_name).period
+        if isinstance(period, relativedelta):
+            months_per_bucket = (period.years * 12 + period.months) * self.interval_count
+            months_apart = (end.year - start.year) * 12 + end.month - start.month
+            return months_apart // months_per_bucket + 1
+        # Local time, because adding a relativedelta to an aware datetime moves the local clock.
+        # A daylight saving change inside the range can move the result by one bucket.
+        span = end.replace(tzinfo=None) - start.replace(tzinfo=None)
+        return span // (period * self.interval_count) + 1
 
     def days_of_week(self) -> Optional[list[int]]:
         # Returns None for unset, empty input, or all seven days; all three mean "no restriction".
@@ -572,7 +600,9 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
         # if date_from is present in retention query then use it
         if self._date_range and self._date_range.date_from:
-            date_from = super().date_from()
+            # Unclipped: the start is already widened to a whole interval, so the base class's
+            # excludeIncompletePeriods start clip would drop a complete cohort.
+            date_from = self._date_from_unclipped()
             return date_to_start_of_interval(date_from, self._interval, self._team)
 
         # otherwise calculate from date_to and lookahead

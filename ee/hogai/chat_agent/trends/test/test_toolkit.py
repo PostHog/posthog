@@ -1,9 +1,9 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from ee.hogai.chat_agent.trends.toolkit import generate_trends_schema
 
 
-class TestTrendsToolkit(BaseTest):
+class TestTrendsToolkit(SimpleTestCase):
     def test_generate_trends_schema_sorts_top_level_properties(self):
         schema = generate_trends_schema()
         properties = schema["parameters"]["properties"]["query"]["properties"]

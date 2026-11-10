@@ -2,19 +2,20 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPeople } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
+import { PeopleSceneHeader } from 'scenes/activity/PeopleSceneHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -43,6 +44,8 @@ export function GroupsScene(): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const groupTitle = useTodayPeopleTitle('group')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -51,8 +54,8 @@ export function GroupsScene(): JSX.Element {
     if (shouldShowGroupsIntroduction) {
         return (
             <SceneContent>
-                <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
-                <SceneTitleSection
+                <PeopleSceneHeader
+                    activeKey={`groups-${groupTypeIndex}`}
                     name="Groups"
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
                     resourceType={{
@@ -73,27 +76,33 @@ export function GroupsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
-
-            <SceneTitleSection
+            <PeopleSceneHeader
+                activeKey={`groups-${groupTypeIndex}`}
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
-                resourceType={{
-                    type: 'cohort',
-                }}
+                resourceType={groupTitle?.resourceType ?? { type: 'cohort' }}
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-groups-list-feedback-button" />
-                        {hasCustomerAnalyticsEnabled && (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                data-attr={`new-group-${groupTypeIndex}`}
-                                onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                            >
-                                New {aggregationLabel(groupTypeIndex).singular}
-                            </LemonButton>
-                        )}
+                        {hasCustomerAnalyticsEnabled &&
+                            (todayRailNav ? (
+                                <Button
+                                    variant="primary"
+                                    data-attr={`new-group-${groupTypeIndex}`}
+                                    onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                                >
+                                    New {aggregationLabel(groupTypeIndex).singular}
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    data-attr={`new-group-${groupTypeIndex}`}
+                                    onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                                >
+                                    New {aggregationLabel(groupTypeIndex).singular}
+                                </LemonButton>
+                            ))}
                     </>
                 }
             />

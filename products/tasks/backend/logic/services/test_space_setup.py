@@ -1,12 +1,12 @@
 import re
 import json
 from datetime import date
-from pathlib import Path
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, INTERNAL_SCOPES
 
 from products.tasks.backend.facade.contracts import (
@@ -145,9 +145,7 @@ class TestChannelSetupWriteSerializer(SimpleTestCase):
 
 class TestSpaceSetupScopes(SimpleTestCase):
     def test_every_tool_the_setup_steps_name_is_callable_with_the_setup_scopes(self):
-        definitions = json.loads(
-            (Path(__file__).parents[5] / "services" / "mcp" / "schema" / "tool-definitions-all.json").read_text()
-        )
+        definitions = get_mcp_tool_definitions()
         prompt = build_space_setup_prompt(
             team_id=1,
             channel_id=CHANNEL_ID,
@@ -162,9 +160,7 @@ class TestSpaceSetupScopes(SimpleTestCase):
 
         granted = {*SPACE_SETUP_SCOPES, *INTERNAL_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE}
         missing = {
-            name: sorted(
-                scope for scope in definitions[name].get("required_scopes", []) if not _granted(granted, scope)
-            )
+            name: sorted(scope for scope in definitions[name].required_scopes if not _granted(granted, scope))
             for name in sorted(named_tools)
         }
         assert {name: scopes for name, scopes in missing.items() if scopes} == {}

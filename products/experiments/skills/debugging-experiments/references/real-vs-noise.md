@@ -13,7 +13,7 @@ because it's a smaller, more-selected denominator.
 
 **Trust the randomized endpoint — exposure → final step, counting everyone assigned — over any rate
 measured between two mid-funnel steps.** PostHog computes significance from the first step to the last
-step for exactly this reason (see `numbers-vs-sql.md` D2 in the `diagnosing-experiment-results`
+step for exactly this reason (see `numbers-vs-sql.md` D2 in the `diagnosing-experiment-health`
 library).
 
 ## Three checks — any one failing points to noise

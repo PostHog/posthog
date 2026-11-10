@@ -15,17 +15,18 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { urls } from 'scenes/urls'
 
 import { SessionRecordingType } from '~/types'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ObservationStatusTag } from '../../components/ObservationCard'
+import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
 import { recordingScanBlock } from '../../utils/scanEligibility'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { IN_PROGRESS_STATUSES, scannerRunTabLogic } from '../scannerRunTabLogic'
 
 function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
@@ -134,7 +135,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconEye />}
-                            to={urls.replayVisionObservation(observation.id)}
+                            to={observationDetailUrl(observation.id, { tab: ReplayScannerTab.Run })}
                             data-attr="vision-run-view-observation"
                         >
                             View observation

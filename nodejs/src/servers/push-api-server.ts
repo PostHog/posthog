@@ -1,0 +1,224 @@
+import { Server, createServer } from 'http'
+
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
+import { isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+import { GeoIPService } from '~/common/utils/geoip'
+import { logger } from '~/common/utils/logger'
+import { capIdleConnections } from '~/messaging/push-subscriptions/idle-connections'
+import { ProjectTokenLookup } from '~/messaging/push-subscriptions/project-token-lookup'
+import { DryRunPushCaptureService, PushCaptureService } from '~/messaging/push-subscriptions/push-capture'
+import { createPushSubscriptionsHandler } from '~/messaging/push-subscriptions/push-subscriptions-http'
+import { PushSubscriptionsService } from '~/messaging/push-subscriptions/push-subscriptions.service'
+import { RegionBlockCheck, createRegionBlockCheck } from '~/messaging/push-subscriptions/region-block'
+
+import { CommonConfig } from '../common/config'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../types'
+import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
+
+const MAX_IDLE_CONNECTIONS = 1_000
+
+export type PushApiConfig = {
+    PUSH_API_PORT: number
+    PUSH_API_HOST: string
+    /** Keys the fingerprint in the rejection log. Matching Django's value keeps a client's
+     * fingerprint the same in both services' logs while both serve the endpoint. The key also stops a
+     * secret API key submitted in the wrong field from being confirmable out of the log. */
+    SECRET_KEY: string
+    /** Skips the person update for a mirrored copy and still answers as if it was stored. A request
+     * that reaches the service directly is still stored. */
+    PUSH_API_DRY_RUN: boolean
+    /** Comma-separated ISO country codes answered 403, the same list Django reads. */
+    BLOCKED_GEOIP_REGIONS: string
+    /** Comma-separated keys the managed reverse proxy signs the client IP with, the same as Django's. */
+    MANAGED_PROXY_SIGNING_KEYS: string
+}
+
+export function getDefaultPushApiConfig(): PushApiConfig {
+    return {
+        PUSH_API_PORT: 6750,
+        PUSH_API_HOST: '0.0.0.0',
+        SECRET_KEY: '',
+        PUSH_API_DRY_RUN: false,
+        BLOCKED_GEOIP_REGIONS: '',
+        MANAGED_PROXY_SIGNING_KEYS: '',
+    }
+}
+
+export type PushApiServerConfig = BaseServerConfig &
+    PostgresRouterConfig &
+    PushApiConfig &
+    Pick<
+        CommonConfig,
+        'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'ENCRYPTION_SALT_KEYS' | 'CAPTURE_INTERNAL_URL' | 'MMDB_FILE_LOCATION'
+    >
+
+/** Serves `/api/push_subscriptions/`, the endpoint every mobile SDK calls on app open.
+ *
+ * The registration endpoint listens on its own `node:http` port rather than on the shared express
+ * app. `ultimate-express` discards the request body on DELETE, and DELETE with a JSON body is how
+ * every released SDK unregisters a device, so serving it there would answer `invalid_json` to every
+ * logout. The lifecycle's express app still serves health and metrics on HTTP_SERVER_PORT.
+ */
+export class PushApiServer implements NodeServer {
+    readonly lifecycle: ServerLifecycle
+    private config: PushApiServerConfig
+
+    private postgres?: PostgresRouter
+    private pushServer?: Server
+    private listenError?: Error
+
+    constructor(config: Partial<PushApiServerConfig> = {}) {
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultPushApiConfig()),
+            ...config,
+        }
+        this.lifecycle = new ServerLifecycle(this.config)
+    }
+
+    async start(): Promise<void> {
+        return this.lifecycle.start(
+            () => this.startServices(),
+            () => this.getCleanupResources()
+        )
+    }
+
+    async stop(error?: Error): Promise<void> {
+        return this.lifecycle.stop(() => this.getCleanupResources(), error)
+    }
+
+    private async startServices(): Promise<void> {
+        if (!this.config.SECRET_KEY && isProdEnv()) {
+            // Unkeyed, the fingerprint of a secret key submitted in the wrong field becomes confirmable by
+            // anyone who can read the rejection log and holds a candidate value.
+            throw new Error('SECRET_KEY is required to serve push subscriptions')
+        }
+
+        if (!this.config.ENCRYPTION_SALT_KEYS && isProdEnv()) {
+            // Every stored registration would fail to encrypt while the health check stays green.
+            throw new Error('ENCRYPTION_SALT_KEYS is required to serve push subscriptions')
+        }
+
+        this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
+        logger.info('👍', 'Postgres Router ready')
+
+        if (this.config.PUSH_API_DRY_RUN) {
+            logger.warn('push-api is in dry-run mode: mirrored registrations are answered but not stored')
+        }
+
+        const capture = new PushCaptureService(this.config.CAPTURE_INTERNAL_URL)
+        const service = new PushSubscriptionsService(
+            new ProjectTokenLookup(this.postgres),
+            this.postgres,
+            new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS),
+            capture,
+            this.config.SECRET_KEY,
+            this.config.PUSH_API_DRY_RUN ? new DryRunPushCaptureService() : capture
+        )
+
+        const isRegionBlocked = await this.loadRegionBlockCheck()
+
+        if (!isTestEnv()) {
+            this.pushServer = await this.listen(createPushSubscriptionsHandler(service, isRegionBlocked))
+        }
+
+        const pluginService: PluginServerService = {
+            id: 'push-api',
+            onShutdown: async () => {
+                await new Promise<void>((resolve) => {
+                    if (!this.pushServer) {
+                        resolve()
+                        return
+                    }
+                    const server = this.pushServer
+                    // close() ends only the connections idle at that moment. A connection that finishes its
+                    // request afterwards stays open until the keep-alive timeout, which is longer than a pod's
+                    // grace period, so the idle ones are closed until the server stops.
+                    const closeIdle = setInterval(() => server.closeIdleConnections(), 100)
+                    server.close(() => {
+                        clearInterval(closeIdle)
+                        resolve()
+                    })
+                })
+            },
+            healthcheck: () => this.isHealthy(),
+        }
+        this.lifecycle.services.push(pluginService)
+    }
+
+    private async loadRegionBlockCheck(): Promise<RegionBlockCheck> {
+        const countries = this.config.BLOCKED_GEOIP_REGIONS.split(',').filter((code) => code.trim())
+        if (countries.length === 0) {
+            return createRegionBlockCheck([], undefined)
+        }
+        const geoip = await new GeoIPService(this.config.MMDB_FILE_LOCATION).get()
+        // An unreadable database places no address, which would let every blocked region through.
+        if (!geoip.city('8.8.8.8')) {
+            const message = 'push-api could not load the GeoIP database, so blocked regions are not enforced'
+            if (isProdEnv()) {
+                throw new Error(message)
+            }
+            logger.error(message, { location: this.config.MMDB_FILE_LOCATION })
+        }
+        logger.info('push-api blocks registrations from regions', { countries })
+        const signingKeys = this.config.MANAGED_PROXY_SIGNING_KEYS.split(',').map((key) => key.trim())
+        return createRegionBlockCheck(countries, geoip, signingKeys)
+    }
+
+    private listen(handler: (req: any, res: any) => Promise<void>): Promise<Server> {
+        // Node checks the header and request timeouts only this often, 30 seconds by default, which
+        // lets a slow client hold a socket well past them.
+        const server = createServer({ connectionsCheckingInterval: 1_000 }, (req, res) => {
+            void handler(req, res).catch((error) => {
+                // A throw here would otherwise reach the process-level handler and take the pod down
+                // over one request, so the connection is answered and the error is left to the logs.
+                logger.error('push subscription request failed', { error })
+                if (!res.headersSent) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' })
+                }
+                res.end('{"type":"server_error","code":"internal","detail":"Internal error.","attr":null}')
+            })
+        })
+
+        // A registration is a handful of short fields. Without these a client that opens a connection
+        // and sends nothing holds a socket until node's default timeout, which is how a public
+        // endpoint is starved of connections rather than of CPU.
+        server.headersTimeout = 10_000
+        server.requestTimeout = 15_000
+        // Envoy keeps an idle upstream connection for up to an hour. If node closes it first, a request
+        // Envoy sends at that moment fails with a 503, so the idle timeout outlasts Envoy's.
+        server.keepAliveTimeout = 65 * 60_000
+        // Envoy pools far fewer connections than this, so only a client piling up idle sockets hits it.
+        capIdleConnections(server, MAX_IDLE_CONNECTIONS)
+
+        return new Promise((resolve, reject) => {
+            server.once('error', (error) => {
+                this.listenError = error as Error
+                reject(error)
+            })
+            server.listen(this.config.PUSH_API_PORT, this.config.PUSH_API_HOST, () => {
+                logger.info(
+                    '🚀',
+                    `push subscriptions listening on ${this.config.PUSH_API_HOST}:${this.config.PUSH_API_PORT}`
+                )
+                resolve(server)
+            })
+        })
+    }
+
+    private isHealthy(): HealthCheckResult {
+        if (this.listenError) {
+            return new HealthCheckResultError('Push API failed to listen', { error: this.listenError.message })
+        }
+        if (!isTestEnv() && !this.pushServer?.listening) {
+            return new HealthCheckResultError('Push API is not listening', {})
+        }
+        return new HealthCheckResultOk()
+    }
+
+    private getCleanupResources(): CleanupResources {
+        return { kafkaProducers: [], redisPools: [], postgres: this.postgres }
+    }
+}

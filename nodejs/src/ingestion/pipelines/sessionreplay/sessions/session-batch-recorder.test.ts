@@ -48,6 +48,7 @@ export class SessionBlockRecorderMock {
     private size: number = 0
     private startDateTime: DateTime | null = null
     private endDateTime: DateTime | null = null
+    private earliestCapturedAtMs: number | undefined
     private _distinctId: string | null = null
 
     constructor(
@@ -69,6 +70,9 @@ export class SessionBlockRecorderMock {
         }
         if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
             this.endDateTime = message.eventsRange.end
+        }
+        if (message.metadata.timestamp > 0) {
+            this.earliestCapturedAtMs = Math.min(this.earliestCapturedAtMs ?? Infinity, message.metadata.timestamp)
         }
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
@@ -109,6 +113,7 @@ export class SessionBlockRecorderMock {
             snapshotLibrary: null,
             snapshotMode: null,
             batchId: this.batchId,
+            ...(this.earliestCapturedAtMs === undefined ? {} : { earliestCapturedAtMs: this.earliestCapturedAtMs }),
         }
     }
 }
@@ -213,8 +218,9 @@ describe('SessionBatchRecorder', () => {
     const record = (
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod = '30d',
-        sessionKey: SessionKey = createMockSessionKey()
-    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey)
+        sessionKey: SessionKey = createMockSessionKey(),
+        captureTimestampMs?: number
+    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey, captureTimestampMs)
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -379,9 +385,10 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            await record(message)
+            await record(message, '30d', createMockSessionKey(), 1_700_000_000_000)
 
-            await recorder.flush()
+            const persistedSessions = await recorder.flush()
+            expect(persistedSessions[0].captureTimestampMs).toBe(1_700_000_000_000)
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
@@ -456,6 +463,24 @@ describe('SessionBatchRecorder', () => {
             expect(lines).toEqual([
                 ['window1', messages[0].message.eventsByWindowId.window1[0]],
                 ['window1', messages[1].message.eventsByWindowId.window1[0]],
+            ])
+        })
+
+        it('passes the earliest capture time of each block to the metadata store', async () => {
+            await record(
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], {
+                    timestamp: 1_700_000_002_000,
+                })
+            )
+            await record(
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], {
+                    timestamp: 1_700_000_001_000,
+                })
+            )
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+                expect.objectContaining({ sessionId: 'session1', earliestCapturedAtMs: 1_700_000_001_000 }),
             ])
         })
 
@@ -1658,7 +1683,8 @@ describe('SessionBatchRecorder', () => {
             expect(bytesWritten2).toBeGreaterThan(0)
             expect(bytesWritten3).toBe(0)
 
-            await recorder.flush()
+            const persistedSessions = await recorder.flush()
+            expect(persistedSessions).toEqual([])
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             expect(writtenData).toHaveLength(0)
         })

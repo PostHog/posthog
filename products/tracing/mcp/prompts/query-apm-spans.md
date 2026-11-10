@@ -28,7 +28,7 @@ Use property filters via the `query.filterGroup` field to narrow results. Only i
 When using a property filter, you should:
 
 - **Choose the right type.** Span property types are:
-  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span).
+  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
   - `span_attribute` — filters span-level attributes (e.g. "http.method", "http.status_code").
   - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
 - **Use `apm-attributes-list` to discover available attribute keys** before building filters.
@@ -42,6 +42,8 @@ Supported operators:
 - Existence (no value needed): `is_set`, `is_not_set`
 
 The `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.
+
+An attribute filter (`span_attribute` or `span_resource_attribute`) matches only spans that have the attribute, also for negated operators such as `is_not` and `not_icontains`. To find spans without the attribute, use `is_not_set`.
 
 ## Time period
 
@@ -139,7 +141,7 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 ```json
 {
   "query": {
-    "filterGroup": [{ "key": "duration", "operator": "gt", "type": "span", "value": "1000000000" }],
+    "filterGroup": [{ "key": "duration", "operator": "gt", "type": "span", "value": "1000" }],
     "dateRange": { "date_from": "-1d" }
   }
 }
@@ -172,4 +174,4 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 - Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.
 - Use `apm-attributes-list` and `apm-attribute-values-list` to discover attributes before guessing filter keys/values.
 - Use `apm-services-list` to discover available services before filtering by service name.
-- Duration values are in nanoseconds (1 second = 1,000,000,000 nanoseconds).
+- A `duration` filter value is in milliseconds (1 second = `1000`). The `duration_nano` response field is in nanoseconds (1 second = 1,000,000,000).

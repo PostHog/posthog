@@ -15,6 +15,7 @@ from products.mcp_store.backend.models import (
     MCPAuditEvent,
     MCPGatewayServer,
     MCPMemberServerRevocation,
+    MCPOrgRule,
     MCPServerInstallation,
     MCPServerInstallationTool,
 )
@@ -254,6 +255,18 @@ class TestGatewayExecTools(APIBaseTest):
             self.installation.save()
 
         assert self._available().json()["servers"] == []
+
+    def test_available_tools_lists_rule_locked_approval_with_its_state(self):
+        self._tool()
+        MCPOrgRule.objects.for_team(self.team.id).create(
+            team=self.team, name="Review issues", effect="needs_approval", tool_pattern="create_*"
+        )
+
+        [server] = self._available().json()["servers"]
+
+        assert [(tool["name"], tool["approval_state"]) for tool in server["tools"]] == [
+            ("create_issue", "needs_approval")
+        ]
 
     def test_available_tools_includes_a_teammates_shared_connection(self):
         other = self._create_user("shared-owner@posthog.com")

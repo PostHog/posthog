@@ -53,6 +53,9 @@ _TRAINING_CTE_NAMES: frozenset[str] = frozenset({"user_window", "user_t0", "labe
 # The training wrapper appends these columns to the feature rows, so a feature query that emits
 # them makes the label lookup ambiguous.
 _RESERVED_OUTPUT_NAMES: frozenset[str] = frozenset({"__label", "__fold"})
+# Person tables. The HogQL persons table dedupes every person of the team before any filter
+# applies, and raw_persons without a filter reads every version of every person.
+_PERSON_TABLES: frozenset[str] = frozenset({"persons", "raw_persons"})
 
 
 class RecipeValidationError(ValueError):
@@ -102,6 +105,64 @@ def validate_feature_sql(feature_sql: str) -> None:
             f"feature_sql must not read the wall clock ({', '.join(sorted(wall_clock))}). Bound every "
             "time window to fromUnixTimestamp(a.cutoff_ts) so features stop at each user's T0."
         )
+
+
+def feature_sql_hints(feature_sql: str) -> list[str]:
+    """
+    Advice on what makes ``feature_sql`` expensive at scoring. A hint never blocks: the query is
+    valid, but it can run past the scoring time limit on a large team.
+
+    Feature SQL that does not parse gets no hints; ``validate_feature_sql`` reports it.
+    """
+    try:
+        node = parse_select(feature_sql)
+    except Exception:
+        return []
+    visitor = _UnfilteredPersonReads()
+    visitor.visit(node)
+    return [
+        f"feature_sql reads {table} without filtering it to the anchor persons, so the query reads every "
+        f"person of the team. Read raw_persons in a subquery with WHERE id IN (SELECT person_id FROM "
+        "{anchors}), and take each person's latest version with argMax(..., version)."
+        for table in sorted(visitor.tables)
+    ]
+
+
+class _UnfilteredPersonReads(TraversingVisitor):
+    """Person tables read by a SELECT whose WHERE or PREWHERE does not refer to ``{anchors}``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tables: set[str] = set()
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        join = node.select_from
+        while join is not None:
+            table = join.table
+            if isinstance(table, ast.Field) and len(table.chain) == 1:
+                name = str(table.chain[0]).lower()
+                if name in _PERSON_TABLES and not (_reads_anchors(node.where) or _reads_anchors(node.prewhere)):
+                    self.tables.add(name)
+            join = join.next_join
+        super().visit_select_query(node)
+
+
+class _AnchorsReads(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        if _is_anchors_placeholder(node):
+            self.found = True
+
+
+def _reads_anchors(node: ast.Expr | None) -> bool:
+    if node is None:
+        return False
+    visitor = _AnchorsReads()
+    visitor.visit(node)
+    return visitor.found
 
 
 class _WallClockReads(TraversingVisitor):

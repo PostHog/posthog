@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from django.test import SimpleTestCase
@@ -404,8 +405,40 @@ class TestSlackFormatting(SimpleTestCase):
             ("escaped_punctuation_unescaped", "e\\.g\\. query\\-time \\(v2\\)", "e.g. query-time (v2)"),
             ("escaped_syntax_not_emphasis", "2 \\* 3 \\* 4", "2 * 3 * 4"),
             ("backslash_outside_escape_set_kept", "path C:\\\\Users", "path C:\\Users"),
+            (
+                "link_url_keeps_nested_parens",
+                "[here](https://ph.test/sql#q=SELECT%20count(toString(a))%20FROM%20(b))",
+                "<https://ph.test/sql#q=SELECT%20count(toString(a))%20FROM%20(b)|here>",
+            ),
+            (
+                "image_url_keeps_nested_parens",
+                "![chart](https://ph.test/i/chart(1).png)",
+                "<https://ph.test/i/chart(1).png|chart>",
+            ),
+            ("unterminated_link_stays_literal", "[here](https://ph.test", "[here](https://ph.test"),
+            (
+                "link_url_with_lone_paren_stays_clickable",
+                "[here](https://ph.test/q?v=foo() ok",
+                "<https://ph.test/q?v=foo(|here> ok",
+            ),
+            (
+                "unbalanced_link_url_stops_at_whitespace",
+                "[here](https://ph.test/a( then [next](https://ph.test/b)",
+                "[here](https://ph.test/a( then <https://ph.test/b|next>",
+            ),
+            (
+                "nested_label_keeps_its_inner_brackets",
+                "[a [b]](https://ph.test/x)",
+                "<https://ph.test/x|a [b]>",
+            ),
+            # These runs are the shapes that cost quadratic time when a label is read at every `[`
+            # rather than once a destination is found. The timeout fails them if that returns.
+            ("unclosed_destination_run_closes_at_first_paren", "[x](a()" * 4000, "<a(|x>" * 4000),
+            ("unclosed_label_run_stays_literal", "[" * 25000, "[" * 25000),
+            ("nested_label_run_stays_literal", "[" * 25000 + "]" * 25000, "[" * 25000 + "]" * 25000),
         ]
     )
+    @pytest.mark.timeout(1, func_only=True)
     def test_outbound_mrkdwn_conversion(self, _name: str, markdown: str, expected: str) -> None:
         assert content_to_slack_mrkdwn(markdown) == expected
 

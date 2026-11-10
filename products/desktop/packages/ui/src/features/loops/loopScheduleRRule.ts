@@ -1,5 +1,5 @@
 import type { HogFlowScheduleWrite } from "@posthog/api-client/hogFlowLoops";
-import type { LoopSchemas } from "@posthog/api-client/loops";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { nextRecurringRun } from "@posthog/ui/primitives/nextRecurringRun";
 import { parseCronSchedule } from "./loopCron";
 

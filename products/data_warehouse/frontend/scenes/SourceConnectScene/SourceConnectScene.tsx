@@ -13,6 +13,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SourceFormComponent } from '../../shared/components/forms/SourceForm'
+import { MigrationPrefillConfirm } from '../../shared/components/MigrationPrefillConfirm'
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { sourceConnectSceneLogic } from './sourceConnectSceneLogic'
 
@@ -22,20 +23,32 @@ export const scene: SceneExport = {
 }
 
 export function SourceConnectScene(): JSX.Element {
-    const { kind, sourceConfig, storedCredential, availableSourcesLoading, isCredentialsFormSubmitting } =
-        useValues(sourceConnectSceneLogic)
+    const {
+        kind,
+        sourceConfig,
+        storedCredential,
+        availableSourcesLoading,
+        isCredentialsFormSubmitting,
+        migrationParams,
+        migrationPrefillLoading,
+        migrationPrefill,
+        prefillConfirmed,
+    } = useValues(sourceConnectSceneLogic)
     const { setCredentialsFormValue } = useActions(sourceConnectSceneLogic)
 
-    if (availableSourcesLoading) {
+    // Wait for the migration prefill, so it never lands on top of what the user typed.
+    if (availableSourcesLoading || migrationPrefillLoading) {
         return <LemonSkeleton />
     }
 
     if (!sourceConfig) {
         return (
             <SceneContent>
-                <LemonBanner type="error">
-                    {kind ? `Unknown source type '${kind}'.` : 'No source type specified.'} Check the link you were
-                    given and try again.
+                <LemonBanner type="error" action={{ children: 'Browse sources', to: urls.dataWarehouseSourceNew() }}>
+                    {kind
+                        ? "This link names a source we don't support."
+                        : "This link doesn't say which source to connect."}{' '}
+                    Choose your source from the full list to set it up.
                 </LemonBanner>
             </SceneContent>
         )
@@ -99,20 +112,33 @@ export function SourceConnectScene(): JSX.Element {
                                 )}
                             </div>
                         )}
+                        {migrationPrefill && <SourceMigrationPrefillConfirm sourceName={sourceConfig.name} />}
                         <SourceFormComponent
                             sourceConfig={sourceConfig}
+                            lockedValues={migrationPrefill ?? undefined}
                             showPrefix={false}
                             showDescription={false}
                             showAccessMethodSelector={false}
                             showCdcConfig={false}
                             setSourceConnectionDetailsValue={setCredentialsFormValue}
-                            oauthRedirectUrl={urls.dataWarehouseSourceConnect(sourceConfig.name)}
+                            oauthRedirectUrl={
+                                urls.dataWarehouseSourceConnect(sourceConfig.name) +
+                                (migrationParams
+                                    ? `&migration_id=${encodeURIComponent(migrationParams.migrationId)}&migration_item_id=${encodeURIComponent(migrationParams.itemId)}`
+                                    : '')
+                            }
                         />
                         <LemonButton
                             type="primary"
                             htmlType="submit"
                             loading={isCredentialsFormSubmitting}
-                            disabledReason={isCredentialsFormSubmitting ? 'Saving…' : undefined}
+                            disabledReason={
+                                isCredentialsFormSubmitting
+                                    ? 'Saving…'
+                                    : migrationPrefill && !prefillConfirmed
+                                      ? 'Confirm the server above first'
+                                      : undefined
+                            }
                         >
                             Save credentials
                         </LemonButton>
@@ -120,6 +146,23 @@ export function SourceConnectScene(): JSX.Element {
                 )}
             </div>
         </SceneContent>
+    )
+}
+
+function SourceMigrationPrefillConfirm({ sourceName }: { sourceName: string }): JSX.Element {
+    const { migrationCreator, prefilledFieldRows, prefillConfirmed } = useValues(sourceConnectSceneLogic)
+    const { setPrefillConfirmed } = useActions(sourceConnectSceneLogic)
+
+    return (
+        <MigrationPrefillConfirm
+            creator={migrationCreator}
+            rows={prefilledFieldRows}
+            confirmed={prefillConfirmed}
+            onConfirmedChange={setPrefillConfirmed}
+            noun="source"
+            trustNote="PostHog checks the credentials you enter against this server, so only continue if you trust it."
+            newSetupUrl={urls.dataWarehouseSourceConnect(sourceName)}
+        />
     )
 }
 

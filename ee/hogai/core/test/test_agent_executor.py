@@ -17,6 +17,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import (
+    ApprovalEvent,
     ConversationEvent,
     MessageEvent,
     StatusPayload,
@@ -25,7 +26,8 @@ from ee.hogai.stream.redis_stream import (
     StreamStatusEvent,
     get_conversation_stream_key,
 )
-from ee.hogai.utils.types.base import AssistantOutput
+from ee.hogai.utils.sse import AssistantSSESerializer
+from ee.hogai.utils.types.base import ApprovalPayload, AssistantOutput
 
 
 class TestAgentExecutor(BaseTest):
@@ -256,6 +258,26 @@ class TestAgentExecutor(BaseTest):
             event = StreamEvent(event=conversation_data)
 
             await self.manager._redis_stream_to_assistant_output(event)
+
+    async def test_redis_stream_approval_event_reaches_client_as_sse(self):
+        approval = ApprovalPayload(
+            proposal_id="proposal-1",
+            decision_status="pending",
+            tool_name="upsert_dashboard",
+            preview="Remove 2 tiles",
+            payload={"dashboard_id": 1},
+            original_tool_call_id="call-1",
+            message_id="message-1",
+        )
+        event = StreamEvent(event=ApprovalEvent(type=AssistantEventType.APPROVAL, payload=approval))
+
+        result = await self.manager._redis_stream_to_assistant_output(event)
+        assert result is not None
+        sse = await AssistantSSESerializer().dumps(result)
+
+        event_line, data_line, *_ = sse.split("\n")
+        self.assertEqual(event_line, f"event: {AssistantEventType.APPROVAL}")
+        self.assertEqual(ApprovalPayload.model_validate_json(data_line.removeprefix("data: ")), approval)
 
     async def test_redis_stream_to_assistant_output_unknown_event(self):
         """Test conversion with unknown event type."""

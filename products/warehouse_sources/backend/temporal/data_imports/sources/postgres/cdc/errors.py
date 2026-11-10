@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     HostNotAllowedError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -65,6 +66,17 @@ _IP_NOT_ALLOWED_MARKERS = (
 # through to the generic CONNECTION_FAILED bucket below and retries indefinitely into the same
 # wall. Match the stable quota phrase; it names no volatile host/IP/port detail.
 _QUOTA_EXCEEDED_MARKER = "exceeded the quota"
+
+# A Supabase/Supavisor pooler that can't resolve the tenant behind the pooler username, in its
+# older ("Tenant or user not found") and newer ("(ENOTFOUND) tenant/user <user> not found")
+# wordings, or whose upstream DNS record is gone ("{:error, :nxdomain}"). The project is paused or
+# deleted, or the pooler username is wrong, so every reconnect re-hits it. Mirrors the
+# non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors).
+_POOLER_TENANT_NOT_FOUND_MARKERS = (
+    "tenant or user not found",
+    "(enotfound) tenant/user",
+    "{:error, :nxdomain}",
+)
 
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
 # can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
@@ -117,6 +129,11 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         if "publication" in message:
             return CDCErrorCategory.PUBLICATION_MISSING
 
+    # Before the authentication checks: Postgres reports a rejected client certificate as
+    # "certificate authentication failed", which the auth markers would otherwise claim.
+    if any(marker in message for marker in CERTIFICATE_ERRORS):
+        return CDCErrorCategory.CERTIFICATE_REJECTED
+
     # Authentication (SQLSTATE class 28) surfaces either as a mapped subclass (server-side)
     # or a bare OperationalError with a libpq message (connection-time). Check before the
     # generic OperationalError fallback, which these subclass.
@@ -142,6 +159,8 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
             return CDCErrorCategory.HOST_UNREACHABLE
         if _QUOTA_EXCEEDED_MARKER in message:
             return CDCErrorCategory.QUOTA_EXCEEDED
+        if any(marker in message for marker in _POOLER_TENANT_NOT_FOUND_MARKERS):
+            return CDCErrorCategory.POOLER_TENANT_NOT_FOUND
         # psycopg raises ConnectionTimeout only from connect() itself, and the reader already
         # retries it in-process first (stream_reader._open_streaming_connection wraps every
         # connect in _connect_with_dropped_retry, which widens its predicate to connect-time

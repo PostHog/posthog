@@ -113,6 +113,15 @@ describe('ChartAlternatives', () => {
         expect(chartPreviewsLogic.findMounted({ embedded: false, ...insightProps })).not.toBeUndefined()
     })
 
+    it('keeps a saved proportion bar as the current chart type while its flag is off', () => {
+        setQuery(makeTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsProportionBar } }))
+        const logic = chartAlternativesLogic({ embedded: false, ...insightProps })
+        logic.mount()
+
+        expect(logic.values.currentOption).toMatchObject({ label: 'Proportion bar', icon: 'proportionBar' })
+        logic.unmount()
+    })
+
     it('opens the gallery in a popover anchored to the chart type button', async () => {
         setQuery(makeTrendsQuery())
         const logic = alternativesLogic()

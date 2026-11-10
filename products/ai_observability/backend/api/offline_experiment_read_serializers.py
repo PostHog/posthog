@@ -1,10 +1,14 @@
 from dataclasses import replace
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
+from rest_framework_dataclasses.fields import EnumField
 from rest_framework_dataclasses.serializers import DataclassSerializer
+
+from posthog.api.pagination import PageLinksSerializer
+from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     ItemPayloadField,
@@ -12,18 +16,42 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
     ResultValueField,
 )
 from products.ai_observability.backend.api.query import validate_query_parameters
+from products.ai_observability.backend.api.resource_tags import ResourceTagFilterField
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineExperiment,
     PayloadState,
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
-from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery
+from products.ai_observability.backend.offline_evaluation_read_types import (
+    MAX_READ_SCORER_VERSIONS,
+    MAX_RESULT_CELL_ITEMS,
+    OfflineHistoryBreakdown,
+    OfflineReadQuery,
+    OfflineResultCellQuery,
+)
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
+from products.ai_observability.backend.resource_tags import TagMatch
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 
+if TYPE_CHECKING:
+    from rest_framework_dataclasses.types import Dataclass
 
-class OfflinePageQuerySerializer(DataclassSerializer[OfflineReadQuery]):
+
+def _parse_uuids(values: list[str]) -> tuple[UUID, ...]:
+    return tuple(cast(UUID, serializers.UUIDField().run_validation(value)) for value in values)
+
+
+class _OfflineQuerySerializer[T: Dataclass](DataclassSerializer[T]):
+    def to_internal_value(self, data: object) -> T:
+        validate_query_parameters(data, self.fields)
+        try:
+            return super().to_internal_value(cast(dict[str, object], data))
+        except OfflineEvaluationValidationError as error:
+            raise serializers.ValidationError(error.errors) from error
+
+
+class OfflinePageQuerySerializer(_OfflineQuerySerializer[OfflineReadQuery]):
     limit = serializers.IntegerField(
         required=False, default=50, min_value=1, max_value=100, help_text="Page size, from 1 to 100. Defaults to 50."
     )
@@ -35,17 +63,12 @@ class OfflinePageQuerySerializer(DataclassSerializer[OfflineReadQuery]):
         dataclass = OfflineReadQuery
         fields = ["limit", "cursor"]
 
-    def to_internal_value(self, data: object) -> OfflineReadQuery:
-        validate_query_parameters(data, self.fields)
-        try:
-            return super().to_internal_value(cast(dict[str, object], data))
-        except OfflineEvaluationValidationError as error:
-            raise serializers.ValidationError(error.errors) from error
-
 
 class OfflineResultQuerySerializer(OfflinePageQuerySerializer):
     scorer_version_ids = serializers.CharField(
-        required=False, max_length=739, help_text="Comma-separated list of at most 20 distinct scorer-version UUIDs."
+        required=False,
+        max_length=37 * MAX_READ_SCORER_VERSIONS - 1,
+        help_text=f"Comma-separated list of at most {MAX_READ_SCORER_VERSIONS} distinct scorer-version UUIDs.",
     )
 
     class Meta(OfflinePageQuerySerializer.Meta):
@@ -53,9 +76,9 @@ class OfflineResultQuerySerializer(OfflinePageQuerySerializer):
 
     def validate_scorer_version_ids(self, value: str) -> tuple[UUID, ...]:
         values = value.split(",")
-        if len(values) > 20:
-            raise serializers.ValidationError("Select at most 20 distinct scorer versions.")
-        versions = tuple(cast(UUID, serializers.UUIDField().run_validation(version)) for version in values)
+        if len(values) > MAX_READ_SCORER_VERSIONS:
+            raise serializers.ValidationError(f"Select at most {MAX_READ_SCORER_VERSIONS} distinct scorer versions.")
+        versions = _parse_uuids(values)
         if len(set(versions)) != len(versions):
             raise serializers.ValidationError("Select distinct scorer versions.")
         return versions
@@ -70,7 +93,42 @@ class OfflineSummaryQuerySerializer(OfflineResultQuerySerializer):
         fields = [*OfflineResultQuerySerializer.Meta.fields, "scorer_definition_id"]
 
 
+class OfflineResultCellQuerySerializer(_OfflineQuerySerializer[OfflineResultCellQuery]):
+    item_ids = serializers.CharField(
+        max_length=37 * MAX_RESULT_CELL_ITEMS - 1,
+        help_text=f"Comma-separated list of 1 to {MAX_RESULT_CELL_ITEMS} distinct item UUIDs belonging to this experiment.",
+    )
+    scorer_version_ids = serializers.CharField(
+        max_length=37 * MAX_READ_SCORER_VERSIONS - 1,
+        help_text=f"Comma-separated list of 1 to {MAX_READ_SCORER_VERSIONS} distinct authorized scorer-version UUIDs.",
+    )
+
+    class Meta:
+        dataclass = OfflineResultCellQuery
+        fields = ["item_ids", "scorer_version_ids"]
+
+    def validate_item_ids(self, value: str) -> tuple[UUID, ...]:
+        return _parse_uuids(value.split(","))
+
+    def validate_scorer_version_ids(self, value: str) -> tuple[UUID, ...]:
+        return _parse_uuids(value.split(","))
+
+
 class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
+    created_by = serializers.IntegerField(
+        required=False, min_value=1, help_text="Filter experiments by the author's user ID."
+    )
+    created_by_is_null = serializers.BooleanField(
+        required=False, help_text="Only include experiments without an author."
+    )
+    tags = ResourceTagFilterField()
+    tag_match = serializers.ChoiceField(
+        choices=TagMatch.choices,
+        required=False,
+        default=TagMatch.ANY,
+        help_text="Match any selected tag (OR) or all selected tags (AND).",
+    )
+
     date_from = serializers.DateTimeField(
         required=False, help_text="Inclusive execution start time, in ISO 8601 format."
     )
@@ -109,10 +167,14 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
     class Meta(OfflineResultQuerySerializer.Meta):
         fields = [
             *OfflineResultQuerySerializer.Meta.fields,
+            "tags",
+            "tag_match",
             "date_from",
             "date_to",
             "search",
             "run_source",
+            "created_by",
+            "created_by_is_null",
             "statuses",
             "suite_key",
             "dataset_source",
@@ -122,6 +184,9 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
             "model_version",
             "prompt_version",
         ]
+
+    def validate_tags(self, value: list[str]) -> tuple[str, ...]:
+        return tuple(value)
 
     def validate_statuses(self, value: str) -> tuple[str, ...]:
         values = tuple(value.split(","))
@@ -149,7 +214,25 @@ class OfflineExperimentQuerySerializer(OfflineHistoryQuerySerializer):
         fields = [*OfflineHistoryQuerySerializer.Meta.fields, "scorer_definition_id"]
 
 
+class OfflineScorerHistoryQuerySerializer(OfflineHistoryQuerySerializer):
+    breakdown = EnumField(
+        enum_class=OfflineHistoryBreakdown,
+        choices=OfflineHistoryBreakdown.choices,
+        required=False,
+        help_text="Split history by this property. Model uses each item's model, falling back to the experiment's model.",
+    )
+
+    class Meta(OfflineHistoryQuerySerializer.Meta):
+        fields = [*OfflineHistoryQuerySerializer.Meta.fields, "breakdown"]
+
+
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who submitted the experiment, or null for service credentials."
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(), help_text="Project tag names assigned to this experiment."
+    )
     id = serializers.UUIDField(help_text="Stable experiment UUID.")
     name = serializers.CharField(help_text="Experiment name.")
     run_source = serializers.ChoiceField(
@@ -198,6 +281,7 @@ class OfflineScorerVersionReadSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="Version number within the definition.")
     kind = serializers.ChoiceField(choices=ScoreDefinition.Kind.choices, help_text="Scorer value kind.")
     name = serializers.CharField(help_text="Current scorer display name.")
+    short_name = serializers.CharField(allow_blank=True, help_text="Current compact label. Blank uses the full name.")
     description = serializers.CharField(allow_blank=True, help_text="Current scorer description.")
     archived = serializers.BooleanField(help_text="Whether the scorer is archived.")
     config = ScoreDefinitionConfigField(help_text="Pinned immutable configuration used to interpret these results.")
@@ -216,7 +300,7 @@ class OfflineResultFieldsSerializer(serializers.Serializer):
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Result payload storage state.")
     payload_expires_at = serializers.DateTimeField(
-        allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+        allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
 
 
@@ -230,7 +314,20 @@ class OfflineResultCellSerializer(OfflineResultFieldsSerializer):
     )
 
 
+@extend_schema_serializer(many=False)
+class OfflineResultCellsSerializer(serializers.Serializer):
+    scorer_versions = OfflineScorerVersionReadSerializer(
+        many=True, help_text="Selected authorized versions, including versions with no results for these items."
+    )
+    results = OfflineResultCellSerializer(
+        many=True, help_text="Submitted results for the exact selected items and versions; at most 1,000 cells."
+    )
+
+
 class OfflineItemReadSerializer(serializers.Serializer):
+    model_version = serializers.CharField(
+        allow_null=True, required=False, help_text="Model used for the item, falling back to the experiment's model."
+    )
     id = serializers.UUIDField(help_text="Stable item UUID.")
     experiment_id = serializers.UUIDField(help_text="Owning experiment UUID.")
     case_key = serializers.CharField(allow_null=True, help_text="Optional stable case identifier.")
@@ -248,7 +345,7 @@ class OfflineItemReadSerializer(serializers.Serializer):
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Item payload storage state.")
     payload_expires_at = serializers.DateTimeField(
-        allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+        allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
     results = OfflineResultCellSerializer(
         many=True, help_text="Cells for explicitly selected scorer versions; empty when none selected."
@@ -330,18 +427,35 @@ class OfflineScorerSummarySerializer(serializers.Serializer):
     true_rate = serializers.FloatField(
         allow_null=True, help_text="Boolean true fraction among successes; null with no successes or for other kinds."
     )
+    pass_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.",
+    )
+    fail_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.",
+    )
+    pass_rate = serializers.FloatField(
+        allow_null=True,
+        help_text="Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.",
+    )
     categories = OfflineCategorySummarySerializer(
         many=True, help_text="Pinned categorical distribution; multiselect rates may sum above one."
     )
 
 
 class OfflineHistoryPointSerializer(serializers.Serializer):
+    breakdown_value = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Breakdown value for this summary; null when unspecified or no breakdown is selected.",
+    )
     experiment = OfflineExperimentReadSerializer(help_text="Experiment execution and cohort context.")
     summary = OfflineScorerSummarySerializer(help_text="Complete summary for one experiment and scorer version.")
 
 
 @extend_schema_serializer(many=False)
-class OfflinePageSerializer(serializers.Serializer):
+class OfflinePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="Total authorized rows matching the filters, independent of this page.")
     next_cursor = serializers.CharField(allow_null=True, help_text="Continuation cursor, or null after the final page.")
 
