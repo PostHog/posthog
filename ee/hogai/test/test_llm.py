@@ -1337,15 +1337,23 @@ class TestMaxChatOpenAIAIGateway(BaseTest):
             )
             target.client = target.root_client.chat.completions
 
+        posthog_client = Mock(privacy_mode=False)
+        callbacks = [MaxCallbackHandler(posthog_client, distinct_id="distinct-1")]
         with patch("ee.hogai.llm.ensure_config", return_value=self._config(ai_product)):
             if sync:
-                result = await sync_to_async(model.generate)([[HumanMessage(content="hello")]])
+                result = await sync_to_async(model.generate)([[HumanMessage(content="hello")]], callbacks=callbacks)
             else:
-                result = await model.agenerate([[HumanMessage(content="hello")]])
+                result = await model.agenerate([[HumanMessage(content="hello")]], callbacks=callbacks)
 
         self.assertEqual([request.url.host for request in requests], hosts)
         self.assertEqual(result.generations[0][0].text, text)
         self.assertEqual(is_ai_gateway_served(result), served)
+        captured_hosts = [
+            httpx.URL(call.kwargs["properties"]["$ai_base_url"]).host
+            for call in posthog_client.mock_calls
+            if call.kwargs.get("event") == "$ai_generation"
+        ]
+        self.assertEqual(captured_hosts, [] if served else ["api.openai.com"])
         first = requests[0]
         if first.url.host == "ai-gateway.test":
             self.assertEqual(first.headers["x-posthog-product"], "posthog_ai")

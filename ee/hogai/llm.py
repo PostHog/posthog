@@ -164,6 +164,11 @@ class MaxCallbackHandler(CallbackHandler):
             return
         super()._capture_generation(trace_id, run_id, run, output, parent_run_id, include_parent_id)
 
+    def record_served_base_url(self, run_id: UUID, base_url: str) -> None:
+        run = self._runs.get(run_id)
+        if isinstance(run, GenerationMetadata):
+            run.base_url = base_url
+
     @property
     def ai_product(self) -> str | None:
         return (self._properties or {}).get("ai_product")
@@ -445,6 +450,19 @@ class MaxChatMixin(BaseModel):
             headers["X-PostHog-Privacy-Mode"] = "true"
         return {**kwargs, "extra_headers": {**(kwargs.get("extra_headers") or {}), **headers}}
 
+    def _ai_gateway_fallback_base_url(self) -> str | None:
+        return None
+
+    def _record_served_by_ai_gateway_fallback(
+        self, run_manager: CallbackManagerForLLMRun | AsyncCallbackManagerForLLMRun | None
+    ) -> None:
+        base_url = self._ai_gateway_fallback_base_url()
+        if base_url is None or run_manager is None:
+            return
+        for handler in run_manager.handlers:
+            if isinstance(handler, MaxCallbackHandler):
+                handler.record_served_base_url(run_manager.run_id, base_url)
+
     def _record_ai_gateway_fallback(self, reason: str, error: Exception) -> None:
         AI_GATEWAY_FALLBACK_COUNTER.labels(reason=reason).inc()
         model_name = getattr(self, "model", None) or getattr(self, "model_name", "unknown")
@@ -487,6 +505,7 @@ class MaxChatMixin(BaseModel):
                     raise
                 self._record_ai_gateway_fallback(reason, error)
 
+        self._record_served_by_ai_gateway_fallback(run_manager)
         yield from fallback._stream(messages, stop=stop, run_manager=run_manager, **direct_kwargs)
 
     def _generate(
@@ -514,6 +533,7 @@ class MaxChatMixin(BaseModel):
                     generation.generation_info = {**(generation.generation_info or {}), AI_GATEWAY_SERVED_KEY: True}
                 return result
 
+        self._record_served_by_ai_gateway_fallback(run_manager)
         return fallback._generate(messages, stop=stop, run_manager=run_manager, **direct_kwargs)
 
     async def _astream(
@@ -562,6 +582,7 @@ class MaxChatMixin(BaseModel):
                     raise
                 self._record_ai_gateway_fallback(reason, error)
 
+        self._record_served_by_ai_gateway_fallback(run_manager)
         async for chunk in fallback._astream(messages, stop=stop, run_manager=run_manager, **direct_kwargs):
             yield chunk
 
@@ -593,6 +614,7 @@ class MaxChatMixin(BaseModel):
                     generation.generation_info = {**(generation.generation_info or {}), AI_GATEWAY_SERVED_KEY: True}
                 return result
 
+        self._record_served_by_ai_gateway_fallback(run_manager)
         return await fallback._agenerate(messages, stop=stop, run_manager=run_manager, **direct_kwargs)
 
 
@@ -627,6 +649,11 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             "max_retries": 0,
             "ai_gateway_fallback": cls(**data, ai_gateway_fallback=None),
         }
+
+    def _ai_gateway_fallback_base_url(self) -> str | None:
+        if self.ai_gateway_fallback is None:
+            return None
+        return str(self.ai_gateway_fallback.root_client.base_url)
 
     def model_post_init(self, __context: Any) -> None:
         super().model_post_init(__context)
