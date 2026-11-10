@@ -12,6 +12,7 @@ posthog/api/integration.py 7
 posthog/api/organization_integration.py 3
 posthog/api/user_integration.py 2
 posthog/github/attribution.py 1
+posthog/github/installations.py 2
 posthog/management/commands/flag_legacy_oauth_integrations.py 3
 posthog/management/commands/migrate_ses_tenants.py 2
 posthog/management/commands/normalize_apns_integrations.py 3

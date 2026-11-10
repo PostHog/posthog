@@ -1,6 +1,6 @@
 from posthog.dataclasses import frozen
 from posthog.ingress.dispatch.database import bounded_statement_timeout
-from posthog.integrations import IntegrationManager
+from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
 
@@ -35,11 +35,13 @@ def installation_integrations(external_id: str) -> tuple[InstallationIntegration
     Raises the database error when the capped lookup fails, so each caller applies its own failure policy.
     """
     with bounded_statement_timeout(_INSTALLATION_LOOKUP_TIMEOUT_MS, aliases=[SCOPE_DB_ALIAS]):
-        rows = IntegrationManager.github.any.list_by_external_id(external_id)
-        return tuple(
-            InstallationIntegration(id=row.id, team_id=row.team_id)
-            for row in sorted(rows, key=lambda row: (row.team_id, row.id))
+        rows = (
+            Integration.objects.using(SCOPE_DB_ALIAS)
+            .filter(kind="github", integration_id=external_id)
+            .order_by("team_id", "id")
+            .values_list("id", "team_id")
         )
+        return tuple(InstallationIntegration(id=row_id, team_id=team_id) for row_id, team_id in rows)
 
 
 def installation_team_ids(payload: dict) -> list[int]:
