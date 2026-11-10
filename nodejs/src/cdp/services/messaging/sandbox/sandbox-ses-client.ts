@@ -3,6 +3,7 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { logger } from '~/common/utils/logger'
 
 import { formatMailbox } from '../email.service'
+import { SES_SEND_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxMessage } from './sandbox-message'
 
 export const SANDBOX_SES_TAGS = {
@@ -35,7 +36,6 @@ export type SandboxSesResult =
 export type SandboxSesSettings = { configurationSet: string; tenantName: string }
 
 const THROTTLE_ERROR_NAMES = new Set(['ThrottlingException', 'TooManyRequestsException'])
-export const SES_SEND_TIMEOUT_MS = 10_000
 
 export function createSandboxSesV2Client({ region, endpoint }: { region: string; endpoint: string }): SESv2Client {
     return new SESv2Client({ region, endpoint: endpoint || undefined, maxAttempts: 1 })

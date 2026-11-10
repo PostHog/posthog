@@ -6,8 +6,9 @@ import {
     SES_THROTTLE,
     SesReply,
 } from './_tests/fake-ses-endpoint'
+import { SES_SEND_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxMessage } from './sandbox-message'
-import { SES_SEND_TIMEOUT_MS, SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
+import { SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
 
 describe('SandboxSesClient', () => {
     const message: SandboxMessage = {

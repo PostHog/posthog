@@ -21,12 +21,9 @@ import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
 import { RateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
-import { AUTHORIZATION_TIMEOUT_MS } from './sandbox-authorization'
 import { SandboxEventProperties, SandboxTerminalOutcome } from './sandbox-email-events'
-import { CAPS_VALKEY_TIMEOUT_MS } from './sandbox-email-runtime'
 import { SANDBOX_TEST_SEND_PATH, sandboxEmailTestRouter } from './sandbox-email-test-route'
-import { SANDBOX_TEST_TIMEOUT_MS, SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
-import { SES_SEND_TIMEOUT_MS } from './sandbox-ses-client'
+import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
 
 type RecordedEvent = { teamId: number; outcome: SandboxTerminalOutcome; properties: SandboxEventProperties }
 
@@ -173,12 +170,6 @@ describe('sandbox email test sends', () => {
                 properties: { workflow_id: hogFlow.id, action_id: 'email', is_test: true },
             },
         ])
-    })
-
-    it('waits for the worker longer than the worker can spend on one send', () => {
-        expect(SANDBOX_TEST_TIMEOUT_MS).toBeGreaterThan(
-            2 * AUTHORIZATION_TIMEOUT_MS + 3 * CAPS_VALKEY_TIMEOUT_MS + SES_SEND_TIMEOUT_MS
-        )
     })
 
     it('sends a test of a workflow that is not saved yet', async () => {

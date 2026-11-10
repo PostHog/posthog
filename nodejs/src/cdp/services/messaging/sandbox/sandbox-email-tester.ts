@@ -10,11 +10,11 @@ import {
     SandboxEmailStepResult,
     SandboxEmailTestClient,
 } from '../../hogflows/actions/email_sandbox'
+import { SANDBOX_TEST_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxRenderedEmail } from './sandbox-message'
 import { logRenderFailure, renderSandboxEmail } from './sandbox-render'
 
 export const SANDBOX_TEST_TOKEN_TTL_SECONDS = 120
-export const SANDBOX_TEST_TIMEOUT_MS = 30_000
 
 const TestSendResponseSchema = z.object({
     status: z.enum(['accepted', 'skipped', 'failed', 'pending']),

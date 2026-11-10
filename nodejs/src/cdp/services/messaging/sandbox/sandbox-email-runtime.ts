@@ -6,6 +6,7 @@ import { PluginsServerConfig } from '~/types'
 import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { EmailSuppressionService } from '../email-suppression.service'
+import { CAPS_VALKEY_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { SandboxEmailService, createSandboxEmailService } from './sandbox-email.service'
 import { SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
@@ -41,8 +42,6 @@ const REQUIRED_TEXT_SETTINGS = [
     'SES_SANDBOX_TENANT_NAME',
     'WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST',
 ] as const
-
-export const CAPS_VALKEY_TIMEOUT_MS = 2_000
 
 const REQUIRED_CAP_SETTINGS = ['WORKFLOWS_SANDBOX_DAILY_TEAM_CAP', 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'] as const
 
