@@ -5,6 +5,7 @@ import type {
     EventsNode,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentQuantileMetric,
     ExperimentStatsBaseValidated,
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
@@ -19,6 +20,7 @@ import {
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
@@ -26,9 +28,13 @@ import { ExperimentMetricGoal } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
+export const formatMetricTypeName = (metricType: string): string =>
+    metricType === ExperimentMetricType.QUANTILE ? 'percentile' : metricType
+
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
-        return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
+        const typeName = formatMetricTypeName(metric.metric_type)
+        return typeName.charAt(0).toUpperCase() + typeName.slice(1).toLowerCase()
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return 'Funnel'
     }
@@ -57,6 +63,17 @@ const getDefaultName = (source: MetricSource): string | null | undefined => {
     }
 }
 
+// Rounds away float noise (0.975 * 100 is 97.49999…) but keeps fractional levels such as p97.5
+export const quantileToPercentile = (quantile: number): number => Number((quantile * 100).toFixed(2))
+
+export const formatQuantileLevel = (quantile: number): string => `p${quantileToPercentile(quantile)}`
+
+/** True when the results UI can open a daily timeseries for the metric. Percentile metrics have no daily timeseries. */
+export const metricSupportsTimeseries = (metric: ExperimentMetric): boolean => !isExperimentQuantileMetric(metric)
+
+const getDefaultQuantileMetricTitle = (metric: ExperimentQuantileMetric): string =>
+    `${formatQuantileLevel(metric.quantile)} of ${metric.source.math_property || getDefaultName(metric.source) || 'property'}`
+
 export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
     switch (metric.metric_type) {
         case ExperimentMetricType.MEAN:
@@ -71,6 +88,8 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             const startEventName = getDefaultName(metric.start_event)
             const completionEventName = getDefaultName(metric.completion_event)
             return `${startEventName || 'Start event'} / ${completionEventName || 'Completion event'}`
+        case ExperimentMetricType.QUANTILE:
+            return getDefaultQuantileMetricTitle(metric)
         default:
             return 'Untitled metric'
     }
@@ -284,6 +303,13 @@ export function isProportionMetric(metric: ExperimentMetric): boolean {
 }
 
 export function formatMetricValue(data: any, metric: ExperimentMetric): string {
+    if (isExperimentQuantileMetric(metric)) {
+        // The first grid entry is the quantile itself. `sum` holds the count of events at or below it.
+        const quantileValue = data.quantile_grid?.[0]
+        return typeof quantileValue === 'number' && Number.isFinite(quantileValue)
+            ? humanFriendlyLargeNumber(quantileValue)
+            : '—'
+    }
     if (isExperimentRatioMetric(metric)) {
         // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
         if (data.denominator_sum && data.denominator_sum > 0) {
@@ -309,6 +335,13 @@ export function getMetricSubtitleValues(
         return {
             numerator: variant.sum,
             denominator: variant.denominator_sum || 0,
+        }
+    }
+    if (isExperimentQuantileMetric(metric)) {
+        // Events over exposed users, because `sum` is the count of events at or below the quantile
+        return {
+            numerator: variant.denominator_sum || 0,
+            denominator: variant.number_of_samples || 0,
         }
     }
     return {

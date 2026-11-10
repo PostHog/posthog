@@ -3956,7 +3956,9 @@ class TestUnlockGroup:
         fresh_conn = _make_healthy_conn()
         batches = [_make_batch()]
 
-        retry_error = psycopg.OperationalError("connection refused")
+        # Not a self-healing shape like a dropped connection or a connection refusal, so
+        # the retry exhaustion below must still reach error tracking.
+        retry_error = psycopg.OperationalError("password authentication failed for user")
         mock_unlock = AsyncMock(
             side_effect=[psycopg.OperationalError("another command is already in progress"), retry_error]
         )

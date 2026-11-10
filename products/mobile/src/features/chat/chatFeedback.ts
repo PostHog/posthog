@@ -1,4 +1,4 @@
-import type { SessionThreadItem } from './session/types'
+import type { SessionAssistantItem, SessionPhase, SessionThreadItem, SessionTurnEndItem } from './session/types'
 
 export interface ChatFeedbackContext {
     sessionId: string
@@ -11,32 +11,46 @@ export interface ChatFeedbackTarget extends ChatFeedbackContext {
     turnIndex?: number
 }
 
-export function chatFeedbackTargets(
-    items: readonly SessionThreadItem[],
-    context: ChatFeedbackContext | undefined
-): Map<string, ChatFeedbackTarget> {
-    const targets = new Map<string, ChatFeedbackTarget>()
-    if (!context) return targets
+export interface ChatReplyActions {
+    feedback?: ChatFeedbackTarget
+}
 
+export function chatReplyActions(
+    items: readonly SessionThreadItem[],
+    context: ChatFeedbackContext | undefined,
+    phase: SessionPhase
+): Map<string, ChatReplyActions> {
+    const actions = new Map<string, ChatReplyActions>()
     let turnIndex = -1
-    let answerId: string | undefined
+    let answer: SessionAssistantItem | undefined
+
+    const finishReply = (end?: SessionTurnEndItem): void => {
+        if (answer?.complete) {
+            let feedback: ChatFeedbackTarget | undefined
+            if (context?.runtime === 'langgraph' && answer.traceId) {
+                feedback = { ...context, traceId: answer.traceId }
+            } else if (context?.runtime === 'sandbox' && end && turnIndex >= 0) {
+                feedback = { ...context, turnIndex, traceId: end.traceId, runId: end.runId }
+            }
+            actions.set(answer.id, { feedback })
+        }
+        answer = undefined
+    }
+
     for (const item of items) {
         if (item.kind === 'user') {
+            finishReply()
             turnIndex += 1
-            answerId = undefined
-        } else if (item.kind === 'assistant' && item.complete && item.text.trim()) {
-            answerId = item.id
-            if (context.runtime === 'langgraph' && item.traceId) {
-                targets.set(item.id, { ...context, traceId: item.traceId })
-            }
+        } else if (item.kind === 'assistant' && item.text.trim()) {
+            answer = item
         } else if (item.kind === 'turn_end') {
-            if (context.runtime === 'sandbox' && answerId && turnIndex >= 0) {
-                targets.set(answerId, { ...context, turnIndex, traceId: item.traceId, runId: item.runId })
-            }
-            answerId = undefined
+            finishReply(item)
         }
     }
-    return targets
+    if (phase === 'idle') {
+        finishReply()
+    }
+    return actions
 }
 
 export function chatFeedbackKey(scope: string, target: ChatFeedbackTarget): string {

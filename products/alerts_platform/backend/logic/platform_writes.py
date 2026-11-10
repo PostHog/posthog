@@ -248,7 +248,9 @@ def create_configuration(
                 now=django_timezone.now(),
             )
     else:
-        assert spec.create is not None
+        if spec.create is None:
+            # A native kind whose creates are switched off.
+            raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
         configuration = _create_through_source(team_id, source_kind, spec.create, validated, created_by_id)
 
     view = platform_reads.get_configuration(
@@ -568,6 +570,14 @@ def _locked_owned_copy(team_id: int, legacy_configuration_id: UUID) -> PlatformA
     return configuration
 
 
+def _with_kept_keys(
+    edit: PlatformAlertConfigurationEdit, other: PlatformAlertConfigurationEdit, keys: frozenset[str]
+) -> PlatformAlertConfigurationEdit:
+    """`edit` with each of `keys` its `source_config` leaves out taken from `other`'s."""
+    missing = {key: other.source_config[key] for key in keys - edit.source_config.keys() if key in other.source_config}
+    return replace(edit, source_config={**edit.source_config, **missing}) if missing else edit
+
+
 def _apply(
     configuration: PlatformAlertConfiguration,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
@@ -584,8 +594,12 @@ def _apply(
             f"This alert is managed by the {configuration.source_kind} product. Edit it there."
         )
     source_kind = SourceKind(configuration.source_kind)
+    spec = source_configs.spec(source_kind)
+    kept = spec.kept_source_config_keys if spec is not None else frozenset()
     current = edit_of(configuration)
-    edit = _validated(source_kind, current, change(current), team_id=configuration.team_id)
+    edit = _validated(
+        source_kind, current, _with_kept_keys(change(current), current, kept), team_id=configuration.team_id
+    )
     if admit and edit.enabled and not current.enabled:
         _admit(
             team_id=configuration.team_id,
@@ -596,7 +610,9 @@ def _apply(
         )
 
     regrouped = not edit.grouping.splits_like(current.grouping)
-    ending = control_plane.ending_reason(current, edit, regrouped=regrouped, snoozing=snoozing)
+    ending = control_plane.ending_reason(
+        _with_kept_keys(current, edit, kept), edit, regrouped=regrouped, snoozing=snoozing
+    )
     # Before the instances change, so the history rows name the firings as they ran.
     pending = control_plane.end_firings(configuration, reason=ending, now=now) if ending else None
 

@@ -2,6 +2,8 @@
 
 The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
 
+Research completion activities update a report only while its locked status is `IN_PROGRESS`. The failure activity also handles `CANDIDATE` reports when admission fails before research starts. Status changes made during research, including archive, snooze, close, and resolve, remain in effect. Retries preserve completed transitions, including a return to `CANDIDATE` when new signals require more research.
+
 Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. Review and merge continues to show reports with an open implementation PR.
 
 A report completes after all linked implementation PRs are closed or merged.
@@ -10,6 +12,13 @@ At least one merged PR completes implementation: applicable follow-up checks ent
 PR-driven resolutions emit `signal_report_status_changed` with `resolution_reason=pr_merged`, including when attaching an already-merged PR completes a report. `dismissal_reason` remains reserved for feedback supplied with the transition. Outcome queries should prefer `resolution_reason` and fall back to `dismissal_reason`; a missing reason alone does not imply that no PR merged.
 
 PR-driven dismissals emit `dismissal_cause=pr_closed_without_merge` when all linked implementation PRs are closed without a merge. This also covers reconciliation after attaching an already-closed PR. Dismissal queries should prefer `dismissal_cause` and fall back to `dismissal_reason`, which remains the caller's feedback. The cause identifies automatic reconciliation, not who closed the PR or why they closed it.
+
+Web and Desktop use the same report action and run-state rules from `@posthog/agent-contracts/signal-report-state`.
+A person can resolve Ready, Pending input, Failed, Closed, and Monitoring reports.
+Monitoring and Closed reports show a completed agent run.
+A closed or merged implementation PR does not trigger an open-PR warning in a resolve or dismiss dialog.
+When the PR state is absent or unknown, Failed, Resolved, Suppressed, and Closed reports show a closed PR and do not poll its CI.
+An explicit PR state takes precedence over that fallback.
 
 A person can resolve a report by recording a manual implementation or a useful finding that needs no action. Feedback from the state API, Slack, PR closures, report merges, refunds, and plan rollups saves its verdict so the activity log distinguishes resolutions from dismissals even after later state changes. Feedback predating recorded verdicts uses a neutral activity label.
 The `no_action_needed` reason requires a resolved state. It leaves the report resolved, cancels its open follow-up checks, and is excluded from fixed outcomes in inbox ranking. Manual resolution closes an open implementation PR; the resulting GitHub close event preserves the resolved report status.
@@ -339,6 +348,14 @@ Keep the selection flag disabled until the trial confirms suitable assignments a
 
 When a project member adds a reviewer, the report shows "Added by" and that member's name as the reason above the reviewer. The name comes from the authenticated author of the artefact that added the reviewer, not from the editable reason. If the author is unavailable, the report shows the generic "Added by teammate" badge instead.
 
+Shared Slack notification settings belong to the project selected in PostHog.
+Project members with Inbox editor access can change these settings; admin access is not required.
+API callers also need `inbox:write`.
+The team channel has its own minimum priority, separate from each reviewer's personal notification setting.
+The default, "All priorities", includes reports without a priority.
+A set minimum priority excludes reports without a priority and reports below that threshold.
+Filtering out a team notification does not block a reviewer's personal notification if it meets their personal threshold.
+
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
 The same access rule applies when a reviewer is added later.
 The team channel shows eligible suggested owners within Slack's text limit.
@@ -346,9 +363,9 @@ When the labels exceed that limit, the notification shows complete labels and a 
 It pings only owners routed to that channel, so owners with a personal notification target appear as plain text.
 Slack keeps plain-text owner names literal instead of converting them into mentions.
 Report text also escapes incomplete mention prefixes and nested tokens while it keeps valid HTTP links.
-If no suggested reviewer has access, the ready report still goes to the configured team channel without an owner label.
+If no suggested reviewer has access, a ready report that meets the team priority setting still goes to the configured team channel without an owner label.
 If the latest actionability judgment marks the report as already addressed, the system does not assign a fallback owner or send a reviewer push notification.
-Slack still sends the report to the configured team channel without reviewer mentions.
+Slack still sends the report to the configured team channel without reviewer mentions if it meets the team priority setting.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 The Slack notification's Implement button posts a request in the report thread and starts the Slack agent flow.
 The agent uses the clicking member's project access and can ask them to select a repository in Slack.
