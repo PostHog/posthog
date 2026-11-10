@@ -1498,12 +1498,13 @@ class TestSignalReportListAPI(APIBaseTest):
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
         ):
             expected_monitoring = {str(monitoring.id)} if enabled else set()
-            filtered = self.client.get(self._list_url(status="monitoring"))
-            assert filtered.status_code == status.HTTP_200_OK
-            assert {row["id"] for row in filtered.json()["results"]} == expected_monitoring
-            filtered_count = self.client.get(self._list_url(status="monitoring", count_only="true"))
-            assert filtered_count.status_code == status.HTTP_200_OK
-            assert filtered_count.json()["count"] == len(expected_monitoring)
+            for query in [{"status": "monitoring"}, {"view": "monitoring"}]:
+                filtered = self.client.get(self._list_url(**query))
+                assert filtered.status_code == status.HTTP_200_OK
+                assert {row["id"] for row in filtered.json()["results"]} == expected_monitoring
+                filtered_count = self.client.get(self._list_url(**query, count_only="true"))
+                assert filtered_count.status_code == status.HTTP_200_OK
+                assert filtered_count.json()["count"] == len(expected_monitoring)
 
             for query in [{"status": "resolved"}, {"view": "resolved"}]:
                 response = self.client.get(self._list_url(**query))
