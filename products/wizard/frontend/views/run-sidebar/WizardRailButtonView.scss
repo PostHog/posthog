@@ -1,12 +1,6 @@
-// While a run is active the hog keeps casting and an arc travels around the tile, so the run reads as in
-// progress from anywhere in the app. The rail tile forces every svg inside it to its icon size, so the ring is
-// a masked border rather than an svg, and the badge icons shrink with a transform.
-
-@property --wizard-rail-ring-angle {
-    syntax: '<angle>';
-    inherits: false;
-    initial-value: 0deg;
-}
+// While a run is active the hog keeps casting and a ring around the tile fills with the run's progress, so the
+// run reads as in progress from anywhere in the app. The rail tile forces every svg inside it to its icon size,
+// so the ring is a masked border rather than an svg, and the badge icons shrink with a transform.
 
 .WizardRailButton__hog--working {
     transform-origin: 50% 85%;
@@ -18,14 +12,16 @@
     inset: -3px;
     padding: 2px;
     pointer-events: none;
-    background: conic-gradient(from var(--wizard-rail-ring-angle), var(--primary) 0 25%, var(--border) 25% 100%);
+    background: conic-gradient(
+        var(--primary, var(--primary-3000)) 0deg calc(var(--wizard-rail-progress) * 1turn),
+        var(--border) calc(var(--wizard-rail-progress) * 1turn) 1turn
+    );
 
     // The tile is rounded-md; the ring sits 3px outside it, so its corners grow by the same amount.
     border-radius: calc(var(--radius-md) + 3px);
     mask:
         linear-gradient(#000 0 0) content-box exclude,
         linear-gradient(#000 0 0);
-    animation: WizardRailButton-trace 1.6s linear infinite;
 }
 
 .WizardRailButton__badge svg {
@@ -34,8 +30,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .WizardRailButton__hog--working,
-    .WizardRailButton__ring {
+    .WizardRailButton__hog--working {
         animation: none;
     }
 }
@@ -53,12 +48,5 @@
 
     60% {
         transform: rotate(5deg);
-    }
-}
-
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes WizardRailButton-trace {
-    to {
-        --wizard-rail-ring-angle: 360deg;
     }
 }

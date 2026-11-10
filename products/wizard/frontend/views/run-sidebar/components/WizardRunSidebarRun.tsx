@@ -7,7 +7,12 @@ import { urls } from 'scenes/urls'
 import { WizardRunEnvironmentIcon } from '../../../components/run-tags/WizardRunEnvironmentIcon'
 import { WizardRunStatusIcon } from '../../../components/run-tags/WizardRunStatusIcon'
 import type { WizardRunApi, WizardRunTaskApi } from '../../../generated/api.schemas'
-import { wizardRunActivityLabel, wizardWorkspaceLabel } from '../../../lib/wizardRunDisplay'
+import {
+    wizardRunActivityLabel,
+    wizardRunIsActive,
+    wizardRunTaskCounts,
+    wizardWorkspaceLabel,
+} from '../../../lib/wizardRunDisplay'
 
 export function WizardRunSidebarRun({
     run,
@@ -24,6 +29,7 @@ export function WizardRunSidebarRun({
     onDismiss: () => void
     onNavigate: () => void
 }): JSX.Element {
+    const { completed, total } = wizardRunTaskCounts(tasks)
     return (
         <li
             className="flex min-w-0 items-center gap-2 rounded px-2 py-2 hover:bg-fill-highlight-50"
@@ -38,22 +44,24 @@ export function WizardRunSidebarRun({
             <LinkPrimitive
                 to={`${urls.wizardRuns()}?run=${encodeURIComponent(run.id)}`}
                 onClick={onNavigate}
-                className="flex min-w-0 flex-1 items-start gap-2"
+                className="grid min-w-0 flex-1 grid-cols-[1rem_minmax(0,1fr)] items-center gap-x-2"
                 data-attr="wizard-run-sidebar-widget-row"
             >
-                <span className="mt-0.5 shrink-0 text-base">
+                <span className="flex justify-center text-base">
                     <WizardRunStatusIcon status={run.status} />
                 </span>
-                <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold ph-no-capture">{run.program.name}</span>
-                    <span className="block truncate text-xs text-muted ph-no-capture">
-                        {wizardRunActivityLabel(run, tasks)}
-                    </span>
-                    <span className="flex min-w-0 items-center gap-1 text-2xs text-muted ph-no-capture">
-                        <WizardRunEnvironmentIcon environment={run.environment} />
-                        <span className="truncate">{wizardWorkspaceLabel(run)}</span>
-                    </span>
+                <span className="truncate text-xs font-semibold ph-no-capture">{run.program.name}</span>
+                <span aria-hidden />
+                <span className="flex min-w-0 gap-1 text-xs text-muted ph-no-capture">
+                    <span className="truncate">{wizardRunActivityLabel(run, tasks)}</span>
+                    {wizardRunIsActive(run) && total > 0 && (
+                        <span className="shrink-0">{`· ${completed} of ${total} steps`}</span>
+                    )}
                 </span>
+                <span className="flex justify-center text-xs text-muted">
+                    <WizardRunEnvironmentIcon environment={run.environment} />
+                </span>
+                <span className="truncate text-2xs text-muted ph-no-capture">{wizardWorkspaceLabel(run)}</span>
             </LinkPrimitive>
             <LemonButton
                 type="tertiary"

@@ -14,8 +14,8 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
-import type { WizardDetectedWarehouseSourceApi, WizardRunApi } from '../../generated/api.schemas'
-import { wizardRunIsActive } from '../../lib/wizardRunDisplay'
+import type { WizardDetectedWarehouseSourceApi, WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas'
+import { wizardRunIsActive, wizardRunProgressFraction } from '../../lib/wizardRunDisplay'
 import { wizardDetectedSourcesLogic } from '../../logics/wizardDetectedSourcesLogic'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 
@@ -40,6 +40,8 @@ export interface wizardRunSidebarLogicValues {
     detectedSources: WizardDetectedWarehouseSourceApi[] | null
     runDetectedSources: WizardDetectedWarehouseSourceApi[]
     railState: WizardRailState
+    railProgress: number
+    tasksByRunId: Record<string, readonly WizardRunTaskApi[]>
 }
 
 export interface wizardRunSidebarLogicActions {
@@ -64,7 +66,12 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
     key(({ projectId, userId }) => `${projectId}.${userId}`),
     path((key) => ['products', 'wizard', 'wizardRunSidebarLogic', key]),
     connect(({ projectId }: WizardRunSidebarProps) => ({
-        values: [wizardRunSyncLogic({ projectId }), ['userRuns'], wizardDetectedSourcesLogic, ['detectedSources']],
+        values: [
+            wizardRunSyncLogic({ projectId }),
+            ['userRuns', 'tasksByRunId'],
+            wizardDetectedSourcesLogic,
+            ['detectedSources'],
+        ],
         actions: [
             wizardRunSyncLogic({ projectId }),
             ['watchRuns'],
@@ -107,6 +114,13 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
                     return 'failed'
                 }
                 return latestUnseen?.status === 'completed' ? 'completed' : 'idle'
+            },
+        ],
+        railProgress: [
+            (s) => [s.visibleRuns, s.tasksByRunId],
+            (runs: WizardRunApi[], tasksByRunId: Record<string, readonly WizardRunTaskApi[]>): number => {
+                const activeRun = runs.find(wizardRunIsActive)
+                return activeRun ? wizardRunProgressFraction(activeRun, tasksByRunId[activeRun.id] ?? []) : 0
             },
         ],
         runDetectedSources: [

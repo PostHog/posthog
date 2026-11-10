@@ -12,13 +12,14 @@ export function WizardRailButton({ projectId }: { projectId: string }): JSX.Elem
     const { tasksByRunId } = useValues(wizardRunSyncLogic({ projectId }))
     const { user } = useValues(userLogic)
     const sidebarLogic = wizardRunSidebarLogic({ projectId, userId: user?.id ?? 0 })
-    const { visibleRuns, runDetectedSources, railState } = useValues(sidebarLogic)
+    const { visibleRuns, runDetectedSources, railState, railProgress } = useValues(sidebarLogic)
     const { clickState, clickDetectedSource, dismissRuns, markRunsSeen } = useActions(sidebarLogic)
     const [open, setOpen] = useState(false)
 
     return (
         <WizardRailButtonView
             state={railState}
+            progress={railProgress}
             open={open}
             onOpenChange={(nextOpen) => {
                 setOpen(nextOpen)

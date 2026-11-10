@@ -163,6 +163,14 @@ export const DetectedSourcesMenuOpen: Story = {
             },
         ],
         onDetectedSourceClick: () => {},
+        tasksByRunId: {
+            [baseRun.id]: [
+                { ...addingEventsTask, name: 'Installing the SDK', status: 'completed' },
+                { ...addingEventsTask, name: 'Identifying users', status: 'completed' },
+                addingEventsTask,
+                { ...addingEventsTask, name: 'Creating a dashboard', status: 'created', started_at: null },
+            ],
+        },
         initialMenuOpen: true,
     },
 }

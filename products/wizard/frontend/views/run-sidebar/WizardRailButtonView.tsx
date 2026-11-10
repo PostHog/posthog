@@ -1,5 +1,7 @@
 import './WizardRailButtonView.scss'
 
+import type { CSSProperties } from 'react'
+
 import { IconCheck, IconX } from '@posthog/icons'
 import { Popover, PopoverContent, PopoverTrigger, cn } from '@posthog/quill'
 
@@ -18,19 +20,29 @@ const STATE_LABEL: Record<WizardRailState, string> = {
 
 export interface WizardRailButtonViewProps {
     state: WizardRailState
+    progress: number
     open: boolean
     onOpenChange: (open: boolean) => void
     panel: JSX.Element
 }
 
-export function WizardRailButtonView({ state, open, onOpenChange, panel }: WizardRailButtonViewProps): JSX.Element {
+export function WizardRailButtonView({
+    state,
+    progress,
+    open,
+    onOpenChange,
+    panel,
+}: WizardRailButtonViewProps): JSX.Element {
+    const percent = Math.round(progress * 100)
     return (
         <Popover open={open} onOpenChange={onOpenChange}>
             <PopoverTrigger
                 render={
                     <TodayRailTile
                         label="Wizard"
-                        aria-label={STATE_LABEL[state]}
+                        aria-label={
+                            state === 'running' ? `${STATE_LABEL[state]}, ${percent}% done` : STATE_LABEL[state]
+                        }
                         active={open}
                         dataAttr="today-rail-wizard"
                         icon={
@@ -39,7 +51,15 @@ export function WizardRailButtonView({ state, open, onOpenChange, panel }: Wizar
                                     className={cn('size-7', state === 'running' && 'WizardRailButton__hog--working')}
                                     loading="eager"
                                 />
-                                {state === 'running' && <span aria-hidden className="WizardRailButton__ring" />}
+                                {state === 'running' && (
+                                    <span
+                                        aria-hidden
+                                        className="WizardRailButton__ring"
+                                        // A run that just started still shows a sliver, so the ring reads as progress.
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{ '--wizard-rail-progress': Math.max(progress, 0.03) } as CSSProperties}
+                                    />
+                                )}
                                 {(state === 'completed' || state === 'failed') && (
                                     <span
                                         aria-hidden
