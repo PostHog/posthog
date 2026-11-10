@@ -57,6 +57,9 @@ LOGGER = get_logger(__name__)
 # where a single on-demand diagnostics run instead shares its tighter budget across several checks.
 PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
 
+# The `error` code capture v1 returns for a request with no Authorization header.
+CAPTURE_V1_MISSING_AUTHORIZATION = "missing_authorization"
+
 # Every way a resolver reports "no answer". One left uncaught fails the run instead of
 # recording the DNS problem.
 DNS_LOOKUP_FAILURES = (
@@ -459,8 +462,10 @@ def _check_capture_v1_route(probe_base: str) -> str | None:
 
     Mobile SDK majors (posthog-ios 4, posthog-android 4, posthog-flutter 6) send every event to
     /i/v1/analytics/events with no fallback, so a proxy that forwards /i/v0 but not /i/v1 drops
-    all of their data. The probe carries no Authorization header, so capture rejects it with its
-    own 4xx before ingesting anything; only a 404, 3xx or 5xx means the route doesn't reach it.
+    all of their data. The probe carries no Authorization header, and capture checks that header
+    before anything else (rust/capture/src/v1/context.rs), so it answers 401 with a JSON body whose
+    `error` is `missing_authorization` and ingests nothing. Requiring that code proves the request
+    reached capture: a bare 4xx can come from whatever sits in front of it.
     """
     try:
         response = requests.post(
@@ -472,10 +477,13 @@ def _check_capture_v1_route(probe_base: str) -> str | None:
         )
     except requests.exceptions.RequestException as e:
         return f"Proxy does not forward /i/v1/analytics/events ({e.__class__.__name__}); mobile SDKs send events there"
-    status = response.status_code
-    if 200 <= status < 300 or (400 <= status < 500 and status != 404):
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_AUTHORIZATION:
         return None
-    return f"Proxy does not forward /i/v1/analytics/events (got {status}); mobile SDKs send events there"
+    return f"Proxy does not forward /i/v1/analytics/events (got {response.status_code}); mobile SDKs send events there"
 
 
 @dataclass
