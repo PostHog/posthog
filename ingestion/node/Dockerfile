@@ -5,9 +5,6 @@
 # rust/ cargo workspace. ingestion/node/Dockerfile.dockerignore limits the context.
 #
 
-# Every workspace package the service loads at runtime: its own and its dependencies.
-ARG RUNTIME_PACKAGES="common/hogvm/typescript nodejs/packages/hog-engine nodejs/packages/common nodejs/packages/replay-storage ingestion/node/packages/common ingestion/node/packages/ingestion"
-
 #
 # Build stage: Compile nodejs and dependencies
 #
@@ -73,10 +70,14 @@ COPY ./ingestion/node/packages/ingestion/ ./ingestion/node/packages/ingestion/
 COPY ./${PACKAGE_DIR:-ingestion/node/packages/ingestion}/ ./${PACKAGE_DIR:-ingestion/node/packages/ingestion}/
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=${PACKAGE:-@posthog/ingestion} build
 
+# The workspace packages the service loads at runtime, its own included, native addons among them.
+RUN pnpm list --filter "${PACKAGE:-@posthog/ingestion}..." --depth -1 --json | \
+    node -e 'for (const p of JSON.parse(require("fs").readFileSync(0, "utf8"))) console.log(require("path").relative("/code", p.path))' \
+    > /code/runtime-packages.txt
+
 # Record the Django and sqlx migrations this build reads, so the deploy-time schema check can wait for them
 # (nodejs/packages/common/src/schema-check). Bind mounts give the generator the migration files without adding
 # the Python trees to any layer, and BuildKit reruns this step when any mounted file changes.
-ARG RUNTIME_PACKAGES
 ARG COMMIT_HASH
 RUN --mount=type=bind,source=posthog,target=/schema-src/posthog \
     --mount=type=bind,source=ee,target=/schema-src/ee \
@@ -87,7 +88,7 @@ RUN --mount=type=bind,source=posthog,target=/schema-src/posthog \
     --mount=type=bind,source=ingestion/rust/persons_migrations,target=/schema-src/rust/persons_migrations \
     --mount=type=bind,source=rust/cyclotron-node-migrations,target=/schema-src/rust/cyclotron-node-migrations \
     --mount=type=bind,source=rust/behavioral_cohorts_migrations,target=/schema-src/rust/behavioral_cohorts_migrations \
-    roots=""; for pkg in ${RUNTIME_PACKAGES}; do roots="${roots} --source-root ${pkg}/src"; done && \
+    roots=""; for pkg in $(cat /code/runtime-packages.txt); do roots="${roots} --source-root ${pkg}/src"; done && \
     node nodejs/packages/common/dist/schema-check/generate.js \
     --repo-root /schema-src \
     ${roots} \
@@ -139,20 +140,13 @@ RUN groupadd -g 10001 posthog && \
 # Add in the compiled nodejs & its runtime dependencies from the build stage
 COPY --from=build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=build --chown=posthog:posthog /code/package.json /code/package.json
-COPY --from=build --chown=posthog:posthog /code/rust/common/hogvm/node/package.json /code/rust/common/hogvm/node/package.json
-COPY --from=build --chown=posthog:posthog /code/rust/common/hogvm/node/index.js /code/rust/common/hogvm/node/index.js
-COPY --from=build --chown=posthog:posthog /code/rust/common/hogvm/node/index.node /code/rust/common/hogvm/node/index.node
-COPY --from=build --chown=posthog:posthog /code/rust/replay-anonymizer-node/dist /code/rust/replay-anonymizer-node/dist
-COPY --from=build --chown=posthog:posthog /code/rust/replay-anonymizer-node/package.json /code/rust/replay-anonymizer-node/package.json
-COPY --from=build --chown=posthog:posthog /code/rust/replay-anonymizer-node/index.node /code/rust/replay-anonymizer-node/index.node
-COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-node/dist /code/rust/ai-research/replay-core-v4-node/dist
-COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-node/package.json /code/rust/ai-research/replay-core-v4-node/package.json
-COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-node/index.node /code/rust/ai-research/replay-core-v4-node/index.node
 ARG PACKAGE_DIR
-ARG RUNTIME_PACKAGES
 RUN --mount=type=bind,from=build,source=/code,target=/build \
-    for pkg in ${RUNTIME_PACKAGES}; do \
-        mkdir -p "/code/${pkg}" && cp -r "/build/${pkg}/dist" "/build/${pkg}/node_modules" "/build/${pkg}/package.json" "/code/${pkg}/"; \
+    for pkg in $(cat /build/runtime-packages.txt); do \
+        mkdir -p "/code/${pkg}" && \
+        for entry in dist node_modules package.json index.js index.node; do \
+            if [ -e "/build/${pkg}/${entry}" ]; then cp -r "/build/${pkg}/${entry}" "/code/${pkg}/"; fi; \
+        done; \
     done && chown -R posthog:posthog /code
 COPY --from=build --chown=posthog:posthog /code/ingestion/node/schema-requirements.json /code/ingestion/node/schema-requirements.json
 

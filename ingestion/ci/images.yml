@@ -108,6 +108,3 @@
   build_args:
       PACKAGE: '@posthog/ingestion-ai-research'
       PACKAGE_DIR: ingestion/node/packages/ai-research
-      RUNTIME_PACKAGES: >-
-          common/hogvm/typescript nodejs/packages/hog-engine nodejs/packages/common nodejs/packages/replay-storage
-          ingestion/node/packages/common ingestion/node/packages/ingestion ingestion/node/packages/ai-research
