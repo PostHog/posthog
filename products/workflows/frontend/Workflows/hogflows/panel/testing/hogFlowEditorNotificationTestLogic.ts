@@ -270,7 +270,10 @@ export interface hogFlowEditorNotificationTestLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         testResult: (
-            latestTestResult: any,
+            latestTestResult: {
+                actionType: HogFlowAction['type'] | null
+                result: HogflowTestResult
+            } | null,
             workflow: HogFlow,
             selectedNodeId: string | null
         ) => HogflowTestResult | null
@@ -437,7 +440,11 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
     selectors({
         testResult: [
             (s) => [s.latestTestResult, s.workflow, s.selectedNodeId],
-            (latestTestResult, workflow: HogFlow, selectedNodeId: string | null): HogflowTestResult | null =>
+            (
+                latestTestResult: { actionType: HogFlowAction['type'] | null; result: HogflowTestResult } | null,
+                workflow: HogFlow,
+                selectedNodeId: string | null
+            ): HogflowTestResult | null =>
                 latestTestResult &&
                 workflow.actions?.find((action) => action.id === selectedNodeId)?.type === latestTestResult.actionType
                     ? latestTestResult.result
