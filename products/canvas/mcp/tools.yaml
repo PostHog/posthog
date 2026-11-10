@@ -135,13 +135,13 @@ tools:
             viewers keep seeing the current version. Use it only when the user asked for a draft, a preview, or a review
             step before going live; saving a change with canvas-publish-create or canvas-edit-create is the default.
             Returns the draft's `version_id`, its queued build, and `capability_widening` — how the draft's declared
-            capabilities grow the live version's (insights, capture events, inline queries, network origins) — so added
-            access is visible before shipping. Poll canvas-builds-retrieve until the draft's build is terminal, preview
-            the draft with canvas-source-retrieve passing the returned `version_id`, then make it live with
-            canvas-promote-create. Declare runtime capabilities in `project.capabilities`. A project that shows PostHog
-            data must make every figure verifiable before staging: an insight-backed metric links its saved insight
-            (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure exposes the exact query that
-            ran in a modal or collapsed area.
+            capabilities grow the live version's (insights, capture events, inline queries; a declared network origin is
+            listed but never granted), so added access is visible before shipping. Poll canvas-builds-retrieve until the
+            draft's build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`,
+            then make it live with canvas-promote-create. Declare runtime capabilities in `project.capabilities`. A
+            project that shows PostHog data must make every figure verifiable before staging: an insight-backed metric
+            links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
+            exposes the exact query that ran in a modal or collapsed area.
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.

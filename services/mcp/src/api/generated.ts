@@ -23651,7 +23651,7 @@ export namespace Schemas {
       inline_queries_enabled: boolean;
       /** True when the draft enables requests to the canvas's authoring agent and the current head does not. */
       agent_requests_enabled: boolean;
-      /** Network origins the draft newly declares it may reach. */
+      /** Network origins the draft newly declares. Declared origins are listed but not granted. */
       network_origins_added: string[];
       /** State scopes (user, shared) the draft newly declares for ph.state. */
       state_scopes_added: string[];

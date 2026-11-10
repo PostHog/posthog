@@ -104,23 +104,25 @@ def canonical_network_origin(origin: Any) -> str | None:
     return f"https://{hostname}" + (f":{port}" if port is not None else "")
 
 
-def artifact_csp(network_origins: list[str] | None = None) -> str:
+def uploaded_media_source() -> str:
+    """The URL prefix the PostHog media library serves images from, the one place a canvas may load from.
+
+    The path keeps every other endpoint on that origin out of reach. The request carries no session
+    cookie, because the sandboxed canvas has an opaque origin.
+    """
+    return f"{settings.UPLOADED_MEDIA_PUBLIC_URL or settings.SITE_URL}/uploaded_media/"
+
+
+def artifact_csp(image_sources: list[str] | None = None) -> str:
+    """The policy every built canvas artifact is served with.
+
+    A manifest's `capabilities.network.origins` adds nothing to it. The caller passes only
+    server-defined image sources, such as PostHog's own media path.
+    """
     csp = platform_contract()["csp"]
-    safe_origins = [canonical for origin in network_origins or [] if (canonical := canonical_network_origin(origin))]
-    if not safe_origins:
+    if not image_sources:
         return csp
-    sources = " ".join(safe_origins)
-    replacements = {
-        "connect-src 'none'": f"connect-src {sources}",
-        "style-src 'self' 'unsafe-inline'": f"style-src 'self' 'unsafe-inline' {sources}",
-        "img-src 'self' data: blob:": f"img-src 'self' data: blob: {sources}",
-        "font-src 'self' data:": f"font-src 'self' data: {sources}",
-        "media-src 'self' data: blob:": f"media-src 'self' data: blob: {sources}",
-        "frame-src 'none'": f"frame-src {sources}",
-    }
-    for directive, replacement in replacements.items():
-        csp = csp.replace(directive, replacement)
-    return csp
+    return csp.replace("img-src 'self' data: blob:", f"img-src 'self' data: blob: {' '.join(image_sources)}")
 
 
 def contract_limits() -> dict[str, int]:

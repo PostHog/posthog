@@ -40,7 +40,7 @@ The backend connection can use a separate origin hostname, but the HTTP Host mus
 Draft previews use the same artifact origin and a server-defined sandbox policy.
 Their HTML meta policy cannot expand the header policy, including for retained documents.
 The header permits the fixed compiler and module CDNs, but blocks external images and form submissions.
-Use a built canvas with declared network origins for external images.
+Built canvases can show images from the PostHog media library. Declared network origins are not granted, so no canvas loads anything from other sites.
 Changes to this server policy and its tests require security review.
 
 Task HTML previews use the same artifact origin.

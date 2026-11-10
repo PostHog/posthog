@@ -33,6 +33,7 @@ from products.canvas.backend.contract import (
     canvas_sdk_version,
     contract_limits,
     platform_dependencies,
+    uploaded_media_source,
 )
 from products.canvas.backend.mcp_tools import CANVAS_MCP_TOOL_ALLOWLIST, canvas_mcp_tool
 
@@ -143,12 +144,12 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (
         re.compile(r"\bfetch\s*\("),
         "network_fetch",
-        "fetch() requires every destination in capabilities.network.origins — prefer the `ph` data bridge for PostHog data",
+        "fetch() cannot reach other sites from a canvas. Use the `ph` data bridge for PostHog data.",
     ),
     (
         re.compile(r"\bXMLHttpRequest\b"),
         "network_xhr",
-        "XMLHttpRequest requires every destination in capabilities.network.origins — prefer the `ph` data bridge for PostHog data",
+        "XMLHttpRequest cannot reach other sites from a canvas. Use the `ph` data bridge for PostHog data.",
     ),
 ]
 
@@ -288,25 +289,27 @@ def _literal_external_urls(content: str) -> list[tuple[str, int]]:
     return urls
 
 
-def _validate_network_capabilities(path: str, content: str, declared_origins: set[str]) -> list[dict[str, Any]]:
+def _validate_external_resources(path: str, content: str) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
     seen: set[str] = set()
+    media_source = uploaded_media_source()
     for url, position in _literal_external_urls(content):
+        if url.startswith(media_source):
+            continue
         origin = _network_origin_from_url(url)
         if origin is None or origin in seen:
             continue
         seen.add(origin)
-        if origin not in declared_origins:
-            diagnostics.append(
-                diagnostic(
-                    "error",
-                    "capability_missing_network_origin",
-                    f'External resource requires "{origin}" in capabilities.network.origins — '
-                    "the canvas sandbox blocks undeclared origins at runtime",
-                    path=path,
-                    line=_line_of(content, position),
-                )
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "external_resource_blocked",
+                f"The resource from \"{origin}\" can't load, because canvases can't reach other sites. "
+                "Add the file to the project's assets, or use the `ph` data bridge for PostHog data.",
+                path=path,
+                line=_line_of(content, position),
             )
+        )
     return diagnostics
 
 
@@ -796,6 +799,15 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
         problem = _validate_network_origin(origin)
         if problem is not None:
             diagnostics.append(diagnostic("error", "invalid_network_origin", problem))
+        else:
+            diagnostics.append(
+                diagnostic(
+                    "warning",
+                    "network_origin_not_granted",
+                    f'"{origin}" in capabilities.network.origins is not granted, because canvases can\'t reach '
+                    "other sites. Remove it, and use the `ph` data bridge for PostHog data.",
+                )
+            )
     declared_verbs = ((project.get("capabilities") or {}).get("posthog") or {}).get("actions") or []
     unregistered = sorted(set(declared_verbs) - set(CANVAS_ACTIONS))
     if unregistered:
@@ -906,13 +918,10 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
                 )
             )
 
-    declared_network_origins = {
-        canonical for origin in network_origins if (canonical := canonical_network_origin(origin)) is not None
-    }
     for path, content in files.items():
         if not isinstance(content, str):
             continue
-        diagnostics.extend(_validate_network_capabilities(path, content, declared_network_origins))
+        diagnostics.extend(_validate_external_resources(path, content))
         if path.endswith(_STYLE_EXTENSIONS):
             diagnostics.extend(_validate_platform_tokens(path, content))
         if path.endswith(_CODE_EXTENSIONS):

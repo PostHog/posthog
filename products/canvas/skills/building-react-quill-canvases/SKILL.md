@@ -31,10 +31,9 @@ module, so it needs no `dependencies` entry. The same object exists as the `wind
 (how existing canvases reach it); prefer the import in new code.
 
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
-validation. Direct network requests and external images, fonts, media, or frames require an exact
-HTTPS origin in `capabilities.network.origins`. They work only in the **published** canvas — the
-edit-mode preview blocks direct network access regardless of declaration. Stylesheets from declared
-origins are allowed; remote scripts remain blocked, so bundle code with the canvas.
+validation. A canvas can't reach other sites: direct network requests and external stylesheets,
+images, fonts, media, frames, and scripts are blocked, so bundle code and files with the canvas.
+Images from the PostHog media library are the exception (see `building-canvases`).
 
 ## Quill component rules
 
