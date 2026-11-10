@@ -117,23 +117,30 @@ async function readDotenv(runtime: Runtime, path: string): Promise<string | unde
 
 const NO_HOME_HINT = `Set HOG_HOME to a folder hog can write to, or set HOG_PERSONAL_API_KEY to skip logging in. ${PROJECT_SETTINGS_HINT}.`
 
-export function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
+function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
     if (env.HOG_HOME) {
         return env.HOG_HOME
     }
     return homeDir === undefined ? undefined : join(homeDir, '.posthog')
 }
 
-export function posthogFile(runtime: Runtime, name: string): string {
+export function posthogPath(runtime: Pick<Runtime, 'env' | 'homeDir'>, name: string): string | undefined {
     const home = posthogHomeDir(runtime.env, runtime.homeDir())
-    if (home === undefined) {
+    return home === undefined ? undefined : join(home, name)
+}
+
+export function posthogFile(runtime: Runtime, name: string): string {
+    const file = posthogPath(runtime, name)
+
+    if (file === undefined) {
         throw new HogError(
             'no_home_directory',
             "hog couldn't find your home folder to store credentials in.",
             NO_HOME_HINT
         )
     }
-    return join(home, name)
+
+    return file
 }
 
 export interface CredentialOptions {

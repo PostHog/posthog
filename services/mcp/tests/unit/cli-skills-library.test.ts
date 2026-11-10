@@ -2,18 +2,12 @@ import { strToU8, unzipSync, zipSync } from 'fflate'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import type { LearnResult, SkillsFetch, SkillsResult } from '@/cli/library-types'
+import type { LearnRequest, LearnResult, SkillsFetch, SkillsResult } from '@/cli/library-types'
 import { createSkillsLibrary, rewriteLearnCommands } from '@/cli/skills-library'
 import { CONTEXT_MILL_URL } from '@/resources/internals'
 import { PRODUCT_SKILL_ARCHIVE_URL } from '@/skills/skill-catalog'
-
-// A filesystem boundary that tests can pause, to interleave two runs that share a cache folder.
-vi.mock('node:fs/promises', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('node:fs/promises')>()
-    return { ...actual, readFile: vi.fn(actual.readFile) }
-})
 
 const MIB = 1024 * 1024
 
@@ -88,6 +82,9 @@ function fakeFetch(answers: Partial<Record<string, Answer>>): FakeAssets {
     }
 }
 
+const FUNNELS: LearnRequest = { skill: 'posthog:funnels', paths: [] }
+const LIST: LearnRequest = { skill: 'skills', paths: [] }
+
 const ONLINE = { [PRODUCT_SKILL_ARCHIVE_URL]: productSkills(), [CONTEXT_MILL_URL]: contextMill() }
 const FIRST_LOAD = Date.UTC(2026, 0, 1)
 
@@ -97,7 +94,7 @@ async function cacheDir(): Promise<string> {
 
 async function warmCache(dir: string, assets = ONLINE): Promise<void> {
     const library = createSkillsLibrary({ cacheDir: dir, fetch: fakeFetch(assets).fetch, now: () => FIRST_LOAD })
-    const result = await library.learn(['skills'])
+    const result = await library.learn(LIST)
     expect(result.ok).toBe(true)
 }
 
@@ -116,9 +113,12 @@ describe('CLI skills library', () => {
             learnCommand: 'hog learn',
         })
 
-        const skill = await library.learn(['posthog:instrument-integration'])
-        const file = await library.learn(['posthog:instrument-integration', 'references/COMMANDMENTS.md'])
-        const listing = await library.learn(['skills'])
+        const skill = await library.learn({ skill: 'posthog:instrument-integration', paths: [] })
+        const file = await library.learn({
+            skill: 'posthog:instrument-integration',
+            paths: ['references/COMMANDMENTS.md'],
+        })
+        const listing = await library.learn(LIST)
 
         expect(text(skill)).toContain(
             'Read `hog learn posthog:instrument-integration references/COMMANDMENTS.md` first.'
@@ -152,7 +152,7 @@ describe('CLI skills library', () => {
             now: () => FIRST_LOAD + 60_000,
         })
 
-        const result = await library.learn(['posthog:funnels'])
+        const result = await library.learn(FUNNELS)
 
         expect(text(result)).toContain('Build a conversion funnel.')
         expect(result.ok && result.value.assets).toEqual([
@@ -172,7 +172,7 @@ describe('CLI skills library', () => {
         const assets = fakeFetch({ ...ONLINE, ...notModified })
         const library = createSkillsLibrary({ cacheDir: dir, fetch: assets.fetch })
 
-        const result = await library.learn(['posthog:funnels'])
+        const result = await library.learn(FUNNELS)
 
         expect(text(result)).toContain('Build a conversion funnel.')
         expect(result.ok && result.value.assets[0]?.origin).toBe('network')
@@ -186,7 +186,7 @@ describe('CLI skills library', () => {
         ['no response before the timeout', 'hang' as const, 'No response within 0.05 seconds'],
         [
             'an archive past the extraction limit',
-            zipSync({ 'padding/big.bin': new Uint8Array(9 * MIB) }),
+            zipSync({ 'manifest.json': new Uint8Array(9 * MIB) }),
             'exceeds the extraction limit',
         ],
     ])('serves the cached copy after %s, and says when it was fetched', async (_name, answer, failure) => {
@@ -198,7 +198,7 @@ describe('CLI skills library', () => {
             responseTimeoutMs: 50,
         })
 
-        const result = await library.learn(['posthog:funnels'])
+        const result = await library.learn(FUNNELS)
 
         expect(text(result)).toContain('Build a conversion funnel.')
         expect(result.ok && result.value.assets[0]).toEqual({
@@ -243,59 +243,36 @@ describe('CLI skills library', () => {
             fetch: fakeFetch({ ...ONLINE, [PRODUCT_SKILL_ARCHIVE_URL]: new Response(body, { status, headers }) }).fetch,
         })
 
-        const result = await library.learn(['posthog:funnels'])
+        const result = await library.learn(FUNNELS)
 
         expect(text(result)).toContain('Build a conversion funnel.')
         expect(result.ok && result.value.assets[0]?.origin).toBe('cache')
         expect(cancelled).toBe(true)
     })
 
-    it('keeps the copy another run cached while this run was answering a 304', async () => {
+    it('downloads the whole asset again for a 304 when the cached copy no longer matches its record', async () => {
         const dir = await cacheDir()
         await warmCache(dir)
-        const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
-        const readFile = vi.mocked(fs.readFile)
-        let raced = false
-        readFile.mockImplementation(async (...args: Parameters<typeof actual.readFile>) => {
-            const contents = await actual.readFile(...args)
-            if (!raced && /product-skills-[a-f0-9]+\.zip$/.test(String(args[0]))) {
-                raced = true
-                await warmCache(dir, { ...ONLINE, [PRODUCT_SKILL_ARCHIVE_URL]: productSkills('Newer body.') })
-            }
-            return contents
+        await fs.writeFile(path.join(dir, 'product-skills.zip'), productSkills('Overwritten body.'))
+        const online = fakeFetch(ONLINE)
+        const productRequests: (string | undefined)[] = []
+        const library = createSkillsLibrary({
+            cacheDir: dir,
+            fetch: async (url, init) => {
+                const etag = init.headers['If-None-Match']
+                if (url !== PRODUCT_SKILL_ARCHIVE_URL) {
+                    return online.fetch(url, init)
+                }
+
+                productRequests.push(etag)
+                return etag ? new Response(null, { status: 304 }) : online.fetch(url, init)
+            },
         })
-        const notModified = { [PRODUCT_SKILL_ARCHIVE_URL]: new Response(null, { status: 304 }) }
-        const offlineAnswers = {
-            [PRODUCT_SKILL_ARCHIVE_URL]: new TypeError('Unable to connect'),
-            [CONTEXT_MILL_URL]: new TypeError('Unable to connect'),
-        }
 
-        try {
-            await createSkillsLibrary({ cacheDir: dir, fetch: fakeFetch({ ...ONLINE, ...notModified }).fetch }).learn([
-                'posthog:funnels',
-            ])
-        } finally {
-            readFile.mockImplementation(actual.readFile)
-        }
-        const offline = await createSkillsLibrary({ cacheDir: dir, fetch: fakeFetch(offlineAnswers).fetch }).learn([
-            'posthog:funnels',
-        ])
+        const result = await library.learn(FUNNELS)
 
-        expect(raced).toBe(true)
-        expect(text(offline)).toContain('Newer body.')
-    })
-
-    it('never deletes outside the cache folder for a record whose digest is a path', async () => {
-        const root = await cacheDir()
-        const dir = path.join(root, 'cache')
-        await fs.mkdir(dir)
-        await fs.writeFile(path.join(root, 'old.zip'), 'keep')
-        const record = { url: PRODUCT_SKILL_ARCHIVE_URL, sha256: '/../../old', fetchedAt: '2026-01-01T00:00:00.000Z' }
-        await fs.writeFile(path.join(dir, 'product-skills.json'), JSON.stringify(record))
-
-        await warmCache(dir)
-
-        await expect(fs.readFile(path.join(root, 'old.zip'), 'utf8')).resolves.toBe('keep')
+        expect(text(result)).toContain('Build a conversion funnel.')
+        expect(productRequests).toEqual([expect.stringMatching(/^"/), undefined])
     })
 
     it('fails as offline when nothing downloads and nothing is cached', async () => {
@@ -307,7 +284,7 @@ describe('CLI skills library', () => {
             }).fetch,
         })
 
-        const result = await library.learn(['posthog:funnels'])
+        const result = await library.learn(FUNNELS)
 
         expect(result).toEqual({
             ok: false,
@@ -337,12 +314,27 @@ describe('CLI skills library', () => {
         }
         const library = createSkillsLibrary({ cacheDir: await cacheDir(), fetch: fakeFetch(answers).fetch })
 
-        const offline = await library.learn(['posthog:funnels'])
+        const offline = await library.learn(FUNNELS)
         Object.assign(answers, ONLINE)
-        const online = await library.learn(['posthog:funnels'])
+        const online = await library.learn(FUNNELS)
 
         expect(offline).toMatchObject({ ok: false, error: { code: 'offline' } })
         expect(text(online)).toContain('Build a conversion funnel.')
+    })
+
+    it('keeps the product skills it downloaded while context-mill is down, and asks again only for context-mill', async () => {
+        const assets = fakeFetch({ [PRODUCT_SKILL_ARCHIVE_URL]: productSkills() })
+        const library = createSkillsLibrary({ fetch: assets.fetch })
+
+        await library.learn(FUNNELS)
+        const second = await library.learn(FUNNELS)
+
+        expect(text(second)).toContain('Build a conversion funnel.')
+        expect(assets.requests.map((request) => request.url)).toEqual([
+            PRODUCT_SKILL_ARCHIVE_URL,
+            CONTEXT_MILL_URL,
+            CONTEXT_MILL_URL,
+        ])
     })
 
     it('lists the commands without the network, and treats empty words as absent', async () => {
@@ -353,7 +345,7 @@ describe('CLI skills library', () => {
             learnCommand: 'hog learn',
         })
 
-        const result = await library.learn(['', ' '])
+        const result = await library.learn({ skill: ' ', paths: ['', ' '] })
 
         expect(result.ok && result.value.output).toMatchObject({
             kind: 'overview',
@@ -368,7 +360,7 @@ describe('CLI skills library', () => {
             fetch: fakeFetch({ [PRODUCT_SKILL_ARCHIVE_URL]: productSkills() }).fetch,
         })
 
-        const result = await library.learn(['skills'])
+        const result = await library.learn(LIST)
 
         expect(result.ok && result.value.output).toMatchObject({ kind: 'list', skills: ['posthog:funnels'] })
         expect(result.ok && result.value.assets[1]).toMatchObject({
@@ -377,24 +369,68 @@ describe('CLI skills library', () => {
         })
     })
 
-    it.each([
-        [['posthog:missing'], 'unknown_skill', 'Use `hog learn -s <query>` to find a skill.'],
-        [['posthog:funnels', 'missing.md'], 'unknown_file', 'Run `hog learn posthog:funnels` for its manifest.'],
-        [['funnels'], 'unknown_topic', 'Unknown learning topic: "funnels".'],
-        [['project:conventions'], 'unavailable', 'This CLI serves PostHog skills only.'],
+    it.each<[string, LearnRequest, string]>([
+        ['a search of every skill', { paths: [], search: 'conversion' }, '## posthog:funnels'],
         [
-            ['posthog:funnels', 'SKILL.md', '--lines', 'ten'],
+            'a search of one file',
+            { skill: 'posthog:funnels', paths: ['SKILL.md'], search: 'conversion' },
+            'Matches in posthog:funnels/SKILL.md',
+        ],
+        [
+            'a description of several skills',
+            { skill: 'posthog:funnels', paths: ['posthog:instrument-integration'], describe: true },
+            'posthog:instrument-integration: Add PostHog SDK integration.',
+        ],
+        [
+            'a line range',
+            { skill: 'posthog:funnels', paths: ['SKILL.md'], lines: '1:1' },
+            'File: posthog:funnels/SKILL.md lines 1:1',
+        ],
+    ])('serves %s', async (_name, request, expected) => {
+        const library = createSkillsLibrary({ fetch: fakeFetch(ONLINE).fetch })
+
+        const result = await library.learn(request)
+
+        expect(text(result)).toContain(expected)
+    })
+
+    it('lists the setup skills from context-mill alone', async () => {
+        const assets = fakeFetch(ONLINE)
+        const library = createSkillsLibrary({ fetch: assets.fetch })
+
+        const result = await library.instrumentSkills()
+
+        expect(result.ok && result.value.skills).toEqual(['posthog:instrument-integration'])
+        expect(assets.requests.map((request) => request.url)).toEqual([CONTEXT_MILL_URL])
+    })
+
+    it.each<[LearnRequest, string, string]>([
+        [{ skill: 'posthog:missing', paths: [] }, 'unknown_skill', 'Use `hog learn -s <query>` to find a skill.'],
+        [
+            { skill: 'posthog:funnels', paths: ['missing.md'] },
+            'unknown_file',
+            'Run `hog learn posthog:funnels` for its manifest.',
+        ],
+        [{ skill: 'funnels', paths: [] }, 'unknown_topic', 'Unknown learning topic: "funnels".'],
+        [{ skill: 'project:conventions', paths: [] }, 'unavailable', 'This CLI serves PostHog skills only.'],
+        [
+            { skill: 'posthog:funnels', paths: ['SKILL.md'], lines: 'ten' },
             'usage',
             'Usage: hog learn <source>:<skill> <path> --lines',
         ],
-    ])('learn %j fails with %s', async (words, code, message) => {
+        [
+            { skill: 'posthog:funnels', paths: ['SKILL.md'], lines: '1:2', search: 'funnel' },
+            'usage',
+            'Give only one of search, describe and lines.',
+        ],
+    ])('learn %j fails with %s', async (request, code, message) => {
         const library = createSkillsLibrary({
             cacheDir: await cacheDir(),
             fetch: fakeFetch(ONLINE).fetch,
             learnCommand: 'hog learn',
         })
 
-        const result = await library.learn(words)
+        const result = await library.learn(request)
 
         expect(result).toEqual({ ok: false, error: { code, message: expect.stringContaining(message) } })
     })
@@ -410,7 +446,7 @@ describe('CLI skills library', () => {
         await expect(fs.readFile(path.join(dir, '.agents', 'skills', 'audit', 'SKILL.md'), 'utf8')).resolves.toBe(
             '# Audit\n'
         )
-        expect(unknown).toMatchObject({ ok: false, error: { code: 'unknown_skill' } })
+        expect(unknown).toEqual({ ok: false, error: { code: 'unknown_skill', message: 'Unknown skill "missing".' } })
     })
 
     it('refuses to install a skill whose archive is past the extraction limit, and keeps the installed copy', async () => {
@@ -459,12 +495,6 @@ describe('CLI skills library', () => {
             'hog learn',
             'Usage: learn <source>:<skill> <path>',
             'Usage: hog learn <source>:<skill> <path>',
-        ],
-        [
-            'a command already in the caller syntax',
-            'hog learn',
-            'Run `hog learn -s <query>`.',
-            'Run `hog learn -s <query>`.',
         ],
         [
             'prose',

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { LearnResult, SkillAssetStatus, SkillsError } from '@posthog/mcp/src/cli/library-types'
+import type { LearnRequest, LearnResult, SkillAssetStatus, SkillsError } from '@posthog/mcp/src/cli/library-types'
 
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
@@ -15,16 +15,14 @@ const ASSET_NAMES: Record<SkillAssetStatus['name'], string> = {
     'context-mill': 'the setup skills, such as posthog:instrument-integration',
 }
 
-// The MCP exec tool reads one command string after `learn`. hog gets `-s`, `-d` and `--lines` as
-// options, so this puts them back where that grammar expects them.
-function execLearnTokens(
+function learnRequest(
     skill: string | undefined,
     paths: readonly string[],
     options: { search?: string; describe?: boolean; lines?: string }
-): readonly string[] {
+): LearnRequest {
     const { search, describe, lines } = options
-    const words = skill === undefined ? paths : [skill, ...paths]
     const modeCount = Number(search !== undefined) + Number(describe === true) + Number(lines !== undefined)
+
     if (modeCount > 1) {
         throw new HogError(
             'invalid_learn_command',
@@ -33,39 +31,37 @@ function execLearnTokens(
             EXIT_USAGE
         )
     }
-    if (describe) {
-        return ['-d', ...words]
+
+    if (search === undefined) {
+        return { skill, paths, describe, lines }
     }
-    if (lines !== undefined) {
-        return [...words, '--lines', lines]
+
+    // Unquoted keywords after the first one arrive as arguments, as `replay` in `hog learn -s session
+    // replay`. They belong to the query. A file search keeps its skill and the path after it.
+    if (skill?.includes(':')) {
+        return { skill, paths: paths.slice(0, 1), search: [search, ...paths.slice(1)].join(' ') }
     }
-    if (search !== undefined) {
-        // Unquoted keywords after the first one arrive as arguments, as `replay` in `hog learn -s
-        // session replay`. They belong to the query, which takes the place of a file search's path.
-        return words[0]?.includes(':')
-            ? [...words.slice(0, 2), '-s', search, ...words.slice(2)]
-            : ['-s', search, ...words]
-    }
-    return words
+
+    return { paths: [], search: [search, ...(skill === undefined ? [] : [skill]), ...paths].join(' ') }
 }
 
-// The codes `learn` returns, except `offline`, whose message lists the downloads that failed. A
-// library built from another revision can return a code this map lacks, which keeps its own code.
-const ERRORS: Partial<Record<SkillsError['code'], { code: string; hint: string; exitCode?: number }>> = {
-    unknown_skill: { code: 'unknown_skill', hint: 'Run `hog learn skills` to list every skill.' },
-    unknown_topic: { code: 'unknown_topic', hint: 'Run `hog learn skills` to list every skill.' },
-    unknown_file: {
-        code: 'unknown_file',
-        hint: 'Give the path from the skill folder, such as references/COMMANDMENTS.md.',
-    },
+const DEFAULT_HINT = 'Run `hog learn` to see the commands.'
+const LIST_HINT = 'Run `hog learn skills` to list every skill.'
+
+// `offline` has its own error, whose message lists the downloads that failed.
+const ERRORS: Partial<Record<SkillsError['code'], { code?: string; hint?: string; exitCode?: number }>> = {
+    unknown_skill: { hint: LIST_HINT },
+    unknown_topic: { hint: LIST_HINT },
+    unknown_file: { hint: 'Give the path from the skill folder, such as references/COMMANDMENTS.md.' },
     unavailable: { code: 'skills_unavailable', hint: 'Run `hog learn skills` to list the skills hog serves.' },
-    usage: { code: 'invalid_learn_command', hint: 'Run `hog learn` to see the commands.', exitCode: EXIT_USAGE },
+    usage: { code: 'invalid_learn_command', exitCode: EXIT_USAGE },
 }
 
 function toHogError(error: SkillsError): HogError {
     if (error.code === 'offline') {
         const assets = error.assets ?? []
         const failures = assets.map((asset) => `\n  ${asset.url}: ${asset.failure}`).join('')
+
         return new HogError(
             'skills_offline',
             `${error.message}${failures}`,
@@ -74,10 +70,8 @@ function toHogError(error: SkillsError): HogError {
             { assets }
         )
     }
-    const { code, hint, exitCode } = ERRORS[error.code] ?? {
-        code: error.code,
-        hint: 'Run `hog learn` to see the commands.',
-    }
+
+    const { code = error.code, hint = DEFAULT_HINT, exitCode } = ERRORS[error.code] ?? {}
     return new HogError(code, error.message, hint, exitCode)
 }
 
@@ -90,6 +84,7 @@ function printDownloadWarnings(out: Output, assets: readonly SkillAssetStatus[])
                 : asset.origin === 'unavailable'
                   ? 'and has no saved copy, so they are missing'
                   : undefined
+
         if (outcome) {
             const failure = escapeControls(asset.failure ?? '')
             out.line(out.style(`hog couldn't download ${ASSET_NAMES[asset.name]} (${failure}), ${outcome}.`, 'yellow'))
@@ -136,12 +131,14 @@ export default defineCommand({
     ],
 
     async run({ args, options, ctx }): Promise<LearnResult> {
-        const tokens = execLearnTokens(args.skill, args.paths ?? [], options)
+        const request = learnRequest(args.skill, args.paths ?? [], options)
         const library = await ctx.skills()
-        const result = await library.learn(tokens)
+        const result = await library.learn(request)
+
         if (!result.ok) {
             throw toHogError(result.error)
         }
+
         return result.value
     },
 

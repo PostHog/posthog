@@ -1,11 +1,9 @@
-import { join } from 'node:path'
-
 import type { ApiToolLibrary, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
 import {
     loginQuery,
-    posthogHomeDir,
+    posthogPath,
     resolveCredentials,
     type CredentialOptions,
     type Credentials,
@@ -94,17 +92,12 @@ export class Context {
     // folder, the skills still download and nothing is saved.
     skills(): Promise<SkillsLibrary> {
         this.skillsLibrary ??= this.runtime.loadSkills({
-            cacheDir: this.skillsCacheDir(),
+            cacheDir: posthogPath(this.runtime, 'skills'),
             learnCommand: 'hog learn',
             // The downloads go to GitHub, not PostHog, so --rate-limit doesn't count them.
             fetch: (url, init) => this.runtime.fetch(url, { ...init, skipRateLimit: true }),
         })
         return this.skillsLibrary
-    }
-
-    private skillsCacheDir(): string | undefined {
-        const home = posthogHomeDir(this.runtime.env, this.runtime.homeDir())
-        return home === undefined ? undefined : join(home, 'skills')
     }
 
     private async credentialOptions(): Promise<CredentialOptions> {

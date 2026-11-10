@@ -109,11 +109,26 @@ export interface SkillRead {
     readKind: 'skill' | 'file' | 'file_search' | 'file_lines'
 }
 
+/**
+ * A `learn` command, in the parts `hog learn` takes it as. Give at most one of `search` (keywords),
+ * `describe` and `lines`. Without any of them, `skill` and `paths` read files, and nothing is the overview.
+ */
+export interface LearnRequest {
+    /** A skill such as `posthog:instrument-integration`, or `skills` to list every skill. */
+    skill?: string
+    /** Files in `skill`, such as `references/COMMANDMENTS.md`. With `describe`, more skills to describe. */
+    paths: readonly string[]
+    search?: string
+    describe?: boolean
+    /** As `<start>:<end>`. */
+    lines?: string
+}
+
 export type LearnOutput =
-    /** `learn` alone: the skill commands, in the caller's syntax. */
+    /** The overview: the skill commands, in the caller's syntax. */
     | { kind: 'overview'; commands: string[] }
     | { kind: 'list'; skills: string[]; count: number; truncated: boolean }
-    /** Every other command: the text the exec tool returns, with commands in the caller's syntax. */
+    /** Every other request: the text the exec tool returns, with commands in the caller's syntax. */
     | { kind: 'text'; text: string }
 
 export interface LearnResult {
@@ -164,7 +179,7 @@ export interface SkillsLibraryOptions {
      * reads this folder only when the download fails, or to answer a 304. Without it, nothing is cached.
      */
     cacheDir?: string
-    /** Replaces `learn` in the commands that served text names, as in `hog learn`. Defaults to `learn`. */
+    /** The command that served text names, such as `hog learn`. Defaults to `learn`. */
     learnCommand?: string
     fetch?: SkillsFetch
     /** How long to wait for the response headers before the download counts as failed. Defaults to 5 seconds. */
@@ -175,8 +190,9 @@ export interface SkillsLibraryOptions {
 }
 
 export interface SkillsLibrary {
-    /** Runs a `learn` command, given as its words after `learn`, such as `['-s', 'session replay']`. */
-    learn(words: readonly string[]): Promise<SkillsResult<LearnResult>>
+    learn(request: LearnRequest): Promise<SkillsResult<LearnResult>>
+    /** The `posthog:instrument-*` skills. Downloads only context-mill, not the product skills. */
+    instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>>
     /** The skills `install` can write into a repository, as `posthog-cli api skill list` lists them. */
     installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>>
     /** Writes a skill into `.agents/skills/<id>` under `cwd`, as `posthog-cli api skill install` does. */
