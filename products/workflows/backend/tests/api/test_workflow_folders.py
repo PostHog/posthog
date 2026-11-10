@@ -439,6 +439,38 @@ class TestWorkflowFolders(APIBaseTest):
         stored = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/{object_id}/")
         self.assertEqual(stored.status_code, object_status, stored.content)
 
+    @parameterized.expand(
+        [
+            ("file_system_scopes_only", ["file_system:read", "file_system:write"], 403, 404),
+            ("with_write_scope", ["file_system:write", "hog_flow:write"], 200, 200),
+        ]
+    )
+    def test_tree_restore_of_a_template_needs_the_workflow_write_scope(
+        self, _name: str, scopes: list[str], restore_status: int, template_status: int
+    ) -> None:
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Restored email", "type": "email"},
+            format="json",
+        ).json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0]
+        self.assertEqual(self.client.delete(f"{files_url}{file['id']}/").status_code, 200)
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        restored = self.client.post(
+            f"{files_url}undo_delete/",
+            {"items": [{"type": "message_template", "ref": template_id}]},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        self.assertEqual(restored.status_code, restore_status, restored.content)
+        self.client.force_login(self.user)
+        template = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/")
+        self.assertEqual(template.status_code, template_status, template.content)
+
     def test_deleting_workflow_through_the_project_tree_records_activity(self) -> None:
         workflow_id, file = self._workflow_file_in_folder("archived")
         with self.captureOnCommitCallbacks(execute=True):
