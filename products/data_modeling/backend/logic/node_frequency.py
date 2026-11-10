@@ -10,10 +10,10 @@ typed column.
 import uuid
 import dataclasses
 from collections.abc import Collection, Iterable, Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
-from django.db.models import Q, QuerySet
+from django.db.models import Max, Q, QuerySet
 
 from posthog.dataclasses import frozen
 
@@ -39,8 +39,8 @@ from products.data_modeling.backend.logic.freshness import (
     nodes_below_source_floor,
     normalize_seed_target,
 )
-from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
-from products.data_modeling.backend.logic.saved_query_freshness import saved_query_materialized_at
+from products.data_modeling.backend.logic.node_suspension import is_node_suspended, merged_suspension_state
+from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
@@ -656,11 +656,37 @@ def scheduled_cadences(
     return clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=pins)
 
 
+def _latest_materialized_at(team_id: int, saved_queries: Mapping[str, Any]) -> dict[str, datetime]:
+    """Latest successful materialization per saved query id, in one query.
+
+    The batched twin of `saved_query_materialized_at`: the newest completed ClickHouse job, or the
+    frozen v1 `last_run_at` when that is later. Queries that never ran are absent.
+    """
+    latest_jobs = (
+        DataModelingJob.objects.filter(
+            team_id=team_id,
+            saved_query_id__in=saved_queries.keys(),
+            status=DataModelingJobStatus.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        .order_by()
+        .values("saved_query_id")
+        .annotate(latest=Max("last_run_at"))
+    )
+    latest = {str(row["saved_query_id"]): row["latest"] for row in latest_jobs}
+    for query_id, saved_query in saved_queries.items():
+        candidates = [ts for ts in (latest.get(query_id), saved_query.last_run_at) if ts is not None]
+        if candidates:
+            latest[query_id] = max(candidates)
+    return latest
+
+
 def saved_query_schedules(team_id: int, saved_queries: Iterable[Any]) -> dict[str, SavedQuerySchedule]:
     """The cadence and next due time of each materialized saved query, keyed by saved query id.
 
-    Batched: one node read and one graph build per DAG for the whole set. Queries that are not
-    materialized, have no DAG node, or whose node the scheduler gives no cadence are absent. When a
+    Batched: one node read, one graph build per DAG and one job read for the whole set. Queries that
+    are not materialized, have no DAG node, or whose node the scheduler gives no cadence are absent.
+    A node suspended for ClickHouse is skipped, since the scheduler skips it until it resumes. When a
     query holds several nodes the finest cadence wins, since that is how often it is refreshed.
     """
     materialized = {str(query.id): query for query in saved_queries if query.is_materialized}
@@ -673,17 +699,19 @@ def saved_query_schedules(team_id: int, saved_queries: Iterable[Any]) -> dict[st
     for node in nodes:
         cadence = cadences.get(str(node.id))
         query_id = str(node.saved_query_id)
-        if cadence is not None and (query_id not in finest or cadence < finest[query_id]):
+        if cadence is None or is_node_suspended(node, DataModelingJobEngine.CLICKHOUSE):
+            continue
+        if query_id not in finest or cadence < finest[query_id]:
             finest[query_id] = cadence
 
-    result: dict[str, SavedQuerySchedule] = {}
-    for query_id, interval in finest.items():
-        materialized_at = saved_query_materialized_at(materialized[query_id])
-        result[query_id] = SavedQuerySchedule(
+    materialized_at = _latest_materialized_at(team_id, {query_id: materialized[query_id] for query_id in finest})
+    return {
+        query_id: SavedQuerySchedule(
             interval=interval,
-            next_run_at=materialized_at + interval if materialized_at is not None else None,
+            next_run_at=materialized_at[query_id] + interval if query_id in materialized_at else None,
         )
-    return result
+        for query_id, interval in finest.items()
+    }
 
 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:

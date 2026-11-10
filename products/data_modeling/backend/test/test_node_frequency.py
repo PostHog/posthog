@@ -28,6 +28,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_anchor,
     set_declared_target,
 )
+from products.data_modeling.backend.logic.node_suspension import mark_node_suspended
 from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
@@ -322,8 +323,8 @@ class TestSavedQuerySchedules(BaseTest):
             is_materialized=is_materialized,
         )
 
-    def _materialized_query(self, dag: DAG, target: timedelta) -> DataWarehouseSavedQuery:
-        saved_query = self._saved_query()
+    def _materialized_query(self, dag: DAG, target: timedelta, name: str = "mv") -> DataWarehouseSavedQuery:
+        saved_query = self._saved_query(name)
         node = Node.objects.create(team=self.team, dag=dag, saved_query=saved_query, type=NodeType.MAT_VIEW)
         set_declared_target(node, target)
         return saved_query
@@ -366,3 +367,31 @@ class TestSavedQuerySchedules(BaseTest):
         nodeless = self._saved_query("nodeless")
 
         self.assertEqual(saved_query_schedules(self.team.id, [unmaterialized, nodeless]), {})
+
+    def test_each_query_gets_its_own_last_materialization(self):
+        dag = DAG.objects.create(team=self.team, name="schedules")
+        first = self._materialized_query(dag, H6, "first")
+        second = self._materialized_query(dag, H6, "second")
+        never_ran = self._materialized_query(dag, H6, "never_ran")
+        first_finished = timezone.now() - H1
+        second_finished = timezone.now() - H12
+        self._complete_run(first, first_finished - H1)
+        self._complete_run(first, first_finished)
+        self._complete_run(second, second_finished)
+
+        schedules = saved_query_schedules(self.team.id, [first, second, never_ran])
+
+        self.assertEqual(schedules[str(first.id)].next_run_at, first_finished + H6)
+        self.assertEqual(schedules[str(second.id)].next_run_at, second_finished + H6)
+        self.assertIsNone(schedules[str(never_ran.id)].next_run_at)
+
+    def test_a_query_suspended_for_clickhouse_has_no_schedule(self):
+        # The scheduler skips a suspended node, so a next run derived from its old success would never happen.
+        dag = DAG.objects.create(team=self.team, name="schedules")
+        saved_query = self._materialized_query(dag, H6)
+        self._complete_run(saved_query, timezone.now() - H1)
+        node = Node.objects.get(team=self.team, saved_query=saved_query)
+        mark_node_suspended(node, engine=DataModelingJobEngine.CLICKHOUSE, reason="repeated failures", job_id="job-1")
+        node.save(update_fields=["properties"])
+
+        self.assertEqual(saved_query_schedules(self.team.id, [saved_query]), {})
