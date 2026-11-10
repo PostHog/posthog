@@ -323,6 +323,42 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             hidden = self.client.get(f"{self.url}/{self.copy_id}/")
         assert hidden.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("everything", "", ["native", "row"]),
+            ("other_insight", "insight_id={row_insight}", ["row"]),
+            ("search_finds_a_native_name", "search=alert", ["native"]),
+            ("detector_alerts_only", "has_detector=true", ["row"]),
+        ]
+    )
+    def test_the_list_merges_alerts_insight_keeps_no_row_for_with_rows(
+        self, _name: str, query: str, expected: list[str]
+    ) -> None:
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+        row = create_insight_alert(self.team, name="Signups dropped", detector_config={"type": "zscore"})
+        AlertConfiguration.objects.filter(id=row.id).update(created_at=self._at(60))
+        names = {str(self.copy_id): "native", str(row.id): "row"}
+
+        response = self.client.get(f"{self.url}/?{query.format(row_insight=row.insight_id)}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [names[alert["id"]] for alert in response.json()["results"]] == expected
+
+    def test_the_list_hides_an_alert_insight_keeps_no_row_for_without_insight_access(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: queryset.none(),
+        ):
+            response = self.client.get(f"{self.url}/")
+
+        assert response.json()["results"] == []
+
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)
 

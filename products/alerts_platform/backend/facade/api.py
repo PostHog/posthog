@@ -18,6 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
+    NativeConfigurationMatch,
     NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -216,6 +217,15 @@ def native_configuration_keys(
     return platform_reads.native_configuration_keys(
         team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
     )
+
+
+def native_configuration_matches(
+    *, team_id: int, source_kind: SourceKind, search: str | None = None
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
+    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
+    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
+    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
 
 
 def native_configuration_ids(

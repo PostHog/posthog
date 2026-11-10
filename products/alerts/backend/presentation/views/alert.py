@@ -8,7 +8,7 @@ from typing import Annotated, Any, Final, cast
 from zoneinfo import ZoneInfo
 
 from django.db import models, transaction
-from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery, Value
 from django.http import Http404
 from django.utils import timezone
 
@@ -43,6 +43,7 @@ from posthog.api.fields import OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions import InsufficientScope, as_drf_validation_error
@@ -134,6 +135,8 @@ from products.alerts.backend.facade.platform import (
     moved_alert_fired_checks,
     moved_alert_statuses,
     native_insight_alert,
+    native_insight_alert_matches,
+    native_insight_alerts,
     platform_takes_new_alert_with,
     write_moved_alert_edit,
 )
@@ -155,11 +158,13 @@ from products.alerts.backend.models.alert import (
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
     DEFAULT_PAGERDUTY_SEVERITY,
+    SOURCE_CONDITION_KEY,
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     InvalidPlatformAlertEdit,
+    NativeConfigurationMatch,
     PagerDutyRegion,
     PagerDutySeverity,
 )
@@ -1626,6 +1631,17 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
             alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
 
 
+@frozen
+class _ListKey:
+    """What the list sorts and pages one alert on, row or not."""
+
+    rank: float
+    created_at: datetime
+    id: uuid.UUID
+    is_exact: bool
+    native: bool
+
+
 # How many fired checks of one moved alert the list returns for the chart's dots. The window holds a
 # check every 15 minutes for a 15-minute alert, and one alert that keeps firing must not fill the response.
 MOVED_ALERT_FIRED_CHECKS_LIMIT: Final = 500
@@ -1921,6 +1937,48 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return None
         return alert
 
+    def _native_matches(self, *, search: str | None) -> list[NativeConfigurationMatch]:
+        """The insight alerts with no insight row that pass the list's filters and read gates, as
+        `safely_get_queryset` applies them to rows."""
+        matches = native_insight_alert_matches(self.team_id, search=search)
+        if not matches:
+            return []
+        filters = self.request.query_params
+        list_filters = AlertListFiltersSerializer(data=filters)
+        list_filters.is_valid(raise_exception=True)
+        insights = Insight.objects.filter(
+            team_id=self.team_id, id__in={match.source_config.get("insight_id") for match in matches}
+        )
+        for name in ("insight", "insight_id"):
+            if filters.get(name) is not None:
+                insights = insights.filter(id=filters[name])
+        insight_tag = list_filters.validated_data.get("insight_tag")
+        if insight_tag:
+            insights = insights.filter(
+                tagged_items__tag__name=tagify(insight_tag), tagged_items__tag__team_id=self.team_id
+            )
+        insights = self.user_access_control.filter_queryset_by_access_level(insights)
+        if _token_lacks_metrics_scope(self.request):
+            insights = insights.exclude(
+                id__in=insights.filter(
+                    Q(query__kind=NodeKind.METRICS_QUERY) | Q(query__source__kind=NodeKind.METRICS_QUERY)
+                ).values("id")
+            )
+        allowed = set(insights.values_list("id", flat=True))
+        has_detector = list_filters.validated_data.get("has_detector")
+        created_by = filters.get("created_by")
+        creator_id = User.objects.filter(uuid=created_by).values_list("id", flat=True).first() if created_by else None
+        return [
+            match
+            for match in matches
+            if match.source_config.get("insight_id") in allowed
+            and (
+                has_detector is None
+                or bool((match.source_config.get(SOURCE_CONDITION_KEY) or {}).get("detector")) == has_detector
+            )
+            and (not created_by or (creator_id is not None and match.created_by_id == creator_id))
+        ]
+
     def perform_destroy(self, instance: AlertConfiguration) -> None:
         # Before the delete, while the destinations a firing's resolve goes to still exist.
         if instance.platform_owned:
@@ -1932,11 +1990,45 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
+        # An alert with no insight row has no row in the queryset, so the two are merged and paged
+        # here, on the sort keys alone, and only the page's alerts are loaded.
+        rows = super().filter_queryset(self.get_queryset())
+        searched = "_is_exact" in rows.query.annotations
+        keys = [
+            _ListKey(rank=score, created_at=created_at, id=alert_id, is_exact=bool(is_exact), native=False)
+            for score, created_at, alert_id, is_exact in (
+                rows.values_list("_search_score", "created_at", "id", "_is_exact")
+                if searched
+                else rows.values_list(Value(0.0), "created_at", "id", Value(0))
+            )
+        ] + [
+            _ListKey(
+                rank=match.search_score or 0.0,
+                created_at=match.created_at,
+                id=match.id,
+                is_exact=bool(match.is_exact),
+                native=True,
+            )
+            for match in self._native_matches(search=request.query_params.get("search") if searched else None)
+        ]
+        if searched and any(key.is_exact for key in keys):
+            # "Exact matches only, unless there are none", decided over both kinds together.
+            keys = [key for key in keys if key.is_exact]
+        keys.sort(key=lambda key: (key.rank, key.created_at, key.id), reverse=True)
 
-        # Paginate first, then prefetch checks only for the page
-        page = self.paginate_queryset(queryset)
-        alerts = list(page) if page is not None else list(queryset)
+        page = self.paginate_queryset(keys)
+        listed = keys if page is None else page
+        loaded: dict[uuid.UUID, AlertConfiguration] = {
+            alert.id: alert for alert in rows.filter(id__in=[key.id for key in listed if not key.native])
+        }
+        native = native_insight_alerts(self.team_id, [key.id for key in listed if key.native])
+        if searched:
+            for key in listed:
+                if key.native and key.id in native:
+                    native[key.id]._is_exact = int(key.is_exact)  # type: ignore[attr-defined]
+        loaded.update(native)
+        # An alert deleted since its key was read drops out of the page rather than failing it.
+        alerts = [loaded[key.id] for key in listed if key.id in loaded]
         _show_platform_status(alerts, now=timezone.now())
 
         # Prefetch firing checks for anomaly point display on chart.

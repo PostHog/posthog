@@ -1,6 +1,7 @@
 """The insight alert a platform alert stands for: its insight row for a copy, or one built from the
 platform alert's settings when insight keeps no row for it."""
 
+from collections.abc import Collection
 from typing import Any, Final
 from uuid import UUID
 
@@ -10,9 +11,14 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
-from products.alerts_platform.backend.facade.api import get_configuration
+from products.alerts_platform.backend.facade.api import (
+    get_configuration,
+    list_configurations,
+    native_configuration_matches,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    NativeConfigurationMatch,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationView,
     SourceKind,
@@ -108,6 +114,34 @@ def native_insight_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | N
     )
     if configuration is None or configuration.legacy_configuration_id is not None:
         return None
+    return _presented(configuration, team_id=team_id)
+
+
+def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
+    """Every insight alert with no insight row, or with `search` the ones whose name matches it."""
+    return native_configuration_matches(team_id=team_id, source_kind=SourceKind.INSIGHT, search=search)
+
+
+def native_insight_alerts(team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, AlertConfiguration]:
+    """`native_insight_alert` for each named alert that exists, keyed by id."""
+    if not alert_ids:
+        return {}
+    page = list_configurations(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        limit=len(alert_ids),
+        offset=0,
+        configuration_ids=alert_ids,
+    )
+    presented = (
+        _presented(configuration, team_id=team_id)
+        for configuration in page.configurations
+        if configuration.legacy_configuration_id is None
+    )
+    return {alert.id: alert for alert in presented if alert is not None}
+
+
+def _presented(configuration: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
     alert = alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
     if alert is None:
         return None
