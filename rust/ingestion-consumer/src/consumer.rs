@@ -295,7 +295,7 @@ impl IngestionConsumer {
                 if let Err(failure) = self.carry_out(step, poller) {
                     match failure {
                         Stopped::Drained => {}
-                        Stopped::Batch(err) => self.fail_batch_processing(err),
+                        Stopped::Batch(err) => self.stop_on_batch_error(err),
                     }
                     return;
                 }
@@ -357,7 +357,7 @@ impl IngestionConsumer {
                 Woke::Error(None) => Some(anyhow::anyhow!("batcher error channel closed")),
                 Woke::Tick => {
                     if let Some(err) = self.committer.take_fatal() {
-                        self.fail_commit(err);
+                        self.stop_on_commit_error(err);
                         return;
                     }
                     self.handle.report_healthy();
@@ -375,10 +375,10 @@ impl IngestionConsumer {
                     poller.on_received(&message, tokio::time::Instant::now());
                     None
                 }
-                Woke::Received(Err(err)) => self.recv_failed(err).err(),
+                Woke::Received(Err(err)) => self.on_recv_error(err).err(),
             };
             if let Some(err) = failure {
-                self.fail_batch_processing(err);
+                self.stop_on_batch_error(err);
                 return;
             }
         }
@@ -485,7 +485,7 @@ impl IngestionConsumer {
         Ok(())
     }
 
-    fn recv_failed(&self, err: KafkaError) -> anyhow::Result<()> {
+    fn on_recv_error(&self, err: KafkaError) -> anyhow::Result<()> {
         warn!(error = %err, "Kafka recv error");
         counter!("ingestion_consumer_kafka_errors_total").increment(1);
         // A fatal client error (such as UnreleasedInstanceId from a
@@ -628,7 +628,7 @@ impl IngestionConsumer {
         }
     }
 
-    fn fail_batch_processing(&self, err: anyhow::Error) {
+    fn stop_on_batch_error(&self, err: anyhow::Error) {
         error!(error = %err, "Batch processing failed");
         counter!("ingestion_consumer_batch_errors_total").increment(1);
         record_if(&self.debug_recorder, || DebugEventKind::BatchFailed {
@@ -642,7 +642,7 @@ impl IngestionConsumer {
     /// The Kafka client refused a commit, so it cannot commit at all. Consuming
     /// on would freeze the committed position while reporting healthy, so the
     /// process exits and restarts.
-    fn fail_commit(&self, err: CommitError) {
+    fn stop_on_commit_error(&self, err: CommitError) {
         error!(error = %err, "Offset commit failed");
         counter!("ingestion_consumer_commit_errors_total").increment(1);
         record_if(&self.debug_recorder, || DebugEventKind::CommitFailed {
