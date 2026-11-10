@@ -186,6 +186,8 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
         kind = kwargs.get("kind") or (defaults or {}).get("kind") or (create_defaults or {}).get("kind")
         if defaults is not None and "config" in defaults:
             defaults = self._with_config_for_write(dict(defaults), kind)
+        if create_defaults is not None and "config" in create_defaults:
+            create_defaults = self._with_config_for_write(dict(create_defaults), kind)
         return super().update_or_create(defaults=defaults, create_defaults=create_defaults, **kwargs)
 
     def for_github_installation_id(self, installation_id: str | int) -> Self:
@@ -478,7 +480,9 @@ def integration_model(record: IntegrationRecord) -> Integration:
     """The model behind a row of the integrations SDK.
 
     The SDK returns its rows as the read-only `IntegrationRecord`, and they are model instances at
-    runtime. Only the per-kind adapters next to the model use it, because they still write the row.
+    runtime. Only the per-kind adapters next to the model use it, because callers outside this package
+    still read model-only attributes (`team`, `pk`, `refresh_from_db()`) from `adapter.integration`.
+    The adapters write the row through the SDK (see `row_writes.py`), not with `save()`.
     """
     return cast(Integration, record)
 
