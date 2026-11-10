@@ -1,6 +1,5 @@
 import re
 from datetime import datetime, timedelta
-from functools import partial
 
 from django.utils import timezone
 
@@ -34,7 +33,7 @@ ENDED_WINDOW_DAYS = 7
 LONG_RUNNING_DAYS = 60
 JUST_CROSSED_DAYS = 67
 MIN_PEOPLE = 100
-NUMBER_CANDIDATES = 10
+NUMBER_CANDIDATES = 3
 NUMBER_PREFIX = "experiment:"
 
 
@@ -111,7 +110,7 @@ def _number(experiment: RunningExperiment, result: StoredPrimaryResult) -> Highl
     )
 
 
-def _experiment_number(context: HighlightContext) -> HighlightMetric | None:
+def find_experiment_number(context: HighlightContext) -> HighlightFindings:
     running = list_own_running_experiments(team_id=context.team.id, user_id=context.user.id, limit=NUMBER_CANDIDATES)
     for experiment in running:
         if f"{NUMBER_PREFIX}{experiment.id}" in context.hidden:
@@ -119,8 +118,8 @@ def _experiment_number(context: HighlightContext) -> HighlightMetric | None:
         result = get_stored_primary_result(team_id=context.team.id, experiment_id=experiment.id)
         number = _number(experiment, result) if result is not None else None
         if number is not None:
-            return number
-    return None
+            return HighlightFindings(pulse=(number,))
+    return HighlightFindings()
 
 
 def name_experiment_numbers(team: Team, user: User, keys: list[str]) -> dict[str, str]:
@@ -151,11 +150,9 @@ def find_experiment_highlights(context: HighlightContext) -> HighlightFindings:
         None,
     )
     counted = [] if enrolled is None else [(experiment, enrolled.get(experiment.flag_key, 0)) for experiment in running]
-    number = context.guard("experiments_number", partial(_experiment_number, context), None)
     return HighlightFindings(
         items=(
             *(_ended(context, experiment) for experiment in ended),
             *(_few_users(experiment, people) for experiment, people in counted if people < MIN_PEOPLE),
-        ),
-        pulse=(number,) if number is not None else (),
+        )
     )

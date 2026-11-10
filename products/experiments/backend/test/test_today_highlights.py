@@ -54,8 +54,9 @@ class TestExperiments(BaseTest):
         enrolled: MagicMock,
         results: MagicMock | None = None,
         hidden: frozenset[str] = frozenset(),
+        source: str = "experiments",
     ) -> HighlightFindings:
-        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "experiments")
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == source)
         context = highlight_context(team=self.team, user=self.user, today=today, hidden=hidden)
         with (
             patch.object(today_highlights, "list_ended_experiments_without_conclusion", return_value=[ENDED]),
@@ -104,7 +105,11 @@ class TestExperiments(BaseTest):
         self, _name: str, result: StoredPrimaryResult, value: float, experiment: HighlightExperimentResult
     ) -> None:
         found = self._find(
-            TUESDAY, MagicMock(return_value=[]), MagicMock(return_value={}), MagicMock(return_value=result)
+            TUESDAY,
+            MagicMock(return_value=[]),
+            MagicMock(return_value={}),
+            MagicMock(return_value=result),
+            source="experiment_numbers",
         )
 
         self.assertEqual(
@@ -120,7 +125,12 @@ class TestExperiments(BaseTest):
         )
 
         found = self._find(
-            TUESDAY, MagicMock(return_value=[]), MagicMock(return_value={}), results, frozenset({"experiment:11"})
+            TUESDAY,
+            MagicMock(return_value=[]),
+            MagicMock(return_value={}),
+            results,
+            frozenset({"experiment:11"}),
+            source="experiment_numbers",
         )
 
         self.assertEqual(
@@ -184,13 +194,7 @@ class TestExperiments(BaseTest):
             (named, names.call_args.kwargs["experiment_ids"]), ({"experiment:11": "Checkout redesign"}, {11})
         )
 
-    @parameterized.expand(
-        [
-            ("count", MagicMock(side_effect=TimeoutError("slow")), MagicMock(return_value=None)),
-            ("result read", MagicMock(return_value={"onboarding-tips": 150}), MagicMock(side_effect=TimeoutError())),
-        ]
-    )
-    def test_a_failed_read_keeps_the_ended_reminders(self, _name: str, enrolled: MagicMock, results: MagicMock) -> None:
-        found = self._find(TUESDAY, MagicMock(return_value=[RUNNING]), enrolled, results)
+    def test_a_failed_count_keeps_the_ended_reminders(self) -> None:
+        found = self._find(TUESDAY, MagicMock(return_value=[RUNNING]), MagicMock(side_effect=TimeoutError("slow")))
 
-        self.assertEqual(([c.key for c in found.items], found.pulse), (["experiment_ended:7"], ()))
+        self.assertEqual([c.key for c in found.items], ["experiment_ended:7"])

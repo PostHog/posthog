@@ -2,12 +2,13 @@
 
 from products.today.backend.facade.contracts import HighlightSource
 
-from ..today_highlights import find_experiment_highlights, name_experiment_numbers
+from ..today_highlights import find_experiment_highlights, find_experiment_number, name_experiment_numbers
 
 HIGHLIGHT_SOURCES = (
+    HighlightSource(name="experiments", find=find_experiment_highlights, scopes=("experiment:read",)),
     HighlightSource(
-        name="experiments",
-        find=find_experiment_highlights,
+        name="experiment_numbers",
+        find=find_experiment_number,
         scopes=("experiment:read",),
         pulse_order=-1,
         number_names=name_experiment_numbers,
