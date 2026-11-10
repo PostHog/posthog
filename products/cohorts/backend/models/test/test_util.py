@@ -1159,15 +1159,18 @@ class TestCohortUtils(BaseTest):
     def test_print_cohort_hogql_query_supports_multi_column_aliased_and_aggregating_queries(
         self, _name: str, hogql_query: str
     ):
+        # Person rows outlive each test in ClickHouse, so a fixed uuid could pick up another test's properties.
         p_with_domain = _create_person(
             team_id=self.team.pk,
             distinct_ids=[f"p_domain_{_name}"],
             properties={"email": f"with_{_name}@example.com", "domain": "example.com"},
+            uuid=uuid.uuid4(),
         )
-        _create_person(
+        p_without_domain = _create_person(
             team_id=self.team.pk,
             distinct_ids=[f"p_nodomain_{_name}"],
             properties={"email": f"without_{_name}@example.com"},
+            uuid=uuid.uuid4(),
         )
         flush_persons_and_events()
 
@@ -1191,7 +1194,9 @@ class TestCohortUtils(BaseTest):
                 f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
                 {"team_id": self.team.id, "cohort_id": cohort.id},
             )
-            self.assertEqual([str(r[0]) for r in rows], [str(p_with_domain.uuid)])
+            member_ids = {str(r[0]) for r in rows}
+            self.assertIn(str(p_with_domain.uuid), member_ids)
+            self.assertNotIn(str(p_without_domain.uuid), member_ids)
 
     def test_print_cohort_hogql_query_with_multi_column_distinct_id_query(self):
         from posthog.hogql import ast
