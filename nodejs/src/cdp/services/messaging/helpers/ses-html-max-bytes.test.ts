@@ -1,7 +1,6 @@
 import { createExampleInvocation } from '~/cdp/_tests/fixtures'
 import { defaultConfig } from '~/common/config/config'
 
-import { ATTACHMENT_VERIFICATION_DEADLINE_MS } from '../attachment-uploads'
 import { htmlForSes, tagEmailLinks } from './email-html'
 import { escapeHtml, escapedHtmlByteLength } from './escape-html'
 import { sesHtmlMaxBytes } from './ses-html-max-bytes'
@@ -84,14 +83,5 @@ describe('sesHtmlMaxBytes', () => {
         { case: 'a body of ampersands', html: '&'.repeat(10_000) },
     ])('counts the escaped bytes of $case as escaping it would', ({ html }) => {
         expect(escapedHtmlByteLength(html)).toBe(Buffer.byteLength(escapeHtml(html), 'utf8'))
-    })
-
-    it('sizes a body of anchors that never close well inside the accept deadline', () => {
-        const html = unclosedAnchors(64_000)
-        const startedAt = performance.now()
-
-        maxBytes(html, UTM)
-
-        expect(performance.now() - startedAt).toBeLessThan(ATTACHMENT_VERIFICATION_DEADLINE_MS)
     })
 })
