@@ -2743,6 +2743,8 @@ class SignalReportViewSet(
                 )
             )
         if inbox_view == "monitoring":
+            if not self._report_monitoring_enabled:
+                return queryset.none()
             return queryset.filter(status=SignalReport.Status.MONITORING)
         if inbox_view == "resolved":
             return queryset.filter(status__in=self._resolved_read_statuses())
