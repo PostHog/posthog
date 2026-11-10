@@ -11,7 +11,6 @@ export class MemoryRateLimiter {
     public bucketCapacity: number
     public maxBuckets: number
 
-    private refillWindowMs: number
     private sweepIntervalMs: number
     private latestTimestamp: number = 0
     private nextSweepAt: number = 0
@@ -22,8 +21,8 @@ export class MemoryRateLimiter {
         this.bucketCapacity = bucketCapacity
         this.replenishRate = replenishRate
         this.maxBuckets = maxBuckets
-        this.refillWindowMs = (bucketCapacity / replenishRate) * 1000
-        this.sweepIntervalMs = this.refillWindowMs > MIN_SWEEP_INTERVAL_MS ? this.refillWindowMs : MIN_SWEEP_INTERVAL_MS
+        const refillWindowMs = (bucketCapacity / replenishRate) * 1000
+        this.sweepIntervalMs = refillWindowMs > MIN_SWEEP_INTERVAL_MS ? refillWindowMs : MIN_SWEEP_INTERVAL_MS
     }
 
     private getBucket(key: string, now: number): Bucket {
@@ -76,7 +75,8 @@ export class MemoryRateLimiter {
         }
         this.nextSweepAt = wallNow + this.sweepIntervalMs
         for (const [key, bucket] of this.buckets) {
-            const refilledInEventTime = this.latestTimestamp - bucket[1] >= this.refillWindowMs
+            const refilledInEventTime =
+                bucket[0] + (this.replenishRate * (this.latestTimestamp - bucket[1])) / 1000 >= this.bucketCapacity
             const idleSincePreviousSweep = bucket[2] < this.sweepCount
             if (refilledInEventTime && idleSincePreviousSweep) {
                 this.buckets.delete(key)

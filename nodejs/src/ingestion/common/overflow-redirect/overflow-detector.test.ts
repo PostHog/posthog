@@ -107,6 +107,17 @@ describe('MemoryRateLimiter', () => {
             expect(limiter.consume('drained', 1, at(0))).toEqual(false)
         })
 
+        it('keeps a bucket in token debt until the debt is refilled too', () => {
+            limiter.consume('debt', capacity * 3, at(0))
+            limiter.removeRefilledBuckets(at(0))
+
+            limiter.consume('other', 1, at(refillWindowSeconds))
+            limiter.removeRefilledBuckets(at(refillWindowSeconds))
+
+            expect(limiter.buckets.has('debt')).toEqual(true)
+            expect(limiter.consume('debt', 1, at(refillWindowSeconds))).toEqual(false)
+        })
+
         it('keeps the bucket and its decision for a key that consumes on a lagging partition', () => {
             limiter.consume('lagging', 10, at(0))
             limiter.consume('current', 1, at(1000))
