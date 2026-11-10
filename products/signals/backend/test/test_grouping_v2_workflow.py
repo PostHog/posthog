@@ -22,7 +22,7 @@ from products.signals.backend.temporal.grouping import (
     GenerateSearchQueriesOutput,
     SignalGroupingCompletion,
 )
-from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
+from products.signals.backend.temporal.grouping_v2 import MAX_FAILED_ROUNDS, TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ReadSignalsFromS3Input,
@@ -133,3 +133,18 @@ async def test_non_retryable_failure_drops_the_batch_without_retrying(monkeypatc
     first_drop = recorder.drops[0]
     assert (first_drop.stage, first_drop.source_id) == ("grouping_prep", "issue-1")
     assert [completion.signal_id for completion in recorder.completions[0]] == ["signal-1"]
+
+
+@pytest.mark.asyncio
+async def test_retryable_failure_stops_after_max_rounds(monkeypatch: pytest.MonkeyPatch):
+    _fast_collect(monkeypatch)
+    recorder = _Recorder()
+
+    await _drive(
+        recorder,
+        embedding_error=lambda: ApplicationError("embedding worker timed out"),
+        rounds_of_first_batch=MAX_FAILED_ROUNDS,
+    )
+
+    assert recorder.reads.count(FIRST_BATCH_KEY) == MAX_FAILED_ROUNDS
+    assert SECOND_BATCH_KEY in recorder.reads

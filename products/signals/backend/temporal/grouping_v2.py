@@ -37,6 +37,7 @@ PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
 BATCH_COLLECT_MAX_SIGNALS = 20
 BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
 RETRY_BACKOFF = timedelta(seconds=10)
+MAX_FAILED_ROUNDS = 5
 
 
 def _is_terminal_batch_error(error: BaseException) -> bool:
@@ -264,12 +265,25 @@ class TeamSignalGroupingV2Workflow:
             else:
                 # Stash keys back so they're retried after continue_as_new.
                 # Sleep first to avoid hot-looping on deterministic failures.
-                self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
+                retry_keys = []
                 for key in collected.object_keys:
-                    self._failed_rounds_by_batch_key[key] = self._failed_rounds_by_batch_key.get(key, 0) + 1
-                if self._batch_buffer_size_gauge is not None:
-                    self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-                await workflow.sleep(RETRY_BACKOFF)
+                    failed_rounds = self._failed_rounds_by_batch_key.get(key, 0) + 1
+                    if failed_rounds >= MAX_FAILED_ROUNDS:
+                        logger.warning(
+                            "Dropping signal batch after repeated failures",
+                            team_id=input.team_id,
+                            object_key=key,
+                            failed_rounds=failed_rounds,
+                        )
+                        self._failed_rounds_by_batch_key.pop(key, None)
+                    else:
+                        self._failed_rounds_by_batch_key[key] = failed_rounds
+                        retry_keys.append(key)
+                if retry_keys:
+                    self._batch_key_buffer = retry_keys + self._batch_key_buffer
+                    if self._batch_buffer_size_gauge is not None:
+                        self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+                    await workflow.sleep(RETRY_BACKOFF)
 
         # continue_as_new after each processing round to keep history bounded.
         # Carry over any pending keys that arrived while we were processing.
