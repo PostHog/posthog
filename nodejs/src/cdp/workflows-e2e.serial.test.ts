@@ -133,6 +133,8 @@ const UNSUBSCRIBE_LINK_CASES = z
         )
     )
 
+const TEXT_LINK_INTO_LONG_PUNCTUATION = 'Bye: {{ unsubscribe_url }}' + '.'.repeat(200_000) + 'x'
+
 const EXPECTED_UNSUBSCRIBE_LINK_OUTCOMES = Object.fromEntries(
     UNSUBSCRIBE_LINK_CASES.map(({ name, has_unsubscribe_link }) => [
         name,
@@ -3970,6 +3972,26 @@ describe('Workflows E2E (email queue)', () => {
                         content: { subject: 'News', text: 'Bye: {{unsubscribe_url}}{% endif %}' },
                     },
                 },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a code send in a marketing category whose text link runs into a long run of punctuation',
+                kind: 'code',
+                payload: {
+                    send: {
+                        ...codeSend(newsletter),
+                        content: { subject: 'News', text: TEXT_LINK_INTO_LONG_PUNCTUATION },
+                    },
+                },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a template send in a marketing category whose email step text link runs into a long run of punctuation',
+                kind: 'template',
+                stepEmail: { html: '', text: TEXT_LINK_INTO_LONG_PUNCTUATION },
+                payload: { message_category: newsletter },
                 status: 400,
                 error: 'unsubscribe_link_required',
             },

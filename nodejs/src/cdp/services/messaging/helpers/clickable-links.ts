@@ -17,15 +17,23 @@ export const trimUrlWhitespace = (href: string): string => {
 }
 
 const TEXT_LINK_START = /[hH][tT][tT][pP][sS]?:\/\/|[wW]{3}\./
-const TEXT_LINK_END = /[.,;:!?'")\]}>*]*$/
-const TEXT_LINK_END_BEFORE_LIQUID = /[.,;:!?'")\]}>*]*(?:\{[{%].*)?$/
+const TEXT_LINK_END_PUNCTUATION = '.,;:!?\'")]}>*'
+const LIQUID_TAG_START = /\{[{%]/
+
+const withoutLinkEnd = (rest: string, { liquid }: { liquid: boolean }): string => {
+    const tag = liquid ? rest.search(LIQUID_TAG_START) : -1
+    let end = tag === -1 ? rest.length : tag
+    while (end > 0 && TEXT_LINK_END_PUNCTUATION.includes(rest[end - 1])) {
+        end--
+    }
+    return rest.slice(0, end)
+}
 
 export const textLinksTo = (text: string, base: string, { liquid }: { liquid: boolean }): string[] =>
     text.split(/\s+/).flatMap((word) => {
         const start = word.search(TEXT_LINK_START)
         const link = start === -1 ? '' : word.slice(start)
-        const end = liquid ? TEXT_LINK_END_BEFORE_LIQUID : TEXT_LINK_END
-        return link.startsWith(base) ? [link.slice(base.length).replace(end, '')] : []
+        return link.startsWith(base) ? [withoutLinkEnd(link.slice(base.length), { liquid })] : []
     })
 
 const EMPTY_BOGUS_COMMENT = /<!>/g
