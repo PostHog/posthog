@@ -1,6 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
@@ -27,7 +27,7 @@ const LIVE_DETAILS = {
     batchJobStatuses: ['completed'],
 }
 
-type Flow = typeof DRAFT & { created_by?: string; broadcast_status?: string }
+type Flow = typeof DRAFT & { type?: string; created_by?: string; broadcast_status?: string }
 
 const drafts = (count: number, name: string, extra: Partial<Flow> = {}): Flow[] =>
     Array.from({ length: count }, (_, i) => ({ ...DRAFT, id: `${name}-${i}`, name: `${name} ${i}`, ...extra }))
@@ -50,13 +50,13 @@ describe('broadcastsLogic', () => {
         if (failing.delete('list')) {
             return [500, { detail: 'boom' }]
         }
-        const tags: string[] = JSON.parse(query.tags ?? '[]')
         const matches = flows.filter(
             (flow) =>
+                (!query.type || (flow.type ?? 'broadcast') === query.type) &&
                 (!query.search || flow.name.includes(query.search)) &&
                 (!query.broadcast_status || flow.broadcast_status === query.broadcast_status) &&
                 (!query.created_by || flow.created_by === query.created_by) &&
-                tags.every((tag) => flow.tags.includes(tag))
+                (!query.tags || JSON.parse(query.tags).some((tag: string) => flow.tags.includes(tag)))
         )
         const offset = Number(query.offset)
         return [200, { count: matches.length, results: matches.slice(offset, offset + Number(query.limit)) }]
@@ -138,7 +138,6 @@ describe('broadcastsLogic', () => {
             logic.unmount()
         }
         lemonToast.dismiss()
-        cleanup()
         jest.useRealTimers()
         jest.restoreAllMocks()
         resumeKeaLoadersErrors()
@@ -186,6 +185,7 @@ describe('broadcastsLogic', () => {
             ...drafts(1, 'welcome by someone else', { ...matching, created_by: 'user-2' }),
             ...drafts(1, 'welcome sent', { ...matching, broadcast_status: 'sent' }),
             ...drafts(1, 'welcome untagged', { ...matching, tags: [] }),
+            ...drafts(1, 'welcome workflow', { ...matching, type: 'workflow' }),
         ]
 
         logic.actions.setFiltersFromUrl(filters as any)
