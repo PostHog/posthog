@@ -173,6 +173,18 @@ describe('checkSandboxRecipient', () => {
         }
     )
 
+    it('lets sends through when the cap check throws, and still caps after more failures than the pending limit', async () => {
+        const throwing = (): Promise<FrequencyCapCheck> => {
+            throw new Error('frequency cap store is down')
+        }
+        for (let attempt = 0; attempt <= MAX_PENDING_FREQUENCY_CAP_CHECKS; attempt++) {
+            expect(await check({ frequencyCap: throwing })).toEqual({ ok: true })
+        }
+
+        frequencyCap = { capped: true, nextSlotAt: 0, holdHours: null }
+        expect(await check()).toEqual({ ok: false, reason: 'frequency_capped' })
+    })
+
     it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>]>([
         [
             'a complaint on a transactional step',
