@@ -197,8 +197,8 @@ tools:
             Owners always have it, and admins have it when owner-only billing is off. Members have it when owner-only
             billing is off and the organization allows member usage and spend reads, for the projects they can see.
             Works with an API key or OAuth token limited to specific projects when the key covers this project. Use it
-            for "how many events has this project used this month". For the organization total with limits and
-            limiting state call billing-usage-summary-get, and for this project's usage over time call
+            for "how many events has this project used this month". For the organization total with limits and limiting
+            state call billing-usage-summary-get, and for this project's usage over time call
             billing-project-usage-timeseries-get. Beta: behind the organization-billing-api flag, and the output shape
             may change while it is.
         feature_flag: organization-billing-api
@@ -217,9 +217,9 @@ tools:
             Usage over time for the active project as quantities, summed across the project's environments. Needs usage
             read access. Owners always have it, and admins have it when owner-only billing is off. Members have it when
             owner-only billing is off and the organization allows member usage and spend reads, for the projects they
-            can see. Works with an API key or OAuth token limited to specific projects when the key covers this
-            project. Use it to investigate a usage spike in one project or to compare periods. For this project's usage
-            so far this period call billing-project-usage-summary-get, and for dollar amounts call
+            can see. Works with an API key or OAuth token limited to specific projects when the key covers this project.
+            Use it to investigate a usage spike in one project or to compare periods. For this project's usage so far
+            this period call billing-project-usage-summary-get, and for dollar amounts call
             billing-project-spend-timeseries-get. To compare projects, call billing-usage-timeseries-get with an
             organization-wide key. Beta: behind the organization-billing-api flag, and the output shape may change while
             it is.
