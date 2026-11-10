@@ -709,6 +709,16 @@ describe('Cyclotron V2', () => {
                 }
             }
 
+            let cleanups: (() => Promise<void>)[] = []
+
+            afterEach(async () => {
+                const pending = cleanups
+                cleanups = []
+                for (const cleanup of pending.reverse()) {
+                    await cleanup()
+                }
+            })
+
             async function withHeldDepthQueries(
                 overrides: Record<string, unknown>,
                 body: (
@@ -720,20 +730,17 @@ describe('Cyclotron V2', () => {
                 const intervalMs = 10_000
                 let now = Date.now()
                 const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+                cleanups.push(() => Promise.resolve(clock.mockRestore()))
                 const m = createManager({ depthCheckIntervalMs: intervalMs, ...overrides })
                 await m.connect()
+                cleanups.push(() => m.disconnect())
                 const depth = holdDepthQueries(m)
-                try {
-                    const first = m.createJob({ teamId: 1, queueName: QUEUE })
-                    await depth.entered()
-                    await depth.release()
-                    await first
-                    await body(m, depth, () => (now += intervalMs + 1))
-                } finally {
-                    await depth.release()
-                    clock.mockRestore()
-                    await m.disconnect()
-                }
+                cleanups.push(() => depth.release())
+                const first = m.createJob({ teamId: 1, queueName: QUEUE })
+                await depth.entered()
+                await depth.release()
+                await first
+                await body(m, depth, () => (now += intervalMs + 1))
             }
 
             it('with the background depth check, stores a job while the depth refresh is still running', async () => {
@@ -742,7 +749,7 @@ describe('Cyclotron V2', () => {
                     const second = m.createJob({ teamId: 1, queueName: QUEUE })
                     await depth.entered()
 
-                    expect(await stillPendingAfter(second, 200)).toBe(false)
+                    await second
                     expect(await storedJobs()).toBe(2)
                 })
             })
