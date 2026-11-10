@@ -99,10 +99,15 @@ class TestExperiments(BaseTest):
                 -6.0,
                 HighlightExperimentResult("Conversion rate", "test", "control", 1, True, False, 4100),
             ),
+            ("no change computed yet", stored(arm("test", None), arm("calm", None)), None, None),
         ]
     )
     def test_the_number_compares_the_variant_to_show_with_the_control(
-        self, _name: str, result: StoredPrimaryResult, value: float, experiment: HighlightExperimentResult
+        self,
+        _name: str,
+        result: StoredPrimaryResult,
+        value: float | None,
+        experiment: HighlightExperimentResult | None,
     ) -> None:
         found = self._find(
             TUESDAY,
@@ -114,7 +119,9 @@ class TestExperiments(BaseTest):
 
         self.assertEqual(
             [(m.key, m.name, round(m.value, 6), m.url, m.reason, m.experiment) for m in found.pulse],
-            [("experiment:11", "Checkout redesign", value, "/experiments/11", "experiment", experiment)],
+            [("experiment:11", "Checkout redesign", value, "/experiments/11", "experiment", experiment)]
+            if experiment
+            else [],
         )
 
     def test_the_number_skips_ignored_experiments_and_results_without_a_change(self) -> None:
