@@ -200,9 +200,12 @@ async def test_each_failed_materialize_attempt_is_written_to_the_run_log(
     v2_activity_environment, queue, ateam, adag, anode, asaved_query, ajob, bucket_name
 ):
     def failing_hogql_table(*args, **kwargs):
+        fail = unittest.mock.Mock(
+            side_effect=ValueError("Code 241. Memory limit exceeded (from chi-posthog-data-0-0.svc.cluster.local:9000)")
+        )
+
         async def generator():
-            raise ValueError("Code 241. Memory limit exceeded (from chi-posthog-data-0-0.svc.cluster.local:9000)")
-            yield
+            yield fail()
 
         return generator()
 

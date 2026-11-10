@@ -169,7 +169,6 @@ import {
     queryHistorySuggestionOnReject,
     queryHistorySuggestionOnRejectText,
 } from './suggestions/queryHistorySuggestion'
-import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
     tabId: string
@@ -2640,119 +2639,115 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         incrementalLookbackSeconds: 0,
                     },
                     description: `View names must start with a letter, '_', or '$' and can only contain letters, numbers, '_', '.', or '$'. Spaces are not allowed.`,
-                    content: (isLoading) =>
-                        isLoading ? (
-                            <div className="h-[37px] flex items-center">
-                                <ViewEmptyState />
-                            </div>
-                        ) : (
-                            <>
-                                <LemonField name="saveTarget">
-                                    {({ onChange }) => (
-                                        <SaveTargetCycler
-                                            candidates={candidates}
-                                            onChange={(query, index) => {
-                                                selectedRef.current = query
-                                                onChange(index)
-                                            }}
+                    // The eligibility check resets selections on mount, so keep it mounted during a save.
+                    content: (isLoading) => (
+                        <fieldset disabled={isLoading}>
+                            <LemonField name="saveTarget">
+                                {({ onChange }) => (
+                                    <SaveTargetCycler
+                                        candidates={candidates}
+                                        onChange={(query, index) => {
+                                            selectedRef.current = query
+                                            onChange(index)
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
+                            <LemonField name="viewName" label="Name">
+                                <LemonInput
+                                    data-attr="sql-editor-input-save-view-name"
+                                    disabled={isLoading}
+                                    placeholder="Please enter the name of the view"
+                                    autoFocus
+                                />
+                            </LemonField>
+                            <LemonField
+                                name="description"
+                                label="Description"
+                                showOptional
+                                help="Agents may use this description to work out how to use this data."
+                                className="mt-2"
+                            >
+                                <LemonTextArea
+                                    data-attr="sql-editor-input-save-view-description"
+                                    disabled={isLoading}
+                                    placeholder="For example: one row per paid order, without test orders or refunds. Use it for revenue reports."
+                                    minRows={2}
+                                    stopPropagation
+                                />
+                            </LemonField>
+                            <div className="flex gap-2 mt-2">
+                                <LemonField name="folderId" label="Add to folder" className="flex-1">
+                                    {({ value, onChange }) => (
+                                        <LemonSearchableSelect<string | null>
+                                            value={value}
+                                            onChange={onChange}
+                                            searchPlaceholder="Search folders"
+                                            options={[
+                                                ...folderOptions,
+                                                {
+                                                    value: '__add_new_folder__',
+                                                    label: '+ Add new folder',
+                                                    labelInMenu: () => (
+                                                        <button
+                                                            type="button"
+                                                            className="w-full text-left text-primary px-2 py-1.5 cursor-pointer"
+                                                            onClick={() => createFolderAndSelect(onChange)}
+                                                        >
+                                                            + Add new folder
+                                                        </button>
+                                                    ),
+                                                },
+                                            ]}
+                                            disabled={isLoading}
+                                            placeholder="Select a folder"
+                                            fullWidth
                                         />
                                     )}
                                 </LemonField>
-                                <LemonField name="viewName" label="Name">
-                                    <LemonInput
-                                        data-attr="sql-editor-input-save-view-name"
-                                        disabled={isLoading}
-                                        placeholder="Please enter the name of the view"
-                                        autoFocus
-                                    />
-                                </LemonField>
-                                <LemonField
-                                    name="description"
-                                    label="Description"
-                                    showOptional
-                                    help="Agents may use this description to work out how to use this data."
-                                    className="mt-2"
-                                >
-                                    <LemonTextArea
-                                        data-attr="sql-editor-input-save-view-description"
-                                        disabled={isLoading}
-                                        placeholder="For example: one row per paid order, without test orders or refunds. Use it for revenue reports."
-                                        minRows={2}
-                                        stopPropagation
-                                    />
-                                </LemonField>
-                                <div className="flex gap-2 mt-2">
-                                    <LemonField name="folderId" label="Add to folder" className="flex-1">
-                                        {({ value, onChange }) => (
-                                            <LemonSearchableSelect<string | null>
-                                                value={value}
-                                                onChange={onChange}
-                                                searchPlaceholder="Search folders"
-                                                options={[
-                                                    ...folderOptions,
-                                                    {
-                                                        value: '__add_new_folder__',
-                                                        label: '+ Add new folder',
-                                                        labelInMenu: () => (
-                                                            <button
-                                                                type="button"
-                                                                className="w-full text-left text-primary px-2 py-1.5 cursor-pointer"
-                                                                onClick={() => createFolderAndSelect(onChange)}
-                                                            >
-                                                                + Add new folder
-                                                            </button>
-                                                        ),
-                                                    },
-                                                ]}
-                                                disabled={isLoading}
-                                                placeholder="Select a folder"
-                                                fullWidth
-                                            />
-                                        )}
-                                    </LemonField>
-                                </div>
-                                {isStaff && (
-                                    <LemonField name="isTest" className="mt-2">
-                                        {({ value, onChange }) => (
-                                            <div className="flex items-center gap-2">
-                                                <LemonCheckbox
-                                                    checked={value}
-                                                    onChange={onChange}
-                                                    data-attr="sql-editor-input-save-view-is-test"
-                                                    label="Is this view for testing only?"
-                                                />
-                                                <Tooltip title="Test views and any downstream assets that depend on them will be automatically deleted after 1 week.">
-                                                    <span className="text-muted cursor-pointer">&#9432;</span>
-                                                </Tooltip>
-                                            </div>
-                                        )}
-                                    </LemonField>
-                                )}
-                                <LemonField name="materializeAfterSave" className="mt-2">
+                            </div>
+                            {isStaff && (
+                                <LemonField name="isTest" className="mt-2">
                                     {({ value, onChange }) => (
-                                        <>
-                                            <div className="flex items-center gap-2">
-                                                <LemonCheckbox
-                                                    checked={value}
-                                                    onChange={onChange}
-                                                    data-attr="sql-editor-input-save-view-materialize"
-                                                    disabledReason={
-                                                        isRawTrinoSave
-                                                            ? 'Views that run raw Trino SQL cannot be materialized yet.'
-                                                            : undefined
-                                                    }
-                                                    label="Materialize this view"
-                                                />
-                                                <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
-                                                    <span className="text-muted cursor-pointer">&#9432;</span>
-                                                </Tooltip>
-                                            </div>
-                                            <IncrementalConfigFields queries={candidates.queries} />
-                                        </>
+                                        <div className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={value}
+                                                onChange={onChange}
+                                                data-attr="sql-editor-input-save-view-is-test"
+                                                label="Is this view for testing only?"
+                                            />
+                                            <Tooltip title="Test views and any downstream assets that depend on them will be automatically deleted after 1 week.">
+                                                <span className="text-muted cursor-pointer">&#9432;</span>
+                                            </Tooltip>
+                                        </div>
                                     )}
                                 </LemonField>
-                            </>
-                        ),
+                            )}
+                            <LemonField name="materializeAfterSave" className="mt-2">
+                                {({ value, onChange }) => (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={value}
+                                                onChange={onChange}
+                                                data-attr="sql-editor-input-save-view-materialize"
+                                                disabledReason={
+                                                    isRawTrinoSave
+                                                        ? 'Views that run raw Trino SQL cannot be materialized yet.'
+                                                        : undefined
+                                                }
+                                                label="Materialize this view"
+                                            />
+                                            <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
+                                                <span className="text-muted cursor-pointer">&#9432;</span>
+                                            </Tooltip>
+                                        </div>
+                                        <IncrementalConfigFields queries={candidates.queries} />
+                                    </>
+                                )}
+                            </LemonField>
+                        </fieldset>
+                    ),
                     errors: {
                         saveTarget: () => selectionProblem ?? undefined,
                         viewName: validateSavedQueryName,
