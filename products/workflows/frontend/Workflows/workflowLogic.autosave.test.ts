@@ -1527,12 +1527,22 @@ describe('workflowLogic auto-save', () => {
             ref: WORKFLOW_ID,
         })
         beforeEach(async () => {
+            // The tree and the workflow read back what the last save stored, so a save that drops the name
+            // leaves the old name in the tree.
+            let stored = makeWorkflow()
             useMocks({
                 get: {
                     '/api/environments/:team_id/file_system/': ({ request }) =>
                         new URL(request.url).searchParams.get('ref') === WORKFLOW_ID
-                            ? [200, { results: [treeEntry('Renamed')], count: 1 }]
+                            ? [200, { results: [treeEntry(stored.name)], count: 1 }]
                             : [200, { results: [], count: 0 }],
+                    '/api/environments/:team_id/hog_flows/:id/': () => [200, stored],
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        stored = { ...stored, ...((await request.json()) as Partial<typeof stored>) }
+                        return [200, stored]
+                    },
                 },
             })
             initKeaTests()

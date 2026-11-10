@@ -476,15 +476,25 @@ describe('messageTemplateLogic', () => {
         })
 
         beforeEach(async () => {
+            // The tree and the template read back what the last save stored, so a save that drops the name
+            // leaves the old name in the tree.
+            let storedName = 'Existing'
             useMocks({
                 get: {
                     '/api/environments/:team_id/file_system/': ({ request }) =>
                         new URL(request.url).searchParams.get('ref') === 'existing-id'
-                            ? [200, { results: [treeEntry('Renamed')], count: 1 }]
+                            ? [200, { results: [treeEntry(storedName)], count: 1 }]
                             : [200, { results: [], count: 0 }],
+                    '/api/projects/:team_id/messaging_templates/:id/': () => [
+                        200,
+                        { id: 'existing-id', name: storedName },
+                    ],
                 },
                 patch: {
-                    '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'Renamed' },
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        storedName = ((await request.json()) as { name?: string }).name ?? storedName
+                        return [200, { id: 'existing-id', name: storedName }]
+                    },
                 },
             })
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
