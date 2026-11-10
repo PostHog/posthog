@@ -241,7 +241,7 @@ class TemplateStore:
         for name in self.server.newest_databases_named(self.prefix):
             if name.endswith(BUILDING_SUFFIX) or not self.checkout.contains(name.removeprefix(self.prefix)):
                 continue
-            if not migrations_missing_from_checkout(self.server.recorded_migrations(name)):
+            if self._fits_checkout(name):
                 return name
         return None
 
@@ -272,7 +272,12 @@ class TemplateStore:
                 dump = Path(scratch) / "schema.sql.gz"
                 download_schema_artifact(artifact, token=token, destination=dump, session=session)
                 self.build(name, dump, sha=dump_sha)
+        elif not self._fits_checkout(name):
+            raise TemplateUnavailable(f"{name} records migrations this checkout lacks")
         return name
+
+    def _fits_checkout(self, name: str) -> bool:
+        return not migrations_missing_from_checkout(self.server.recorded_migrations(name))
 
     def _prune(self, *, keep: str) -> None:
         older = [name for name in self.server.newest_databases_named(self.prefix) if name != keep][TEMPLATES_KEPT - 1 :]

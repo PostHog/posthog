@@ -225,16 +225,31 @@ def test_prime_test_database_clones_the_template_unless_the_database_fits_the_ch
     ids=["missing", "newer-than-checkout"],
 )
 def test_prime_test_database_leaves_the_database_alone_without_a_template_that_fits_the_checkout(
-    scratch: Scratch, tmp_path: Path, template: str, start: list[str] | None, ledger: set[str] | None
+    scratch: Scratch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    template: str,
+    start: list[str] | None,
+    ledger: set[str] | None,
 ) -> None:
+    github = GitHubActions()
     if template == "not-in-history":
         scratch.build_template(NOT_IN_HISTORY, [APPLIED, PENDING], tmp_path)
     else:
-        scratch.seed(scratch.store.name_for(scratch.head), [APPLIED, PENDING, FROM_NEWER_BRANCH])
+        reverted = [APPLIED, PENDING, FROM_NEWER_BRANCH]
+        scratch.seed(scratch.store.name_for(scratch.head), reverted)
+        dump = schema_dump([("posthog", name) for name in reverted], preamble=f"-- {os.urandom(16_000).hex()}\n")
+        github.upload(run_id=7, head_sha=scratch.head, name="migrated-schema", files={"schema.sql.gz": dump})
+        github.upload(run_id=7, head_sha=scratch.head, name=f"migrated-schema-mirrored-{scratch.head}", files={})
     if start is not None:
         scratch.seed(scratch.target, start)
+    monkeypatch.setenv("GH_TOKEN", "gho_not_a_real_token")
+    store = TemplateStore(
+        scratch.server, Checkout(REPO_ROOT), prefix=scratch.store.prefix, failure_marker=tmp_path / "download-failed"
+    )
 
-    result = prime_test_database(scratch.server, scratch.target, scratch.store)
+    with github.serving():
+        result = prime_test_database(scratch.server, scratch.target, store)
 
     assert (result.outcome, scratch.ledger()) == (PrimeOutcome.SKIPPED, ledger)
 
