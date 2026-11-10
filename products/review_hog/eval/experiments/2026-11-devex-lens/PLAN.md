@@ -10,7 +10,7 @@ The unit tests prove routing, cohort separation, and fan-out. They say nothing a
 ## Step 1: is there a gap at all
 
 Run Standard as it is today on the case set, twice.
-If it finds 70% or more of the labelled issues, stop. The lens has nothing to add, and the code should be removed.
+If it finds 70% or more of the labeled issues, stop. The lens has nothing to add, and the code should be removed.
 
 ## Case set
 
@@ -21,7 +21,7 @@ Each case is the PR at its frozen head, reviewed through `manage.py run_review` 
   Write each known issue as one sentence with its file and line.
   Label every issue before the first lens run.
 - **Clean controls, about 15.** No later fix and no review thread that asked for a change.
-- Record the PR number, the head SHA, and the labelled issues in `cases.json` in this directory.
+- Record the PR number, the head SHA, and the labeled issues in `cases.json` in this directory.
 - Every case comes from the public repository. Do not add a case from a private incident or an internal thread.
 
 ## Arms

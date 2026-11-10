@@ -21,10 +21,10 @@ This is a local pilot, not the experiment in the plan. See [Limits](#limits).
   Both arms share the same control sessions, so a difference comes from the lens alone.
 - **Judge.** Sonnet 5.5 at high effort, with read-only git tools in the checkout.
   It saw the pooled findings of all sessions in random order, without the session names.
-  One call matched findings to the labelled issues, and one call judged each finding as valid or not, with a severity.
+  One call matched findings to the labeled issues, and one call judged each finding as valid or not, with a severity.
 - **Dedup and cap.** A model call with the product's dedup instructions grouped findings by root cause.
   The score then applied the product's rules: the main finding survives, then pass order, the survivor takes the group's highest priority, and the first-review cap applies.
-- **Cases.** [cases.json](./cases.json) lists the pilot set and the clean set with their head SHAs and labelled issues.
+- **Cases.** [cases.json](./cases.json) lists the pilot set and the clean set with their head SHAs and labeled issues.
 
 ## Pilot set: findings a human reviewer posted
 
@@ -64,7 +64,7 @@ A stronger model then tried to refute the 40 findings of the second prompt at th
 - By its severities, 2 were critical, 2 major, 30 minor and 6 nit.
 - This pass was not repeated for the prompt in use.
 
-## Second set: known major issues, labelled independently
+## Second set: known major issues, labeled independently
 
 22 PR heads that change devex-owned files, with 26 major or critical issues that reviewers or a later fix PR had raised.
 The labels were made before this work and by a different process.
@@ -120,7 +120,7 @@ On the second set Standard found 69% and 73%, which is at the 70% line.
 - **The prompt was revised after its misses were read**, on the held-out PRs too. The second set was not used to revise any prompt.
 - **Small sets.** 9 and 22 cases, 6 clean PRs, two runs. Read a difference of one or two issues as noise.
 - **The judge is a model.** The refutation pass covers one prompt on one set.
-- **One line of the prompt changed after the runs.** The runs told the session to read an edited guide at the merge base with git. A review sandbox has a shallow clone and no merge-base SHA in the prompt, so the prompt now points at the removed lines of the diff.
+- **One line of the prompt changed after the runs.** The runs told the session to read an edited guide at the merge base with git. A review sandbox has a shallow clone and no merge-base SHA in the prompt, so the prompt now points at the removed lines of the diff. Three words also changed to American spelling.
 
 ## What this supports
 

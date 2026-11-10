@@ -39,9 +39,9 @@ Report a finding when the change introduces one of these, and you can point at t
 
 - **A broken guarantee.** The change makes a check, gate, release step, tool or command do something other than what it promises on a path that will run.
   Examples are a required check that passes without doing its work, a job that publishes twice or not at all on a retry, and a build that selects everything when its selector is skipped.
-- **A broken rule.** The change violates a rule this repository states for that kind of file, or departs from the contract that the neighbouring code keeps, such as how sibling functions validate input and raise errors.
+- **A broken rule.** The change violates a rule this repository states for that kind of file, or departs from the contract that the neighboring code keeps, such as how sibling functions validate input and raise errors.
   A rule finding needs no runtime failure. Name the rule or the sibling code, and say what the violation costs here.
-- **A claim the change does not keep.** A test that still passes when the behaviour it names is broken, or a comment, README or PR description that says the code does something it does not do.
+- **A claim the change does not keep.** A test that still passes when the behavior it names is broken, or a comment, README or PR description that says the code does something it does not do.
 
 ## How to find them
 
@@ -61,7 +61,7 @@ Then follow the change through the events that start the job (pull request, fork
 
 Stop when you have followed every changed file in your scope through the paths above, or when further reading stops changing your candidates.
 Before you report a candidate, try to disprove it from the callers, the guards and the existing code that does the same thing.
-Drop a candidate when you cannot establish the behaviour from the repository or its guides.
+Drop a candidate when you cannot establish the behavior from the repository or its guides.
 
 Leave out problems that existed before this pull request, anything a required linter, formatter or type checker already reports, and advice that is not tied to a line in this change.
 

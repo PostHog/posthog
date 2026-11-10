@@ -212,7 +212,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   The rules stay in those guides, and the session reads them from the checkout.
   A guide that the PR edits is applied as it was before the PR, from the removed lines of its diff.
 - **Left out.** Coordinated turns (the coordinator has no sub-agent slot for it), delta turns (the session has no part of a delta), and the Deep pipeline.
-- **Measured.** A local pilot (`eval/experiments/2026-11-devex-lens/FINAL_REPORT.md`) found a small gain and no lost Standard finding: 13 and 14 of 21 labelled findings against 10 and 11, and 1 more of 26 on a second set.
+- **Measured.** A local pilot (`eval/experiments/2026-11-devex-lens/FINAL_REPORT.md`) found a small gain and no lost Standard finding: 13 and 14 of 21 labeled findings against 10 and 11, and 1 more of 26 on a second set.
   The lens failed the plan's recall bar and its cost bar. Its session costs 1.5 to 1.7 times a shipped lens session.
 - **Before the flag goes on.** Run `eval/experiments/2026-11-devex-lens/PLAN.md` through `run_review`, with its bars agreed first.
 - **A second routed lens** needs the same shape (ownership route, own fingerprint key, off by default) and its own measured result.
