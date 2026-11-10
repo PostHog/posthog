@@ -33,6 +33,7 @@ from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_h
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.attachments import AttachmentPart
@@ -490,7 +491,7 @@ def test_openai_native_decisions_use_shared_result_semantics(
         stream=httpx.ByteStream(json.dumps(payload).encode()),
     )
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as transport,
     ):
@@ -619,7 +620,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
@@ -713,7 +714,7 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
@@ -795,7 +796,7 @@ def test_decision_numeric_scores_use_configured_bounds(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
@@ -840,7 +841,7 @@ def test_decision_numeric_scores_use_configured_bounds(
 @pytest.mark.parametrize("output_config", [{}, {"min": 0}, {"max": 10}, {"min": 1, "max": 1}])
 def test_system_one_numeric_requires_a_score_range(output_config: dict[str, float]) -> None:
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
@@ -894,7 +895,7 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"example-judge-v1": ["decisions"]},
         ),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
@@ -941,7 +942,7 @@ def _call_openai_compatible_judge(
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value=resolved_ips),
+        mock_anti_ssrf_dns_lookup(resolves_to=resolved_ips),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -1070,7 +1071,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
@@ -1088,6 +1089,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
             ],
         ) as transport,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as user_errors,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as system_errors,
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider=provider,
@@ -1124,6 +1126,9 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         assert transport.call_count == 1
         assert [call.args[0] for call in user_errors.call_args_list] == (
             ["rate_limit_retries_exhausted"] if expected == "skipped" else []
+        )
+        assert [call.args[0] for call in system_errors.call_args_list] == (
+            [] if is_byok and status == 429 else ["rate_limit"]
         )
 
         result = call_llm_judge(
@@ -1575,18 +1580,17 @@ class TestRunEvaluationWorkflow:
             mock_client.complete.assert_called_once()
 
     @pytest.mark.parametrize(
-        ("flag_enabled", "evaluation_config", "attaches_image"),
+        ("evaluation_config", "attaches_image"),
         [
-            pytest.param(True, {"prompt": "Is the chart described correctly?"}, True, id="flag_on"),
-            pytest.param(False, {"prompt": "Is the chart described correctly?"}, False, id="flag_off"),
+            pytest.param({"prompt": "Is the chart described correctly?"}, True, id="default"),
             pytest.param(
-                True, {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
+                {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
             ),
         ],
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_attaches_images_when_enabled(
-        self, flag_enabled, evaluation_config, attaches_image, setup_data, active_key_config
+        self, evaluation_config, attaches_image, setup_data, active_key_config
     ):
         team = setup_data["team"]
         evaluation = {
@@ -1626,10 +1630,6 @@ class TestRunEvaluationWorkflow:
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
             patch(
-                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
-                return_value=flag_enabled,
-            ) as feature_enabled,
-            patch(
                 "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url",
                 return_value="https://signed",
             ),
@@ -1642,9 +1642,6 @@ class TestRunEvaluationWorkflow:
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         content = mock_client.complete.call_args.args[0].messages[0]["content"]
-        if "include_media" not in evaluation_config:
-            # Team ids repeat across regions, so the flag is checked against the project uuid.
-            assert feature_enabled.call_args.kwargs["groups"] == {"project": str(team.uuid)}
         if attaches_image:
             assert AttachmentPart(mime_type="image/jpeg", url="https://signed") in content
             assert "user: [image 1] What does this chart show?" in content[-1]["text"]
@@ -4737,14 +4734,7 @@ class TestJudgePromptAssembly:
             },
         )
 
-        with (
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge,
-            patch(
-                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
-            patch("posthog.temporal.ai_observability.judge_attachments._project_uuid", return_value="uuid"),
-        ):
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge:
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         attachment_prompt = judge.call_args.kwargs["attachment_prompt"]

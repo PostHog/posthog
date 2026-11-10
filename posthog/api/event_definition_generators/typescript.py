@@ -4,7 +4,8 @@ from django.db.models import QuerySet
 
 import orjson
 
-from ...models import EventDefinition, SchemaPropertyGroupProperty
+from products.event_definitions.backend.models import EventDefinition, SchemaPropertyGroupProperty
+
 from .base import EventDefinitionGenerator
 
 

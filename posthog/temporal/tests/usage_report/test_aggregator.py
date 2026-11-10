@@ -25,10 +25,13 @@ from posthog.tasks.usage_report import (
 )
 from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_business_knowledge_usage_patch_defaults,
+    add_pre_local_evaluation_not_modified_patch_defaults,
     add_pre_logs_distinct_patterns_patch_defaults,
     add_pre_mcp_event_count_patch_defaults,
     add_pre_replay_vision_spend_projection_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
+    add_pre_signals_spend_patch_defaults,
     add_pre_transactional_emails_patch_defaults,
     build_manifest,
     iter_chunk_lines,
@@ -44,9 +47,11 @@ from posthog.temporal.usage_report.types import (
     WorkflowContext,
 )
 from posthog.usage_counters import (
+    UsageCounter,
     UsageCounterComparison,
     UsageCounterComparisonRows,
     UsageCounterMode,
+    UsageCounterPlan,
     UsageCounterReport,
     UsageCounterService,
 )
@@ -175,6 +180,10 @@ def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None
         (add_pre_logs_distinct_patterns_patch_defaults, "teams_with_logs_distinct_patterns_in_period"),
         (add_pre_transactional_emails_patch_defaults, "teams_with_workflow_transactional_emails_sent_in_period"),
         (add_pre_mcp_event_count_patch_defaults, "teams_with_mcp_event_count_in_period"),
+        (
+            add_pre_local_evaluation_not_modified_patch_defaults,
+            "teams_with_local_evaluation_not_modified_requests_count_in_period",
+        ),
     ],
 )
 def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(
@@ -205,6 +214,22 @@ def test_load_all_data_defaults_replay_vision_spend_projection_for_pre_patch_wor
     add_pre_replay_vision_spend_projection_patch_defaults(patched_data, results)
 
     assert patched_data == {}
+
+
+def test_load_all_data_defaults_business_knowledge_usage_for_pre_patch_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_business_knowledge_usage_patch_defaults(all_data, [])
+
+    assert all_data == {
+        "teams_with_business_knowledge_chunks_in_period": {},
+        "teams_with_business_knowledge_queries_in_period": {},
+    }
+
+    patched_data: dict[str, dict[int, int]] = {"teams_with_business_knowledge_queries_in_period": {1: 3}}
+    results = [RunQueryToS3Result(query_name="business_knowledge_usage", s3_key="unused", duration_ms=1)]
+    add_pre_business_knowledge_usage_patch_defaults(patched_data, results)
+
+    assert patched_data == {"teams_with_business_knowledge_queries_in_period": {1: 3}}
 
 
 def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -> None:
@@ -521,3 +546,15 @@ def test_failed_chunk_run_does_not_publish_manifest(failure: str, report_count: 
             check_cancelled=check_cancelled,
         )
     assert not any(key.endswith("manifest.json") for key in written)
+
+
+def test_signals_spend_default_does_not_hide_a_missing_planned_counter() -> None:
+    ctx = _ctx()
+    ctx.usage_counter_plan = UsageCounterPlan(
+        period=DayRange(start=ctx.period_start, end=ctx.period_end),
+        caller="usage_reports_v2",
+        modes={UsageCounter.SIGNALS_SPEND_CREDITS: UsageCounterMode.LEGACY},
+    )
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_signals_spend_patch_defaults(all_data, AggregateInputs(ctx=ctx, query_results=[]))
+    assert UsageCounter.SIGNALS_SPEND_CREDITS.value not in all_data

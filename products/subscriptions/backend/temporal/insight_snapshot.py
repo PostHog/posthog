@@ -25,11 +25,14 @@ from posthog.caching.calculate_results import calculate_cache_key, calculate_for
 from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 from posthog.models import Team, User
 from posthog.models.utils import strip_null_bytes
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.models.subscription import Subscription
+from products.subscriptions.backend.temporal.results_summarizer import is_time_series_query
 from products.subscriptions.backend.temporal.types import MISSING_QUERY_ERROR_TYPE, safe_error_message
 
 logger = structlog.get_logger(__name__)
@@ -188,6 +191,16 @@ def _execute_and_serialize_insight_query(
     query_json: Any,
 ) -> dict[str, Any]:
     """Run cache/calculate path and return snapshot fields to merge (``query_*`` / ``cache_key`` only)."""
+    # Same rule as the export: no query runs for an owner who left or who cannot view the insight.
+    try:
+        assert_creator_can_run(user, team, dashboard, insight)
+    except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+        # Both messages are ours and name no query data, so they are safe to show as they are.
+        return {
+            "query_results": None,
+            "cache_key": None,
+            "query_error": {"type": type(error).__name__, "message": str(error), "human_readable_error": str(error)},
+        }
     try:
         insight_result = calculate_for_query_based_insight(
             insight,
@@ -274,6 +287,8 @@ def build_insight_delivery_snapshot(
     base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base["value_format"] = _extract_value_format(query_json)
     source = query_json.get("source") or query_json
+    if is_time_series_query(source.get("kind")):
+        base["interval"] = source.get("interval") or "day"
     if source.get("kind") == "EventsQuery":
         # Event lists omit resolved_date_range; weekly delivery must not imply a weekly data window.
         base["query_date_range"] = {

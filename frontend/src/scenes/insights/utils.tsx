@@ -24,6 +24,7 @@ import {
     containsHogQLQuery,
     isBIVisualizationNode,
     isDataTableNode,
+    isDataVisualizationNode,
     isEventsNode,
     isGroupNode,
     isHogQLQuery,
@@ -36,6 +37,7 @@ import {
     ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
+    DataVisualizationNode,
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
@@ -55,7 +57,6 @@ import {
 import { getResultSeriesIndex } from '~/scenes/insights/utils/resultSeries'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
-    AnyPartialFilterType,
     BreakdownKeyType,
     ChartDisplayType,
     CohortType,
@@ -104,47 +105,6 @@ export const getDisplayNameFromEntityNode = (
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
-}
-
-export function extractObjectDiffKeys(
-    oldObj: AnyPartialFilterType,
-    newObj: AnyPartialFilterType,
-    prefix: string = ''
-): Record<string, any> {
-    if (Object.keys(oldObj).length === 0) {
-        return []
-    }
-
-    let changedKeys: Record<string, any> = {}
-    for (const [key, value] of Object.entries(newObj)) {
-        const valueOrArray = value || []
-        const oldValue = (oldObj as Record<string, any>)[key] || []
-        if (!objectsEqual(value, oldValue)) {
-            if (key === 'events') {
-                const events = valueOrArray as Record<string, any>[]
-                if (events.length !== oldValue.length) {
-                    changedKeys['changed_events_length'] = oldValue?.length
-                } else {
-                    events.forEach((event, idx) => {
-                        Object.assign(changedKeys, extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`))
-                    })
-                }
-            } else if (key === 'actions') {
-                const actions = valueOrArray as Record<string, any>[]
-                if (actions.length !== oldValue.length) {
-                    changedKeys['changed_actions_length'] = oldValue.length
-                } else {
-                    actions.forEach((action, idx) => {
-                        Object.assign(changedKeys, extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`))
-                    })
-                }
-            } else {
-                changedKeys[`changed_${prefix}${key}`] = oldValue
-            }
-        }
-    }
-
-    return changedKeys
 }
 
 export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeEventTypes']): string[] {
@@ -702,6 +662,25 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
     return parseQuery(query)
+}
+
+/** Mirrors the queries `urls.insightNew()` sends to the SQL editor or the BI scene */
+export function opensOutsideInsightScene(query: Node | null | undefined): boolean {
+    if (!query) {
+        return false
+    }
+    return (
+        isBIVisualizationNode(query) ||
+        isHogQLQuery(query) ||
+        ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source))
+    )
+}
+
+/** The query to open in the SQL editor for an unsaved SQL insight, which has no other route to its SQL */
+export function unsavedSqlInsightQuery(query: Node | null, isSaved: boolean): DataVisualizationNode | null {
+    return !isSaved && isDataVisualizationNode(query) && !isBIVisualizationNode(query) && isHogQLQuery(query.source)
+        ? query
+        : null
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

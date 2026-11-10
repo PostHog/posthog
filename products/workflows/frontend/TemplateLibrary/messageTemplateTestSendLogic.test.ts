@@ -124,27 +124,42 @@ describe('messageTemplateTestSendLogic', () => {
         expect(logic.values.isModalOpen).toBe(false)
     })
 
-    it('treats a skipped send as a distinct outcome from a failure', async () => {
+    it.each([
+        [
+            'the worker declines the recipient',
+            {
+                status: 'success',
+                emailSendResult: {
+                    status: 'skipped',
+                    reason: 'Skipping send: the domain "example.com" has no reachable mail servers, so this message would hard bounce.',
+                },
+            },
+            'Skipping send: the domain "example.com" has no reachable mail servers, so this message would hard bounce.',
+        ],
+        [
+            'the workflow skips the step',
+            { status: 'skipped', logs: [{ message: 'Recipient has opted out.' }] },
+            'Recipient has opted out.',
+        ],
+    ])('reports a skipped send as skipped when %s', async (_name, response, expectedReason) => {
         useMocks({
             post: {
-                '/api/environments/:team_id/hog_flows/:id/invocations/': () => [
-                    200,
-                    { status: 'skipped', logs: [{ message: 'Recipient has opted out.' }] },
-                ],
+                '/api/environments/:team_id/hog_flows/:id/invocations/': () => [200, response],
             },
         })
 
         logic.actions.setModalOpen(true)
-        logic.actions.setRecipientEmail('recipient@example.com')
+        logic.actions.setRecipientEmail('someone@example.com')
 
         await expectLogic(logic, () => {
             logic.actions.sendTestEmail()
         }).toDispatchActions(['sendTestEmailSuccess'])
 
         expect(mockToast.warning).toHaveBeenCalledWith('Test email skipped, see details below')
+        expect(mockToast.success).not.toHaveBeenCalled()
         expect(mockToast.error).not.toHaveBeenCalled()
         expect(logic.values.isModalOpen).toBe(true)
-        expect(logic.values.testSendResult?.status).toBe('skipped')
+        expect(logic.values.testSendSkipReason).toBe(expectedReason)
     })
 
     it('keeps the modal open and surfaces the error when the send fails', async () => {

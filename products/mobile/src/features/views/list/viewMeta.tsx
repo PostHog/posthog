@@ -2,27 +2,21 @@ import type { ReactElement } from 'react'
 
 import { calendarDaysBetween, formatMonthDay } from '@/lib/dates'
 import type { ViewKind, ViewRef } from '@/model/views'
-import { CanvasIcon } from '@/ui/icons/CanvasIcon'
 import { DashboardIcon } from '@/ui/icons/DashboardIcon'
-import { DocumentIcon } from '@/ui/icons/DocumentIcon'
-import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { LineChartIcon } from '@/ui/icons/LineChartIcon'
 import { useColors } from '@/ui/theme'
 
 import type { PinTarget } from '../shortcutInput'
 
-const TYPE_LABEL: Record<ViewKind, string | null> = {
+const TYPE_LABEL: Record<ViewKind, string> = {
     dashboard: 'Dashboard',
     insight: 'Insight',
     // The view's name is already "Web analytics", so its second line says what kind of view it is.
     web_analytics: 'Built-in view',
-    notebook: 'Notebook',
-    canvas: 'Canvas',
-    web_link: null,
 }
 
-export function viewTypeLabel(kind: ViewKind): string | null {
+export function viewTypeLabel(kind: ViewKind): string {
     return TYPE_LABEL[kind]
 }
 
@@ -42,16 +36,10 @@ export function ViewIcon({ kind, size = 18, color: colorProp }: ViewIconProps): 
             return <LineChartIcon size={size} color={color} />
         case 'web_analytics':
             return <GlobeIcon size={size} color={color} />
-        case 'notebook':
-            return <DocumentIcon size={size} color={color} />
-        case 'canvas':
-            return <CanvasIcon size={size} color={color} />
-        case 'web_link':
-            return <ExternalLinkIcon size={size} color={color} />
     }
 }
 
-/** What the phone writes to pin a view. Null for kinds only the web can pin. */
+/** What the phone writes to pin a view. Null for a view that is not a dashboard or an insight with a ref. */
 export function pinTargetFor(view: Pick<ViewRef, 'kind' | 'ref' | 'name'>): PinTarget | null {
     switch (view.kind) {
         case 'dashboard': {
@@ -63,8 +51,6 @@ export function pinTargetFor(view: Pick<ViewRef, 'kind' | 'ref' | 'name'>): PinT
         }
         case 'insight':
             return view.ref ? { kind: 'insight', shortId: view.ref, name: view.name } : null
-        case 'web_analytics':
-            return { kind: 'web_analytics' }
         default:
             return null
     }

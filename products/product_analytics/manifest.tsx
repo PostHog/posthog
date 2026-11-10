@@ -45,11 +45,14 @@ export const manifest: ProductManifest = {
         insightNew: ({
             type,
             dashboardId,
+            tileGroupKey,
             query,
             sceneSource,
         }: {
             type?: InsightType
             dashboardId?: DashboardType['id'] | null
+            /** The dashboard tile group the saved insight goes into. Only applies with `dashboardId`. */
+            tileGroupKey?: string | null
             query?: Node
             sceneSource?: InsightSceneSource
         } = {}): string => {
@@ -60,20 +63,24 @@ export const manifest: ProductManifest = {
             }
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
-                return urls.sqlEditor({ query: query.query })
+                return urls.sqlEditor({ query: query.query, dashboard: dashboardId ?? undefined, tileGroupKey })
             }
 
             // Redirect DataNode and DataViz queries with HogQL source to SQL editor,
             // passing the whole node so display/chartSettings/filters survive the trip
             if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-                return urls.sqlEditor({ query })
+                return urls.sqlEditor({ query, dashboard: dashboardId ?? undefined, tileGroupKey })
             }
 
-            return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-                ...(type ? { insight: type } : {}),
-                ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-                ...(sceneSource ? { sceneSource } : {}),
-            }).url
+            return combineUrl(
+                '/insights/new',
+                dashboardId ? { dashboard: dashboardId, ...(tileGroupKey ? { tile_group: tileGroupKey } : {}) } : {},
+                {
+                    ...(type ? { insight: type } : {}),
+                    ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+                    ...(sceneSource ? { sceneSource } : {}),
+                }
+            ).url
         },
         insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
             urls.insightNew({
@@ -118,6 +125,7 @@ export const manifest: ProductManifest = {
             iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
             listHref: () => urls.savedInsights(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
         },

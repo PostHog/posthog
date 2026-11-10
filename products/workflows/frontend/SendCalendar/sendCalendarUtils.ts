@@ -218,7 +218,8 @@ export function calendarSendsForFlow(
 }
 
 function batchJobState(status: SendCalendarBatchJobApi['status']): CalendarSendState {
-    if (status === 'completed') {
+    // A partially failed run reached part of its audience. Showing it as failed could prompt a resend to those people.
+    if (status === 'completed' || status === 'partially_failed') {
         return 'sent'
     }
     if (status === 'failed' || status === 'cancelled') {

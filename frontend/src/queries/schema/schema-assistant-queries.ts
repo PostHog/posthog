@@ -707,11 +707,14 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     compareFilter?: CompareFilter
 }
 
-export type AssistantFunnelsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
+export type AssistantFunnelsMath =
+    | FunnelMathType.AnyMatch
+    | FunnelMathType.FirstTimeForUser
+    | FunnelMathType.FirstTimeForUserWithFilters
 
 export interface AssistantFunnelNodeShared {
     /**
-     * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
+     * Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one.
      * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
      * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
      */
@@ -1933,16 +1936,23 @@ export interface AssistantDataVisualizationAxis {
     settings?: AssistantDataVisualizationAxisSettings
 }
 
+export interface AssistantDataVisualizationColumnDisplaySettings {
+    /** Table column description shown in the header tooltip. */
+    description?: string
+}
+
 export interface AssistantDataVisualizationColumnSettings {
+    /** Display settings for this column. */
+    display?: AssistantDataVisualizationColumnDisplaySettings
     /** Number-formatting settings for the values in this column. */
     formatting?: AssistantDataVisualizationAxisFormatting
 }
 
-/** A column with number formatting only. Series display settings apply only to Y-axis series. */
+/** A column with a description and number formatting. Series display settings apply only to Y-axis series. */
 export interface AssistantDataVisualizationColumn {
     /** Name of a column returned by the SQL query. */
     column: string
-    /** Optional number formatting for this column. */
+    /** Optional display and number-formatting settings for this column. */
     settings?: AssistantDataVisualizationColumnSettings
 }
 
@@ -2022,6 +2032,11 @@ export interface AssistantDataVisualizationChartSettings {
     showLegend?: boolean
     /** Where the legend sits. Defaults to right for pie and donut, top for other charts. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /**
+     * Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts
+     * whose X axis is a date or datetime column.
+     */
+    showAnnotations?: boolean
     /** Settings for `ActionsPie` and `ActionsDonut`. */
     pie?: PieChartSettings
     /** Settings for `Metric`. `summary` defaults to `latest`. */

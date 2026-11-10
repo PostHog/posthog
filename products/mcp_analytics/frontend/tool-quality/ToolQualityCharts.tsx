@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     BoxPlot,
     type BoxPlotConfig,
@@ -21,16 +20,12 @@ import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
+import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { type ChartViewChange, type ChartViews, type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
 
 function formatCompactPercentage(value: number): string {
     return formatPercentage(value, { compact: true })
-}
-
-// A zoomed axis can span less than one percent, so whole-number ticks would repeat.
-function formatPrecisePercentage(value: number): string {
-    return formatPercentage(value, { precise: true, compact: true })
 }
 
 function buildConfig(
@@ -111,17 +106,15 @@ function ChartCard({
             <CardState
                 loading={loading}
                 isEmpty={isEmpty}
-                skeleton={<LemonSkeleton className="min-h-[220px] flex-1" />}
+                className="min-h-[220px]"
+                skeleton={<ChartSkeleton kind="line" />}
                 empty={
                     <div className="flex min-h-[220px] flex-1 items-center justify-center text-center text-[12px] text-secondary">
                         No tool calls for this selection.
                     </div>
                 }
             >
-                {/* Dim while refreshing so date/tool changes give visible feedback. */}
-                <div className={`flex min-h-[220px] flex-1 flex-col transition-opacity ${loading ? 'opacity-50' : ''}`}>
-                    {children}
-                </div>
+                <div className="flex min-h-[220px] flex-1 flex-col">{children}</div>
             </CardState>
         </Card>
     )
@@ -151,7 +144,8 @@ export function ToolQualityCharts({
     latencyBoxes: (BoxPlotDatum | null)[]
     onViewChange: (change: ChartViewChange) => void
 }): JSX.Element {
-    const isEmpty = data.labels.length === 0
+    // The series are zero-filled across the date range, so an empty range still has labels.
+    const isEmpty = data.calls.every((calls) => calls === 0)
 
     // `incompleteTail` is only true when the window has ≥2 buckets (lastBucketIsInProgress owns that
     // rule), and every series is filled to the bucket count, so the final segment exists.
@@ -218,7 +212,8 @@ export function ToolQualityCharts({
     const successRateConfig = useChartConfig(
         () =>
             buildConfig(timezone, interval, {
-                tickFormatter: formatPrecisePercentage,
+                format: 'percentage',
+                decimalPlaces: 3,
                 startAtZero: views.successRate !== 'zoom',
             }),
         [timezone, interval, views.successRate]

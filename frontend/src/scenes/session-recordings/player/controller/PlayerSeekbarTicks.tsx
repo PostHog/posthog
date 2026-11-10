@@ -1,14 +1,13 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { MutableRefObject, memo, useEffect, useMemo } from 'react'
+import React, { memo, useEffect, useMemo } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconComment } from '@posthog/icons'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { RichContentPreview } from 'lib/components/RichContentEditor/LemonRichContentEditor'
+import { LazyRichContentPreview, LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -27,7 +26,6 @@ import { isSingleEmoji } from 'scenes/session-recordings/utils'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 
 import { SeekbarGlyph, resolveOverlappingGlyphs } from './seekbarTickOffsets'
-import { UserActivity } from './UserActivity'
 
 // keep in sync with --emoji-width / --comment-width in Seekbar.scss
 const EMOJI_TICK_WIDTH_PX = 16
@@ -147,9 +145,9 @@ function PlayerSeekbarTick({
                     ) : (
                         <div className="flex flex-col px-4 py-2 gap-y-2">
                             {item.data.rich_content ? (
-                                <RichContentPreview content={item.data.rich_content} className="rounded-none" />
+                                <LazyRichContentPreview content={item.data.rich_content} className="rounded-none" />
                             ) : (
-                                <TextContent
+                                <LazyTextContent
                                     text={item.data.content ?? ''}
                                     data-attr="PlayerSeekbarTicks--text-content"
                                 />
@@ -178,7 +176,6 @@ const MemoisedPlayerSeekbarTicks = memo(
         seekbarItems,
         endTimeMs,
         seekToTime,
-        hoverRef,
         primaryProperties,
         ticksRef,
         containerWidth,
@@ -192,7 +189,6 @@ const MemoisedPlayerSeekbarTicks = memo(
         )[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
-        hoverRef: MutableRefObject<HTMLDivElement | null>
         primaryProperties: Record<string, string>
         ticksRef: (node: HTMLDivElement | null) => void
         containerWidth: number
@@ -218,7 +214,6 @@ const MemoisedPlayerSeekbarTicks = memo(
 
         return (
             <div className="PlayerSeekbarTicks" ref={ticksRef}>
-                <UserActivity hoverRef={hoverRef} />
                 {seekbarItems.map((item, i) => {
                     return (
                         <PlayerSeekbarTick
@@ -257,7 +252,6 @@ export function PlayerSeekbarTicks({
     seekbarItems,
     endTimeMs,
     seekToTime,
-    hoverRef,
 }: {
     seekbarItems: (
         | InspectorListItemEvent
@@ -268,7 +262,6 @@ export function PlayerSeekbarTicks({
     )[]
     endTimeMs: number
     seekToTime: (timeInMilliseconds: number) => void
-    hoverRef: MutableRefObject<HTMLDivElement | null>
 }): JSX.Element {
     const { primaryProperties } = useValues(primaryEventPropertiesModel)
     const { ensureLoadedForEvents } = useActions(primaryEventPropertiesModel)
@@ -286,7 +279,6 @@ export function PlayerSeekbarTicks({
             seekbarItems={seekbarItems}
             endTimeMs={endTimeMs}
             seekToTime={seekToTime}
-            hoverRef={hoverRef}
             primaryProperties={primaryProperties}
             ticksRef={ticksRef}
             containerWidth={containerWidth ?? 0}

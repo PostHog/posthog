@@ -11,6 +11,7 @@ This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | REMOTE_WRITE_MAX_EXPANDED_BYTES | 167772160 | Largest estimated row set (160 MiB) one remote-write request may expand to. A larger request gets a 400. Separate from `MAX_REQUEST_BODY_SIZE_BYTES` |
+| REMOTE_WRITE_K8S_RESOURCE_ATTRIBUTE_TOKENS | (empty) | Comma-separated project tokens. Their remote-write series get `k8s.namespace.name`, `k8s.pod.name`, `k8s.node.name`, `k8s.container.name`, `k8s.deployment.name` and `k8s.daemonset.name` resource attributes copied from the matching Prometheus labels, the keys the OTel collector sets. The labels stay. This changes series fingerprints, so it is opt-in per project |
 | REDIS_URL | (none) | Redis that shares the set of recently labelled metric series between pods. Unset means local cache only |
 | METRICS_SERIES_LABEL_GATE_ENABLED | false | Strip label maps from repeat metric rows (see below). When false the gate only reports metrics |
 | METRICS_SERIES_LABEL_INTERVAL_SECS | 1800 | Longest gap between two labelled rows of one metric series. Each series uses a window up to a quarter shorter, derived from its key |

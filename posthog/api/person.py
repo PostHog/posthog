@@ -25,7 +25,6 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
@@ -41,6 +40,7 @@ from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
@@ -90,6 +90,7 @@ from posthog.utils import (
     str_to_bool,
 )
 
+from products.access_control.backend.facade.api import property_key_overlaps_restriction, redact_restricted_properties
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
@@ -153,7 +154,7 @@ API_PERSON_LIST_SEARCH_COUNTER = Counter(
 )
 
 
-class PersonLimitOffsetPagination(LimitOffsetPagination):
+class PersonLimitOffsetPagination(BoundedLimitOffsetPagination):
     def get_paginated_response_schema(self, schema):
         return {
             "type": "object",
@@ -181,7 +182,7 @@ def get_person_name(team: Team, person: Person) -> str:
 
 
 def get_person_name_helper(
-    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+    person_pk: int | str | uuid.UUID, person_properties: dict[str, str], distinct_ids: list[str], team: Team
 ) -> str:
     display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
@@ -407,7 +408,7 @@ class DeletionStatusQueryParamsSerializer(serializers.Serializer):
     person_uuid = serializers.UUIDField(required=False)
 
 
-class DeletionStatusPagination(LimitOffsetPagination):
+class DeletionStatusPagination(BoundedLimitOffsetPagination):
     default_limit = 100
 
 
@@ -455,9 +456,13 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
             restricted = self.context.get("restricted_person_properties")
             if restricted and representation.get("properties"):
-                representation["properties"] = {
-                    k: v for k, v in representation["properties"].items() if k not in restricted
-                }
+                representation["properties"] = redact_restricted_properties(representation["properties"], restricted)
+                representation["name"] = get_person_name_helper(
+                    instance.pk,
+                    representation["properties"],
+                    representation["distinct_ids"],
+                    self.context["get_team"](),
+                )
             return representation
         elif isinstance(instance, MissingPerson):
             return {
@@ -742,9 +747,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.property_access_control import get_restricted_property_names
+        from products.event_definitions.backend.models import PropertyDefinition
 
         user = self.request.user if self.request.user.is_authenticated else None
         context["restricted_person_properties"] = get_restricted_property_names(
@@ -832,6 +836,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             limit, offset = CSV_EXPORT_LIMIT, 0
         elif not limit:
             limit = DEFAULT_PAGE_LIMIT
+        else:
+            # The view reads `limit` itself, so it applies the cap that the paginator states in the schema.
+            limit = min(limit, PersonLimitOffsetPagination.max_limit)
 
         from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -1033,9 +1040,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for person_dict in serialized_actors:
                 properties = person_dict.get("properties")
                 if isinstance(properties, dict):
-                    person_dict["properties"] = {
-                        k: v for k, v in properties.items() if k not in restricted_person_properties
-                    }
+                    person_dict["properties"] = redact_restricted_properties(properties, restricted_person_properties)
+                    person_dict["name"] = get_person_name_helper(
+                        person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team
+                    )
 
         # After the restriction, so no tag reveals a hidden property. CSV would turn the list into
         # per-row columns.
@@ -1338,9 +1346,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
             # Check field-level access control: return empty results for restricted properties
-            from posthog.models import PropertyDefinition
-
             from products.access_control.backend.property_access_control import get_restricted_property_names
+            from products.event_definitions.backend.models import PropertyDefinition
 
             user = request.user if request.user.is_authenticated else None
             restricted = get_restricted_property_names(
@@ -1348,7 +1355,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=user,
                 property_type=PropertyDefinition.Type.PERSON,
             )
-            if key in restricted:
+            if property_key_overlaps_restriction(key, restricted):
                 span.set_attribute("result_count", 0)
                 resp = response.Response({"results": [], "refreshing": False})
                 resp["Cache-Control"] = "max-age=10"
@@ -1695,9 +1702,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def _get_non_writable_person_properties(self, request: request.Request) -> set[str]:
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.property_access_control import get_non_writable_property_names
+        from products.event_definitions.backend.models import PropertyDefinition
 
         user = request.user if request.user.is_authenticated else None
         return get_non_writable_property_names(
@@ -1974,7 +1980,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         tags=["persons"],
     )
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
-    def properties_at_time(self, request: request.Request) -> response.Response:
+    def properties_at_time(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """
         Get person properties as they existed at a specific point in time.
 
@@ -2056,13 +2062,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,
+                user=cast(User, request.user),
             )
 
-            # Serialize the person object
-            person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
+            serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
+            person_data = PersonSerializer(person, context=serializer_context).data
 
-            # Replace current properties with point-in-time properties
-            person_data["properties"] = point_in_time_properties
+            # The serializer only filtered the current properties, not these reconstructed ones.
+            person_data["properties"] = redact_restricted_properties(
+                point_in_time_properties, serializer_context.get("restricted_person_properties") or set()
+            )
 
             # Add metadata about the point-in-time query
             person_data["point_in_time_metadata"] = {

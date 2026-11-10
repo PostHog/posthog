@@ -49,8 +49,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
-import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
+import { getModelPickerFooterActions, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
+import { AddKeyModal } from '../settings/AddKeyModal'
+import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { CollapsibleChevronIcon } from './CollapsibleChevronIcon'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
@@ -60,9 +62,11 @@ import {
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
-import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
+import { findPromptModel, llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { MessageToolCallsEditor } from './MessageToolCallsEditor'
+import { PlaygroundDecisionAnswers } from './PlaygroundDecisionAnswers'
+import { PlaygroundDecisionEditor } from './PlaygroundDecisionEditor'
 import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
 import { PlaygroundVariablesPanel } from './PlaygroundVariablesPanel'
 import { TemplateVariableTextArea } from './TemplateVariableTextArea'
@@ -134,9 +138,9 @@ export function AIObservabilityPlaygroundScene(): JSX.Element {
 }
 
 function PlaygroundHeaderActions(): JSX.Element {
-    const { hasRunnablePrompts, promptConfigs } = useValues(llmPlaygroundPromptsLogic)
+    const { promptConfigs } = useValues(llmPlaygroundPromptsLogic)
     const { addPromptConfig, resetPlayground } = useActions(llmPlaygroundPromptsLogic)
-    const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
+    const { submitting: playgroundSubmitting, hasRunnablePrompts } = useValues(llmPlaygroundRunLogic)
     const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const firstPromptId = promptConfigs[0]?.id
@@ -292,6 +296,8 @@ function PlaygroundLayout(): JSX.Element {
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
             <PlaygroundVariablesPanel />
+            {/* One modal for the whole page, because every prompt card has its own model picker. */}
+            <AddKeyModal />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
                 {sourceSetupLoading ? (
@@ -369,6 +375,8 @@ function PromptCard({
     onRemove: () => void
 }): JSX.Element {
     const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { systemOnePromptIds } = useValues(llmPlaygroundModelLogic)
+    const isSystemOne = systemOnePromptIds.includes(prompt.id)
     const showHeaderRow = promptCount > 1 || canRemove
     const messagesRef = React.useRef<HTMLDivElement>(null)
 
@@ -405,10 +413,14 @@ function PromptCard({
             </div>
 
             <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
-                <MessagesSection promptId={prompt.id} />
+                {isSystemOne ? (
+                    <PlaygroundDecisionEditor promptId={prompt.id} />
+                ) : (
+                    <MessagesSection promptId={prompt.id} />
+                )}
             </div>
 
-            <MessageActions promptId={prompt.id} scrollContainerRef={messagesRef} />
+            {!isSystemOne && <MessageActions promptId={prompt.id} scrollContainerRef={messagesRef} />}
         </div>
     )
 }
@@ -425,6 +437,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const { addResultToConversation } = useActions(llmPlaygroundPromptsLogic)
     const hasToolCalls = !!item?.toolCalls?.length
     const canAddToConversation = (!!item?.response || hasToolCalls) && !item?.error && !isStreaming
+    const decision = item?.decision
 
     const handleAddToConversation = (): void => {
         if (!item || (!item.response && !item.toolCalls?.length)) {
@@ -439,7 +452,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                 <LemonTag type="default" size="small">
                     Result
                 </LemonTag>
-                {item ? (
+                {item && item.provider !== 'system_one' ? (
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -478,7 +491,9 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                             item.error ? 'text-danger' : ''
                         }`}
                     >
-                        {item.response ? (
+                        {decision ? (
+                            <PlaygroundDecisionAnswers questions={decision.questions} result={decision.result} />
+                        ) : item.response ? (
                             <LemonMarkdown className="whitespace-pre-wrap break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:my-2">
                                 {item.response}
                             </LemonMarkdown>
@@ -500,7 +515,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {(!!item.response || hasToolCalls || hasUsage(item.usage)) && (
+                    {(!!item.response || hasToolCalls || !!decision || hasUsage(item.usage)) && (
                         <MetadataHeader
                             className="mt-2 pt-2"
                             isError={item.error}
@@ -531,24 +546,30 @@ function getPlaygroundModelsErrorMessage(errorStatus: number | null): string | n
 
 function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { effectiveModelOptions, playgroundModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
+    const { effectiveModelOptions, runnableModelOptions, playgroundModelsErrorStatus } =
+        useValues(llmPlaygroundModelLogic)
     const {
         hasByokKeys,
         playgroundByokProviderModelGroups,
         playgroundProviderModelGroups,
+        playgroundSystemOneModelGroups,
         byokModelsLoading,
         playgroundModelsLoading,
         providerKeysLoading,
     } = useValues(modelPickerLogic)
     const { loadPlaygroundModels } = useActions(modelPickerLogic)
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
+    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-10" />
     }
 
-    const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
-    const groups = hasByokKeys ? playgroundByokProviderModelGroups : playgroundProviderModelGroups
+    const selectedModel = findPromptModel(prompt, runnableModelOptions)
+    const groups = [
+        ...(hasByokKeys ? playgroundByokProviderModelGroups : playgroundProviderModelGroups),
+        ...playgroundSystemOneModelGroups,
+    ]
     const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : playgroundModelsLoading
     const errorMessage = !hasByokKeys ? getPlaygroundModelsErrorMessage(playgroundModelsErrorStatus) : null
     const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !playgroundModelsLoading
@@ -568,7 +589,8 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 }}
                 groups={groups}
                 loading={loading}
-                footerLink={getModelPickerFooterLink(hasByokKeys)}
+                onOpen={() => posthog.capture('llma playground model picker opened', { is_byok: hasByokKeys, loading })}
+                footerActions={getModelPickerFooterActions(hasByokKeys, () => setNewKeyModalOpen(true))}
                 selectedModelName={selectedModel?.name}
                 data-attr={`llma-playground-model-selector-${promptId}`}
             />
@@ -674,6 +696,7 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
 
 function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
+    const { systemOnePromptIds } = useValues(llmPlaygroundModelLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-8" />
@@ -692,32 +715,35 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
                 <PlaygroundModelPicker promptId={promptId} />
             </div>
 
-            <LemonDropdown
-                overlay={<SettingsDropdownOverlay promptId={promptId} />}
-                closeOnClickInside={false}
-                placement="bottom-end"
-                onVisibilityChange={(visible) => {
-                    if (!visible && prompt) {
-                        posthog.capture('llma playground parameters configured', {
-                            max_tokens: prompt.maxTokens,
-                            temperature: prompt.temperature,
-                            top_p: prompt.topP,
-                            reasoning_level: prompt.reasoningLevel,
-                            thinking: prompt.thinking,
-                        })
-                    }
-                }}
-            >
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconGear />}
-                    tooltip="Max tokens, thinking, reasoning"
-                    active={hasNonDefaultSettings}
+            {/* System One takes no sampling settings. */}
+            {!systemOnePromptIds.includes(promptId) && (
+                <LemonDropdown
+                    overlay={<SettingsDropdownOverlay promptId={promptId} />}
+                    closeOnClickInside={false}
+                    placement="bottom-end"
+                    onVisibilityChange={(visible) => {
+                        if (!visible && prompt) {
+                            posthog.capture('llma playground parameters configured', {
+                                max_tokens: prompt.maxTokens,
+                                temperature: prompt.temperature,
+                                top_p: prompt.topP,
+                                reasoning_level: prompt.reasoningLevel,
+                                thinking: prompt.thinking,
+                            })
+                        }
+                    }}
                 >
-                    Settings
-                </LemonButton>
-            </LemonDropdown>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconGear />}
+                        tooltip="Max tokens, thinking, reasoning"
+                        active={hasNonDefaultSettings}
+                    >
+                        Settings
+                    </LemonButton>
+                </LemonDropdown>
+            )}
         </div>
     )
 }

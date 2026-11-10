@@ -311,6 +311,21 @@ CREATE TABLE posthog.email_status (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'email_status_data');
+CREATE TABLE posthog.email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_events_data');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -398,6 +413,8 @@ CREATE TABLE posthog.experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,
@@ -1307,6 +1324,8 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   variant String,
   first_exposure_time DateTime64(6, 'UTC'),
   last_exposure_time DateTime64(6, 'UTC'),
@@ -3163,6 +3182,8 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   variant String,
   first_exposure_time DateTime64(6, 'UTC'),
   last_exposure_time DateTime64(6, 'UTC'),

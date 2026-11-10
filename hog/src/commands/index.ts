@@ -2,6 +2,7 @@ import type { CommandTree } from '@/core/command'
 
 import api from './api'
 import auth from './auth'
+import ci from './ci'
 import commands from './commands'
 import config from './config'
 import endpoints from './endpoints'
@@ -12,6 +13,7 @@ import schema from './schema'
 
 export const COMMANDS: CommandTree = {
     auth,
+    ci,
     query,
     api,
     'error-tracking': errorTracking,

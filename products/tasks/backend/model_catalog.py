@@ -168,6 +168,7 @@ _DEEPSEEK_V4_1_FLASH_FAST_COST = ModelCost(0.6, 2.4)
 _OPUS_COST = ModelCost(5, 25)
 _OPUS_5_5_COST = ModelCost(4, 20)
 _FABLE_COST = ModelCost(10, 50)
+_FABLE_5_2_COST = ModelCost(8, 40)
 _SONNET_COST = ModelCost(2, 10)
 _SONNET_4_COST = ModelCost(3, 15)
 _GPT_PRO_COST = ModelCost(5, 30)
@@ -247,6 +248,7 @@ MODELS: tuple[CatalogModel, ...] = (
     ),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
     CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-fable-5-2", CLAUDE, _EXTENDED, cost=_FABLE_5_2_COST, supports_1m_context=True),
     CatalogModel("claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel(
@@ -390,6 +392,11 @@ def normalize_model_id(model_id: str) -> str:
         if normalized.startswith(prefix):
             return normalized[len(prefix) :]
     return normalized
+
+
+def is_anthropic_served_model(model_id: str | None) -> bool:
+    """Whether Anthropic's API may serve this model, so its server can run the auto mode classifier checks."""
+    return normalize_model_id(model_id or "").startswith("claude-")
 
 
 def access_flag_for_model(model_id: str) -> str | None:

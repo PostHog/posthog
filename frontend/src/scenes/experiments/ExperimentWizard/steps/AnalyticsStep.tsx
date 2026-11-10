@@ -11,7 +11,7 @@ import { experimentWizardLogic } from '../experimentWizardLogic'
 import { ReplayVisionScannerOption } from './ReplayVisionScannerOption'
 
 export function AnalyticsStep(): JSX.Element {
-    const { experiment, sharedMetrics } = useValues(experimentWizardLogic)
+    const { experiment, linkedFeatureFlag, sharedMetrics, metricDataSources } = useValues(experimentWizardLogic)
     const { setExperiment, setExposureCriteria, setSharedMetrics } = useActions(experimentWizardLogic)
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
@@ -20,7 +20,13 @@ export function AnalyticsStep(): JSX.Element {
             <div className="space-y-4">
                 <div>
                     <h3 className="text-lg font-semibold mb-1">Who is included in the analysis?</h3>
-                    <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} compact />
+                    <ExposureCriteriaPanel
+                        experiment={experiment}
+                        featureFlag={linkedFeatureFlag}
+                        onChange={setExposureCriteria}
+                        metricDataSources={metricDataSources}
+                        compact
+                    />
                 </div>
 
                 <div className="mt-10">
@@ -39,6 +45,7 @@ export function AnalyticsStep(): JSX.Element {
                     <MetricsPanel
                         experiment={experiment}
                         sharedMetrics={sharedMetrics}
+                        metricDataSources={metricDataSources}
                         compact
                         onSaveMetric={(metric, context) => {
                             const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)

@@ -10,10 +10,10 @@ from parameterized import parameterized
 
 from posthog.models import ActivityLog, FileSystem, FileSystemViewLog, User
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.activity_summary import mcp_buffer
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.inputs import user_activity
 from products.signals.backend.activity_summary.logic import (
     ActivitySummaryUpdate,
@@ -22,6 +22,7 @@ from products.signals.backend.activity_summary.logic import (
     update_activity_summary,
 )
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
+from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.activity_summary.render import MCP_HEADER, RENDER_VERSION, Product, RenderLimits
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
@@ -173,11 +174,11 @@ class TestUpdateActivitySummary(BaseTest):
         assert stored.inputs_used["limits"]["max_completion_tokens"] == 1234
 
     def test_insights_on_a_dashboard_render_as_one_line_for_the_dashboard(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Quality review")
-        self._change("Quality review", days_ago=1.2, scope="Dashboard", item_id=str(dashboard.id))
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Quality review")
+        self._change("Quality review", days_ago=1.2, scope="Dashboard", item_id=str(dashboard_id))
         for index, name in enumerate(["Records judged per day", "Suggestion defect rates"]):
             insight = Insight.objects.create(team=self.team, name=name)
-            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            create_insight_tile(dashboard_id=dashboard_id, insight_id=insight.id)
             self._change(name, days_ago=1.1 - index / 100, item_id=str(insight.id))
 
         result = self._update(FakeLLM([ANSWER]), dry_run=True, min_units=1)
@@ -217,6 +218,9 @@ class TestUpdateActivitySummary(BaseTest):
         assert on.inputs_used is not None
         assert {key: value for key, value in on.inputs_used.items() if key.startswith("mcp_")} == {
             "mcp_sessions": 1,
+            "mcp_burst_cap_drops": 0,
+            "mcp_sample_cap_drops": 0,
+            "mcp_budget_drops": 0,
             "mcp_lines": 1,
             "mcp_chars": len(section),
             "mcp_records": 2,
@@ -267,6 +271,51 @@ class TestUpdateActivitySummary(BaseTest):
         stored = self._stored()
         assert stored is not None
         assert (stored.prompt_version, stored.render_version) == (PROMPT_VERSION, RENDER_VERSION)
+
+    @parameterized.expand(
+        [
+            ("stale, too few units", True, 2, FakeLLM([ANSWER]), ActivitySummaryStatus.NOT_READY),
+            ("stale, empty profile", True, 3, FakeLLM([EMPTY_PROFILE_ANSWER]), ActivitySummaryStatus.NOT_READY),
+            ("stale, failed", True, 3, FakeLLM([(ANSWER, "length")], usage=False), ActivitySummaryStatus.READY),
+            ("current, too few units", False, 2, FakeLLM([ANSWER]), ActivitySummaryStatus.READY),
+        ]
+    )
+    def test_a_skipped_rebuild_of_a_stale_summary_reads_not_ready_until_a_good_build(
+        self, _name: str, stale: bool, changes: int, llm: FakeLLM, read_status: ActivitySummaryStatus
+    ) -> None:
+        old_summary = json.loads(ANSWER) | {"headline": "Old stored summary."}
+        UserActivitySummary.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            status=UserActivitySummary.Status.OK,
+            summary=old_summary,
+            generated_at=NOW - datetime.timedelta(days=2),
+            input_watermark=NOW - datetime.timedelta(days=2),
+            prompt_version=PROMPT_VERSION - 1 if stale else PROMPT_VERSION,
+            render_version=RENDER_VERSION,
+            version=1,
+        )
+        self._changes(changes, days_ago=1)
+        config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True)
+
+        with patch("products.signals.backend.activity_summary.read.read_config", return_value=config):
+            self._update(llm)
+            skipped = get_summary(self.team, self.user.id)
+            self._changes(3, days_ago=0.5)
+            assert self._update(FakeLLM([ANSWER]), force=True).status == UpdateStatus.OK
+            rebuilt = get_summary(self.team, self.user.id)
+
+        stored = self._stored()
+        assert skipped is not None and rebuilt is not None and stored is not None
+        assert skipped.status == read_status
+        if read_status == ActivitySummaryStatus.READY:
+            assert (skipped.headline, skipped.stale) == ("Old stored summary.", stale)
+        assert (rebuilt.status, rebuilt.headline, rebuilt.stale) == (
+            ActivitySummaryStatus.READY,
+            "Builds the signup funnel.",
+            False,
+        )
+        assert stored.version == 2
 
     def test_a_failed_update_keeps_the_stored_summary_and_watermark(self) -> None:
         self._changes(3, days_ago=2)

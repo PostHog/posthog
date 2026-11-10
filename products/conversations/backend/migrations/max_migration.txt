@@ -1,1 +1,1 @@
-0078_signingsecret_previous_secret_and_more
+0083_squash_2026_11_02_schema_addons

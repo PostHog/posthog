@@ -326,6 +326,125 @@ export const ReportCardRankingTags: Story = {
     },
 }
 
+// The Recommended pill: strong, mixed and weak scores, a lift under 0.1x, a report edited after scoring, and an unscored report.
+const pillReports: SignalReport[] = [
+    makeReport({
+        title: 'Payment webhook retries stop after one rate limit response',
+        priority: 'P1',
+        source_products: ['logs'],
+        ranking: ranking({ open: 0.8, action: 0.5, fix: 0.3 }, { open: 2.9, action: 3.1, fix: 3.2 }),
+    }),
+    makeReport({
+        title: 'Tooltip flickers on the funnel chart',
+        priority: 'P3',
+        source_products: ['session_replay'],
+        ranking: ranking({ open: 0.5, action: 0.2, fix: 0.04 }, { open: 1.4, action: 0.9, fix: 0.6 }),
+    }),
+    makeReport({
+        title: 'Typo in the billing settings page',
+        priority: 'P4',
+        ranking: ranking({ open: 0.1, action: 0.02, fix: 0.004 }, { open: 0.5, action: 0.3, fix: 0.05 }),
+    }),
+    makeReport({
+        title: 'Retry loop in the export job',
+        priority: 'P3',
+        ranking: ranking({ action: 0.5 }, { action: 1.2 }, true),
+    }),
+    makeReport({ title: 'Slow dashboard load for large projects', priority: 'P2', ranking: null }),
+]
+
+export const ReportCardRankingPills: Story = {
+    render: () => (
+        <CardList>
+            {pillReports.map((report) => (
+                <ReportCard key={report.id} report={report} rankingPill />
+            ))}
+        </CardList>
+    ),
+    play: async ({ canvas }) => {
+        await userEvent.hover(await canvas.findByText('2.9x'))
+    },
+}
+
+/** The narrowest scene the inbox holds: the nav and a side panel open in a 1280px window. */
+export const ReportCardRankingPillsNarrow: Story = {
+    render: () => (
+        <div className="bg-primary min-h-screen w-[520px] px-3 py-6">
+            <div className="@container flex flex-col gap-1.5">
+                {pillReports.map((report) => (
+                    <ReportCard key={report.id} report={report} rankingPill />
+                ))}
+            </div>
+        </div>
+    ),
+}
+
+// The Personalized sort: three tiers with reasons, a long reason that truncates, and a report after the
+// list with no tier or reason.
+const personalReports: SignalReport[] = [
+    makeReport({
+        title: 'Payment webhook retries stop after one rate limit response',
+        priority: 'P1',
+        source_products: ['logs'],
+        ranking: ranking({ open: 0.8, action: 0.5, fix: 0.3 }, { open: 2.9, action: 3.1, fix: 3.2 }),
+        inbox_merge_key: 0,
+        personal_tier: 'top',
+        personal_reason: 'You changed the webhook retry code this week, so this is close to your current work.',
+    }),
+    makeReport({
+        title: 'Tooltip flickers on the funnel chart',
+        priority: 'P3',
+        source_products: ['session_replay'],
+        ranking: ranking({ open: 0.5, action: 0.2, fix: 0.04 }, { open: 1.4, action: 0.9, fix: 0.6 }),
+        inbox_merge_key: 1,
+        personal_tier: 'worth_a_look',
+        personal_reason:
+            'You looked at funnel insights a few times recently. The fix looks small, and the report has a clear repro in the linked recordings, so it could be a quick win between larger pieces of work.',
+    }),
+    makeReport({
+        title: 'Typo in the billing settings page',
+        priority: 'P4',
+        ranking: ranking({ open: 0.1, action: 0.02, fix: 0.004 }, { open: 0.5, action: 0.3, fix: 0.05 }),
+        inbox_merge_key: 2,
+        personal_tier: 'later',
+        personal_reason: 'Billing is outside the areas you have worked on lately.',
+    }),
+    makeReport({
+        title: 'Slow dashboard load for large projects',
+        priority: 'P2',
+        ranking: ranking({ open: 0.4, action: 0.3, fix: 0.2 }, { open: 1.1, action: 1.0, fix: 0.9 }),
+        inbox_merge_key: 3.4,
+        personal_tier: null,
+        personal_reason: null,
+    }),
+]
+
+export const ReportCardPersonalized: Story = {
+    render: () => (
+        <CardList>
+            {personalReports.map((report) => (
+                <ReportCard key={report.id} report={report} rankingPill personalSort />
+            ))}
+        </CardList>
+    ),
+    play: async ({ canvas }) => {
+        await userEvent.hover(await canvas.findByText('2.9x'))
+    },
+}
+
+/** The narrowest scene the inbox holds, where the reason wraps to its two-line limit. */
+export const ReportCardPersonalizedNarrow: Story = {
+    render: () => (
+        <div className="bg-primary min-h-screen w-[390px] px-3 py-6">
+            <div className="@container flex flex-col gap-1.5">
+                {personalReports.map((report) => (
+                    <ReportCard key={report.id} report={report} rankingPill personalSort />
+                ))}
+            </div>
+        </div>
+    ),
+}
+
 // Under the Action sort, so the ranking pill sits in the meta row: the user's claim, their agent's
 // claim, a teammate's claim, and no claim.
 const claimedRankedReports: SignalReport[] = [
@@ -415,6 +534,17 @@ export const ReportCardStates: Story = {
                     summary:
                         'Account: [Example workspace](https://example.com/accounts/example) | 12 active users need review.',
                     source_products: ['signals_scout'],
+                })}
+            />
+            <ReportCard
+                report={makeReport({
+                    title: 'Monitoring the outcome after implementation',
+                    priority: 'P2',
+                    status: SignalReportStatus.MONITORING,
+                    implementation_pr_url: 'https://github.com/example/repo/pull/42',
+                    implementation_pr_merged: true,
+                    source_products: ['error_tracking'],
+                    summary: 'Implementation is complete. Follow-up checks are verifying the outcome.',
                 })}
             />
             <ReportCard

@@ -25,13 +25,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import AvailableFeature
+from posthog.constants import AvailableFeature, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupUsageMetric, PropertyDefinition
-from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
 from posthog.models.group_type_mapping import (
@@ -48,11 +49,14 @@ from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.facade import api as access_control_api
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
 from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 PATH = "products.groups.backend.presentation.views"
 
@@ -62,6 +66,13 @@ def typed_group_type_index(value: int) -> GroupTypeIndex:
 
 
 class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
+    def _assert_group_activity_records_group_type(self, group_type_index: int) -> None:
+        entries = ActivityLog.objects.filter(team_id=self.team.id, scope="Group")
+        self.assertTrue(entries.exists())
+        for entry in entries:
+            assert isinstance(entry.detail, dict)
+            self.assertEqual(entry.detail["context"], {"group_type_index": group_type_index})
+
     maxDiff = None
 
     @time_machine.travel("2021-05-02", tick=False)
@@ -263,6 +274,49 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(markdown.startswith("# Mr. Krabs Notes"), markdown)
         self.assertIn("## Quick context", markdown)
         self.assertIn("- Industry:", markdown)
+
+    @parameterized.expand(
+        [
+            ("rule_on_name", "name", 0, "# Notes"),
+            ("rule_on_other_property", "industry", 0, "# Mr. Krabs Notes"),
+            ("rule_on_name_of_other_group_type", "name", 1, "# Mr. Krabs Notes"),
+        ]
+    )
+    @time_machine.travel("2021-05-02", tick=False)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
+    def test_crm_notebook_leaves_out_properties_with_access_rules(
+        self, _name, rule_property, rule_group_type_index, expected_heading, _
+    ):
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            project=self.team.project,
+            name=rule_property,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=rule_group_type_index,
+        )
+        # A rule for one member still matters: the notebook is shared with the whole project.
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        relationship = ResourceNotebook.objects.filter(group=group.id).first()
+        assert relationship is not None
+        markdown = convert_notebook_content_to_markdown(relationship.notebook.content)
+        self.assertEqual(markdown.splitlines()[0], expected_heading)
+        self.assertEqual(relationship.notebook.title, expected_heading.removeprefix("# "))
 
     @time_machine.travel("2021-05-02", tick=False)
     @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
@@ -495,6 +549,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(result["detail"]["changes"][0]["before"])
             prop_name = result["detail"]["name"]
             self.assertEqual(result["detail"]["changes"][0]["after"], group_properties[prop_name])
+        self._assert_group_activity_records_group_type(0)
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_duplicated_group_key(self, mock_capture):
@@ -706,6 +761,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "created")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+        self._assert_group_activity_records_group_type(0)
 
     @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
@@ -788,6 +844,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+        self._assert_group_activity_records_group_type(0)
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_group_property_update_reuses_definition_from_another_environment(self, mock_capture):
@@ -948,6 +1005,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "deleted")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], None)
+        self._assert_group_activity_records_group_type(0)
 
     @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_delete_missing_key(self):
@@ -1924,385 +1982,6 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(group_type.name_plural, "Orgs")
 
 
-class GroupUsageMetricViewSetTestCase(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.group_type = create_group_type_mapping(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
-        self.url = f"/api/projects/{self.team.id}/groups_types/{str(self.group_type.group_type_index)}/metrics"
-
-        self.other_org = Organization.objects.create(name="other org")
-        self.other_team = Team.objects.create(organization=self.other_org, name="other team")
-        self.other_group_type = create_group_type_mapping(
-            team=self.other_team, project_id=self.other_team.project_id, group_type="company", group_type_index=0
-        )
-        self.other_url = (
-            f"/api/projects/{self.other_team.id}/groups_types/{str(self.other_group_type.group_type_index)}/metrics"
-        )
-
-    def assertFields(self, data, metric):
-        self.assertEqual(data["id"], str(metric.id))
-        self.assertEqual(data["name"], metric.name)
-        self.assertEqual(data["format"], metric.format)
-        self.assertEqual(data["interval"], metric.interval)
-        self.assertEqual(data["display"], metric.display)
-        self.assertEqual(data["filters"], metric.filters)
-
-    def _create_metric(self, **kwargs):
-        defaults = {
-            "team": self.team,
-            "group_type_index": self.group_type.group_type_index,
-            "name": "Events",
-            "filters": {"foo": "bar"},
-        }
-        defaults.update(kwargs)
-        return GroupUsageMetric.objects.create(**defaults)
-
-    def test_list(self):
-        metric = self._create_metric()
-
-        response = self.client.get(self.url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFields(response.json()["results"][0], metric)
-
-    def test_create(self):
-        payload = {"name": "Events", "filters": {"foo": "bar"}}
-
-        response = self.client.post(self.url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        metric = GroupUsageMetric.objects.get(id=response.json().get("id"))
-        self.assertFields(response.json(), metric)
-        self.assertEqual(metric.team, self.team, "Should set team automatically")
-        self.assertEqual(
-            metric.group_type_index, self.group_type.group_type_index, "Should set group_type_index automatically"
-        )
-        self.assertIsNotNone(metric.bytecode, "Should set bytecode automatically")
-
-    def test_retrieve(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFields(response.json(), metric)
-
-    def test_update(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-        payload = {
-            "name": "Updated Events",
-            "format": "currency",
-            "interval": 30,
-            "display": "sparkline",
-            "filters": {"updated": "value"},
-        }
-
-        response = self.client.put(url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        metric.refresh_from_db()
-        self.assertEqual(metric.name, "Updated Events")
-        self.assertEqual(metric.format, "currency")
-        self.assertEqual(metric.interval, 30)
-        self.assertEqual(metric.display, "sparkline")
-        self.assertEqual(metric.filters, {"updated": "value"})
-        self.assertFields(response.json(), metric)
-
-    def test_delete(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(GroupUsageMetric.objects.filter(id=metric.id).exists())
-
-    def test_partial_update(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-        payload = {"name": "Partially Updated Events"}
-
-        response = self.client.patch(url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        metric.refresh_from_db()
-        self.assertEqual(metric.name, "Partially Updated Events")
-        self.assertEqual(metric.format, "numeric", "Should remain unchanged")
-        self.assertEqual(metric.interval, 7, "Should remain unchanged")
-        self.assertEqual(metric.display, "number", "Should remain unchanged")
-
-    def test_delete_nonexistent(self):
-        fake_id = "00000000-0000-0000-0000-000000000000"
-        url = f"{self.url}/{fake_id}"
-
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_update_nonexistent(self):
-        fake_id = "00000000-0000-0000-0000-000000000000"
-        url = f"{self.url}/{fake_id}"
-        payload = {"name": "Updated Events"}
-
-        response = self.client.put(url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_unauthenticated_access(self):
-        self.client.logout()
-
-        response = self.client.get(self.url)
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_unauthorized_team_access(self):
-        self._create_metric(group_type_index=self.other_group_type.group_type_index, team=self.other_team)
-
-        response = self.client.get(self.other_url)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-    def test_unauthorized_metric_access(self):
-        other_metric = self._create_metric(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team
-        )
-        url = f"{self.other_url}/{other_metric.id}"
-
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-    def test_unauthorized_metric_creation(self):
-        payload = {"name": "Unauthorized Events"}
-
-        response = self.client.post(self.other_url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-    def test_unauthorized_metric_modification(self):
-        other_metric = self._create_metric(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team
-        )
-        url = f"{self.other_url}/{other_metric.id}"
-        payload = {"name": "Hacked Events"}
-
-        response = self.client.put(url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-    def test_unauthorized_metric_deletion(self):
-        other_metric = self._create_metric(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team
-        )
-        url = f"{self.other_url}/{other_metric.id}"
-
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-        self.assertTrue(GroupUsageMetric.objects.filter(id=other_metric.id).exists())
-
-    def test_non_admin_cannot_update_metric(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
-        # Grant member-level (not admin) project access so the request reaches the serializer
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            access_level="member",
-        )
-
-        response = self.client.patch(url, {"name": "Should not update"})
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        metric.refresh_from_db()
-        self.assertEqual(metric.name, "Events")
-
-    def test_admin_can_update_metric(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        response = self.client.patch(url, {"name": "Updated by admin"})
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        metric.refresh_from_db()
-        self.assertEqual(metric.name, "Updated by admin")
-
-    def _create_dw_table(self, name: str = "stripe_charges"):
-        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        return DataWarehouseTable.objects.create(
-            team=self.team,
-            name=name,
-            credential=credential,
-            url_pattern="http://example.com/{name}",
-            columns={
-                "customer_id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
-                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField", "valid": True},
-                "amount": {"clickhouse": "Float64", "hogql": "FloatDatabaseField", "valid": True},
-            },
-        )
-
-    def test_create_data_warehouse_metric(self):
-        self._create_dw_table()
-        payload = {
-            "name": "DW signups",
-            "math": "count",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "stripe_charges",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        metric = GroupUsageMetric.objects.get(id=response.json()["id"])
-        self.assertEqual(metric.filters["source"], "data_warehouse")
-        self.assertEqual(metric.filters["table_name"], "stripe_charges")
-
-    def test_create_data_warehouse_metric_rejects_missing_fields(self):
-        self._create_dw_table()
-        payload = {
-            "name": "DW signups",
-            "filters": {"source": "data_warehouse", "table_name": "stripe_charges"},
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-
-    def test_create_data_warehouse_metric_rejects_unknown_table(self):
-        payload = {
-            "name": "DW signups",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "no_such_table",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-
-    @parameterized.expand(
-        [
-            ("duplicate_name_on_create", "post", {"name": "Events", "filters": {}}, 400, "name"),
-            ("duplicate_name_on_rename", "patch", {"name": "Events"}, 400, "name"),
-            ("own_name_on_update", "patch", {"name": "Signups"}, 200, None),
-            (
-                "test_account_cohort_filter",
-                "post",
-                {"name": "Pageviews", "filters": {"filter_test_accounts": True}},
-                400,
-                "filters",
-            ),
-        ]
-    )
-    def test_save_rejects_invalid_input_with_400(self, _name, method, payload, expected_status, expected_attr):
-        self._create_metric(name="Events")
-        signups = self._create_metric(name="Signups")
-        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": 999999}]
-        self.team.save()
-        url = self.url if method == "post" else f"{self.url}/{signups.id}"
-
-        response = getattr(self.client, method)(url, payload, format="json")
-
-        self.assertEqual(response.status_code, expected_status, response.json())
-        self.assertEqual(response.json().get("attr"), expected_attr)
-
-    def test_create_data_warehouse_metric_accepts_table_with_null_deleted(self):
-        table = self._create_dw_table()
-        table.deleted = None
-        table.save()
-
-        payload = {
-            "name": "DW signups",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "stripe_charges",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-
-    def test_create_data_warehouse_metric_rejects_soft_deleted_table(self):
-        table = self._create_dw_table()
-        table.deleted = True
-        table.save()
-
-        payload = {
-            "name": "DW signups",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "stripe_charges",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-
-    def test_create_data_warehouse_sum_requires_math_property(self):
-        self._create_dw_table()
-        payload = {
-            "name": "DW revenue",
-            "math": "sum",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "stripe_charges",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "math_property")
-
-    def test_create_metric_rejects_unknown_source(self):
-        payload = {
-            "name": "Bogus",
-            "filters": {"source": "something_else"},
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-
-
 class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2884,3 +2563,357 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert "cursor=" in response_data["next"]
         assert "group_type_index=0" in response_data["next"]
         assert len(response_data["results"]) == 100
+
+
+class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.restricted_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="arr",
+            property_type="Numeric",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.restricted_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "Acme", "arr": 1000},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={"name": "Other", "arr": 5},
+        )
+
+    def _list_properties(self, group_type_index: int) -> dict[str, Any]:
+        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index={group_type_index}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        return results[0]["group_properties"]
+
+    def _find_properties(self, group_type_index: int, group_key: str) -> dict[str, Any]:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index={group_type_index}"
+            f"&group_key={group_key}&skip_create_notebook=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["group_properties"]
+
+    def test_list_hides_restricted_group_property(self) -> None:
+        self.assertEqual(self._list_properties(0), {"name": "Acme"})
+
+    def test_find_hides_restricted_group_property(self) -> None:
+        self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme"})
+
+    def test_restriction_is_scoped_to_its_group_type(self) -> None:
+        self.assertEqual(self._list_properties(1), {"name": "Other", "arr": 5})
+        self.assertEqual(self._find_properties(1, "company:1"), {"name": "Other", "arr": 5})
+
+    def test_allowed_user_still_sees_restricted_group_property(self) -> None:
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.restricted_def,
+            access_level=PropertyAccessLevel.READ.value,
+            organization_member=self.organization_membership,
+        )
+        self.assertEqual(self._list_properties(0), {"name": "Acme", "arr": 1000})
+        self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme", "arr": 1000})
+
+    def test_properties_visible_without_property_access_control_feature(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.assertEqual(self._list_properties(0), {"name": "Acme", "arr": 1000})
+        self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme", "arr": 1000})
+
+    def _grant_member_access(self, access_level: PropertyAccessLevel) -> None:
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.restricted_def,
+            access_level=access_level.value,
+            organization_member=self.organization_membership,
+        )
+
+    @parameterized.expand([("restricted", None, 0), ("allowed", PropertyAccessLevel.READ, 1)])
+    def test_property_values_respects_restrictions(
+        self, _name: str, member_level: PropertyAccessLevel | None, expected_count: int
+    ) -> None:
+        if member_level is not None:
+            self._grant_member_access(member_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/property_values/?key=arr&group_type_index=0")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), expected_count)
+
+    @parameterized.expand(
+        [
+            (f"{operation}_{level_name}", operation, member_level, expected_status)
+            for operation, allowed_status in [
+                ("update_property", status.HTTP_200_OK),
+                ("delete_property", status.HTTP_200_OK),
+                ("create", status.HTTP_201_CREATED),
+            ]
+            for level_name, member_level, expected_status in [
+                ("default_none", None, status.HTTP_400_BAD_REQUEST),
+                ("read", PropertyAccessLevel.READ, status.HTTP_400_BAD_REQUEST),
+                ("read_write", PropertyAccessLevel.READ_WRITE, allowed_status),
+            ]
+        ]
+    )
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
+    def test_writes_require_write_access(
+        self,
+        _name: str,
+        operation: str,
+        member_level: PropertyAccessLevel | None,
+        expected_status: int,
+        _mock_capture: mock.MagicMock,
+    ) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        if member_level is not None:
+            self._grant_member_access(member_level)
+
+        base_url = f"/api/projects/{self.team.id}/groups"
+        if operation == "update_property":
+            response = self.client.post(
+                f"{base_url}/update_property?group_key=org:1&group_type_index=0", {"key": "arr", "value": 2000}
+            )
+        elif operation == "delete_property":
+            response = self.client.post(
+                f"{base_url}/delete_property?group_key=org:1&group_type_index=0", {"$unset": "arr"}
+            )
+        else:
+            response = self.client.post(
+                base_url,
+                {"group_key": "org:2", "group_type_index": 0, "group_properties": {"arr": 1}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(
+                response.json()["detail"], "You do not have write access to the following properties: arr."
+            )
+
+    @parameterized.expand(
+        [
+            ("restricted_value", None, "1000", 0),
+            ("unrestricted_value", None, "Acme", 1),
+            ("allowed_user", PropertyAccessLevel.READ, "1000", 1),
+        ]
+    )
+    def test_list_search_ignores_restricted_properties(
+        self, _name: str, member_level: PropertyAccessLevel | None, search: str, expected_count: int
+    ) -> None:
+        if member_level is not None:
+            self._grant_member_access(member_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search={search}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), expected_count)
+
+    def _restrict_nested_customer_tax_id(self) -> PropertyDefinition:
+        nested_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="customer.tax_id",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=nested_def, access_level=PropertyAccessLevel.NONE.value
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:2",
+            properties={"name": "Initech", "customer": {"tier": "gold", "tax_id": "example-tax-id"}},
+        )
+        return nested_def
+
+    @parameterized.expand(
+        [
+            ("sibling_of_restricted_path", None, "gold", ["org:2"]),
+            ("parent_of_restricted_path", None, "customer", ["org:2"]),
+            ("restricted_nested_value", None, "example-tax-id", []),
+            ("restricted_nested_key", None, "tax_id", []),
+            ("allowed_user_nested_value", PropertyAccessLevel.READ, "example-tax-id", ["org:2"]),
+        ]
+    )
+    def test_list_search_skips_only_restricted_nested_values(
+        self, _name: str, member_level: PropertyAccessLevel | None, search: str, expected_keys: list[str]
+    ) -> None:
+        nested_def = self._restrict_nested_customer_tax_id()
+        if member_level is not None:
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=nested_def,
+                access_level=member_level.value,
+                organization_member=self.organization_membership,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search={search}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([group["group_key"] for group in response.json()["results"]], expected_keys)
+
+    def test_list_search_reads_masked_properties(self) -> None:
+        self._restrict_nested_customer_tax_id()
+        restricted_properties = access_control_api.get_restricted_properties_for_group_type(
+            user=self.user, team_id=self.team.pk, group_type_index=0
+        )
+
+        printed: dict[str, Any] = {}
+
+        def print_query(query: ast.SelectQuery, *, context: HogQLContext, **_kwargs: Any) -> mock.MagicMock:
+            print_context = HogQLContext(
+                team_id=self.team.pk,
+                team=self.team,
+                enable_select_queries=True,
+                restricted_properties=context.restricted_properties,
+            )
+            printed["sql"], _ = prepare_and_print_ast(query, context=print_context, dialect="clickhouse")
+            printed["values"] = print_context.values
+            return mock.MagicMock(results=[])
+
+        with patch("posthog.hogql.query.execute_hogql_query", side_effect=print_query):
+            list_groups(
+                team_id=self.team.pk, group_type_index=0, search="gold", restricted_properties=restricted_properties
+            )
+
+        # The search reads the properties blob through the mask, so it never sees a restricted value.
+        having = printed["sql"].split("HAVING", 1)[1]
+        self.assertIn("ilike(toString(if(empty(", having)
+        self.assertIn("JSONDropKeysPool(", having)
+        self.assertIn(["arr", "customer.tax_id"], list(printed["values"].values()))
+
+    def test_related_hides_restricted_properties(self) -> None:
+        for index, group_type in [(0, "organization"), (1, "company")]:
+            create_group_type_mapping_without_created_at(
+                team=self.team, project_id=self.team.project_id, group_type_index=index, group_type=group_type
+            )
+        email_def = PropertyDefinition.objects.create(team=self.team, name="email", type=PropertyDefinition.Type.PERSON)
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email_def, access_level=PropertyAccessLevel.NONE.value
+        )
+        create_person(team=self.team, distinct_ids=["p1"], properties={"email": "a@example.com", "plan": "pro"})
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="p1",
+            timestamp=now(),
+            properties={"$group_0": "org:1", "$group_1": "company:1"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id=company:1&group_type_index=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        properties_by_type = {actor["type"]: actor["properties"] for actor in response.json()}
+        self.assertEqual(properties_by_type, {"person": {"plan": "pro"}, "group": {"name": "Acme"}})
+        person_actor = next(actor for actor in response.json() if actor["type"] == "person")
+        self.assertEqual(person_actor["name"], "p1")
+
+    def _restrict_nested_group_property(self, customer: Any = None) -> None:
+        nested_def = PropertyDefinition.objects.create(
+            team=self.team, name="customer.tax_id", type=PropertyDefinition.Type.GROUP, group_type_index=0
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=nested_def, access_level=PropertyAccessLevel.NONE.value
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:2",
+            properties={
+                "customer": customer if customer is not None else {"tax_id": "T-1", "tier": "gold"},
+                "customer.tax_id": "T-1",
+                "plan": "pro",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("object", {"tax_id": "T-1", "tier": "gold"}, {"tier": "gold"}),
+            ("array", [{"tax_id": "T-1", "tier": "gold"}, "x"], [{"tier": "gold"}, "x"]),
+        ]
+    )
+    def test_find_hides_restricted_nested_group_property(self, _name: str, customer: Any, expected: Any) -> None:
+        self._restrict_nested_group_property(customer)
+        self.assertEqual(self._find_properties(0, "org:2"), {"customer": expected, "plan": "pro"})
+
+    @parameterized.expand([("parent", "customer"), ("child", "customer.tax_id")])
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
+    def test_update_property_blocks_keys_overlapping_nested_restriction(
+        self, _name: str, key: str, _mock_capture: mock.MagicMock
+    ) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        self._restrict_nested_group_property()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:2&group_type_index=0",
+            {"key": key, "value": "x"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand([("integer", 123), ("empty", "")])
+    def test_update_property_rejects_non_string_key(self, _name: str, key: Any) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:1&group_type_index=0",
+            {"key": key, "value": "x"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme"})
+
+    @parameterized.expand([("restricted", None, None), ("allowed", PropertyAccessLevel.READ, 2000)])
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
+    def test_activity_hides_restricted_property_values(
+        self,
+        _name: str,
+        member_level: PropertyAccessLevel | None,
+        expected_after: int | None,
+        _mock_capture: mock.MagicMock,
+    ) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        write_grant = PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.restricted_def,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+            organization_member=self.organization_membership,
+        )
+        update_response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:1&group_type_index=0",
+            {"key": "arr", "value": 2000},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        write_grant.delete()
+        if member_level is not None:
+            self._grant_member_access(member_level)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/activity?group_key=org:1&group_type_index=0")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        changes = [
+            change
+            for entry in response.json()["results"]
+            if entry["detail"]["name"] == "arr"
+            for change in entry["detail"]["changes"]
+        ]
+        self.assertEqual([change["after"] for change in changes], [expected_after])

@@ -26,6 +26,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
+    STORE_SKILLS_BRIDGE_STATE_KEY,
     STORE_SKILLS_STATE_KEY,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
@@ -122,6 +123,36 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
     )
 
     assert context.is_snapshot_resume is expected
+
+
+@pytest.mark.parametrize(
+    "origin_product,model,expected",
+    [
+        ("posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("posthog_ai", "zai-org/glm-5.3", None),
+        ("posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
+        ("posthog_ai", "gpt-6-sol", "gpt-6-sol"),
+        ("user_created", "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+        ("posthog_ai", None, None),
+    ],
+)
+def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
+    origin_product: str, model: str | None, expected: str | None
+):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=None,
+        repository=None,
+        distinct_id="distinct-id",
+        origin_product=origin_product,
+        state={"model": model},
+    )
+
+    assert context.model == expected
 
 
 @pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
@@ -454,6 +485,12 @@ class TestGetTaskProcessingContextActivity:
             (None, False, False),
             ("business_knowledge", True, False),
             ("business_knowledge", False, False),
+            ("posthog_ai", True, True),
+            ("posthog_ai", False, False),
+            ("posthog_ai.internal", True, True),
+            ("posthog_ai.internal", False, False),
+            ("space_setup", True, True),
+            ("space_setup", False, False),
             ("test.unregistered", True, True),
         ],
     )
@@ -799,17 +836,27 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "flag_value,include_live_context,expected_state",
+        "flag_value,include_live_context,expected_state,disable_skills",
         [
-            (True, None, "resolved"),
-            (False, None, []),
-            (None, None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
-            (True, False, []),
-            (None, False, []),
+            (True, None, "resolved", False),
+            (False, None, [], False),
+            (None, None, "untouched", False),  # a flag-service outage must not clear stubs a resumed sandbox still has
+            (True, False, [], False),
+            (None, False, [], False),
+            (True, None, [], True),
+            (None, None, [], True),
         ],
     )
     def test_store_skills_state_follows_the_sandbox_flag(
-        self, activity_environment, test_task, user, mocker, flag_value, include_live_context, expected_state
+        self,
+        activity_environment,
+        test_task,
+        user,
+        mocker,
+        flag_value,
+        include_live_context,
+        expected_state,
+        disable_skills,
     ):
         LLMSkill.objects.create(
             team=test_task.team,
@@ -821,7 +868,7 @@ class TestGetTaskProcessingContextActivity:
             created_by=user,
         )
         task_run = test_task.create_run(
-            extra_state={"include_live_context": include_live_context} if include_live_context is not None else {}
+            extra_state={"include_live_context": include_live_context, "disable_skills": disable_skills}
         )
         TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: [{"name": "from-last-session"}]})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
@@ -839,7 +886,7 @@ class TestGetTaskProcessingContextActivity:
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.context_layer_enabled is (include_live_context is not False)
-        if include_live_context is False:
+        if include_live_context is False or disable_skills:
             assert result.state is not None
             assert result.state[STORE_SKILLS_STATE_KEY] == []
         for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
@@ -854,7 +901,10 @@ class TestGetTaskProcessingContextActivity:
         assert environment.get("POSTHOG_CONTEXT_LAYER_PATH") == (
             "/tmp/workspace/context" if include_live_context is not False else None
         )
-        stored = TaskRun.objects.get(id=task_run.id).state[STORE_SKILLS_STATE_KEY]
+        stored_state = TaskRun.objects.get(id=task_run.id).state
+        stored = stored_state[STORE_SKILLS_STATE_KEY]
+        expected_bridge = None if expected_state == "untouched" else expected_state == "resolved"
+        assert stored_state.get(STORE_SKILLS_BRIDGE_STATE_KEY) == expected_bridge
         if expected_state == "untouched":
             assert stored == [{"name": "from-last-session"}]
         elif expected_state == "resolved":

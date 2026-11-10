@@ -5,30 +5,30 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useMemo } from 'react'
+import React, { useEffect } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
-import { isTrendsFilter } from 'lib/insights/sharedUtils'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 
-import { ChartDisplayCategory, ChartDisplayType, FilterType, InsightType, PropertyOperator } from '~/types'
+import { ChartDisplayCategory, InsightType, PropertyOperator } from '~/types'
 
 import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { MathAvailability } from './ActionFilterRow/types'
 import { LocalSeries, entityFilterLogic } from './entityFilterLogic'
-import { legacyFilterToSeriesDefaults, legacyFiltersToSeries, seriesToLegacyFilters } from './legacyFilters'
 import { SeriesNode, WarehouseSeriesNodeKind, isGroupSeriesNode } from './seriesNode'
 
 export interface SeriesActionFilterProps {
@@ -182,6 +182,7 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
 
     const { localSeries } = useValues(logic)
     const { addSeries, setSeries } = useActions(logic)
+    const quillSurface = useQuillSurface()
 
     // No way around this. Somehow the ordering of the logic calling each other causes stale
     // series to be shown on the /funnels page, even if we try to use a selector with props
@@ -246,6 +247,9 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localSeries.length >= entitiesLimit)
+    const addButtonLabel = !reachedLimit
+        ? buttonCopy || 'Action or event'
+        : `Reached limit of ${entitiesLimit} ${insightType === InsightType.FUNNELS ? 'steps' : 'series'}`
     const sortedItemIds = localSeries.map((i) => i.uuid)
 
     return (
@@ -335,67 +339,33 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
-                    <LemonButton
-                        type={buttonType}
-                        onClick={() => addSeries()}
-                        data-attr="add-action-event-button"
-                        icon={<IconPlusSmall />}
-                        size="small"
-                        disabled={reachedLimit || disabled || readOnly}
-                        {...buttonProps}
-                    >
-                        {!reachedLimit
-                            ? buttonCopy || 'Action or event'
-                            : `Reached limit of ${entitiesLimit} ${
-                                  insightType === InsightType.FUNNELS ? 'steps' : 'series'
-                              }`}
-                    </LemonButton>
+                    {quillSurface ? (
+                        <Button
+                            variant={quillButtonVariant(buttonProps.type ?? buttonType)}
+                            onClick={() => addSeries()}
+                            data-attr={buttonProps['data-attr'] ?? 'add-action-event-button'}
+                            disabled={reachedLimit || disabled || readOnly || buttonProps.disabled}
+                            className={buttonProps.className}
+                        >
+                            <IconPlus />
+                            {addButtonLabel}
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type={buttonType}
+                            onClick={() => addSeries()}
+                            data-attr="add-action-event-button"
+                            icon={<IconPlusSmall />}
+                            size="small"
+                            disabled={reachedLimit || disabled || readOnly}
+                            {...buttonProps}
+                        >
+                            {addButtonLabel}
+                        </LemonButton>
+                    )}
                     {customFooter}
                 </div>
             )}
         </div>
-    )
-})
-
-export interface ActionFilterProps extends Omit<
-    SeriesActionFilterProps,
-    'series' | 'onChange' | 'insightType' | 'hasBreakdown' | 'trendsDisplayCategory' | 'newSeriesDefaults'
-> {
-    setFilters: (filters: FilterType) => void
-    filters: FilterType
-    addFilterDefaultOptions?: Record<string, any>
-}
-
-/**
- * The legacy entity filter shape, for the surfaces that persist it on a backend or schema
- * contract. Everything else renders `SeriesActionFilter` and keeps its query nodes.
- */
-export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
-    { setFilters, filters, addFilterDefaultOptions, dataWarehouseNodeKind, ...rest },
-    ref
-): JSX.Element {
-    const series = useMemo(
-        () => legacyFiltersToSeries(filters, dataWarehouseNodeKind),
-        [filters, dataWarehouseNodeKind]
-    )
-
-    return (
-        <SeriesActionFilter
-            {...rest}
-            ref={ref}
-            series={series}
-            onChange={(nextSeries) => setFilters(seriesToLegacyFilters(nextSeries))}
-            dataWarehouseNodeKind={dataWarehouseNodeKind}
-            newSeriesDefaults={
-                addFilterDefaultOptions && legacyFilterToSeriesDefaults(addFilterDefaultOptions, dataWarehouseNodeKind)
-            }
-            insightType={filters.insight}
-            hasBreakdown={!!filters.breakdown}
-            trendsDisplayCategory={
-                isTrendsFilter(filters)
-                    ? DISPLAY_TYPES_TO_CATEGORY[filters.display || ChartDisplayType.ActionsLineGraph]
-                    : null
-            }
-        />
     )
 })

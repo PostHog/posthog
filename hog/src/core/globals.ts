@@ -1,23 +1,41 @@
-import type { OptionSpec, OptionValues } from './command'
+import { z } from 'zod'
+
+import { parseHost } from '@/posthog/host'
+
+import { longFlag, parseOption, type OptionSpec, type OptionValues } from './command'
 import type { PostHogConfig } from './config'
 import { EXIT_USAGE, HogError } from './errors'
 import type { Env, Runtime, RuntimeFetch } from './runtime'
-import { kebabCase } from './text'
+import { parseOrThrow, type ParseFailure } from './schema'
 
 // Options every command takes. Each one also reads the env vars in `env`, in order, and some read
 // the posthog.json key at the `config` path. A flag beats an env var, which beats posthog.json.
+const RateLimitSchema = z
+    .string()
+    .regex(/^[1-9]\d*$/, {
+        error: (issue) =>
+            `The rate limit must be a whole number of requests per minute, but it is "${String(issue.input)}".`,
+    })
+    .transform(Number)
+
+function parseRateLimit(raw: unknown, failure: ParseFailure): number {
+    return parseOrThrow(RateLimitSchema, raw, failure)
+}
+
 export const GLOBAL_OPTIONS = {
     host: {
         type: 'string',
         placeholder: 'url',
         env: ['HOG_HOST'],
+        parse: parseHost,
         description: 'The PostHog host to use instead of the one in your credentials',
     },
     dotenvFile: {
         type: 'string',
         placeholder: 'path',
         env: ['HOG_DOTENV_FILE'],
-        description: 'Read HOG_API_KEY, HOG_PROJECT_ID and HOG_HOST from this file when the environment has none',
+        description:
+            'Read HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST from this file when the environment has none',
     },
     output: {
         type: 'string',
@@ -61,6 +79,7 @@ export const GLOBAL_OPTIONS = {
         placeholder: 'requests',
         env: ['HOG_RATE_LIMIT'],
         config: 'cli.rateLimit',
+        parse: parseRateLimit,
         description: 'The most requests hog sends per minute',
     },
 } as const satisfies Record<string, OptionSpec>
@@ -130,7 +149,7 @@ export function resolveGlobals(
     for (const [name, spec] of Object.entries(GLOBAL_OPTIONS) as [string, OptionSpec][]) {
         const envNames = spec.env ?? []
         let value: unknown = flags[name]
-        let source = `--${kebabCase(name)}`
+        let source = longFlag(name)
         if (value === undefined && spec.type === 'boolean' && spec.lenient) {
             value = optOutFlag(env, envNames)
         } else if (value === undefined && spec.type === 'boolean') {
@@ -154,18 +173,9 @@ export function resolveGlobals(
                 EXIT_USAGE
             )
         }
-        resolved[name] = value
+        resolved[name] = parseOption(spec, value, source, 'invalid_setting')
     }
-    const globals = resolved as GlobalOptions
-    if (globals.rateLimit !== undefined && !/^[1-9]\d*$/.test(globals.rateLimit)) {
-        throw new HogError(
-            'invalid_setting',
-            `The rate limit must be a whole number of requests per minute, but it is "${globals.rateLimit}".`,
-            undefined,
-            EXIT_USAGE
-        )
-    }
-    return globals
+    return resolved as GlobalOptions
 }
 
 const WINDOW_MS = 60_000
@@ -174,7 +184,7 @@ export function networkRuntime(runtime: Runtime, globals: GlobalOptions): Runtim
     if (globals.skipSslVerification) {
         runtime.skipTlsVerification()
     }
-    const limit = globals.rateLimit === undefined ? undefined : Number(globals.rateLimit)
+    const limit = globals.rateLimit
     if (limit === undefined && !globals.debug) {
         return runtime
     }

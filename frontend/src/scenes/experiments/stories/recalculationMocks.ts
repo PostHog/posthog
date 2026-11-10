@@ -20,7 +20,7 @@ type ResultFixture = { last_refresh?: string | null } & Record<string, unknown>
 
 const RUN_ID = 'storybook-recalculation'
 
-type MetricType = 'mean' | 'funnel' | 'ratio'
+type MetricType = 'mean' | 'funnel' | 'ratio' | 'quantile'
 type ExperimentWithMetricTypes = ExperimentFixture & {
     metrics?: { uuid?: string; metric_type?: string }[]
     metrics_secondary?: { uuid?: string; metric_type?: string }[]

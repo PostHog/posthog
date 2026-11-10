@@ -7,11 +7,30 @@ from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import Grouping
-from products.logs.backend import platform_ownership
+from products.logs.backend import platform_cutover, platform_ownership
 from products.logs.backend.alert_deletion import delete_alert
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.native_alerts import (
+    create_native,
+    delete_native,
+    native_alert_keys,
+    native_alert_view,
+    native_alert_views,
+    update_native,
+)
 
-__all__ = ["delete_alert", "on_created", "on_updated"]
+__all__ = [
+    "create_native",
+    "creates_native_alert",
+    "delete_alert",
+    "delete_native",
+    "native_alert_keys",
+    "native_alert_view",
+    "native_alert_views",
+    "on_created",
+    "on_updated",
+    "update_native",
+]
 
 
 def _alert(team_id: int, alert_id: UUID) -> LogsAlertConfiguration | None:
@@ -19,8 +38,8 @@ def _alert(team_id: int, alert_id: UUID) -> LogsAlertConfiguration | None:
 
 
 def on_created(*, team_id: int, alert_id: UUID, at: datetime, grouping: Grouping | None = None) -> bool:
-    """Hands a new alert to the platform when its team has begun the cutover, with its copy grouped
-    by `grouping`. False when the alert stays with logs.
+    """Hands a new alert to the platform, with its copy grouped by `grouping`, unless its team keeps
+    its alerts on logs. False when the alert stays with logs.
 
     Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping. Only an alert the
     platform owns can take one other than single.
@@ -39,3 +58,8 @@ def on_updated(*, team_id: int, alert_id: UUID, snooze_changed: bool, grouping: 
     alert = _alert(team_id, alert_id)
     if alert is not None:
         platform_ownership.on_updated(alert, snooze_changed=snooze_changed, grouping=grouping)
+
+
+def creates_native_alert(team_id: int) -> bool:
+    """Whether the team's next logs alert gets no logs row, so the platform alone keeps it."""
+    return platform_cutover.creates_native_alert(team_id)

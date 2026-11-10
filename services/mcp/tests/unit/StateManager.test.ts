@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
+import { ErrorCode, PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -255,7 +255,12 @@ describe('StateManager', () => {
         const cacheOnlyApi = { config: { apiToken: 'phx_test' } } as unknown as ApiClient
         const cacheOnlyOauthApi = { config: { apiToken: 'pha_test' } } as unknown as ApiClient
 
-        function oauthApi(clientName: string | null, impersonated?: boolean, scope = 'insight:read'): ApiClient {
+        function oauthApi(
+            clientName: string | null,
+            impersonated?: boolean,
+            scope = 'insight:read',
+            supportsStepUp?: boolean
+        ): ApiClient {
             return {
                 config: { apiToken: 'pha_test' },
                 apiKeys: () => ({
@@ -269,6 +274,7 @@ describe('StateManager', () => {
                             scope,
                             client_name: clientName,
                             is_impersonated: impersonated,
+                            supports_step_up: supportsStepUp,
                         },
                     }),
                 }),
@@ -300,6 +306,14 @@ describe('StateManager', () => {
                 expect((await stateManager.getApiKey()).suppress_analytics).toBe(suppressed)
             }
         )
+
+        it.each([true, false, undefined])('reads supports_step_up=%s from introspection', async (supportsStepUp) => {
+            stateManager = new StateManager(cache, oauthApi(null, false, 'insight:read', supportsStepUp))
+
+            const result = await stateManager.getApiKey()
+
+            expect(result.supports_step_up === true).toBe(supportsStepUp === true)
+        })
 
         it.each([{ scopes: [] }, { scopes: ['scout_experiment_internal:read'] }])(
             'does not suppress personal-key telemetry for scopes $scopes',
@@ -349,19 +363,27 @@ describe('StateManager', () => {
             }
         )
 
-        it('keeps the cached scopes when a refresh fails', async () => {
+        it.each([
+            { label: 'an outage', error: new Error('API unreachable'), reported: true },
+            { label: 'a rejected key', error: new Error(ErrorCode.INVALID_API_KEY), reported: false },
+            { label: 'an inactive token', error: new Error(ErrorCode.INACTIVE_OAUTH_TOKEN), reported: false },
+        ])('keeps the cached scopes when a refresh fails from $label', async ({ error, reported }) => {
             vi.useFakeTimers()
             try {
                 const current = vi
                     .fn()
                     .mockResolvedValueOnce({ success: true, data: mockApiKey })
-                    .mockRejectedValue(new Error('API unreachable'))
+                    .mockRejectedValue(error)
                 const api = { config: { apiToken: 'phx_test' }, apiKeys: () => ({ current }) } as unknown as ApiClient
 
                 await new StateManager(cache, api).getApiKey()
                 vi.advanceTimersByTime(3 * 60 * 1000)
 
-                expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+                const stateManager = new StateManager(cache, api)
+                const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+                expect((await stateManager.getApiKey()).scopes).toEqual(mockApiKey.scopes)
+                expect(reportSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
             } finally {
                 vi.useRealTimers()
             }
@@ -976,6 +998,27 @@ describe('StateManager', () => {
             [true, true],
             [false, false],
             [null, false],
+        ])('reads consent from the project when the org is unreachable (flag %s)', async (flag, expected) => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-other', name: 'Other Org', is_ai_data_processing_approved: !expected },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+                is_ai_data_processing_approved: flag,
+            } as any)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBe(expected)
+        })
+
+        it.each([
+            [true, true],
+            [false, false],
+            [null, false],
         ])('returns consent from the fetched org when the org is resolvable (flag %s)', async (flag, expected) => {
             vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue({
                 id: 'org-1',
@@ -1271,59 +1314,6 @@ describe('StateManager', () => {
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
         })
-
-        // A project without events is re-read after a minute so the no-data notice stops soon
-        // after the first event. A project with events never flips back, so it keeps the long TTL.
-        it.each([
-            ['without events is re-read', false, 2],
-            ['with events stays cached', true, 1],
-        ])('a project %s two minutes after the fetch', async (_name, ingestedEvent, expectedFetches) => {
-            await cache.set('projectId', projectId)
-            const get = vi.fn().mockResolvedValue({ success: true, data: { id: 42, ingested_event: ingestedEvent } })
-            ;(stateManager as any)._api = { projects: () => ({ get }) }
-
-            await stateManager.getCachedOrFetchProject()
-            await cache.set(`cachedProjectFetchedAt:${projectId}`, Date.now() - 2 * 60 * 1000)
-            await stateManager.getCachedOrFetchProject()
-
-            expect(get).toHaveBeenCalledTimes(expectedFetches)
-        })
-    })
-
-    describe('getOrFetchHasWarehouseData', () => {
-        const projectId = '42'
-        const warehouseScopes = ['warehouse_table:read', 'external_data_source:read']
-        const rejected = new Error('Synthetic list failure')
-
-        it.each<[string, string[], unknown[], boolean | undefined, number?]>([
-            ['unknown without a warehouse read scope', ['query:read'], [], undefined],
-            ['unknown when the only readable list is empty', ['warehouse_table:read'], [{ count: 0 }], undefined],
-            ['true when the only readable list has a table', ['warehouse_table:read'], [{ count: 1 }], true],
-            ['unknown when the refresh of an empty answer fails', warehouseScopes, [rejected, rejected], undefined, 0],
-            ['true when a table exists', warehouseScopes, [{ count: 1 }, { count: 0 }], true],
-            ['true when only a source exists', warehouseScopes, [{ count: 0 }, { count: 2 }], true],
-            ['false when both lists are empty', warehouseScopes, [{ count: 0 }, { count: 0 }], false],
-            ['unknown when a list fails and the other is empty', warehouseScopes, [{ count: 0 }, rejected], undefined],
-            ['true when a list fails and the other has a table', warehouseScopes, [{ count: 1 }, rejected], true],
-        ])('is %s', async (_name, scopes, responses, expected, staleCount) => {
-            await cache.set('apiKey', { scopes, scoped_organizations: [], scoped_teams: [] })
-            if (staleCount !== undefined) {
-                await cache.set(`warehouseObjectCount:${projectId}`, staleCount)
-                await cache.set(`warehouseObjectCountFetchedAt:${projectId}`, Date.now() - 2 * 60 * 1000)
-            }
-            const request = vi.fn()
-            for (const response of responses) {
-                if (response instanceof Error) {
-                    request.mockRejectedValueOnce(response)
-                } else {
-                    request.mockResolvedValueOnce(response)
-                }
-            }
-            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
-
-            expect(await stateManager.getOrFetchHasWarehouseData(projectId)).toBe(expected)
-            expect(request).toHaveBeenCalledTimes(responses.length)
-        })
     })
 
     // A false field removes search guidance, so only a successful read may produce it.
@@ -1425,7 +1415,6 @@ describe('StateManager', () => {
                 uuid: 'project-uuid-456',
                 name: 'My Project',
                 organization: 'org-1',
-                ingested_event: false,
             } as any)
 
             const result = await stateManager.getAnalyticsContext()
@@ -1435,7 +1424,6 @@ describe('StateManager', () => {
                 projectId: '456',
                 projectUuid: 'project-uuid-456',
                 projectName: 'My Project',
-                projectHasData: false,
             })
         })
 

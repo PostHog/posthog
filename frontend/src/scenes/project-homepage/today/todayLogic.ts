@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { isObject } from 'lib/utils/guards'
@@ -34,6 +34,7 @@ import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
+import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
 import { EXPLORE_ITEMS, type TodayExploreItem } from './todayExploreItems'
 import {
@@ -45,7 +46,7 @@ import {
     type TodayForYouRows,
 } from './todayForYouRows'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
-import { JumpBackObject, jumpBackObjectsForHome, recentObjectsForHome } from './todayRecentObjects'
+import { JumpBackObject, jumpBackObjectsForHome } from './todayRecentObjects'
 import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
 import type { TodayReportState } from './todayReportState'
 import { isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
@@ -57,10 +58,12 @@ export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
 
-function todayReportListParams(): Record<string, string | undefined> {
+// The personalized sort follows the Inbox's flag. Without a stored personal ranking the backend falls back to the
+// Recommended order.
+function todayReportListParams(personalSort: boolean): Record<string, string | undefined> {
     return {
         view: 'for_you',
-        sort: 'recommended',
+        sort: personalSort ? 'personal' : 'recommended',
         created_after: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     }
 }
@@ -89,6 +92,8 @@ export interface TodayReports {
     results: SignalReport[]
     /** Every report that matches the filter, including the ones past the top five. */
     count: number
+    /** The personal ranking that ordered the list, so the reports past it keep the same order. */
+    rankingId?: string | null
 }
 
 export interface TodayMoreReports {
@@ -210,7 +215,6 @@ export interface todayLogicValues {
     shownReportIds: string[]
     topReports: TodayReports | null
     topReportsLoading: boolean
-    useFrequentJumpBack: boolean
     useSampleData: boolean
 }
 
@@ -244,7 +248,7 @@ export interface todayLogicActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
-    loadHighlights: () => any // todayHighlightsLogic
+    loadHighlights: (refresh?: boolean | undefined) => boolean // todayHighlightsLogic
     askAi: (
         prompt: string,
         source: TodayAskSource,
@@ -370,12 +374,7 @@ export interface todayLogicMeta {
         moreReportCount: (topReports: TodayReports | null) => number
         hour: (now: number) => number
         greeting: (hour: number, user: UserType | null) => string
-        useFrequentJumpBack: (featureFlags: FeatureFlagsSet) => boolean
-        recentObjects: (
-            recents: FileSystemEntry[],
-            frequentObjects: FileSystemEntry[],
-            useFrequentJumpBack: boolean
-        ) => JumpBackObject[]
+        recentObjects: (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]) => JumpBackObject[]
         shownReportIds: (reports: SignalReport[]) => string[]
         currentMoreReports: (
             moreReports: TodayMoreReports | null,
@@ -428,8 +427,6 @@ export const todayLogic = kea<todayLogicType>([
     path(['scenes', 'project-homepage', 'today', 'todayLogic']),
     connect(() => ({
         values: [
-            featureFlagLogic,
-            ['featureFlags'],
             userLogic,
             ['user'],
             teamLogic,
@@ -448,6 +445,8 @@ export const todayLogic = kea<todayLogicType>([
             ],
             todayVerdictLogic,
             ['reportStateOverrides'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             router,
@@ -529,7 +528,7 @@ export const todayLogic = kea<todayLogicType>([
                     let response
                     try {
                         response = await signalsReportsList(String(values.currentProjectId), {
-                            ...todayReportListParams(),
+                            ...todayReportListParams(!!values.featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]),
                             limit: TOP_REPORT_COUNT,
                         })
                     } catch (error) {
@@ -541,7 +540,11 @@ export const todayLogic = kea<todayLogicType>([
                     // Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The
                     // generated row type is wider (string status and priority, read-only arrays), so the cast
                     // goes away when the Inbox moves to generated types.
-                    return { results: response.results as unknown as SignalReport[], count: response.count }
+                    return {
+                        results: response.results as unknown as SignalReport[],
+                        count: response.count,
+                        rankingId: response.ranking_id,
+                    }
                 },
             },
         ],
@@ -555,10 +558,11 @@ export const todayLogic = kea<todayLogicType>([
                     const exclude = values.shownReportIds
                     const loaded = values.loadedMoreReports
                     const response = await signalsReportsList(String(values.currentProjectId), {
-                        ...todayReportListParams(),
+                        ...todayReportListParams(!!values.featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]),
                         limit: MORE_REPORTS_PAGE_SIZE,
                         offset: loaded.length,
                         exclude: exclude.length > 0 ? exclude : undefined,
+                        ranking_id: values.topReports?.rankingId ?? undefined,
                     })
                     const results = [...loaded, ...(response.results as unknown as SignalReport[])]
                     return {
@@ -644,23 +648,10 @@ export const todayLogic = kea<todayLogicType>([
             (s) => [s.hour, s.user],
             (hour: number, user: UserType | null): string => greetingForHour(hour, user?.first_name),
         ],
-        useFrequentJumpBack: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => featureFlags[FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING] === 'test',
-        ],
         recentObjects: [
-            (s) => [s.recents, s.frequentObjects, s.useFrequentJumpBack],
-            (
-                recents: FileSystemEntry[],
-                frequentObjects: FileSystemEntry[],
-                useFrequentJumpBack: boolean
-            ): JumpBackObject[] =>
-                useFrequentJumpBack
-                    ? jumpBackObjectsForHome(recents, frequentObjects, RECENT_OBJECT_MORE_COUNT)
-                    : recentObjectsForHome(recents, RECENT_OBJECT_MORE_COUNT).map((entry) => ({
-                          ...entry,
-                          jumpBackReason: 'recent',
-                      })),
+            (s) => [s.recents, s.frequentObjects],
+            (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]): JumpBackObject[] =>
+                jumpBackObjectsForHome(recents, frequentObjects, RECENT_OBJECT_MORE_COUNT),
         ],
         shownReportIds: [(s) => [s.reports], (reports: SignalReport[]): string[] => reports.map((report) => report.id)],
         currentMoreReports: [
@@ -839,7 +830,6 @@ export const todayLogic = kea<todayLogicType>([
                         object_ref: entry.ref ?? entry.id,
                         position,
                         reason: frequent ? 'frequent' : 'recent',
-                        ranking_variant: values.useFrequentJumpBack ? 'test' : 'control',
                     })
                 }
             },
@@ -934,6 +924,9 @@ export const todayLogic = kea<todayLogicType>([
                     }
                 }
             },
+            loadTopReports: () => {
+                cache.topReportsStartedAt = performance.now()
+            },
             loadTopReportsSuccess: ({ topReports }) => {
                 if (values.useSampleData) {
                     return
@@ -943,7 +936,11 @@ export const todayLogic = kea<todayLogicType>([
                 posthog.capture('today home loaded', {
                     report_count: topReports.results.length,
                     more_report_count: values.moreReportCount,
-                    jump_back_ranking: values.useFrequentJumpBack ? 'recent-and-frequent-v1' : 'recent-v1',
+                    jump_back_ranking: 'recent-and-frequent-v1',
+                    duration_ms:
+                        cache.topReportsStartedAt != null
+                            ? Math.round(performance.now() - cache.topReportsStartedAt)
+                            : null,
                 })
             },
             loadMoreReports: () => {

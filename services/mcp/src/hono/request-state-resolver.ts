@@ -4,7 +4,6 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -28,7 +27,7 @@ import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool,
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -63,15 +62,12 @@ export interface ResolvedState {
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
-    projectHasData?: boolean | undefined
     /**
-     * The workspace context that the flags and `projectHasData` were resolved against.
+     * The workspace context that the flags were resolved against.
      * A handler such as `switch-project` changes the live context, so tool-call analytics
      * read this snapshot to keep the project group consistent with the variant.
      */
     analyticsContext?: MCPAnalyticsContext | undefined
-    /** Set on the per-call state when the no-data notice blocked or warned this call. */
-    noDataAction?: NoDataAction | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
     /** The organization's AI data processing consent; undefined when the org could not be read. */
@@ -84,6 +80,7 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    findScopeGatedTool: (name: string) => ScopeGatedTool | undefined
     flagGatedTools: FlagGatedTool[]
     /**
      * The tools a scout run with a picked tool list holds, from token introspection.
@@ -93,6 +90,7 @@ export interface ResolvedState {
     heldTools?: ReadonlySet<string> | undefined
     /** The task a sandbox token is bound to, from token introspection. */
     sandboxTaskId?: string | undefined
+    supportsStepUp: boolean
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -205,7 +203,7 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, and MCP_INBOX_FIRST_FLAG a prompt section.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
@@ -213,7 +211,7 @@ export class RequestStateResolver {
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
-                MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+                MCP_INBOX_FIRST_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
@@ -349,6 +347,14 @@ export class RequestStateResolver {
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
+        // A call to a gated tool reports the missing scope before the tool runs. Tools mode builds
+        // the list only on the first miss instead of scanning the catalog on every request.
+        let toolsModeScopeGatedTools: ScopeGatedTool[] | undefined
+        const findScopeGatedTool = (name: string): ScopeGatedTool | undefined =>
+            (useSingleExec
+                ? scopeGatedTools
+                : (toolsModeScopeGatedTools ??= getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld))
+            ).find((tool) => tool.name === name)
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions).filter(isHeld) : []
 
@@ -364,7 +370,6 @@ export class RequestStateResolver {
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
-            projectHasData: flagAnalyticsContext?.projectHasData,
             analyticsContext: flagAnalyticsContext,
             aiConsentGiven: aiConsentGiven ?? undefined,
             businessKnowledgeContent,
@@ -374,10 +379,12 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
+            findScopeGatedTool,
             flagGatedTools,
             gatewayToolFilter: { tools, features, excludeTools },
             heldTools,
             sandboxTaskId: _apiKey?.sandbox_task_id,
+            supportsStepUp: _apiKey?.supports_step_up === true,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
@@ -508,7 +515,7 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment, intent and guidance experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent, guidance and Inbox-first experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
@@ -516,6 +523,7 @@ export class RequestStateResolver {
                         key,
                         key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
                             key !== MCP_INTENT_PROMPT_FLAG &&
+                            key !== MCP_INBOX_FIRST_FLAG &&
                             !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),

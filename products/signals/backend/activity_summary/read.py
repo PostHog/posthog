@@ -19,11 +19,12 @@ from products.signals.backend.activity_summary.queue import is_team_enrolled_for
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 DEFAULT_VERSIONS_LIMIT = 5
+SKIPPED_REBUILD_STATUSES = frozenset({UserActivitySummary.Status.SKIPPED, UserActivitySummary.Status.EMPTY_PROFILE})
 
 
 class ActivitySummaryStatus(models.TextChoices):
     READY = "ready"
-    # No row, or no update succeeded yet.
+    # No row, no update succeeded yet, or the rebuild of a stale summary skipped.
     NOT_READY = "not_ready"
 
 
@@ -107,19 +108,31 @@ def _computed(value: Any) -> dict[str, Any] | None:
     return {"tasks": [], "mcp_sessions": [], **value}
 
 
-def _readable_config(team: Team) -> ActivitySummaryConfig | None:
+def readable_config(team: Team) -> ActivitySummaryConfig | None:
     config = read_config()
     return config if is_team_enrolled_for_read(config, team) else None
 
 
 def get_summary(team: Team, user_id: int) -> ActivitySummaryView | None:
-    """The user's current summary. A failed later update keeps the last good summary, so it is still ready."""
-    config = _readable_config(team)
+    """The user's current summary. A failed later update keeps the last good summary, so it is still ready.
+
+    A stale summary whose rebuild skipped is not ready, because the current inputs gave no summary.
+    """
+    config = readable_config(team)
     if config is None:
         return None
     row = UserActivitySummary.objects.for_team(team.id).filter(user_id=user_id).first()
-    if row is None or not isinstance(row.summary, dict) or row.generated_at is None:
+    if row is None or (view := ready_view(row, config)) is None:
         return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    if view.stale and row.status in SKIPPED_REBUILD_STATUSES:
+        return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    return view
+
+
+def ready_view(row: UserActivitySummary, config: ActivitySummaryConfig) -> ActivitySummaryView | None:
+    """The view of a stored summary, or `None` when no update succeeded yet."""
+    if not isinstance(row.summary, dict) or row.generated_at is None:
+        return None
     return ActivitySummaryView(
         status=ActivitySummaryStatus.READY,
         headline=_headline(row.summary),
@@ -157,7 +170,7 @@ def list_versions(
 
     With `version`, the list holds only that version, with its profile, or nothing when it does not exist.
     """
-    config = _readable_config(team)
+    config = readable_config(team)
     if config is None:
         return None
     rows = UserActivitySummaryVersion.objects.for_team(team.id).filter(summary_row__user_id=user_id)

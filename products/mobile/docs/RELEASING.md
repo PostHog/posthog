@@ -49,7 +49,7 @@ This deliberately establishes new binaries and a verified baseline instead of gu
 
 1. `Mobile Release` checks the exact master push diff. It selects only the newly added request, rather than sweeping historical requests.
 2. The reusable `Mobile CI` runs typecheck, lint, Jest, release metadata validation and release policy tests on that exact commit. The simulator demo flows do not run in CI; run them locally before you merge.
-3. An authorized reviewer approves the exact commit in the protected `mobile-production` GitHub environment. The publisher then loads the EAS `production` environment, fixes `APP_VARIANT=production` and disables the signup link.
+3. An authorized reviewer approves the exact commit in the protected `mobile-production` GitHub environment. A repository-scoped releaser App token pins that commit with a `mobile-source/<commit>` tag. An existing tag must match the tested commit. This keeps release creation authorized if workflow files on `master` change while the release waits. The publisher then loads the EAS `production` environment, fixes `APP_VARIANT=production` and disables the signup link.
 4. Before contacting EAS to build or publish, it creates a durable draft GitHub receipt at `mobile-release/<id>`. This claims the request so an interrupted retry cannot duplicate a release.
 5. A `mobile-staging` deployment records the stage. Native requests build production binaries with the pinned public OTA certificate; OTA requests sign and publish to an unlinked `mobile-staging-<id>` EAS branch.
 6. Native requests submit the completed binaries. OTA requests sign and republish the exact staged group to the production channel; they do not rebuild the bundle during promotion.
@@ -66,7 +66,8 @@ Keep the EAS credentials and store setup below. Also:
 - Protect the `mobile-production` GitHub environment with **required reviewer Chris Volzer (`@cvolzer3`)**, allow self-review so the release owner can explicitly approve their own requests, disable administrator bypass, and restrict deployments to `master`. Review the request and full source diff of the exact deployment commit before approval. The workflow's `environment` field does not configure these server-side protections: a repository administrator must set them before any release request merges.
 - Store a dedicated `MOBILE_PRODUCTION_EXPO_TOKEN` only in `mobile-production`. Create a separate `mobile-build` environment restricted to `master`, with a different `MOBILE_BUILD_EXPO_TOKEN` environment secret for internal builds. Do not create repository or organization secrets under these names; that would make them available outside their environment. Neither workflow falls back to the shared `EXPO_TOKEN`. Remove or revoke the inherited shared `EXPO_TOKEN` access to this production EAS project; changing these workflow references does not revoke an organization secret or its Expo authority. Coordinate any other workflows that still use it. Use the narrowest Expo account/project access available for the new tokens. Separate tokens do not impose EAS channel or build-profile authorization: both workflows also require trusted master source, and production OTA has an independent signing key.
 - Provision OTA signing as described below before the first hosted native release. The public certificate belongs in the repository; the private key belongs only in the protected `mobile-production` environment. Native build jobs and dependency installation do not receive the private key.
-- Permit the workflow's `GITHUB_TOKEN` to create releases/tags and deployment records. The workflow requests only contents and deployments write access in its publishing job.
+- Make `GH_APP_POSTHOG_RELEASER_APP_ID` and the organization secret `GH_APP_POSTHOG_RELEASER_PRIVATE_KEY` available to this repository's approved `mobile-production` job. The existing releaser App installation must grant **Contents: write** and **Workflows: write** on `PostHog/posthog`; the workflow requests only those permissions for its source-tagging token. Do not fall back to `GITHUB_TOKEN` for this step: it cannot receive Workflows write permission.
+- Permit the workflow's `GITHUB_TOKEN` to create releases/tags and deployment records. The publisher retains this token throughout staging and submission because native builds can outlive an App installation token's one-hour lifetime. The `mobile-source/<commit>` tag is a source pin, not a release receipt; its presence alone does not claim or publish a request. Retain it for retries of the original commit. The publishing job requests only contents and deployments write access for `GITHUB_TOKEN`.
 - Keep production build-time variables readable as Plain text or Sensitive. The publisher audits both project variables and linked account variables before claiming a request; any Secret value blocks the release because it cannot be included in the compatibility check. Native signing/submission keys belong in EAS credentials; the OTA signing key belongs in the protected GitHub environment. Neither belongs in these variables.
 - Set `GOOGLE_SERVICES_JSON` to a **Sensitive file** variable. The publisher reads its base64 file content through the authenticated Expo API, writes an ignored file with owner-only permissions, and uses it during fingerprinting and configuration. Neither contents nor other variable values appear in receipts or artifacts. Secret files, unreadable file values and other file-variable names fail closed before an EAS build or OTA publish. Native EAS fingerprint results must match these materialized inputs.
 - The native environment is audited and fingerprinted again after staging. A change to variable names, types or contents blocks production publication, including removed values. Snapshot hashes stay in memory. Variables that overwrite GitHub identity, credentials or the runner command environment are rejected before any values are applied; the script imports the audited environment itself.
@@ -95,13 +96,35 @@ Version `1.6.0` follows `native-150` through the `native-160` native release req
 It includes full-screen chats with Back, New chat, Copy link to chat and Archive chat controls, readable insight-table numbers with horizontal scrolling, and safer release retries.
 It targets TestFlight and Google Play internal testing and establishes a new runtime for compatible OTA updates.
 
+Version `1.8.0` requests a new native release through `native-180`, following the last completed release, `native-160`.
+The earlier report-fix OTA and `native-170` requests remain historical because neither created a release receipt.
+This release uses the updated hosted workflow and includes the report chart, Android verdict scrolling and inbox cache fixes already on `master`.
+It submits to TestFlight and Google Play internal testing. Add the submitted builds to the existing external testing tracks separately.
+Publish an OTA for the `1.8.0` runtime only after the native release receipt completes.
+
+Version `1.9.0` requests both native builds through `native-190`, following the last completed release, `native-180`.
+The `ota-180-20261102` request failed before claiming a release and remains historical.
+This release includes the connection recovery, offline cache, chat navigation, regional status, iPhone Duo layout and Android notification startup changes already on `master`.
+Native configuration and dependency changes require new binaries and a new runtime.
+It submits to TestFlight and Google Play internal testing; public-store promotion remains manual after testing.
+
+Version `1.13.0` requests both native builds through `native-1130`, following `ota-1110-final-reply`.
+It includes session replay video, report links that open in the app, updated iOS icons and the mobile replay prototype already on `master`.
+Native dependencies and configuration changes require new binaries.
+The request raises the version above the `1.12.0` PR base and submits to TestFlight and Google Play internal testing.
+Public-store promotion remains manual after testing.
+
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 
 ### Receipts, ordering and retries
 
 The workflow run and `mobile-production` deployment report its outcome. The `mobile-staging` deployment records the build/update staging outcome.
-The GitHub prerelease `mobile-release/<id>` contains a machine-readable JSON receipt; the Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
+The GitHub prerelease `mobile-release/<id>` shows the request's release notes, version, submission or update outcome, and links to its source and workflow.
+Completed releases attach the full machine-readable receipt as `mobile-release-receipt.json`. The publisher uploads and downloads that file to verify its contents before publishing the Markdown description or advancing the production pointer.
+Draft releases retain their claimed/staged JSON description for recovery, even if an interruption leaves a completed attachment on the draft.
+Receipt lookup reads the attachment for completed releases and still accepts older JSON descriptions. An unreadable attachment stops publication rather than falling back to stale data.
+The Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
 Receipt lookup includes draft releases across every page of the release list. GitHub's release-by-tag endpoint only returns published releases and cannot find an interrupted draft claim.
 Repeated entries across pages are deduplicated by numeric release ID, so only distinct releases can cause a duplicate-receipt error.
 Receipt writes use the numeric release ID returned when the claim is created and explicitly retain its request tag. If multiple releases share a request tag, publication stops before any EAS operation; reconcile every named release ID before retrying.
@@ -117,7 +140,10 @@ Use its source commit, run URL, staged build IDs/group and EAS message (`mobile-
 If nothing reached EAS, an operator may remove the draft receipt and rerun the original workflow.
 If publication happened, repair that receipt and production pointer from the verified EAS results, without resubmitting; retain the claim until reconciliation is complete.
 A partially submitted native release needs operator recovery of the unfinished platform using its recorded build ID, rather than a new automatic build.
-A corrective request may follow the last completed receipt only when the failed request was never claimed. Any sibling request with a receipt blocks that correction until its publication or production pointer has been reconciled.
+A corrective request may follow the last completed receipt when the failed request was never claimed or an operator reconciled and abandoned an unstaged native claim.
+Before abandoning a native claim, verify that the original run and both EAS builds are terminal, and that neither binary was submitted to a store.
+Keep the GitHub release as a draft with its original tag and receipt fields, and change only the receipt's `state` to `abandoned`. Include the original `tag_name` explicitly when updating the release through the API.
+The publisher accepts that state for a sibling draft without staged data, a result, or release assets. Rerunning the abandoned request still stops at its existing claim.
 These recovery operations require release access and are exceptional; routine publication stays in GitHub Actions.
 
 ## Store records this app uses
@@ -172,6 +198,9 @@ Profiles are in `eas.json`. Each profile has its own update channel and EAS envi
 Production builds raise them automatically (`autoIncrement`); the public app/runtime version still needs a deliberate bump in each native release PR.
 Check the current values with `eas build:version:get`.
 
+Production Android builds use the EAS `large` resource class to give Gradle and native compilation more memory.
+This selects a larger cloud build worker and increases build cost. See [Expo's build server infrastructure](https://docs.expo.dev/build-reference/infrastructure/) for its memory and CPU allocation.
+
 Mobile Build runs `scripts/eas-build.sh`; Mobile Release uses the hosted release helper.
 Both upload only `products/mobile`, filtered by `.easignore`.
 Without it, EAS uploads the whole repository and installs the root pnpm workspace, which excludes this app.
@@ -189,19 +218,21 @@ Each profile sets `APP_VARIANT` in its `env` block in `eas.json`, and `app.confi
 The three variants install side by side on one device. They do not share sign-in, settings or the widget's data.
 The names, id suffixes and schemes are in `src/lib/appVariants.json`.
 
-| Variant       | Profile       | App name        | iOS bundle id                     | Android package              | URL scheme        | iOS App Group                           | Icon                                       |
-| ------------- | ------------- | --------------- | --------------------------------- | ---------------------------- | ----------------- | --------------------------------------- | ------------------------------------------ |
-| `development` | `development` | PostHog Dev     | `com.posthog.code.mobile.dev`     | `com.posthog.mobile.dev`     | `posthog-dev`     | `group.com.posthog.code.mobile.dev`     | `icon-dev.png`, amber DEV band             |
-| `preview`     | `preview`     | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band    |
-| `production`  | `production`  | PostHog         | `com.posthog.code.mobile`         | `com.posthog.mobile`         | `posthog`         | `group.com.posthog.code.mobile`         | `app.icon` on iOS 26, `icon.png` elsewhere |
+| Variant       | Profile       | App name        | iOS bundle id                     | Android package              | URL scheme        | iOS App Group                           | Icon                                           |
+| ------------- | ------------- | --------------- | --------------------------------- | ---------------------------- | ----------------- | --------------------------------------- | ---------------------------------------------- |
+| `development` | `development` | PostHog Dev     | `com.posthog.code.mobile.dev`     | `com.posthog.mobile.dev`     | `posthog-dev`     | `group.com.posthog.code.mobile.dev`     | `app-dev.icon` on iOS, amber DEV band          |
+| `preview`     | `preview`     | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `app-preview.icon` on iOS, purple PREVIEW band |
+| `production`  | `production`  | PostHog         | `com.posthog.code.mobile`         | `com.posthog.mobile`         | `posthog`         | `group.com.posthog.code.mobile`         | `app.icon` on iOS                              |
 
 - The widget extension's bundle id is the app's id plus `.HedgehogWidget`, for example `com.posthog.code.mobile.dev.HedgehogWidget`.
 - The production profile also sets `EXPO_PUBLIC_SIGNUP_LINK=0`, so store builds hide "Create an account".
+- After editing an iOS icon bundle, regenerate the native project with Expo prebuild and install a new build.
+  Xcode compiles the Home Screen appearances and generates fallback images for older iOS versions.
 - In the app, `src/lib/environment.ts` reads the variant from the bundle id, so an update cannot change it.
   A Metro bundle always counts as development.
 - Development and preview builds show an environment ribbon on the sign-in screen and in Settings, and a Settings Environment group.
   They accept HTTP on `localhost`, `127.0.0.1` and `[::1]`, and prefill the local dev OAuth client id. Store builds do none of this.
-  Android's release network policy allows those exact loopback hosts only in development and preview variants; production release binaries deny cleartext. Local debug builds retain Expo's cleartext allowance for Metro on the local network, including with the store identity. A native rebuild is needed to change either policy. See [Auth](AUTH.md#redirect-uris) for port forwarding.
+  Android's release network policy allows those exact loopback hosts only in development and preview variants; production release binaries deny cleartext. Local debug builds retain Expo's cleartext allowance for Metro on the local network, including with the store identity. A native rebuild is needed to change either policy.
   A store build shows a red ribbon only when the session's host is not PostHog Cloud.
 
 ## One-time setup
@@ -255,7 +286,7 @@ Someone with these accounts does each step once. An agent cannot do them.
 
    Do not add `APP_VARIANT` or `EXPO_PUBLIC_SIGNUP_LINK` here. `eas.json` and the hosted publisher set them.
 
-9. Create separate non-first-party public OAuth applications in US and EU for `posthog-dev://callback` and `posthog-preview://callback`. Set their IDs as `EXPO_PUBLIC_OAUTH_US_CLIENT_ID` and `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` in both EAS internal environments. Production first-party applications must keep only `posthog://callback`; remove internal callback URIs if already added. See [AUTH.md](AUTH.md#redirect-uris).
+9. Create separate non-first-party public OAuth applications in US and EU for `posthog-dev://callback` and `posthog-preview://callback`. Set their IDs as `EXPO_PUBLIC_OAUTH_US_CLIENT_ID` and `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` in both EAS internal environments. Production first-party applications must keep only `posthog://callback`; remove internal callback URIs if already added.
 10. Complete the protected environments and separate token setup in [One-time hosted release setup](#one-time-hosted-release-setup). The desktop mobile workflows' shared `EXPO_TOKEN` is not used by these workflows.
 
 ## Install a development build on an iPhone

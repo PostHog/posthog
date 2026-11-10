@@ -421,6 +421,9 @@ The legacy logs stack's `incident_edge` wraps the same rule.
   `<configuration_id>:<grouping_key>:<episode_started_at>`, so a resolve closes the incident of its own
   firing episode. It names the platform in `source`, because a team on the pilot also gets the HogFunction
   path's incident.
+- An insight alert announces no resolve, but it still sends incident actions for an alert the platform owns.
+  A PagerDuty destination on `$insight_alert_incident_opened` and `$insight_alert_incident_closed` opens and resolves its incident.
+  One on `$insight_alert_firing` keeps its HogFunction, which only triggers.
 
 A fire a mute swallowed is still owed an announcement.
 `_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.
@@ -532,6 +535,9 @@ python manage.py backfill_platform_insight_alert_configurations
 It copies every insight alert, on every cadence.
 A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
 An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
+A paused AI detector check, refused for a withdrawn rollout or consent or for no AI credits left, is not retried. It records an errored check and leaves the alert enabled, as production does.
+An AI detector alert runs `AI_DETECTOR_ALERT_POLICY` on both stacks, so it announces a firing once and stays quiet until a clear check ends the firing.
+Production marks each quiet firing check with `firing_not_renotified`, so the investigation safety net and the cutover do not treat it as a held notification.
 Every other check gets one 12-minute attempt.
 An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so the backfill leaves AI detector alerts out.
 Pass `--include-ai-detector` to copy them, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.

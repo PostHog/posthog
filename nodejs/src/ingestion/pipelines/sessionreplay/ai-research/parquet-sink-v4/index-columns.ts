@@ -183,6 +183,7 @@ export const BLOCK_INDEX_COLUMNS: readonly V4Column[] = [
     { name: 'surfacing_visited_url_fingerprints', elements: 'UTF8' },
     { name: 'surfacing_click_target_ids', elements: 'INT64' },
     { name: 'surfacing_form_field_ids', elements: 'INT64' },
+    ...optional('UTF8', 'unread_reason'),
 ]
 
 export const INDEX_COLUMNS: Record<V4Index, readonly V4Column[]> = {
