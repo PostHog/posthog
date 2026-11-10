@@ -239,6 +239,7 @@ export class CyclotronV2Worker {
     protected readonly pollDelayMs: number
     private readonly pollDelayMaxMs: number
     private nextPollDelayMs: number
+    private wakeFromPollSleep: (() => void) | null = null
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
@@ -254,13 +255,7 @@ export class CyclotronV2Worker {
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.pollDelayMaxMs = Math.max(config.pollDelayMaxMs ?? this.pollDelayMs, this.pollDelayMs)
-        // isHealthy() measures from the start of the last poll, so the poll's own query time
-        // adds to the sleep. Half the timeout leaves that margin.
-        if (this.pollDelayMaxMs > this.heartbeatTimeoutMs / 2) {
-            throw new Error(
-                `pollDelayMaxMs (${this.pollDelayMaxMs}) must be at most half of heartbeatTimeoutMs (${this.heartbeatTimeoutMs})`
-            )
-        }
+        this.assertBackOffFitsHeartbeat()
         this.nextPollDelayMs = this.pollDelayMs
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
@@ -268,6 +263,15 @@ export class CyclotronV2Worker {
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
         this.fairDequeue = config.queueName === 'email'
+    }
+
+    private assertBackOffFitsHeartbeat(): void {
+        const longestSleepWithinHeartbeatMs = this.heartbeatTimeoutMs / 2
+        if (this.pollDelayMaxMs > longestSleepWithinHeartbeatMs) {
+            throw new Error(
+                `pollDelayMaxMs (${this.pollDelayMaxMs}) must be at most half of heartbeatTimeoutMs (${this.heartbeatTimeoutMs})`
+            )
+        }
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -308,15 +312,26 @@ export class CyclotronV2Worker {
     protected async backOff(): Promise<void> {
         const delayMs = this.nextPollDelayMs
         this.nextPollDelayMs = Math.min(Math.max(delayMs * 2, 1), this.pollDelayMaxMs)
-        await this.delay(delayMs)
+        await this.sleepUntilStopped(delayMs)
     }
 
     protected resetBackOff(): void {
         this.nextPollDelayMs = this.pollDelayMs
     }
 
-    protected delay(ms: number): Promise<void> {
-        return sleep(ms)
+    protected sleepUntilStopped(ms: number): Promise<void> {
+        if (!this.isConsuming) {
+            return Promise.resolve()
+        }
+        return new Promise((resolve) => {
+            const wake = (): void => {
+                clearTimeout(timer)
+                this.wakeFromPollSleep = null
+                resolve()
+            }
+            const timer = setTimeout(wake, ms)
+            this.wakeFromPollSleep = wake
+        })
     }
 
     /**
@@ -674,6 +689,7 @@ export class CyclotronV2Worker {
 
     async stopConsuming(): Promise<void> {
         this.isConsuming = false
+        this.wakeFromPollSleep?.()
         if (this.consumerLoopPromise) {
             await this.consumerLoopPromise
             this.consumerLoopPromise = null

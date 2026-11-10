@@ -63,7 +63,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
-    // Cap for the delay after empty polls, which doubles from CDP_CYCLOTRON_BATCH_DELAY_MS. At or below it the delay stays fixed.
     CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number

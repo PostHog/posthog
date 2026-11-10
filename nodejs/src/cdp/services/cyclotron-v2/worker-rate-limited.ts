@@ -45,14 +45,14 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
                     await this.backOff()
                     continue
                 }
-                this.resetBackOff()
 
                 const decision = await this.getBatchLimit(visibleRows)
                 // === 0 (not <=) so a future bug returning a negative limit
                 // surfaces as a SQL LIMIT error instead of silently sleeping.
                 if (decision && decision.limit === 0) {
                     pollsCounter.labels({ queue: this.queueName, outcome: 'throttled' }).inc()
-                    await this.delay(decision.sleepMs ?? this.pollDelayMs)
+                    this.resetBackOff()
+                    await this.sleepUntilStopped(decision.sleepMs ?? this.pollDelayMs)
                     continue
                 }
                 const effectiveLimit = decision ? Math.min(decision.limit, this.batchMaxSize) : this.batchMaxSize
@@ -71,6 +71,7 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
                 }
 
                 pollsCounter.labels({ queue: this.queueName, outcome: 'jobs' }).inc()
+                this.resetBackOff()
                 const jobs = rows.map((row) => this.wrapJob(row))
                 await processBatch(jobs)
             } catch (err) {
