@@ -28,13 +28,13 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.paging import PageRequest
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.facade import api as annotations_api
 from products.annotations.backend.facade.contracts import AnnotationFilters
 from products.annotations.backend.facade.enums import AnnotationScope
-from products.canvas.backend import build_service
+from products.canvas.backend import build_service, experiment
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
 from products.canvas.backend.mcp_tools import CANVAS_MCP_TOOL_ALLOWLIST
@@ -1078,6 +1078,167 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         response = self._publish(canvas_id, expected_current_version_id=None)
         assert response.status_code == status.HTTP_200_OK
         assert Canvas.objects.unscoped().get(id=canvas_id).legacy_code is None
+
+    def _experiment_flags(self, *, canvas_experiment: bool | Exception, rail_nav: bool) -> Any:
+        def canvas_flag(*args: Any, **kwargs: Any) -> bool:
+            if isinstance(canvas_experiment, Exception):
+                raise canvas_experiment
+            return canvas_experiment
+
+        canvas_patch = patch.object(experiment, "feature_enabled_or_false", side_effect=canvas_flag)
+        rail_nav_patch = patch.object(experiment.today_api, "is_enabled_for", return_value=rail_nav)
+        canvas_patch.start()
+        rail_nav_patch.start()
+        self.addCleanup(canvas_patch.stop)
+        self.addCleanup(rail_nav_patch.stop)
+
+    def _bearer_client(self, client_id: str, scope: str, sandbox_task_id: UUID | None = None) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Canvas caller",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_canvas_{uuid4().hex}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+            sandbox_task_id=sandbox_task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        return client
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"name": "New", "channel_id": None}, status.HTTP_403_FORBIDDEN),
+            ("publish", "post", "publish/", {"project": None}, status.HTTP_403_FORBIDDEN),
+            ("edit", "post", "edit/", {}, status.HTTP_403_FORBIDDEN),
+            ("draft", "post", "draft/", {}, status.HTTP_403_FORBIDDEN),
+            ("promote", "post", "promote/", {}, status.HTTP_403_FORBIDDEN),
+            ("revert", "post", "revert/", {}, status.HTTP_403_FORBIDDEN),
+            ("publish_current_version", "post", "publish-current-version/", {}, status.HTTP_403_FORBIDDEN),
+            (
+                "build_retry",
+                "post",
+                "builds/action/",
+                {"build_id": str(uuid4()), "action": "retry"},
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "build_malformed_action",
+                "post",
+                "builds/action/",
+                {"build_id": str(uuid4()), "action": ["retry"]},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "build_cancel",
+                "post",
+                "builds/action/",
+                {"build_id": str(uuid4()), "action": "cancel"},
+                status.HTTP_404_NOT_FOUND,
+            ),
+            ("layout_publish", "post", "layout/publish/", {}, status.HTTP_403_FORBIDDEN),
+            ("request_fix", "post", "request_fix/", {"build_id": str(uuid4())}, status.HTTP_403_FORBIDDEN),
+            ("request_agent", "post", "request_agent/", {"prompt": "Make it blue."}, status.HTTP_403_FORBIDDEN),
+            ("hosted_generation_link", "patch", "", {"generation_task_id": None}, status.HTTP_403_FORBIDDEN),
+            ("rename", "patch", "", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("view", "get", "", None, status.HTTP_200_OK),
+        ]
+    )
+    def test_canvas_experiment_closes_web_app_writes_for_a_session(
+        self, _name: str, method: str, suffix: str, body: dict[str, Any] | None, expected: int
+    ) -> None:
+        canvas_id = self._create_canvas()
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Build canvas",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        values = {"channel_id": str(self.channel.id), "project": self._project(), "generation_task_id": str(task.id)}
+        payload = {key: values[key] if value is None else value for key, value in (body or {}).items()}
+        self._experiment_flags(canvas_experiment=True, rail_nav=True)
+        base = f"/api/projects/{self.team.id}/canvases/"
+        url = base if method == "post" and not suffix else f"{base}{canvas_id}/{suffix}"
+
+        response = self.client.get(url) if body is None else getattr(self.client, method)(url, payload, format="json")
+
+        assert response.status_code == expected, response.json()
+        assert Canvas.objects.unscoped().filter(team_id=self.team.id).count() == 1
+        assert not CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id).exists()
+
+    @parameterized.expand(
+        [
+            ("session_without_experiment_flag", "session", False, True),
+            ("session_without_rail_nav", "session", True, False),
+            ("session_when_flag_service_fails", "session", RuntimeError("flag service down"), True),
+            ("mcp_personal_api_key", "personal_api_key", True, True),
+            ("mcp_oauth_client", "mcp_oauth", True, True),
+            ("posthog_desktop", "desktop", True, True),
+            ("signals_scout", "scout", True, True),
+            ("task_sandbox", "sandbox", True, True),
+        ]
+    )
+    def test_canvas_experiment_leaves_other_callers_able_to_publish(
+        self, _name: str, caller: str, canvas_experiment: bool | Exception, rail_nav: bool
+    ) -> None:
+        canvas_id = self._create_canvas()
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Run",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        headers: dict[str, Any] = {}
+        client: APIClient = self.client
+        if caller == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="mcp",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["canvas:read", "canvas:write"],
+            )
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        elif caller == "mcp_oauth":
+            client = self._bearer_client("third-party-mcp-client", "canvas:read canvas:write")
+        elif caller == "desktop":
+            client = self._bearer_client(ARRAY_APP_CLIENT_ID_DEV, "*")
+        elif caller == "scout":
+            client = self._bearer_client(
+                SIGNALS_APP_CLIENT_ID_DEV,
+                "canvas:read canvas:write internal_run:read signal_scout_internal:read",
+                sandbox_task_id=task.id,
+            )
+            headers = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
+        elif caller == "sandbox":
+            client = self._sandbox_client(task.id)
+            headers = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
+        self._experiment_flags(canvas_experiment=canvas_experiment, rail_nav=rail_nav)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/publish/",
+            {"project": self._project()},
+            format="json",
+            **headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id).count() == 1
 
 
 class TestCanvasViewEndpoint(CanvasAPIBaseTest):
