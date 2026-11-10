@@ -607,8 +607,10 @@ export interface projectTreeDataLogicActions {
     }
     syncTypeAndRef: (
         type: string,
-        ref: string
+        ref: string,
+        afterWrite?: boolean
     ) => {
+        afterWrite: boolean
         ref: string
         type: string
     }
@@ -761,7 +763,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
 
-        syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
+        syncTypeAndRef: (type: string, ref: string, afterWrite: boolean = false) => ({ type, ref, afterWrite }),
         deleteTypeAndRef: (type: string, ref: string) => ({ type, ref }),
 
         setLastNewFolder: (folder: string | null) => ({ folder }),
@@ -1904,10 +1906,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 actions.loadFolderFailure(folder, String(error))
             }
         },
-        syncTypeAndRef: async ({ type, ref }) => {
+        syncTypeAndRef: async ({ type, ref, afterWrite }) => {
             const requestKey = JSON.stringify([type, ref])
             cache.itemRequests ??= new Map<string, Promise<void>>()
             if (cache.itemRequests.has(requestKey)) {
+                if (afterWrite) {
+                    cache.outdatedItemRequests ??= new Set<string>()
+                    cache.outdatedItemRequests.add(requestKey)
+                }
                 await cache.itemRequests.get(requestKey)
                 return
             }
@@ -1928,11 +1934,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             } finally {
                 if (cache.itemRequests.get(requestKey) === request) {
                     cache.itemRequests.delete(requestKey)
+                    if (cache.outdatedItemRequests?.delete(requestKey)) {
+                        actions.syncTypeAndRef(type, ref, true)
+                    }
                 }
             }
         },
         deleteTypeAndRef: ({ type, ref }) => {
-            cache.itemRequests?.delete(JSON.stringify([type, ref]))
+            const requestKey = JSON.stringify([type, ref])
+            cache.itemRequests?.delete(requestKey)
+            cache.outdatedItemRequests?.delete(requestKey)
         },
         deleteItem: async ({ item, projectTreeLogicKey }) => {
             if (isGroupViewShortcut(item) && values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
