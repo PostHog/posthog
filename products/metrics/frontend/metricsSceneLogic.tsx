@@ -224,11 +224,11 @@ export interface metricsSceneLogicActions {
     keepSqlEditorMounted: (editorTabId: string) => {
         editorTabId: string
     }
-    setActiveTab: (activeTab: MetricsSceneActiveTab) => {
-        activeTab: MetricsSceneActiveTab
-    }
     openViewerForDerivedSeries: () => {
         value: true
+    }
+    setActiveTab: (activeTab: MetricsSceneActiveTab) => {
+        activeTab: MetricsSceneActiveTab
     }
     setRestoringFromUrl: (restoring: boolean) => {
         restoring: boolean
