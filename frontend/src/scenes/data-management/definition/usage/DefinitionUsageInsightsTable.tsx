@@ -10,8 +10,8 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { urls } from 'scenes/urls'
 
+import { isNodeWithSource } from '~/queries/schema/node-guards'
 import { Node } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import type { InsightApi } from 'products/product_analytics/frontend/generated/api.schemas'
