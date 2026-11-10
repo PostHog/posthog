@@ -4,8 +4,11 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import caches
+
 from posthog.hogql.errors import QueryError
 
+from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 from posthog.caching.warming import (
     WARMING_CHAIN_LIFETIME,
     WARMING_START_WINDOW,
@@ -252,15 +255,39 @@ class TestWarmInsightCacheTask(APIBaseTest):
 
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=ClickHouseAtCapacity())
-    def test_capacity_errors_propagate_for_retry_instead_of_being_captured(
+    def test_capacity_errors_wait_for_the_next_run_instead_of_being_retried_or_captured(
         self, mock_calculate, mock_capture_exception
     ):
         insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
 
-        with self.assertRaises(ClickHouseAtCapacity):
-            warm_insight_cache_task(insight.pk, None)
+        warm_insight_cache_task.apply(args=(insight.pk, None), throw=True)
 
+        assert mock_calculate.call_count == 1
         mock_capture_exception.assert_not_called()
+
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.calculate_for_query_based_insight")
+    def test_an_insight_that_keeps_failing_waits_longer_between_warms(self, mock_calculate, mock_capture_exception):
+        caches[QUERY_CACHE_ALIAS].clear()
+        insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
+        succeeded = MagicMock(is_cached=False)
+
+        def warm_after(elapsed: timedelta, outcome: object) -> int:
+            mock_calculate.reset_mock()
+            mock_calculate.side_effect = [outcome]
+            traveller.shift(elapsed)
+            warm_insight_cache_task(insight.pk, None)
+            return mock_calculate.call_count
+
+        with time_machine.travel(datetime(2025, 1, 1, tzinfo=UTC), tick=False) as traveller:
+            assert warm_after(timedelta(0), ClickHouseAtCapacity()) == 1
+            assert warm_after(timedelta(hours=1), ClickHouseAtCapacity()) == 1
+            assert warm_after(timedelta(hours=1), succeeded) == 0
+            assert warm_after(timedelta(hours=1, minutes=1), ClickHouseAtCapacity()) == 1
+            assert warm_after(timedelta(hours=3), succeeded) == 0
+            assert warm_after(timedelta(hours=1, minutes=1), succeeded) == 1
+            assert warm_after(timedelta(hours=1), ClickHouseAtCapacity()) == 1
+            assert warm_after(timedelta(hours=1), succeeded) == 1
 
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.query_creator_access.ph_scoped_capture")
