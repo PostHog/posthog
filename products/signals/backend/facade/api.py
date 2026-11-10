@@ -131,6 +131,7 @@ from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejectionKind as ScoutRunRejectionKind,
 )
 from products.signals.backend.scout_harness.workflow_runs import (
+    WorkflowScoutRunQueued as WorkflowScoutRunQueued,
     WorkflowScoutRunRejected as WorkflowScoutRunRejected,
     WorkflowScoutRunStarted as WorkflowScoutRunStarted,
     # Facade entrypoint for a workflow's "Run scout" step: the workflows endpoint proves which
