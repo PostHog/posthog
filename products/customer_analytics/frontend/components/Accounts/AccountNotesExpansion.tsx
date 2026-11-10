@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
 
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -11,6 +12,9 @@ import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { AccountNotesViewSelector } from '../AccountNotes/AccountNotesViewSelector'
+import { NotesCreatedByFilter } from '../AccountNotes/NotesCreatedByFilter'
+import { NotesTagsFilter } from '../AccountNotes/NotesTagsFilter'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
@@ -23,7 +27,7 @@ function getPreview(notebook: AccountNotebookApi): string {
         return ''
     }
     const collapsed = text.replace(/\s+/g, ' ')
-    return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}…` : collapsed
+    return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}...` : collapsed
 }
 
 interface AccountNotesExpansionProps extends AccountViewTileLogicProps {
@@ -37,15 +41,26 @@ export function AccountNotesExpansion({
     ...tileProps
 }: AccountNotesExpansionProps): JSX.Element {
     const logic = accountNotebooksLogic({ accountId, ...tileProps })
-    const { notebooks, notebooksResponseLoading, createdNoteLoading, searchTerm, sorting, pagination } =
-        useValues(logic)
-    const { setSearchTerm, setSorting, createNote } = useActions(logic)
+    const {
+        notebooks,
+        notebooksResponseLoading,
+        createdNoteLoading,
+        searchTerm,
+        sorting,
+        pagination,
+        tagsFilter,
+        createdByFilter,
+        pendingNotebookTags,
+    } = useValues(logic)
+    const { setSearchTerm, setSorting, createNote, setTagsFilter, setCreatedByFilter, updateNotebook } =
+        useActions(logic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {
             title: 'Note',
             key: 'title',
+            sorter: true,
             render: (_, notebook) => {
                 const preview = getPreview(notebook)
                 return (
@@ -69,6 +84,22 @@ export function AccountNotesExpansion({
                             <span className="text-xs text-muted italic">No content yet</span>
                         )}
                     </div>
+                )
+            },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: 220,
+            render: (_, notebook) => {
+                const tags = notebook.tags ?? []
+                return (
+                    <ObjectTags
+                        tags={tags}
+                        onChange={(newTags) => updateNotebook(notebook.short_id, { tags: newTags })}
+                        saving={!!pendingNotebookTags[notebook.short_id]}
+                        data-attr="account-note-tags"
+                    />
                 )
             },
         },
@@ -101,19 +132,35 @@ export function AccountNotesExpansion({
             sorter: true,
             render: (_, notebook) => <TZLabel time={notebook.created_at} />,
         },
+        {
+            title: 'Last modified',
+            key: 'last_modified_at',
+            width: 140,
+            sorter: true,
+            render: (_, notebook) => (notebook.last_modified_at ? <TZLabel time={notebook.last_modified_at} /> : null),
+        },
     ]
 
     return (
         <div className="flex flex-col gap-2" data-attr="account-notes">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search notes by title or content..."
-                    value={searchTerm}
-                    onChange={setSearchTerm}
-                    size="small"
-                    className="min-w-64"
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search notes by title or content..."
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        size="small"
+                        className="min-w-64"
+                    />
+                    <AccountNotesViewSelector logicProps={{ sourceKey: logic.pathString, sourceLogic: logic }} />
+                    <NotesTagsFilter
+                        value={tagsFilter}
+                        onChange={setTagsFilter}
+                        data-attr="account-notes-tags-filter"
+                    />
+                    <NotesCreatedByFilter value={createdByFilter} onChange={setCreatedByFilter} />
+                </div>
                 <LemonButton
                     type="primary"
                     size="small"
@@ -137,8 +184,8 @@ export function AccountNotesExpansion({
                 emptyState={
                     notebooks === null
                         ? 'Failed to load account notes.'
-                        : searchTerm
-                          ? 'No notes match your search.'
+                        : searchTerm || tagsFilter.length > 0 || createdByFilter.length > 0
+                          ? 'No notes match your filters.'
                           : 'No notes linked to this account yet.'
                 }
             />

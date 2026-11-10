@@ -6,7 +6,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from celery.exceptions import Retry
 from parameterized import parameterized
@@ -134,11 +136,23 @@ class TestInboxSummary(APIBaseTest):
         assert self.summary()["merged_pr_count"] == 1
 
     def test_window_is_half_open_and_uses_merge_time(self) -> None:
-        self.make_pr(1, merged_at=NOW - timedelta(days=7), participant_ids=[])
-        self.make_pr(2, merged_at=NOW - timedelta(days=7, microseconds=1), participant_ids=[])
-        self.make_pr(3, merged_at=NOW, participant_ids=[])
-        self.make_pr(4, merged_at=None, participant_ids=[])
-        assert self.summary()["merged_pr_count"] == 1
+        included = self.make_pr(1, merged_at=NOW - timedelta(days=7), participant_ids=[])
+        excluded = [
+            self.make_pr(2, merged_at=NOW - timedelta(days=7, microseconds=1), participant_ids=[]),
+            self.make_pr(3, merged_at=NOW, participant_ids=[]),
+            self.make_pr(4, merged_at=None, participant_ids=[]),
+        ]
+        with CaptureQueriesContext(connection) as queries:
+            assert self.summary()["merged_pr_count"] == 1
+        pull_request_queries = [
+            query["sql"] for query in queries if 'FROM "signals_signalreportpullrequest"' in query["sql"]
+        ]
+        assert len(pull_request_queries) == 2
+        candidate_query, provenance_query = pull_request_queries
+        assert '"signals_signalreportpullrequest"."merged_at" >= ' in candidate_query
+        assert '"posthog_task_run"' not in candidate_query
+        assert included.id.hex in provenance_query
+        assert all(pr.id.hex not in provenance_query for pr in excluded)
 
     def test_missing_participation_is_unknown_not_a_partial_count(self) -> None:
         self.make_pr(1, participant_ids=[10])

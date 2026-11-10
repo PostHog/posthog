@@ -520,7 +520,7 @@ class HighlightsSerializer(DataclassSerializer):
         many=True,
         allow_null=True,
         required=False,
-        help_text="Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.",
+        help_text="Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null only in results stored before every computation listed its numbers.",
     )
     items = HighlightItemSerializer(
         many=True,
