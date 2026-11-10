@@ -10,31 +10,29 @@ import {
     resolvePrContext,
 } from '../../frontend/bin/ci-report/update-ci-report.mjs'
 
-const SECTION_ID = 'comment-density'
-
 // A push whose diff could not be fetched must not leave the previous push's
 // warning standing as if it described this one.
-async function markUnmeasured() {
-    const context = resolvePrContext(`marking "${SECTION_ID}" unmeasured`)
+async function markUnmeasured(sectionId) {
+    const context = resolvePrContext(`marking "${sectionId}" unmeasured`)
     if (!context) {
         return
     }
     const reportComment = (await listPrComments(context)).find(isReportComment)
-    if (!reportComment || !parseSections(reportComment.body).has(SECTION_ID)) {
+    if (!reportComment || !parseSections(reportComment.body).has(sectionId)) {
         return
     }
     await postSection({
-        id: SECTION_ID,
+        id: sectionId,
         status: 'info',
         summary: 'not measured on this push',
-        body: 'The PR diff could not be fetched for this push (usually because it is too large for the API), so the comment share was not measured. The previous result no longer applies.',
+        body: 'The PR diff could not be fetched for this push (usually because it is too large for the API), so this check did not run. The previous result no longer applies.',
     })
 }
 
 async function main() {
-    const { AVAILABLE, STATUS, SUMMARY, BODY } = process.env
+    const { SECTION_ID, AVAILABLE, STATUS, SUMMARY, BODY } = process.env
     if (AVAILABLE !== 'true') {
-        await markUnmeasured()
+        await markUnmeasured(SECTION_ID)
         return
     }
     if (STATUS === 'warn' || STATUS === 'alert') {

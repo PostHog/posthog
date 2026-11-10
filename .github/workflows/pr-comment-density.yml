@@ -1,4 +1,4 @@
-name: PR comment density
+name: PR diff checks
 
 # Reusable workflow, called by pr-housekeeping.yml on PR open and push.
 # Push-cancels-previous-push comes from the caller's concurrency group.
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
     comment-density:
-        name: Warn on comment-heavy diffs
+        name: Warn on comment-heavy diffs and call assertions
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         # The fork token cannot write comments, and the queue's batch PR is the
@@ -24,7 +24,8 @@ jobs:
               with:
                   sparse-checkout: |
                       .github/scripts/check_comment_density.py
-                      .github/scripts/post-comment-density-section.mjs
+                      .github/scripts/check_call_assertions.py
+                      .github/scripts/post-diff-check-section.mjs
                       frontend/bin/ci-report
                   sparse-checkout-cone-mode: false
 
@@ -38,7 +39,7 @@ jobs:
                   if gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" -H "Accept: application/vnd.github.diff" > pr.diff; then
                       echo "available=true" >> "$GITHUB_OUTPUT"
                   else
-                      echo "::notice::Could not fetch the PR diff (too large or unavailable); skipping the comment density check."
+                      echo "::notice::Could not fetch the PR diff (too large or unavailable); skipping the diff checks."
                       echo "available=false" >> "$GITHUB_OUTPUT"
                   fi
 
@@ -47,11 +48,28 @@ jobs:
               if: steps.diff.outputs.available == 'true'
               run: python3 .github/scripts/check_comment_density.py < pr.diff
 
-            - name: Post to the CI report
+            - name: Post comment density to the CI report
               env:
                   GITHUB_TOKEN: ${{ github.token }}
+                  SECTION_ID: comment-density
                   AVAILABLE: ${{ steps.diff.outputs.available }}
                   STATUS: ${{ steps.measure.outputs.status }}
                   SUMMARY: ${{ steps.measure.outputs.summary }}
                   BODY: ${{ steps.measure.outputs.body }}
-              run: node .github/scripts/post-comment-density-section.mjs
+              run: node .github/scripts/post-diff-check-section.mjs
+
+            - name: Count call assertions
+              id: call-assertions
+              if: ${{ !cancelled() && steps.diff.outputs.available == 'true' }}
+              run: python3 .github/scripts/check_call_assertions.py < pr.diff
+
+            - name: Post call assertions to the CI report
+              if: ${{ !cancelled() }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  SECTION_ID: call-assertions
+                  AVAILABLE: ${{ steps.diff.outputs.available }}
+                  STATUS: ${{ steps.call-assertions.outputs.status }}
+                  SUMMARY: ${{ steps.call-assertions.outputs.summary }}
+                  BODY: ${{ steps.call-assertions.outputs.body }}
+              run: node .github/scripts/post-diff-check-section.mjs
