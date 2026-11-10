@@ -4468,13 +4468,16 @@ const api = {
                 }
                 return new Uint8Array(await response.arrayBuffer())
             }
-            let rateLimit: ApiError | null = null
+            // Blocks still waiting out a 429. While one waits, the batch fails as rate limited, because reading the
+            // batch through the snapshots endpoint would get round the limit.
+            const pendingRateLimits = new Map<string, ApiError>()
+            let reportedRateLimit = false
             const blocks = await Promise.all(
                 urls.map(async (url) => {
                     try {
                         // recording-api refills each viewer's budget every second, so only the limited block waits
                         // and retries while the rest of the batch keeps downloading.
-                        return await retryWithBackoff(() => fetchBlock(url), {
+                        const block = await retryWithBackoff(() => fetchBlock(url), {
                             maxAttempts: 4,
                             initialDelayMs: 1000,
                             backoffMultiplier: 2,
@@ -4482,14 +4485,17 @@ const api = {
                             shouldRetry: (e) => e instanceof ApiError && e.status === 429,
                             getDelayMs: (e) => {
                                 // Runs only when a retry follows, so the event counts rate-limited batches.
-                                if (!rateLimit) {
+                                if (!reportedRateLimit) {
+                                    reportedRateLimit = true
                                     posthog.capture('replay direct block fetch rate limited')
                                 }
-                                rateLimit = e as ApiError
-                                const seconds = Number(rateLimit.headers?.get('Retry-After'))
+                                pendingRateLimits.set(url, e as ApiError)
+                                const seconds = Number((e as ApiError).headers?.get('Retry-After'))
                                 return seconds > 0 ? seconds * 1000 : undefined
                             },
                         })
+                        pendingRateLimits.delete(url)
+                        return block
                     } catch (e) {
                         controller.abort()
                         throw e
@@ -4497,8 +4503,9 @@ const api = {
                 })
             )
                 .catch((e) => {
-                    // A deadline that cuts a rate-limit wait short is still a rate limit, which must not fall back.
-                    throw rateLimit && e instanceof DOMException && e.name === 'AbortError' ? rateLimit : e
+                    // A sibling's failure or the deadline cuts the wait short, and must not turn into a fallback.
+                    const pendingRateLimit = pendingRateLimits.values().next().value
+                    throw pendingRateLimit && !(e instanceof RecordingDeletedError) ? pendingRateLimit : e
                 })
                 .finally(() => clearTimeout(deadline))
             const framed = new Uint8Array(blocks.reduce((total, block) => total + 4 + block.length, 0))

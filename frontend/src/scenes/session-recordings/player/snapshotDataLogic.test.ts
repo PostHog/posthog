@@ -271,6 +271,51 @@ describe('snapshotDataLogic', () => {
                 capture.mockRestore()
             }
         )
+
+        it('reports a pending rate limit when another block of the batch fails', async () => {
+            const SECOND_BLOCK_PATH = '/replay-blocks/1/2/u1/v1.ref1'
+            const secondSource: SessionRecordingSnapshotSource = {
+                ...BLOB_SOURCE,
+                blob_key: '1',
+                url: `${window.location.origin}${SECOND_BLOCK_PATH}`,
+            }
+            let snapshotsEndpointBlockReads = 0
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                            snapshotsEndpointBlockReads += 1
+                            return new HttpResponse(snapshotsAsJSONLines())
+                        }
+                        return [200, { sources: [DIRECT_SOURCE, secondSource], block_token: 'block.token.sig' }]
+                    },
+                    [BLOCK_PATH]: () =>
+                        new HttpResponse(JSON.stringify({ error: 'rate_limited' }), {
+                            status: 429,
+                            headers: { 'Content-Type': 'application/json', 'Retry-After': '1' },
+                        }),
+                    // Answers after the first block's 429, while that block waits to retry.
+                    [SECOND_BLOCK_PATH]: async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 500))
+                        return [500, { error: 'boom' }]
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadSnapshotSources()).toDispatchActions([
+                'loadSnapshotSourcesSuccess',
+            ])
+
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+            try {
+                logic.actions.loadSnapshotsForSource([DIRECT_SOURCE, secondSource])
+                await jest.advanceTimersByTimeAsync(4_000)
+            } finally {
+                jest.useRealTimers()
+            }
+            await expectLogic(logic).toDispatchActions(['loadSnapshotsForSourceFailure'])
+
+            expect(snapshotsEndpointBlockReads).toBe(0)
+        })
     })
 
     describe('isSnapshotUnauthorized', () => {
