@@ -192,6 +192,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["run_index"] == 1
         assert props["trigger_source"] == "manual"
         assert props["turn_trigger_source"] == "manual"
+        assert "$update_person_last_seen_at" not in props
         assert props["author_login"] == "octocat"
         assert props["published"] is published
         assert props["findings_total"] == 2
@@ -408,6 +409,7 @@ class TestTrackReviewCompleted(BaseTest):
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]
+        assert props["$update_person_last_seen_at"] is False
         assert (props["skipped"], props["reason"], props["own_code_lines"]) == (True, "merge_only", 14)
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
         # Each push reports the draft state of its own head.

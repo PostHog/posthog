@@ -4,7 +4,7 @@ The inbox includes Closed reports in All statuses. The Closed filter appears whe
 
 Research completion activities update a report only while its locked status is `IN_PROGRESS`. The failure activity also handles `CANDIDATE` reports when admission fails before research starts. Status changes made during research, including archive, snooze, close, and resolve, remain in effect. Retries preserve completed transitions, including a return to `CANDIDATE` when new signals require more research.
 
-Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. Review and merge continues to show reports with an open implementation PR.
+Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. The report list API's `view=monitoring` returns the same reports. Review and merge continues to show reports with an open implementation PR.
 
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
@@ -697,7 +697,10 @@ When a report has a linked task run, the View task button opens it in the PostHo
 The button fits its label, including when it appears below the Solution section.
 
 Trial-funded background runs require the PostHog AI gateway.
-Pi and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.
+Pi scouts, including the first-report DeepSeek arm, use the scoped gateway path and retain trial spend accounting.
+They cannot start without a scoped gateway token; a transient mint failure retries provisioning without falling back to unaccounted execution.
+Pi runs outside scouts and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.
 The check uses the effective runtime and model access after defaults are applied, including for a prepared trial admission.
 The provisioning guard also treats this refusal as an expected failure, so an incompatible run already queued before the admission check fails without reporting an exception to error tracking.
 Other funding modes keep their existing runtime and model access rules.
+First-report completion returns an incomplete outcome without a notification when admission failed before the scout run was created.

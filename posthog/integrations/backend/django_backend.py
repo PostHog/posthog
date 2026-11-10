@@ -258,6 +258,23 @@ class DjangoBackend:
     def delete(self, scope: RowScope, *, team_id: int, id: int) -> None:
         self._row(scope, team_id, id).delete()
 
+    def change_external_id(self, scope: RowScope, *, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        with transaction.atomic():
+            row = self._row(scope, team_id, id, lock=True)
+            if row.integration_id == external_id:
+                return row
+            row.integration_id = external_id
+            try:
+                with transaction.atomic():
+                    row.save(update_fields=["integration_id"])
+            except IntegrityError as error:
+                if not _is_unique_key_violation(error):
+                    raise
+                raise IntegrationConflict(
+                    f"Team {team_id} already has a {row.kind!r} integration with external id {external_id!r}"
+                ) from error
+            return row
+
     def update_by_external_id(self, scope: RowScope, *, external_id: str, patch: IntegrationPatch) -> int:
         # One `bulk_update` writes the changed rows, so no `post_save` signal fires.
         with transaction.atomic():

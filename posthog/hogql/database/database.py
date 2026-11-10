@@ -592,9 +592,6 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
 
 def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
-    def clone_root_tables() -> dict[str, TableNode]:
-        return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
-
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
         "range": TableNode(name="range", table=RangeTable()),
@@ -611,13 +608,18 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
             name="system", children={"information_schema": direct_connection_information_schema_node()}
         )
     else:
-        root_tables = clone_root_tables()
+        root_tables = {
+            name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()
+        }
         children = {
             **root_tables,
             "posthog": TableNode(
                 name="posthog",
                 children={
-                    **clone_root_tables(),
+                    # `create_for` changes a table through its root name, such as the persons-on-events mode on
+                    # `events`. `posthog.<name>` holds the same table object to read those changes. Each namespace
+                    # keeps its own node, so a view named `events.x` and a view named `posthog.events.x` stay apart.
+                    **{name: TableNode(name=name, table=table_node.table) for name, table_node in root_tables.items()},
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
@@ -1557,15 +1559,18 @@ class Database(BaseModel):
                 continue
 
             fields_dict: dict[str, DatabaseSchemaField] = {}
+            table = self.get_table(table_name)
+            table_description = table.description if isinstance(table, Table) else None
             if include_fields:
                 field_input: dict[str, Any] = {}
-                table = self.get_table(table_name)
                 if isinstance(table, Table):
                     field_input = _schema_field_input(table)
 
                 fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
                 fields_dict = {field.name: field for field in fields}
-            tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
+            tables[table_name] = DatabaseSchemaPostHogTable(
+                fields=fields_dict, id=table_name, name=table_name, description=table_description
+            )
 
         # System tables
         system_tables = [] if self._is_direct_query() else self.get_system_table_names()
@@ -1574,15 +1579,18 @@ class Database(BaseModel):
                 continue
 
             fields_dict = {}
+            table = self.get_table(table_key)
+            table_description = table.description if isinstance(table, Table) else None
             if include_fields:
                 system_field_input: dict[str, Any] = {}
-                table = self.get_table(table_key)
                 if isinstance(table, Table):
                     system_field_input = _schema_field_input(table)
 
                 fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
                 fields_dict = {field.name: field for field in fields}
-            tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
+            tables[table_key] = DatabaseSchemaSystemTable(
+                fields=fields_dict, id=table_key, name=table_key, description=table_description
+            )
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
         warehouse_table_names = self.get_warehouse_table_names()
@@ -1663,7 +1671,7 @@ class Database(BaseModel):
                     should_sync=db_schema.should_sync,
                     incremental=db_schema.is_incremental or db_schema.is_webhook,
                     status=db_schema.status,
-                    last_synced_at=str(db_schema.last_synced_at),
+                    last_synced_at=str(db_schema.last_synced_at) if db_schema.last_synced_at else None,
                 )
 
             # Get source from prefetched data
@@ -2605,6 +2613,8 @@ class Database(BaseModel):
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
+            _share_root_tables_with_posthog_namespace(database)
+
             if not database._is_direct_query() and database.has_table(["posthog", "flag_evaluations"]):
                 # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the
                 # source table. Copying the events join keeps the sessions table version that the team's modifiers chose.
@@ -3078,7 +3088,7 @@ class Database(BaseModel):
                         resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                     )
 
-                    if not database._is_direct_query() and join.source_table_name == "persons":
+                    if not database._is_direct_query() and _root_table_name(join.source_table_name) == "persons":
                         events_table = database.get_table("events")
                         person_field = events_table.fields["person"]
                         if isinstance(person_field, ast.FieldTraverser):
@@ -3571,6 +3581,20 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
     return list(ExternalDataSchema.objects.filter(_not_deleted_q(), table_id=warehouse_table.id))
 
 
+def _share_root_tables_with_posthog_namespace(database: Database) -> None:
+    # The session table version replaces the root `sessions` and `raw_sessions` tables with other objects.
+    # `posthog.<name>` has to point at the replacement too. Joins and saved expressions written to
+    # `posthog.<name>` land on that table, so this runs before they are applied.
+    posthog_node = database.tables.children.get("posthog")
+    if posthog_node is None:
+        return
+    for name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE:
+        root_node = database.tables.children.get(name)
+        qualified_node = posthog_node.children.get(name)
+        if root_node is not None and qualified_node is not None:
+            qualified_node.table = root_node.table
+
+
 def _foreign_key_join_entry_points(database: Database, joins: Sequence[DataWarehouseJoin]) -> set[str]:
     """Extra table names that must arm the deferred foreign-key build.
 
@@ -3589,11 +3613,19 @@ def _foreign_key_join_entry_points(database: Database, joins: Sequence[DataWareh
             continue
         if id(joining_table) not in deferred_tables:
             continue
-        entry_points.add(join.source_table_name)
+        source_table_name = _root_table_name(join.source_table_name)
+        entry_points.add(source_table_name)
         # A join from `persons` is mirrored onto `events` and the person virtual table.
-        if join.source_table_name == "persons":
+        if source_table_name == "persons":
             entry_points.add("events")
-    return entry_points
+    # `posthog.<name>` holds the root table's object and reaches the same joins.
+    return entry_points | {f"posthog.{name}" for name in entry_points if name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE}
+
+
+def _root_table_name(table_name: str) -> str:
+    # `posthog.<name>` and `<name>` hold the same table object for every root table.
+    prefix, _, name = table_name.partition(".")
+    return name if prefix == "posthog" and name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE else table_name
 
 
 def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:
@@ -3963,4 +3995,8 @@ def serialize_fields(
                     chain=field.chain,
                 )
             )
+    for schema_field in field_output:
+        source_field = field_input.get(schema_field.name)
+        if isinstance(source_field, FieldOrTable) and source_field.description:
+            schema_field.description = source_field.description
     return field_output

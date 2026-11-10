@@ -1108,6 +1108,7 @@ class TestEvaluationBackfillActivities:
 
         expected = {
             "backfill_id": str(backfill_data["backfill"].id),
+            "$update_person_last_seen_at": False,
             "evaluation_id": str(backfill_data["evaluation"].id),
             "status": "completed",
             "target": "generation",

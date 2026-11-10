@@ -71,6 +71,15 @@
         max-width: 100%;
     }
 
+    // An icon inline in a sentence (e.g. the external-link icon `Link` appends) sizes to the
+    // text around it. The tag qualifiers out-rank button-primitive's descendant icon rule,
+    // which fixes icons at 16px for a button's own leading icon and otherwise reaches
+    // markdown rendered inside button-primitive-styled containers (e.g. scene descriptions).
+    a svg.LemonIcon {
+        width: 1em;
+        height: 1em;
+    }
+
     blockquote {
         padding: 0.5em 1em;
         margin: 0.5em 0;

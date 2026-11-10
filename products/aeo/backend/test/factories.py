@@ -3,7 +3,19 @@ import uuid
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
-from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
+from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus
+from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
+
+
+def create_own_brand(team: Team, domain: str) -> None:
+    AEOBrand.objects.for_team(team.pk).create(
+        team=team,
+        name=domain,
+        domain=domain,
+        kind=BrandKind.OWN,
+        status=BrandStatus.CONFIRMED,
+        source=BrandSource.MANUAL,
+    )
 
 
 def create_citation_check(team: Team, label: str) -> uuid.UUID:
