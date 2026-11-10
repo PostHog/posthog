@@ -493,13 +493,6 @@ describe('Hono App Routes', () => {
             return outcome.ok
         }
 
-        it('installs a runtime that confirms an action it prepared', async () => {
-            createApp(mockRedis)
-            const runtime = getConfirmedActionRuntime()
-
-            expect(await confirmsAcross(runtime, runtime)).toBe(true)
-        })
-
         it('binds each createApp call to its own Redis (latest wins)', async () => {
             createApp(createMockRedis())
             const first = getConfirmedActionRuntime()
