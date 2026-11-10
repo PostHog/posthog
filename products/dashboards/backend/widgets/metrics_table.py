@@ -16,6 +16,11 @@ from products.dashboards.backend.constants import METRICS_TABLE_RETRY_BUCKETS, M
 from products.dashboards.backend.feature_flags import widget_flag_enabled
 from products.dashboards.backend.widget_specs.configs import METRICS_TABLE_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
+from products.dashboards.backend.widgets.dashboard_filters import (
+    NO_DASHBOARD_FILTERS,
+    WidgetDashboardFilters,
+    parse_widget_datetime,
+)
 from products.metrics.backend.facade.api import (
     MAX_SERIES_PER_CLAUSE,
     metric_query_concurrency_slots,
@@ -121,6 +126,7 @@ def run_metrics_table_widget(
     user: User | None = None,
     *,
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     # The creation flag only blocks new tiles. Metrics is in private alpha, so every run checks the flag too.
     if not widget_flag_enabled(METRICS_FEATURE_FLAG, team=team, user=user):
@@ -131,9 +137,11 @@ def run_metrics_table_widget(
     if not group_by or not columns:
         return {"needsConfiguration": True, "groupBy": group_by, "columns": [], "rows": [], "totalCount": 0}
 
-    date_from_value = (typed_config.get("dateRange") or {}).get("date_from") or DEFAULT_METRICS_TABLE_DATE_FROM
-    date_from = relative_date_parse(date_from_value, team.timezone_info)
-    date_to = timezone.now()
+    date_from_value, date_to_value = dashboard_filters.resolve_date_range(typed_config, DEFAULT_METRICS_TABLE_DATE_FROM)
+    date_from = parse_widget_datetime(date_from_value, team) or relative_date_parse(
+        DEFAULT_METRICS_TABLE_DATE_FROM, team.timezone_info
+    )
+    date_to = parse_widget_datetime(date_to_value, team) or timezone.now()
     clauses = tuple(_clause(index, column, group_by) for index, column in enumerate(columns))
 
     def run(max_buckets: int) -> list[MetricSeries]:

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
 from functools import partial
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -208,6 +208,7 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
+from products.dashboards.backend.widgets.dashboard_filters import WidgetDashboardFilters, build_widget_dashboard_filters
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -379,6 +380,8 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
+    # Only set for widget types that declare `dashboard_filters` support.
+    dashboard_filters: NotRequired[WidgetDashboardFilters]
 
 
 def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -411,11 +414,15 @@ def _run_widget_query(
     ) as slo:
         try:
             query_fn = work_item["query_fn"]
+            extra_kwargs: dict[str, Any] = {}
+            if "dashboard_filters" in work_item:
+                extra_kwargs["dashboard_filters"] = work_item["dashboard_filters"]
             result = query_fn(
                 team,
                 work_item["config"],
                 user=work_item["user"],
                 include_total_count=False,
+                **extra_kwargs,
             )
             return {
                 "tile_id": tile_id,
@@ -4199,6 +4206,7 @@ class DashboardsViewSet(
                 required=True,
                 description="Comma-separated dashboard tile IDs to run widgets for.",
             ),
+            FILTERS_OVERRIDE_PARAM,
         ],
         responses={200: RunWidgetsResponseSerializer},
     )
@@ -4213,6 +4221,7 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
         distinct_id = str(cast(User, request.user).distinct_id)
+        dashboard_filters = filters_override_requested_by_client(request, dashboard)
 
         tiles_by_id = {
             tile.id: tile
@@ -4287,15 +4296,19 @@ class DashboardsViewSet(
                     }
                     continue
 
-            query_work_items.append(
-                {
-                    "tile_id": tile_id,
-                    "widget_type": widget.widget_type,
-                    "query_fn": registry_entry["query_fn"],
-                    "config": widget.config,
-                    "user": cast(User, request.user),
-                }
-            )
+            work_item: _RunWidgetQueryWorkItem = {
+                "tile_id": tile_id,
+                "widget_type": widget.widget_type,
+                "query_fn": registry_entry["query_fn"],
+                "config": widget.config,
+                "user": cast(User, request.user),
+            }
+            supported_dashboard_filters = registry_entry.get("dashboard_filters") or frozenset()
+            if supported_dashboard_filters:
+                work_item["dashboard_filters"] = build_widget_dashboard_filters(
+                    dashboard_filters, tile.filters_overrides, supported_dashboard_filters
+                )
+            query_work_items.append(work_item)
 
         if query_work_items:
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))

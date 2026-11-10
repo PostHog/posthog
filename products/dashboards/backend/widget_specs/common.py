@@ -18,6 +18,8 @@ WIDGET_DATE_FROM_VALUES = frozenset(WIDGET_DATE_FROM_VALUES_ORDERED)
 
 WidgetDateFrom = Literal["-1M", "-30M", "-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d"]
 WidgetOrderDirection = Literal["ASC", "DESC"]
+# Dashboard filter kinds a widget type can apply (`WidgetSpec.dashboard_filters`).
+WidgetDashboardFilterKind = Literal["date_range", "filter_test_accounts", "properties"]
 
 
 class WidgetDateRange(BaseModel):

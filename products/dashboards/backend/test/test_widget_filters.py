@@ -5,6 +5,12 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import EventPropertyFilter
 
+from products.dashboards.backend.widget_specs.common import WidgetDashboardFilterKind
+from products.dashboards.backend.widgets.dashboard_filters import (
+    NO_DASHBOARD_FILTERS,
+    WidgetDashboardFilters,
+    build_widget_dashboard_filters,
+)
 from products.dashboards.backend.widgets.widget_filters import (
     build_event_property_filters_from_widget_filters,
     build_property_group_filter_from_widget_filters,
@@ -95,3 +101,61 @@ class TestWidgetFilters(SimpleTestCase):
         property_filters = build_event_property_filters_from_widget_filters(widget_filters)
         assert property_filters is not None
         assert property_filters[0]["key"] == "$browser"
+
+
+class TestBuildWidgetDashboardFilters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "every_kind_supported",
+                frozenset({"date_range", "filter_test_accounts", "properties"}),
+                None,
+                WidgetDashboardFilters(
+                    date_from="-30d",
+                    date_to="-1d",
+                    filter_test_accounts=True,
+                    properties=({"type": "event", "key": "$browser", "operator": "exact", "value": ["Chrome"]},),
+                ),
+            ),
+            (
+                "unsupported_kinds_dropped",
+                frozenset({"date_range"}),
+                None,
+                WidgetDashboardFilters(date_from="-30d", date_to="-1d"),
+            ),
+            ("no_kinds_supported", frozenset(), None, NO_DASHBOARD_FILTERS),
+            (
+                "tile_ignores_dashboard_filters",
+                frozenset({"date_range", "filter_test_accounts", "properties"}),
+                {"ignoreDashboardFilters": True},
+                NO_DASHBOARD_FILTERS,
+            ),
+            (
+                "tile_date_range_wins",
+                frozenset({"date_range"}),
+                {"date_from": "-3d"},
+                WidgetDashboardFilters(date_from="-3d"),
+            ),
+        ]
+    )
+    def test_build_widget_dashboard_filters(
+        self,
+        _name: str,
+        supported: frozenset[WidgetDashboardFilterKind],
+        tile_filters_overrides: dict | None,
+        expected: WidgetDashboardFilters,
+    ) -> None:
+        dashboard_filters = {
+            "date_from": "-30d",
+            "date_to": "-1d",
+            "filterTestAccounts": True,
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "event", "key": "$browser", "operator": "exact", "value": ["Chrome"]}],
+            },
+        }
+
+        self.assertEqual(
+            build_widget_dashboard_filters(dashboard_filters, tile_filters_overrides, supported),
+            expected,
+        )

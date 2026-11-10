@@ -1,3 +1,4 @@
+import json
 import typing
 from typing import Any, cast
 
@@ -39,6 +40,8 @@ from products.dashboards.backend.constants import (
     MAX_WIDGET_RESULT_LIMIT,
     MAX_WIDGETS_BATCH_SIZE,
 )
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widget_specs.configs import (
@@ -54,6 +57,7 @@ from products.dashboards.backend.widgets.activity_events_list import (
     ACTIVITY_EVENTS_WIDGET_SELECT,
     run_activity_events_list_widget,
 )
+from products.dashboards.backend.widgets.dashboard_filters import WidgetDashboardFilters
 from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
 from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
@@ -640,6 +644,138 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(query.properties[0].value, "@posthog.com")
         self.assertEqual(query.properties[1].key, "$current_url")
         self.assertEqual(query.properties[1].value, ["/checkout"])
+
+    @parameterized.expand(
+        [
+            ("saved_dashboard_filters_apply", None, None, ("-30d", "-1d", True, ["$browser"])),
+            (
+                "request_override_wins_over_saved",
+                {"date_from": "-90d", "date_to": None, "filterTestAccounts": False},
+                None,
+                ("-90d", None, False, ["$browser"]),
+            ),
+            ("tile_ignores_dashboard_filters", None, {"ignoreDashboardFilters": True}, ("-7d", None, None, [])),
+        ]
+    )
+    @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
+    def test_run_widgets_applies_dashboard_filters(
+        self,
+        _name: str,
+        filters_override: dict | None,
+        tile_filters_overrides: dict | None,
+        expected: tuple[str, str | None, bool | None, list[str]],
+        mock_runner_cls: MagicMock,
+    ) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        Dashboard.objects.filter(id=dashboard_id).update(
+            filters={
+                "date_from": "-30d",
+                "date_to": "-1d",
+                "filterTestAccounts": True,
+                "properties": [{"type": "event", "key": "$browser", "operator": "exact", "value": ["Chrome"]}],
+            }
+        )
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="activity_events_list",
+            config={"limit": 5, "dateRange": {"date_from": "-7d"}},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+        DashboardTile.objects.filter(id=tile_id).update(filters_overrides=tile_filters_overrides)
+        params = {"tile_ids": str(tile_id)}
+        if filters_override is not None:
+            params["filters_override"] = json.dumps(filters_override)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/", params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIsNone(response.json()["results"][0]["error"])
+        query = mock_runner_cls.call_args.kwargs["query"]
+        expected_after, expected_before, expected_test_accounts, expected_property_keys = expected
+        self.assertEqual(query.after, expected_after)
+        self.assertEqual(query.before, expected_before)
+        if expected_test_accounts is None:
+            expected_test_accounts = self.team.test_account_filters_default_checked
+        self.assertEqual(query.filterTestAccounts, expected_test_accounts)
+        self.assertEqual([prop.key for prop in query.properties or []], expected_property_keys)
+
+    @parameterized.expand(
+        [
+            (
+                "activity_events_list",
+                "products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner",
+                run_activity_events_list_widget,
+                lambda query: (query.after, query.before, query.filterTestAccounts, query.properties[-1].key),
+                ("-30d", "-1d", True, "$browser"),
+            ),
+            (
+                "error_tracking_list",
+                "products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner",
+                run_error_tracking_list_widget,
+                lambda query: (
+                    query.dateRange.date_from,
+                    query.dateRange.date_to,
+                    query.filterTestAccounts,
+                    query.filterGroup.values[0].values[-1].key,
+                ),
+                ("-30d", "-1d", True, "$browser"),
+            ),
+            (
+                "logs_list",
+                "products.dashboards.backend.widgets.logs_list.LogsQueryRunner",
+                run_logs_list_widget,
+                lambda query: (query.dateRange.date_from, query.dateRange.date_to),
+                ("-30d", "-1d"),
+            ),
+        ]
+    )
+    def test_widget_runner_applies_dashboard_filters(
+        self, _widget_type: str, runner_path: str, run_widget: Any, read_query: Any, expected: tuple
+    ) -> None:
+        dashboard_filters = WidgetDashboardFilters(
+            date_from="-30d",
+            date_to="-1d",
+            filter_test_accounts=True,
+            properties=({"type": "event", "key": "$browser", "operator": "exact", "value": ["Chrome"]},),
+        )
+        with patch(runner_path) as mock_runner_cls:
+            mock_runner_cls.return_value.calculate.return_value = MagicMock(
+                model_dump=lambda mode="json": {"results": [], "hasMore": False}
+            )
+            run_widget(
+                self.team,
+                {"limit": 5, "dateRange": {"date_from": "-1h"}, "filterTestAccounts": False},
+                user=self.user,
+                dashboard_filters=dashboard_filters,
+            )
+
+        self.assertEqual(read_query(mock_runner_cls.call_args.kwargs["query"]), expected)
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_applies_dashboard_filters_to_saved_filter(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = _empty_listing_result()
+        playlist = self._saved_filter_for_browser(self.team, "Firefox")
+
+        run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "savedFilterId": playlist.short_id},
+            user=self.user,
+            dashboard_filters=WidgetDashboardFilters(
+                date_from="-30d",
+                date_to="-1d",
+                filter_test_accounts=True,
+                properties=({"type": "event", "key": "$current_url", "operator": "icontains", "value": "/pricing"},),
+            ),
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        self.assertEqual((query.date_from, query.date_to, query.filter_test_accounts), ("-30d", "-1d", True))
+        self.assertEqual([prop.key for prop in query.properties or []][-1], "$current_url")
 
     @parameterized.expand([("event", "$current_url"), ("person", "email")])
     @patch("products.dashboards.backend.widgets.activity_events_list.restricted_property_names")

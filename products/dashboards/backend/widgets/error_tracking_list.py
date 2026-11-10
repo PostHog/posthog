@@ -11,7 +11,7 @@ from posthog.models.user import User
 from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import ERROR_TRACKING_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
-from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
+from products.dashboards.backend.widgets.dashboard_filters import NO_DASHBOARD_FILTERS, WidgetDashboardFilters
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.dashboards.backend.widgets.widget_filters import build_property_group_filter_from_widget_filters
 from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
@@ -25,6 +25,9 @@ from products.error_tracking.backend.facade.query_utils import (
 )
 
 ValidatedErrorTrackingListWidgetConfig = dict[str, Any]
+
+# Matches build_date_range's default, for a dashboard range that only sets date_to.
+DEFAULT_ERROR_TRACKING_DATE_FROM = "-7d"
 
 
 def _coerce_assignee(assignee: object) -> ErrorTrackingIssueAssignee | None:
@@ -44,16 +47,22 @@ def _build_error_tracking_list_query(
     limit: int,
     offset: int,
     with_aggregations: bool,
+    dashboard_filters: WidgetDashboardFilters,
 ) -> ErrorTrackingQuery:
     date_range_raw = config.get("dateRange")
-    filter_group = build_property_group_filter_from_widget_filters(config.get("widgetFilters"))
+    if dashboard_filters.has_date_range:
+        date_from, date_to = dashboard_filters.resolve_date_range(config, DEFAULT_ERROR_TRACKING_DATE_FROM)
+        date_range_raw = {"date_from": date_from, "date_to": date_to}
+    filter_group = build_property_group_filter_from_widget_filters(
+        config.get("widgetFilters"), dashboard_filters.properties
+    )
     return ErrorTrackingQuery(
         kind="ErrorTrackingQuery",
         dateRange=DateRange(**build_date_range(date_range_raw)),
         status=config["status"],
         assignee=_coerce_assignee(config.get("assignee")),
         filterGroup=filter_group,
-        filterTestAccounts=resolve_filter_test_accounts(config, team),
+        filterTestAccounts=dashboard_filters.resolve_filter_test_accounts(config, team),
         orderBy=config["orderBy"],
         orderDirection=config["orderDirection"],
         limit=limit,
@@ -77,6 +86,7 @@ def run_error_tracking_list_widget(
     user: User | None = None,
     *,
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(ERROR_TRACKING_LIST_WIDGET_TYPE, config)
 
@@ -87,6 +97,7 @@ def run_error_tracking_list_widget(
             limit=page_limit,
             offset=0,
             with_aggregations=True,
+            dashboard_filters=dashboard_filters,
         )
         data = _run_error_tracking_list_query(team, query, user)
         raw_results = data.get("results")

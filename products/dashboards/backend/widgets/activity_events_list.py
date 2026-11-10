@@ -15,7 +15,7 @@ from posthog.taxonomy.property_access import restricted_property_names
 from products.dashboards.backend.constants import ACTIVITY_EVENTS_MAX_LIMIT
 from products.dashboards.backend.widget_specs.configs import ACTIVITY_EVENTS_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
-from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
+from products.dashboards.backend.widgets.dashboard_filters import NO_DASHBOARD_FILTERS, WidgetDashboardFilters
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.dashboards.backend.widgets.widget_filters import build_event_property_filters_from_widget_filters
 from products.event_definitions.backend.models import PropertyDefinition
@@ -54,13 +54,17 @@ def _validate_property_filter_access(
             raise ValidationError("Filter references a restricted property")
 
 
-def _build_activity_events_property_filters(config: ValidatedActivityEventsListWidgetConfig) -> list[dict[str, Any]]:
+def _build_activity_events_property_filters(
+    config: ValidatedActivityEventsListWidgetConfig, dashboard_filters: WidgetDashboardFilters
+) -> list[dict[str, Any]]:
     configured_property_filters = config.get("properties")
     widget_property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
-    return [
-        *(configured_property_filters if isinstance(configured_property_filters, list) else []),
-        *(widget_property_filters or []),
-    ]
+    return dashboard_filters.with_properties(
+        [
+            *(configured_property_filters if isinstance(configured_property_filters, list) else []),
+            *(widget_property_filters or []),
+        ]
+    )
 
 
 def _build_activity_events_query(
@@ -68,13 +72,9 @@ def _build_activity_events_query(
     config: ValidatedActivityEventsListWidgetConfig,
     property_filters: list[dict[str, Any]],
     limit: int,
+    dashboard_filters: WidgetDashboardFilters,
 ) -> EventsQuery:
-    date_range_raw = config.get("dateRange")
-    after = DEFAULT_ACTIVITY_EVENTS_DATE_FROM
-    if date_range_raw is not None:
-        date_from_value = date_range_raw.get("date_from")
-        if isinstance(date_from_value, str):
-            after = date_from_value
+    after, before = dashboard_filters.resolve_date_range(config, DEFAULT_ACTIVITY_EVENTS_DATE_FROM)
 
     event_name = config.get("eventName")
     event = event_name if isinstance(event_name, str) and event_name else None
@@ -84,8 +84,9 @@ def _build_activity_events_query(
         select=ACTIVITY_EVENTS_WIDGET_SELECT,
         orderBy=["timestamp DESC"],
         after=after,
+        before=before,
         event=event,
-        filterTestAccounts=resolve_filter_test_accounts(config, team),
+        filterTestAccounts=dashboard_filters.resolve_filter_test_accounts(config, team),
         properties=property_filters or None,
         limit=limit,
         offset=0,
@@ -99,8 +100,9 @@ def _run_activity_events_query(
     user: User | None,
     *,
     limit: int,
+    dashboard_filters: WidgetDashboardFilters,
 ) -> dict[str, Any]:
-    query = _build_activity_events_query(team, config, property_filters, limit)
+    query = _build_activity_events_query(team, config, property_filters, limit, dashboard_filters)
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
         return EventsQueryRunner(team=team, query=query, user=user).calculate().model_dump(mode="json")
 
@@ -115,13 +117,16 @@ def run_activity_events_list_widget(
     user: User | None = None,
     *,
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, config)
-    property_filters = _build_activity_events_property_filters(typed_config)
+    property_filters = _build_activity_events_property_filters(typed_config, dashboard_filters)
     _validate_property_filter_access(team, user, property_filters)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:
-        data = _run_activity_events_query(team, typed_config, property_filters, user, limit=page_limit)
+        data = _run_activity_events_query(
+            team, typed_config, property_filters, user, limit=page_limit, dashboard_filters=dashboard_filters
+        )
         raw_results = data.get("results")
         return ListWidgetPage(
             results=raw_results if isinstance(raw_results, list) else [],

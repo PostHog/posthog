@@ -9,11 +9,15 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.widget_specs.configs import SURVEY_RESULTS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
+from products.dashboards.backend.widgets.dashboard_filters import (
+    NO_DASHBOARD_FILTERS,
+    WidgetDashboardFilters,
+    parse_widget_datetime,
+)
 from products.surveys.backend.models import Survey
 from products.surveys.backend.responses import SurveyResponseRow, fetch_response_rows, get_survey_stats
 
@@ -63,18 +67,15 @@ def _resolve_person_display_names(team: Team, rows: list[SurveyResponseRow]) -> 
     return {distinct_id: get_person_name(team, person) for distinct_id, person in persons_by_distinct_id.items()}
 
 
-def _resolve_since(config: dict[str, Any], team: Team) -> datetime | None:
-    """Translate the widget's preset date range (e.g. ``-7d``) into a concrete lower bound.
+def _resolve_date_bounds(
+    config: dict[str, Any], team: Team, dashboard_filters: WidgetDashboardFilters
+) -> tuple[datetime | None, datetime | None]:
+    """Translate the date range (e.g. ``-7d``) into concrete bounds.
 
-    Returns None when no range is set so stats and responses fall back to the survey's lifetime.
+    A None bound is open, so with no range set stats and responses cover the survey's lifetime.
     """
-    date_range = config.get("dateRange")
-    if not isinstance(date_range, dict):
-        return None
-    date_from = date_range.get("date_from")
-    if not isinstance(date_from, str):
-        return None
-    return relative_date_parse(date_from, team.timezone_info)
+    date_from, date_to = dashboard_filters.resolve_date_range(config, None)
+    return parse_widget_datetime(date_from, team), parse_widget_datetime(date_to, team)
 
 
 def run_survey_results_widget(
@@ -85,6 +86,7 @@ def run_survey_results_widget(
     # Part of the shared run_widgets runner signature (always passed by the dispatcher). This widget
     # reports per-section counts inline rather than a single capped total, so it has nothing to gate.
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(SURVEY_RESULTS_WIDGET_TYPE, config)
     survey_id = typed_config.get("surveyId")
@@ -106,13 +108,13 @@ def run_survey_results_widget(
     if survey is None:
         return {"survey": None, "responses": [], "surveyNotFound": True}
 
-    since = _resolve_since(typed_config, team)
+    since, until = _resolve_date_bounds(typed_config, team, dashboard_filters)
 
     with tags_context(product=Product.SURVEYS, feature=Feature.QUERY, team_id=team.pk):
         stats_payload = get_survey_stats(
             team_id=team.pk,
             date_from=since.isoformat() if since else None,
-            date_to=None,
+            date_to=until.isoformat() if until else None,
             survey_id=str(survey.id),
         )
 
@@ -124,6 +126,7 @@ def run_survey_results_widget(
                 survey=survey,
                 team=team,
                 since=since,
+                until=until,
                 limit=typed_config["limit"],
             )
 

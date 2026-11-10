@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 from pydantic import ValidationError
@@ -78,8 +78,12 @@ def build_event_property_filters_from_widget_filters(
 
 def build_property_group_filter_from_widget_filters(
     widget_filters: WidgetFilterConfigInput | None,
+    extra_property_filters: Sequence[dict[str, Any]] = (),
 ) -> PropertyGroupFilter | None:
-    property_filters = build_event_property_filters_from_widget_filters(widget_filters)
+    property_filters = [
+        *(build_event_property_filters_from_widget_filters(widget_filters) or []),
+        *extra_property_filters,
+    ]
     if not property_filters:
         return None
 
