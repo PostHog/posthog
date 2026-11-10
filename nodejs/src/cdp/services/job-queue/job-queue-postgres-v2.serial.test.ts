@@ -163,7 +163,9 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
     const inAnHour = (): Date => DateTime.now().plus({ hours: 1 }).toJSDate()
 
-    const deferred = (invocation: CyclotronJobInvocation): { invocation: CyclotronJobInvocation; scheduledAt: Date } => ({
+    const deferred = (
+        invocation: CyclotronJobInvocation
+    ): { invocation: CyclotronJobInvocation; scheduledAt: Date } => ({
         invocation,
         scheduledAt: inAnHour(),
     })
@@ -333,15 +335,21 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         {
             write: 'result',
             from: 'another queue',
-            writeAll: (queue: CyclotronJobQueuePostgresV2, failing: CyclotronJobInvocation, held: CyclotronJobInvocation) =>
-                queue.queueInvocationResults([finished(failing), movedToEmail(held)]),
+            writeAll: (
+                queue: CyclotronJobQueuePostgresV2,
+                failing: CyclotronJobInvocation,
+                held: CyclotronJobInvocation
+            ) => queue.queueInvocationResults([finished(failing), movedToEmail(held)]),
             heldRow: { queue_name: 'email', status: 'available' },
         },
         {
             write: 'deferral',
             from: 'email',
-            writeAll: (queue: CyclotronJobQueuePostgresV2, failing: CyclotronJobInvocation, held: CyclotronJobInvocation) =>
-                queue.deferInvocations([failing, held].map(deferred)),
+            writeAll: (
+                queue: CyclotronJobQueuePostgresV2,
+                failing: CyclotronJobInvocation,
+                held: CyclotronJobInvocation
+            ) => queue.deferInvocations([failing, held].map(deferred)),
             heldRow: { queue_name: 'email', status: 'available' },
         },
     ])(
