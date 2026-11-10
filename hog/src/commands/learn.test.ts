@@ -47,14 +47,17 @@ interface FakeSkills {
 function fakeSkills(answer: LearnResult | SkillsError = READ): FakeSkills {
     const calls: LearnRequest[] = []
     const options: SkillsLibraryOptions[] = []
+
     return {
         calls,
         options,
         library: (given) => {
             options.push(given)
+
             return {
                 learn: async (request) => {
                     calls.push(request)
+
                     return 'code' in answer ? { ok: false, error: answer } : { ok: true, value: answer }
                 },
                 installable: async () => ({ ok: true, value: { skills: [], assets: NETWORK } }),

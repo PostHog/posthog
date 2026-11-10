@@ -22,6 +22,7 @@ function learnRequest(
 ): LearnRequest {
     const { search, describe, lines } = options
     const modeCount = Number(search !== undefined) + Number(describe === true) + Number(lines !== undefined)
+
     if (modeCount > 1) {
         throw new HogError(
             'invalid_learn_command',
@@ -30,14 +31,17 @@ function learnRequest(
             EXIT_USAGE
         )
     }
+
     if (search === undefined) {
         return { skill, paths, describe, lines }
     }
+
     // Unquoted keywords after the first one arrive as arguments, as `replay` in `hog learn -s session
     // replay`. They belong to the query. A file search keeps its skill and the path after it.
     if (skill?.includes(':')) {
         return { skill, paths: paths.slice(0, 1), search: [search, ...paths.slice(1)].join(' ') }
     }
+
     return { paths: [], search: [search, ...(skill === undefined ? [] : [skill]), ...paths].join(' ') }
 }
 
@@ -57,6 +61,7 @@ function toHogError(error: SkillsError): HogError {
     if (error.code === 'offline') {
         const assets = error.assets ?? []
         const failures = assets.map((asset) => `\n  ${asset.url}: ${asset.failure}`).join('')
+
         return new HogError(
             'skills_offline',
             `${error.message}${failures}`,
@@ -65,6 +70,7 @@ function toHogError(error: SkillsError): HogError {
             { assets }
         )
     }
+
     const { code = error.code, hint = DEFAULT_HINT, exitCode } = ERRORS[error.code] ?? {}
     return new HogError(code, error.message, hint, exitCode)
 }
@@ -78,6 +84,7 @@ function printDownloadWarnings(out: Output, assets: readonly SkillAssetStatus[])
                 : asset.origin === 'unavailable'
                   ? 'and has no saved copy, so they are missing'
                   : undefined
+
         if (outcome) {
             const failure = escapeControls(asset.failure ?? '')
             out.line(out.style(`hog couldn't download ${ASSET_NAMES[asset.name]} (${failure}), ${outcome}.`, 'yellow'))
@@ -127,9 +134,11 @@ export default defineCommand({
         const request = learnRequest(args.skill, args.paths ?? [], options)
         const library = await ctx.skills()
         const result = await library.learn(request)
+
         if (!result.ok) {
             throw toHogError(result.error)
         }
+
         return result.value
     },
 

@@ -114,6 +114,7 @@ export function posthogPath(runtime: Pick<Runtime, 'env' | 'homeDir'>, name: str
 
 export function posthogFile(runtime: Runtime, name: string): string {
     const file = posthogPath(runtime, name)
+
     if (file === undefined) {
         throw new HogError(
             'no_home_directory',
@@ -121,6 +122,7 @@ export function posthogFile(runtime: Runtime, name: string): string {
             NO_HOME_HINT
         )
     }
+
     return file
 }
 
