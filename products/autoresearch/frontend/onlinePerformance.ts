@@ -65,6 +65,16 @@ export interface AccuracyStat {
     tooltip: string
 }
 
+function liftDetail(row: OnlinePerformanceRowApi, lift: number | null, atCeiling: boolean): string {
+    if (row.n_positive === 0) {
+        return 'No one did it'
+    }
+    if (lift == null) {
+        return 'Not measured'
+    }
+    return atCeiling ? 'Near the maximum' : 'Against everyone'
+}
+
 /** The four headline stats for the champion's newest checked date. Each stat names that date. */
 export function accuracyStats(row: OnlinePerformanceRowApi, target: string): AccuracyStat[] {
     const date = `scored on ${dayjs(row.prediction_date).format('MMM D')}`
@@ -90,14 +100,7 @@ export function accuracyStats(row: OnlinePerformanceRowApi, target: string): Acc
             key: 'lift',
             label: 'Top 10% lift',
             value: lift != null ? `${lift.toFixed(1)}×` : '—',
-            detail:
-                row.n_positive === 0
-                    ? `No one did it, ${date}`
-                    : liftAtCeiling
-                      ? `Near the maximum, ${date}`
-                      : lift != null
-                        ? `Against everyone, ${date}`
-                        : `Not measured, ${date}`,
+            detail: `${liftDetail(row, lift, liftAtCeiling)}, ${date}`,
             tooltip: `How many times more likely the top 10% were to do ${eventName(target)} than everyone the model scored.${liftAtCeiling ? ` ${liftCeilingNote(0.1, row.base_rate)}` : ''}`,
         },
         {
