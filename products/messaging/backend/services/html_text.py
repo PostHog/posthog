@@ -44,6 +44,7 @@ UNSUBSCRIBE_PLACEHOLDER = re.compile(
 TEXT_WORDS = re.compile(r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+")
 TEXT_LINK_START = re.compile(r"[hH][tT][tT][pP][sS]?://|[wW]{3}\.")
 TEXT_LINK_END = re.compile(r"""[.,;:!?'")\]}>*]*\Z""")
+TEXT_LINK_END_BEFORE_LIQUID = re.compile(r"""[.,;:!?'")\]}>*]*(?:\{[{%].*)?\Z""")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
@@ -51,20 +52,21 @@ LINE_ENDS = re.compile(r"\n?\x00+\n?")
 URL_PARSER_TRIMS = "".join(chr(code) for code in range(0x21))
 
 
-def has_unsubscribe_link(html: str, text: str) -> bool:
+def has_unsubscribe_link(html: str, text: str, *, liquid: bool) -> bool:
     link = f"unsubscribe-link-{uuid4().hex}"
     if not html:
         url = f"https://{link}.invalid/"
-        return "" in _text_links_to(UNSUBSCRIBE_PLACEHOLDER.sub(url, text), url)
+        return "" in _text_links_to(UNSUBSCRIBE_PLACEHOLDER.sub(url, text), url, liquid=liquid)
     parser = _TextParser(keep_unsubscribe_link=False)
     parser.feed(UNSUBSCRIBE_PLACEHOLDER.sub(link, html))
     parser.close()
     return link in parser.visible_hrefs
 
 
-def _text_links_to(text: str, base: str) -> list[str]:
+def _text_links_to(text: str, base: str, *, liquid: bool) -> list[str]:
+    end = TEXT_LINK_END_BEFORE_LIQUID if liquid else TEXT_LINK_END
     links = (word[start.start() :] for word in TEXT_WORDS.split(text) if (start := TEXT_LINK_START.search(word)))
-    return [TEXT_LINK_END.sub("", link[len(base) :], count=1) for link in links if link.startswith(base)]
+    return [end.sub("", link[len(base) :], count=1) for link in links if link.startswith(base)]
 
 
 def text_from_html(html: str, *, keep_unsubscribe_link: bool = False) -> str:

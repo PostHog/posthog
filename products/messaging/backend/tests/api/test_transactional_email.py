@@ -59,9 +59,9 @@ from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 UNSUBSCRIBE_LINK_CASES = json.loads((Path(__file__).parents[2] / "unsubscribe_link_cases.json").read_text())
 CLICKABLE_UNSUBSCRIBE_LINKS = [(case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if case["has_unsubscribe_link"]]
 MISSING_UNSUBSCRIBE_LINKS = [
-    *((case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]),
-    ("text_link_running_into_liquid_markup", {"html": "", "text": "Unsubscribe: {{ unsubscribe_url }}{% endif %}"}),
+    (case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]
 ]
+TEXT_LINK_INTO_LIQUID_MARKUP = "{% if person.properties.email %}Unsubscribe: {{ unsubscribe_url }}{% endif %}"
 TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
@@ -576,6 +576,17 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["code"] == "unsubscribe_link_required"
         assert self.cdp.queued == []
 
+    def test_a_marketing_template_whose_text_link_runs_into_liquid_markup_is_sent(self, cdp_post, _flag, capture):
+        self._use_fakes(cdp_post, capture)
+        email = {"subject": "Reset your password", "html": "", "text": TEXT_LINK_INTO_LIQUID_MARKUP}
+        self._save_template({"message_category": str(self._category().id), "content": {"email": email}})
+        self._edit_workflow_email({"html": "", "text": TEXT_LINK_INTO_LIQUID_MARKUP})
+
+        response = self.client.post(self.url, self.body, format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert len(self.cdp.queued) == 1
+
     def _marketing_template_send(self, case: dict[str, Any]) -> Any:
         content = {"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}}
         self._save_template({"message_category": str(self._category().id), "content": content})
@@ -951,7 +962,12 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert len(self.cdp.queued) == 1
 
-    @parameterized.expand(MISSING_UNSUBSCRIBE_LINKS)
+    @parameterized.expand(
+        [
+            *MISSING_UNSUBSCRIBE_LINKS,
+            ("text_link_running_into_liquid_markup", {"html": "", "text": TEXT_LINK_INTO_LIQUID_MARKUP}),
+        ]
+    )
     def test_a_marketing_code_send_without_a_clickable_unsubscribe_link_is_refused(
         self, cdp_post, _flag, capture, _name, case
     ):

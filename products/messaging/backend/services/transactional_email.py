@@ -218,7 +218,7 @@ def check_sendable(
     _require_marketing_enabled(category, marketing_enabled)
     if _is_marketing(category):
         email = content["email"]
-        _require_unsubscribe_link(email.get("html") or "", email.get("text") or "")
+        _require_unsubscribe_link(email.get("html") or "", email.get("text") or "", liquid=True)
 
 
 def _require_email_content(template_type: str, content: dict) -> None:
@@ -234,8 +234,8 @@ def _require_marketing_enabled(category: MessageCategory | None, marketing_enabl
         raise MarketingTemplate("The template is in a marketing category. Only transactional templates can be sent.")
 
 
-def _require_unsubscribe_link(html: str, text: str) -> None:
-    if not has_unsubscribe_link(html, text):
+def _require_unsubscribe_link(html: str, text: str, *, liquid: bool) -> None:
+    if not has_unsubscribe_link(html, text, liquid=liquid):
         raise UnsubscribeLinkRequired(
             "A marketing email needs an unsubscribe link that readers can click. Use `{{ unsubscribe_url }}` as a "
             'link\'s whole `href`, such as `<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in '
@@ -563,7 +563,7 @@ def send_transactional_email(
             send = _template_send(team.id, template, marketing_enabled=marketing_enabled)
         if _is_marketing(send.category):
             message = get_transactional_email_message(team_id=team.id, hog_flow_id=send.hog_flow_id)
-            _require_marketing_email(message.html, message.text, has_copies=message.has_copies)
+            _require_marketing_email(message.html, message.text, has_copies=message.has_copies, liquid=True)
         send_category = template_send_category(send.category, category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     if send_category is not None:
@@ -645,11 +645,11 @@ def _kind_of(category: SendCategory | None) -> MessageCategoryKind:
 
 def _require_marketing_rules(email: CodeEmail, kind: MessageCategoryKind) -> None:
     if kind == "marketing":
-        _require_marketing_email(email.html, email.text, has_copies=bool(email.cc or email.bcc))
+        _require_marketing_email(email.html, email.text, has_copies=bool(email.cc or email.bcc), liquid=False)
 
 
-def _require_marketing_email(html: str, text: str, *, has_copies: bool) -> None:
-    _require_unsubscribe_link(html, text)
+def _require_marketing_email(html: str, text: str, *, has_copies: bool, liquid: bool) -> None:
+    _require_unsubscribe_link(html, text, liquid=liquid)
     if has_copies:
         raise CopiesNotAllowed(
             "A marketing email can't have `cc` or `bcc` recipients. Send each recipient their own email."
