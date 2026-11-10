@@ -2395,6 +2395,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "use_template")
 
+    @parameterized.expand(
+        [
+            ("null", None, {}),
+            ("empty", {}, {}),
+            ("populated", {"date_from": "-7d"}, {"date_from": "-7d"}),
+        ]
+    )
+    def test_use_template_dashboard_filters(
+        self, _name: str, template_filters: dict | None, expected_filters: dict
+    ) -> None:
+        template = DashboardTemplate.objects.create(
+            team=self.team,
+            template_name="Dashboard filters template",
+            scope=DashboardTemplate.Scope.ONLY_TEAM,
+            dashboard_filters=template_filters,
+            tiles=[{"type": "TEXT", "body": "Template content", "layouts": {}}],
+        )
+
+        dashboard_id, response = self.dashboard_api.create_dashboard({"use_template": template.template_name})
+
+        assert Dashboard.objects.get(id=dashboard_id, team=self.team).filters == expected_filters
+        assert response["tiles"][0]["text"]["body"] == "Template content"
+
     def test_use_template_rolls_back_partial_creation(self) -> None:
         template_name = "invalid-agent-context"
         DashboardTemplate.objects.create(
