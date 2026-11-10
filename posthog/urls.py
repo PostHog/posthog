@@ -169,6 +169,31 @@ urlpatterns = [
         name="scim_resource_types",
     ),
     path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    # Same SCIM resources without the tenant slug in the path: the bearer token alone identifies the
+    # IdP config. Both shapes are supported permanently; the slugged URLs stay the canonical ones.
+    path("scim/v2/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users_token"),
+    path(
+        "scim/v2/Users/<int:user_id>",
+        csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
+        name="scim_user_detail_token",
+    ),
+    path("scim/v2/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups_token"),
+    path(
+        "scim/v2/Groups/<uuid:group_id>",
+        csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
+        name="scim_group_detail_token",
+    ),
+    path(
+        "scim/v2/ServiceProviderConfig",
+        csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
+        name="scim_service_provider_config_token",
+    ),
+    path(
+        "scim/v2/ResourceTypes",
+        csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
+        name="scim_resource_types_token",
+    ),
+    path("scim/v2/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas_token"),
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),

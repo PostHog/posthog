@@ -3,7 +3,12 @@ from rest_framework import status
 
 from posthog.api.scim.auth import SCIMBearerTokenAuthentication, generate_scim_token
 from posthog.api.scim.user import PostHogSCIMUser
-from posthog.api.scim.utils import get_scim_base_url
+from posthog.api.scim.utils import (
+    disable_scim_for_config,
+    enable_scim_for_config,
+    get_scim_base_url,
+    regenerate_scim_token_for_config,
+)
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -11,6 +16,7 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.models.utils import hash_key_value
 from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.role import Role
@@ -207,6 +213,59 @@ class TestSCIMAPI(APILicensedTest):
         self.client.credentials(**self.scim_headers)
         response = self.client.get(f"/scim/v2/{self.config.scim_slug}/{resource}", REMOTE_ADDR=ip)
         assert response.status_code == expected
+
+    def test_slug_free_url_resolves_tenant_from_token(self):
+        # The config's token predates `scim_token_digest`, so the slug-free URL only starts working
+        # once a slugged request has backfilled the digest from the verified token.
+        assert self.config.scim_token_digest is None
+        self.client.credentials(**self.scim_headers)
+        assert self.client.get(f"/scim/v2/{self.config.scim_slug}/Users").status_code == status.HTTP_200_OK
+
+        self.config.refresh_from_db()
+        assert self.config.scim_token_digest == hash_key_value(self.plain_token)
+
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["totalResults"] >= 1
+
+    def test_slug_free_url_rejects_config_without_digest(self):
+        # No slug and no digest leaves no way to name the tenant. Fail closed instead of scanning
+        # every config's salted hash.
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_slug_free_url_rejects_invalid_token(self):
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_slug_free_url_requires_token(self):
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_slug_free_discovery_endpoints(self):
+        self.client.credentials(**self.scim_headers)
+        self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")  # backfills the digest
+        for resource in ("ServiceProviderConfig", "ResourceTypes", "Schemas"):
+            response = self.client.get(f"/scim/v2/{resource}")
+            assert response.status_code == status.HTTP_200_OK, resource
+
+    def test_token_lifecycle_keeps_digest_in_sync(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+
+        plain = enable_scim_for_config(config)
+        config.refresh_from_db()
+        assert config.scim_token_digest == hash_key_value(plain)
+
+        regenerated = regenerate_scim_token_for_config(config)
+        config.refresh_from_db()
+        assert config.scim_token_digest == hash_key_value(regenerated)
+        assert config.scim_token_digest != hash_key_value(plain)
+
+        disable_scim_for_config(config)
+        config.refresh_from_db()
+        assert config.scim_token_digest is None
 
     def test_scim_groups_endpoint(self):
         """Test that SCIM Groups endpoint works with valid license"""
