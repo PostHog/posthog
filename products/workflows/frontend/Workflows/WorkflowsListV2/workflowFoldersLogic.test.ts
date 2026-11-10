@@ -397,6 +397,33 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.ref)).toEqual(['template-receipt'])
     })
 
+    it('puts back the renamed file, not its old name, after the shared tree refreshes it and prunes', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing/Cards')
+        const renamed = {
+            id: 'receipt',
+            path: 'Billing/Cards/Receipt v2',
+            type: 'message_template',
+            ref: 'template-receipt',
+            team_id: MOCK_TEAM_ID,
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) =>
+                    new URL(request.url).searchParams.get('ref') === 'template-receipt'
+                        ? [200, paginated([renamed])]
+                        : [200, paginated([])],
+            },
+        })
+        await projectTreeDataLogic.asyncActions.syncTypeAndRef('message_template', 'template-receipt', true)
+        logic.actions.openFolder('Empty')
+        projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing/Cards')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
+    })
+
     it.each([
         ['pages through a folder the shared tree cut to its first page, and nothing else', 200],
         ['keeps the cached files of a cut folder whose next page fails', 500],
