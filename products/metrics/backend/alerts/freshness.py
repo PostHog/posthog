@@ -86,6 +86,7 @@ def _fetch_instant(
     team: Team, query: ast.SelectQuery | ast.SelectSetQuery, *, query_type: str, max_execution_time: int
 ) -> dt.datetime | None:
     tag_queries(product=Product.METRICS, feature=Feature.ALERTING, source="metrics_alert", team_id=str(team.id))
+    # Reads the logs cluster, where the check's PromQL runs, so a lag there is never hidden by the metrics cluster's checkpoint.
     sql, context = HogQLQueryExecutor(
         query_type=query_type,
         # The executor edits the node it is given, and this one is shared by every call.
