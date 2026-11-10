@@ -839,7 +839,7 @@ class TestTasksCard:
     def test_first_use_state_invites_user_to_mention(self):
         view = render_home_view(**self._kwargs(tasks_state=TasksState()))
         text = _all_text(view)
-        assert "🦔 Tasks" in text
+        assert "*Tasks*" in text
         assert "Mention @PostHog" in text
 
     def test_each_task_renders_as_title_section_plus_context_meta(self):
@@ -858,7 +858,7 @@ class TestTasksCard:
         title, sub = items[0]
         # The title opens the Slack thread — the conversation this row summarises.
         assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
-        assert "🔄 in progress" in sub
+        assert "`[...]` In progress" in sub
         assert "`posthog/posthog`" in sub
         assert "<https://app/project/1/tasks/abc|View on web>" in sub
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub
@@ -888,7 +888,7 @@ class TestTasksCard:
         # Newlines in the upstream message collapse to spaces so the row
         # doesn't blow open vertically.
         assert sub_rows[0] == "`boom: timed out waiting for runner stack trace omitted`"
-        assert "❌ failed" in sub_rows[1]
+        assert "Failed" in sub_rows[1]
         assert "`posthog/posthog`" in sub_rows[1]
         assert "<https://app/project/1/tasks/abc|View on web>" in sub_rows[1]
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
@@ -952,8 +952,7 @@ class TestTasksCard:
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
         _, sub = self._task_items(view, expected_count=1)[0]
-        # No backticks → no repo segment; no PR link.
-        assert "`" not in sub
+        assert "`posthog/posthog`" not in sub
         assert "|PR>" not in sub
 
     def test_repo_dropdown_renders_with_single_repo_and_includes_all_option(self):

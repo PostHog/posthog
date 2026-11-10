@@ -56,9 +56,6 @@ from products.slack_app.backend.services.model_catalogue import (
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_app_home_stats import (
     DEFAULT_STATS_WINDOW_DAYS,
-    OUTCOME_CANCELLED,
-    OUTCOME_DONE,
-    OUTCOME_FAILED,
     OUTCOME_RUNNING,
     STATS_MAX_TASKS,
     STATS_WINDOW_OPTIONS,
@@ -168,12 +165,12 @@ TASKS_FILTER_ALL = "all"
 # we surface on the card. Kept here so the renderer and resolver stay in sync.
 TASKS_STATUS_OPTIONS: tuple[tuple[str, str], ...] = (
     (TASKS_FILTER_ALL, "All statuses"),
-    ("in_progress", "🔄 in progress"),
-    ("completed", "🦔 done"),
-    ("failed", "❌ failed"),
-    ("cancelled", "🚫 cancelled"),
-    ("queued", "⏳ queued"),
-    ("not_started", "🕒 not started"),
+    ("in_progress", "In progress"),
+    ("completed", "Done"),
+    ("failed", "Failed"),
+    ("cancelled", "Canceled"),
+    ("queued", "Queued"),
+    ("not_started", "Not started"),
 )
 
 EDIT_MODAL_PERSONAL_CALLBACK_ID = "slack_app_ai_prefs:personal"
@@ -552,7 +549,7 @@ def render_home_view(
     # Section 6a — interview invitation. `interview_invite` is the section block.
     if interview_invite is not None:
         blocks.append({"type": "divider"})
-        blocks.append(_section_title("💬 Talk to the team"))
+        blocks.append(_section_title("Talk to the team"))
         invite_block = dict(interview_invite)
         invite_button = invite_block.pop("accessory", None)
         blocks.append(invite_block)
@@ -650,7 +647,7 @@ def _no_project_access_blocks(account_settings_url: str | None = None) -> list[d
     site_url = (settings.SITE_URL or "").rstrip("/")
     blocks: list[dict] = [
         _section_title(
-            "🔒 No project to show yet",
+            "No project to show yet",
             "This Slack workspace isn't connected to a PostHog project you can see, "
             "so there's nothing to set up here and @PostHog mentions won't run.",
         ),
@@ -1128,7 +1125,7 @@ def _footer_blocks() -> list[dict]:
     return []
 
 
-_TASK_STATUS_LABELS: dict[str, str] = dict(TASKS_STATUS_OPTIONS)
+_TASK_STATUS_LABELS: dict[str, str] = {**dict(TASKS_STATUS_OPTIONS), "in_progress": "`[...]` In progress"}
 
 
 def _tasks_section_blocks(state: TasksState) -> list[dict]:
@@ -1138,7 +1135,7 @@ def _tasks_section_blocks(state: TasksState) -> list[dict]:
     section block (linked title + muted meta line), and a Prev/Next strip
     paginates across pages.
     """
-    blocks: list[dict] = [_section_title("🦔 Tasks", "Tasks you started by mentioning @PostHog.")]
+    blocks: list[dict] = [_section_title("Tasks", "Tasks you started by mentioning @PostHog.")]
 
     if state.has_any_tasks:
         blocks.append(_tasks_controls_block(state))
@@ -1313,19 +1310,12 @@ _STATS_MAX_FIELDS = 10
 # Eight levels of block-fill, so a sparkline reads as a shape rather than a row of dots.
 _SPARK_LEVELS = "▁▂▃▄▅▆▇█"
 
-_OUTCOME_EMOJI: dict[str, str] = {
-    OUTCOME_DONE: "🦔",
-    OUTCOME_FAILED: "❌",
-    OUTCOME_CANCELLED: "🚫",
-    OUTCOME_RUNNING: "🔄",
-}
-
 
 def _stats_section_blocks(state: StatsState) -> list[dict]:
     """Render the workspace-activity card: a KPI grid, two text charts, a leaderboard."""
     blocks: list[dict] = [
         _section_title(
-            "📊 Workspace activity",
+            "Workspace activity",
             "What your team shipped with @PostHog. Only workspace admins see this.",
         ),
         _stats_controls_block(state),
@@ -1414,7 +1404,7 @@ def _stats_outcomes_block(state: StatsState) -> dict | None:
     data-visualization budget."""
     if not state.outcomes:
         return None
-    parts = [f"{_OUTCOME_EMOJI.get(s.label, '')} {s.value} {s.label.lower()}".strip() for s in state.outcomes]
+    parts = [f"{'`[...]` ' if s.label == OUTCOME_RUNNING else ''}{s.value} {s.label.lower()}" for s in state.outcomes]
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(parts)}]}
 
 
