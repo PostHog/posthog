@@ -66,7 +66,7 @@ dependencies = [
  "clap",
  "determinator",
  "guppy",
- "rstest 0.28.0",
+ "rstest",
  "serde",
  "serde_json",
  "tempfile",
@@ -2324,7 +2324,7 @@ dependencies = [
  "rdkafka",
  "redis",
  "reqwest 0.12.28",
- "rstest 0.28.0",
+ "rstest",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -3066,7 +3066,7 @@ dependencies = [
  "metrics",
  "metrics-util",
  "rdkafka",
- "rstest 0.28.0",
+ "rstest",
  "serde_json",
  "tokio",
  "tracing",
@@ -3085,7 +3085,7 @@ dependencies = [
  "lz4",
  "metrics",
  "rdkafka",
- "rstest 0.28.0",
+ "rstest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4855,7 +4855,7 @@ dependencies = [
  "rdkafka",
  "regex",
  "reqwest 0.12.28",
- "rstest 0.28.0",
+ "rstest",
  "rust_decimal",
  "semver",
  "serde",
@@ -6618,7 +6618,7 @@ dependencies = [
  "rand 0.8.8",
  "rdkafka",
  "reqwest 0.12.28",
- "rstest 0.28.0",
+ "rstest",
  "rustls 0.23.46",
  "serde",
  "serde_json",
@@ -7175,7 +7175,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "metrics",
- "rstest 0.28.0",
+ "rstest",
  "serde",
  "serde_json",
  "tempfile",
@@ -9416,7 +9416,7 @@ dependencies = [
  "metrics",
  "personhog-proto",
  "pin-project",
- "rstest 0.28.0",
+ "rstest",
  "serde",
  "serde_json",
  "sqlx",
@@ -9480,7 +9480,7 @@ dependencies = [
  "personhog-proto",
  "rand 0.8.8",
  "rdkafka",
- "rstest 0.28.0",
+ "rstest",
  "serde",
  "serde_json",
  "sqlx",
@@ -9566,7 +9566,7 @@ dependencies = [
  "futures",
  "metrics",
  "personhog-common",
- "rstest 0.26.1",
+ "rstest",
  "slatedb",
  "slatedb-common",
  "tempfile",
@@ -9603,7 +9603,7 @@ dependencies = [
  "personhog-common",
  "personhog-proto",
  "rand 0.8.8",
- "rstest 0.28.0",
+ "rstest",
  "serde_json",
  "sqlx",
  "tokio",
@@ -10451,7 +10451,7 @@ dependencies = [
  "rand 0.8.8",
  "rdkafka",
  "regex",
- "rstest 0.28.0",
+ "rstest",
  "serde",
  "serde_json",
  "sqlx",
@@ -11148,11 +11148,11 @@ dependencies = [
 
 [[package]]
 name = "rand_xoshiro"
-version = "0.7.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f703f4665700daf5512dcca5f43afa6af89f09db47fb56be587f80636bda2d41"
+checksum = "662effc7698e08ea324d3acccf8d9d7f7bf79b9785e270a174ea36e56900c91d"
 dependencies = [
- "rand_core 0.9.5",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -11804,42 +11804,13 @@ dependencies = [
 
 [[package]]
 name = "rstest"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
-dependencies = [
- "futures-timer",
- "futures-util",
- "rstest_macros 0.26.1",
-]
-
-[[package]]
-name = "rstest"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b376e512f30a7686a8dbc6aeaace99b3ade1c26c1c63473473a817ade226dafc"
 dependencies = [
  "futures-timer",
  "futures-util",
- "rstest_macros 0.28.0",
-]
-
-[[package]]
-name = "rstest_macros"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c845311f0ff7951c5506121a9ad75aec44d083c31583b2ea5a30bcb0b0abba0"
-dependencies = [
- "cfg-if",
- "glob",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "regex",
- "relative-path",
- "rustc_version",
- "syn 2.0.119",
- "unicode-ident",
+ "rstest_macros",
 ]
 
 [[package]]
@@ -12687,9 +12658,9 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slatedb"
-version = "0.17.0"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "543da8a0c19e1a6af286a3c314a1c936af598603f3af98549514fffffb837334"
+checksum = "371b0832486277108a130202eb2ce404e5ac426edd1490b5b973ca2d561b6055"
 dependencies = [
  "async-channel 2.5.0",
  "async-trait",
@@ -12713,11 +12684,12 @@ dependencies = [
  "object_store 0.14.2",
  "ouroboros",
  "parking_lot",
- "rand 0.9.5",
+ "rand 0.10.3",
  "serde",
  "serde_json",
  "siphasher 1.0.4",
  "slatedb-common",
+ "slatedb-mirror",
  "slatedb-txn-obj",
  "smallvec",
  "sysinfo",
@@ -12729,19 +12701,23 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
- "zstd 0.13.4",
+ "zstd 0.14.3",
 ]
 
 [[package]]
 name = "slatedb-common"
-version = "0.17.0"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5cb9fe0fa807c333fbb5880b222f5e72889fa22e40b2f13f479490d8b22f192"
+checksum = "4c6758f235603647a9a689d827852222d475e2011b1ea32d62d87d0808881f63"
 dependencies = [
+ "async-trait",
+ "bytes",
  "chrono",
  "log",
+ "lru 0.18.5",
  "object_store 0.14.2",
- "rand 0.9.5",
+ "parking_lot",
+ "rand 0.10.3",
  "rand_xoshiro",
  "serde",
  "thread_local",
@@ -12749,10 +12725,34 @@ dependencies = [
 ]
 
 [[package]]
-name = "slatedb-txn-obj"
-version = "0.17.0"
+name = "slatedb-mirror"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "872044a3b57e2846a3761619bab7cb88052034d137cf17afb2382c63a24c3b11"
+checksum = "f36b72ff54ab4f3ec6014f9aa316c6953d5c1ea1606534418081d7de76c6cb66"
+dependencies = [
+ "async-trait",
+ "backon",
+ "bytes",
+ "chrono",
+ "futures",
+ "hex",
+ "log",
+ "md-5 0.11.0",
+ "object_store 0.14.2",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "slatedb-common",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "slatedb-txn-obj"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fca84a01520f0ed924133792ece98ac1768be50bb5785db2487c63cf17a12c5"
 dependencies = [
  "async-trait",
  "bytes",

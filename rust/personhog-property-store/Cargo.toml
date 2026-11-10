@@ -13,15 +13,15 @@ chrono = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
 metrics = { workspace = true }
-slatedb = { version = "0.17.0", default-features = false, features = ["aws", "foyer", "lz4", "zstd"] }
-slatedb-common = "0.17.0"
+slatedb = { version = "0.18.1", default-features = false, features = ["aws", "foyer", "lz4", "zstd"] }
+slatedb-common = "0.18.1"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-rstest = "0.26"
-slatedb-common = { version = "0.17.0", features = ["test-util"] }
+rstest = "0.28"
+slatedb-common = { version = "0.18.1", features = ["test-util"] }
 tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
