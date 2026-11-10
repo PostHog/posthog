@@ -13,6 +13,8 @@ import {
     IconScreen,
     IconShare,
     IconTrash,
+    IconRedo,
+    IconUndo,
 } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
@@ -82,8 +84,18 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         currentDashboardVariables,
         tiles,
         apiUrl,
+        canUndoLayoutChange,
+        canRedoLayoutChange,
+        tileSavesPending,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
+    const {
+        setDashboardMode,
+        updateDashboardTags,
+        togglePinned,
+        setTerraformModalOpen,
+        undoLayoutChange,
+        redoLayoutChange,
+    } = useActions(dashboardLogic)
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
@@ -294,6 +306,41 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
             )}
             {showEditMenu && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                    {canEditDashboard && (
+                        <>
+                            <SceneMenuBarItem
+                                onClick={() => undoLayoutChange()}
+                                disabled={!canUndoLayoutChange || tileSavesPending}
+                                tooltip={
+                                    tileSavesPending
+                                        ? 'Wait for the dashboard to finish saving'
+                                        : !canUndoLayoutChange
+                                          ? 'No layout change to undo'
+                                          : undefined
+                                }
+                                data-attr={`${RESOURCE_TYPE}-menubar-undo-layout`}
+                            >
+                                <IconUndo />
+                                Undo layout change
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() => redoLayoutChange()}
+                                disabled={!canRedoLayoutChange || tileSavesPending}
+                                tooltip={
+                                    tileSavesPending
+                                        ? 'Wait for the dashboard to finish saving'
+                                        : !canRedoLayoutChange
+                                          ? 'No undone layout change to redo'
+                                          : undefined
+                                }
+                                data-attr={`${RESOURCE_TYPE}-menubar-redo-layout`}
+                            >
+                                <IconRedo />
+                                Redo layout change
+                            </SceneMenuBarItem>
+                            <SceneMenuBarSeparator />
+                        </>
+                    )}
                     <SceneMenuBarItem
                         opensFloatingUi
                         onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}

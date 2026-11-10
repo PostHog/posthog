@@ -754,6 +754,7 @@ export interface dashboardLogicValues {
     canEditDashboard: boolean
     canRestrictDashboard: boolean
     canSaveProjectDashboardTemplate: boolean
+    canRedoLayoutChange: boolean
     canUndoLayoutChange: boolean
     cancellingPreview: boolean
     carryingTile: boolean
@@ -822,6 +823,7 @@ export interface dashboardLogicValues {
     lastZoom: ZoomRange | null
     layout: Layout | undefined
     layoutForItem: Record<string, TileLayout>
+    layoutRedoStack: Record<DashboardTile['id'], TilePlacement>[]
     layoutUndoStack: Record<DashboardTile['id'], TilePlacement>[]
     layouts: ResponsiveLayouts
     loadLayoutFromServerOnPreview: boolean
@@ -1193,6 +1195,9 @@ export interface dashboardLogicActions {
         value: any
         variableId: string
     }
+    popLayoutRedo: () => {
+        value: true
+    }
     popLayoutUndo: () => {
         value: true
     }
@@ -1202,7 +1207,14 @@ export interface dashboardLogicActions {
     previewDashboardChangesFailure: () => {
         value: true
     }
-    pushLayoutUndo: (placements: Record<number, TilePlacement>) => {
+    pushLayoutRedo: (placements: Record<number, TilePlacement>) => {
+        placements: Record<number, TilePlacement>
+    }
+    pushLayoutUndo: (
+        placements: Record<number, TilePlacement>,
+        clearsRedo?: boolean
+    ) => {
+        clearsRedo: boolean
         placements: Record<number, TilePlacement>
     }
     receiveTileFromStream: (data: { order: number; tile: any }) => {
@@ -1613,6 +1625,9 @@ export interface dashboardLogicActions {
     triggerDashboardUpdate: (payload: any) => {
         payload: any
     }
+    redoLayoutChange: () => {
+        value: true
+    }
     undoLayoutChange: () => {
         value: true
     }
@@ -1730,6 +1745,7 @@ export interface dashboardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filterEditModeActive: (dashboardEditing: DashboardEditing | null) => boolean
         canUndoLayoutChange: (layoutUndoStack: Record<number, TilePlacement>[]) => boolean
+        canRedoLayoutChange: (layoutRedoStack: Record<number, TilePlacement>[]) => boolean
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile[]) => boolean
         savedDashboardSettings: (dashboard: DashboardType | null) => DashboardSettings
@@ -2318,10 +2334,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
         stageLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
         clearDraftLayouts: () => true,
         /** Placements from before a saved layout change, so the change can be undone. */
-        pushLayoutUndo: (placements: Record<number, TilePlacement>) => ({ placements }),
+        /** A new change clears the redo stack; putting back a step from undo or redo does not. */
+        pushLayoutUndo: (placements: Record<number, TilePlacement>, clearsRedo: boolean = true) => ({
+            placements,
+            clearsRedo,
+        }),
         popLayoutUndo: true,
+        /** Placements from before an undo, so the undo can be taken back. */
+        pushLayoutRedo: (placements: Record<number, TilePlacement>) => ({ placements }),
+        popLayoutRedo: true,
         setTileSavesPending: (pending: boolean) => ({ pending }),
         undoLayoutChange: true,
+        redoLayoutChange: true,
         /** Put tiles back where `placements` says and save that, without recording it as an undo step. */
         restoreTilePlacements: (placements: Record<number, TilePlacement>) => ({ placements }),
         applyDashboardUpdate: (dashboard: DashboardType, savedPlacements: Record<number, TilePlacement>) => ({
@@ -2996,6 +3020,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 pushLayoutUndo: (state, { placements }) => [...state, placements].slice(-LAYOUT_UNDO_LIMIT),
                 popLayoutUndo: (state) => state.slice(0, -1),
+            },
+        ],
+        layoutRedoStack: [
+            [] as Record<DashboardTile['id'], TilePlacement>[],
+            {
+                pushLayoutRedo: (state, { placements }) => [...state, placements].slice(-LAYOUT_UNDO_LIMIT),
+                popLayoutRedo: (state) => state.slice(0, -1),
+                pushLayoutUndo: (state, { clearsRedo }) => (clearsRedo ? [] : state),
             },
         ],
         tileSavesPending: [
@@ -3694,6 +3726,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         canUndoLayoutChange: [
             (s) => [s.layoutUndoStack],
             (layoutUndoStack: Record<DashboardTile['id'], TilePlacement>[]): boolean => layoutUndoStack.length > 0,
+        ],
+        canRedoLayoutChange: [
+            (s) => [s.layoutRedoStack],
+            (layoutRedoStack: Record<DashboardTile['id'], TilePlacement>[]): boolean => layoutRedoStack.length > 0,
         ],
         shouldUseStreaming: [
             (s) => [s.featureFlags],
@@ -6296,7 +6332,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             actions.popLayoutUndo()
-            cache.undoInFlight = placements
+            cache.historyStepInFlight = { kind: 'undo', placements, inverse: values.savedTilePlacements }
+            actions.restoreTilePlacements(placements)
+        },
+        redoLayoutChange: () => {
+            const placements = values.layoutRedoStack[values.layoutRedoStack.length - 1]
+            if (!placements) {
+                return
+            }
+            if (values.tileSavesPending) {
+                lemonToast.info('Wait for the dashboard to finish saving, then redo.')
+                return
+            }
+            actions.popLayoutRedo()
+            cache.historyStepInFlight = { kind: 'redo', placements, inverse: values.savedTilePlacements }
             actions.restoreTilePlacements(placements)
         },
         restoreTilePlacements: ({ placements }) => {
@@ -6323,12 +6372,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         saveEditModeChangesSuccess: ({ dashboard, payload }) => {
             cache.resolveEditSaveApplied?.()
-            if (payload?.scope === 'layout' && !payload.recordUndo) {
-                // A failed undo goes back on the stack, so it can be tried again.
-                if (cache.layoutSaveFailed && cache.undoInFlight) {
-                    actions.pushLayoutUndo(cache.undoInFlight)
+            cache.historyStepDone = null
+            if (payload?.scope === 'layout' && !payload.recordUndo && cache.historyStepInFlight) {
+                const { kind, placements, inverse } = cache.historyStepInFlight
+                // A failed step goes back on its own stack to be tried again; a saved one can be taken back.
+                if (cache.layoutSaveFailed && kind === 'undo') {
+                    actions.pushLayoutUndo(placements, false)
+                } else if (cache.layoutSaveFailed) {
+                    actions.pushLayoutRedo(placements)
+                } else if (kind === 'undo') {
+                    actions.pushLayoutRedo(inverse)
+                } else {
+                    actions.pushLayoutUndo(inverse, false)
                 }
-                cache.undoInFlight = null
+                cache.historyStepDone = cache.layoutSaveFailed ? null : kind
+                cache.historyStepInFlight = null
             }
             if (cache.layoutSaveFailed) {
                 cache.layoutSaveFailed = false
@@ -6369,9 +6427,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.dashboardChangesPersisted = false
                 if (payload?.scope === 'layout') {
                     // A moved tile shows it saved, so only an undo, which moves tiles the editor did not touch, says so.
-                    if (!payload.recordUndo) {
+                    if (cache.historyStepDone === 'undo') {
                         lemonToast.success('Layout change undone', {
-                            toastId: `dashboard-layout-saved-${props.id}`,
+                            toastId: `dashboard-layout-undone-${props.id}`,
                             button: values.canUndoLayoutChange
                                 ? { label: 'Undo', action: () => actions.undoLayoutChange() }
                                 : undefined,

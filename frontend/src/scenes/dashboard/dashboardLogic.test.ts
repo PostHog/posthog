@@ -2038,7 +2038,7 @@ describe('dashboardLogic', () => {
                 expect(logic.values.canUndoLayoutChange).toBe(false)
             })
 
-            it('undoes several changes one at a time', async () => {
+            it('undoes and redoes several changes one at a time', async () => {
                 await storeComputedLayouts()
                 const firstTileId = logic.values.dashboard!.tiles[0].id
                 const xOf = (): number => logic.values.layouts.sm!.find((layout) => layout.i === String(firstTileId))!.x
@@ -2058,6 +2058,22 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => logic.actions.undoLayoutChange()).toFinishAllListeners()
                 expect(xOf()).toEqual(startX)
                 expect(logic.values.canUndoLayoutChange).toBe(false)
+
+                await expectLogic(logic, () => logic.actions.redoLayoutChange()).toFinishAllListeners()
+                expect(xOf()).toEqual(startX + 1)
+                await expectLogic(logic, () => logic.actions.redoLayoutChange()).toFinishAllListeners()
+                expect(xOf()).toEqual(startX + 2)
+                expect(logic.values.canRedoLayoutChange).toBe(false)
+                expect(savedTiles().find((tile) => tile.id === firstTileId)?.layouts.sm?.x).toEqual(startX + 2)
+
+                // A redone change can be undone again, and a new change drops what is left to redo.
+                await expectLogic(logic, () => logic.actions.undoLayoutChange()).toFinishAllListeners()
+                expect(xOf()).toEqual(startX + 1)
+                expect(logic.values.canRedoLayoutChange).toBe(true)
+                await expectLogic(logic, () => {
+                    moveFirstTileRight()
+                }).toFinishAllListeners()
+                expect(logic.values.canRedoLayoutChange).toBe(false)
             })
 
             it('puts a tile back where the server has it when its autosave fails', async () => {
