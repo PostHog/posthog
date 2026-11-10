@@ -236,8 +236,6 @@ export type IngestionConsumerConfig = {
     // Stateful overflow config
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
-    // lru-cache allocates its index arrays for the max size up front. An entry lives one TTL:
-    // at 100 new keys per second per pod that is 6,000 entries. An evicted key costs one Redis lookup.
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: number
 
     // Per-token/distinct_id restrictions
