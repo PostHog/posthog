@@ -19,7 +19,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
-from posthog.integrations.contracts import CrossTeamFilter, IntegrationPatch, IntegrationRecord
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -143,49 +143,32 @@ class EmailIntegration:
 
         mail_from_changed = mail_from_subdomain != self.integration.config.get("mail_from_subdomain", "feedback")
 
-        with transaction.atomic():
-            if provider == "ses":
-                if mail_from_changed:
-                    from products.workflows.backend.facade.api import (
-                        update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
-                    )
+        if provider == "ses":
+            if mail_from_changed:
+                from products.workflows.backend.facade.api import (
+                    update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                )
 
-                    self._lock_sender_domain()
-                    update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
-            elif provider == "maildev" and settings.DEBUG:
-                pass
-            else:
-                raise ValueError(f"Invalid provider: must be 'ses'")
+                update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+        elif provider == "maildev" and settings.DEBUG:
+            pass
+        else:
+            raise ValueError(f"Invalid provider: must be 'ses'")
 
-            changes: dict[str, str] = {
-                "name": name,
-                "mail_from_subdomain": mail_from_subdomain,
-                "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
-            }
-            if setup_method := config.get("setup_method"):
-                changes["setup_method"] = setup_method
-            # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
-            self.integration = model.integration_model(
-                row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
-            )
-            if provider == "ses" and mail_from_changed:
-                self._move_domain_senders_to_mail_from_subdomain(mail_from_subdomain)
+        changes: dict[str, str] = {
+            "name": name,
+            "mail_from_subdomain": mail_from_subdomain,
+            "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
+        }
+        if setup_method := config.get("setup_method"):
+            changes["setup_method"] = setup_method
+        # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
+        self.integration = model.integration_model(
+            row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
+        )
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
-
-    def _lock_sender_domain(self) -> None:
-        with connection.cursor() as cursor:
-            lock_sender_domain(cursor, self.integration.config["domain"].lower())
-
-    def _move_domain_senders_to_mail_from_subdomain(self, mail_from_subdomain: str) -> None:
-        accessor = row_writes.row_accessor(self.integration)
-        domain_senders = accessor.list_across_teams(
-            CrossTeamFilter(where_iexact={"domain": self.integration.config["domain"]})
-        )
-        for sender in domain_senders:
-            if sender.config.get("mail_from_subdomain") != mail_from_subdomain:
-                accessor.update(sender.team_id, sender.id, config_patch={"mail_from_subdomain": mail_from_subdomain})
 
     def _adopt_mail_from_subdomain_ses_uses(self, stored_mail_from_subdomain: str) -> str:
         from products.workflows.backend.facade.api import (
@@ -195,8 +178,8 @@ class EmailIntegration:
         ses_mail_from_subdomain = get_ses_mail_from_subdomain(self.integration.config["domain"])
         if not ses_mail_from_subdomain or ses_mail_from_subdomain == stored_mail_from_subdomain:
             return stored_mail_from_subdomain
-        self._move_domain_senders_to_mail_from_subdomain(ses_mail_from_subdomain)
-        self.integration = model.integration_model(row_writes.reread_row(self.integration))
+        patch = IntegrationPatch(config_patch={"mail_from_subdomain": ses_mail_from_subdomain})
+        self.integration = model.integration_model(row_writes.update_row(self.integration, patch))
         return ses_mail_from_subdomain
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
@@ -211,12 +194,10 @@ class EmailIntegration:
                 verify_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
             )
 
-            with transaction.atomic():
-                self._lock_sender_domain()
-                mail_from_subdomain = self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
-                verification_result = verify_ses_email_domain(
-                    domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
-                )
+            mail_from_subdomain = self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
+            verification_result = verify_ses_email_domain(
+                domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
+            )
         elif provider == "maildev":
             from products.workflows.backend.facade.api import (
                 get_maildev_mock_dns_records,  # noqa: PLC0415 — keeps the workflows facade off the model import path
