@@ -5,7 +5,8 @@ from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, F, Func, IntegerField, OuterRef, QuerySet, Subquery, TextField, Value
+from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery, TextField, Value
+from django.db.models.expressions import RawSQL
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
@@ -99,27 +100,24 @@ def _save_agent_read(*, team: "Team", user_id: int, insight_id: int, read_at: da
 def insight_reads_by_agents(
     *, team_id: int, user_id: int, since: datetime, min_days: int, limit: int
 ) -> list[tuple[str, list[date]]]:
-    rows = (
+    days_in_window = RawSQL(
+        "(SELECT count(*) FROM unnest(read_days) AS read_day WHERE read_day >= %s)",
+        (since.date(),),
+        output_field=IntegerField(),
+    )
+    return list(
         InsightAgentRead.objects.for_team(team_id)
-        .annotate(day_count=Func(F("read_days"), Value(1), function="array_length", output_field=IntegerField()))
+        .annotate(days_in_window=days_in_window)
         .filter(
             user_id=user_id,
             last_read_at__gte=since,
-            day_count__gte=min_days,
+            days_in_window__gte=min_days,
             insight__deleted=False,
             insight__saved=True,
         )
         .order_by("-last_read_at")
-        .values_list("insight__short_id", "read_days")
+        .values_list("insight__short_id", "read_days")[:limit]
     )
-    first_day = since.date()
-    found: list[tuple[str, list[date]]] = []
-    for short_id, read_days in rows.iterator():
-        if sum(day >= first_day for day in read_days) >= min_days:
-            found.append((short_id, read_days))
-            if len(found) == limit:
-                break
-    return found
 
 
 AGENT_READ_DELETE_BATCH = 10_000
@@ -128,7 +126,7 @@ AGENT_READ_DELETE_BATCH = 10_000
 def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
     reads = InsightAgentRead.objects.unscoped().filter(team_id__in=team_ids)
     while batch := list(reads.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
-        InsightAgentRead.objects.unscoped().filter(id__in=batch).delete()
+        reads.filter(id__in=batch).delete()
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:

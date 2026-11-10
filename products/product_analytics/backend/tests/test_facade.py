@@ -21,6 +21,7 @@ from posthog.models.user import User
 from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.api import (
     create_insight_explanation,
+    delete_agent_insight_reads_for_teams,
     get_insight_explanation,
     insight_reads_by_agents,
     insight_short_ids_built_by,
@@ -126,6 +127,19 @@ class TestAgentInsightReads(BaseTest):
         )
 
         self.assertEqual([r.short_id for r in reads], ["twice"])
+
+    def test_deleting_a_team_keeps_the_agent_reads_of_other_teams(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        for team in (self.team, other):
+            insight = Insight.objects.create(team=team, saved=True, short_id=f"t{team.id}")
+            record_agent_insight_read(team=team, user_id=self.user.id, insight_id=insight.pk)
+
+        delete_agent_insight_reads_for_teams([self.team.id])
+
+        self.assertEqual(
+            [InsightAgentRead.objects.for_team(team.id).count() for team in (self.team, other)],
+            [0, 1],
+        )
 
     def test_a_failed_write_lets_a_later_read_that_day_retry(self) -> None:
         insight = Insight.objects.create(team=self.team, saved=True, short_id="asked")
