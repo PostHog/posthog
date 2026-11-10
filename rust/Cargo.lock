@@ -34,19 +34,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
 dependencies = [
  "cfg-if",
- "cipher 0.4.4",
+ "cipher",
  "cpufeatures 0.2.17",
-]
-
-[[package]]
-name = "aes"
-version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc0fc36d7440d015b45468ba08a21e80e056ebbd014c611c6298bb7503e04bd1"
-dependencies = [
- "cipher 0.5.2",
- "cpubits",
- "cpufeatures 0.3.1",
 ]
 
 [[package]]
@@ -56,8 +45,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "831010a0f742e1209b3bcea8fab6a8e149051ba6099432c8cb2cc117dec3ead1"
 dependencies = [
  "aead",
- "aes 0.8.4",
- "cipher 0.4.4",
+ "aes",
+ "cipher",
  "ctr",
  "ghash",
  "subtle",
@@ -1704,7 +1693,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
- "zip 8.6.0",
+ "zip",
 ]
 
 [[package]]
@@ -1866,7 +1855,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
- "zeroize",
 ]
 
 [[package]]
@@ -2313,7 +2301,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tower 0.4.13",
- "tower-http 0.7.1",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -2349,7 +2337,7 @@ dependencies = [
  "siphasher 1.0.4",
  "thiserror 2.0.21",
  "tokio",
- "tower-http 0.7.1",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2417,7 +2405,7 @@ dependencies = [
  "tokio",
  "tonic 0.12.3",
  "tower 0.4.13",
- "tower-http 0.7.1",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2459,7 +2447,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26b52a9543ae338f279b96b0b9fed9c8093744685043739079ce85cd58f289a6"
 dependencies = [
- "cipher 0.4.4",
+ "cipher",
 ]
 
 [[package]]
@@ -2595,17 +2583,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
  "crypto-common 0.1.7",
- "inout 0.1.4",
-]
-
-[[package]]
-name = "cipher"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c"
-dependencies = [
- "crypto-common 0.2.2",
- "inout 0.2.6",
+ "inout",
 ]
 
 [[package]]
@@ -3364,12 +3342,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cpubits"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15b85f9c39137c3a891689859392b1bd49812121d0d61c9caf00d46ed5ce06ae"
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3612,7 +3584,7 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0369ee1ad671834580515889b80f2ea915f23b8be8d0daa4bbaf2ac5c7590835"
 dependencies = [
- "cipher 0.4.4",
+ "cipher",
 ]
 
 [[package]]
@@ -3688,7 +3660,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
- "zip 8.6.0",
+ "zip",
  "zstd 0.13.4",
 ]
 
@@ -4220,7 +4192,6 @@ dependencies = [
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
- "zeroize",
 ]
 
 [[package]]
@@ -4829,7 +4800,7 @@ dependencies = [
  "tokio-util",
  "tonic 0.12.3",
  "tower 0.4.13",
- "tower-http 0.7.1",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -4844,7 +4815,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c66b725fe9483b9ee72ccaec072b15eb8ad95a3ae63a8c798d5748883b72fd33"
 dependencies = [
- "aes 0.8.4",
+ "aes",
  "base64 0.22.1",
  "byteorder",
  "cbc",
@@ -6246,7 +6217,7 @@ dependencies = [
  "serde_urlencoded",
  "tokio",
  "tower 0.4.13",
- "tower-http 0.7.1",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -6637,15 +6608,6 @@ checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "block-padding",
  "generic-array",
-]
-
-[[package]]
-name = "inout"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a580c13f0ffc335ef42dd3f6b1a41b726051c5e1656d9a3aa6fddb3c5dfbbf9"
-dependencies = [
- "hybrid-array",
 ]
 
 [[package]]
@@ -7772,11 +7734,11 @@ dependencies = [
 
 [[package]]
 name = "lzma-rust2"
-version = "0.16.5"
+version = "0.15.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca93e534d1142d1d0dcca6d25fe302508a5dfb40b302802904577725ea0b695b"
+checksum = "e20f57f9918e5bd7bc58c22cdd70a6afc7375d4dd9683af5f2b34bd3d2bba619"
 dependencies = [
- "sha2 0.11.1",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -9066,12 +9028,12 @@ dependencies = [
 
 [[package]]
 name = "pbkdf2"
-version = "0.13.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "112d82ceb8c5bf524d9af484d4e4970c9fd5a0cc15ba14ad93dccd28873b0629"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
 dependencies = [
- "digest 0.11.3",
- "hmac 0.13.0",
+ "digest 0.10.7",
+ "hmac 0.12.1",
 ]
 
 [[package]]
@@ -9586,7 +9548,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",
- "tower-http 0.7.1",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
 ]
@@ -13090,7 +13052,7 @@ dependencies = [
  "symbolic-ppdb",
  "thiserror 2.0.21",
  "wasmparser",
- "zip 7.4.0",
+ "zip",
  "zstd 0.13.4",
 ]
 
@@ -14143,6 +14105,27 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
+dependencies = [
+ "async-compression",
+ "bitflags 2.13.2",
+ "bytes",
+ "futures-core",
+ "http 1.5.0",
+ "http-body 1.1.0",
+ "http-body-util",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tower-http"
 version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
@@ -14165,28 +14148,6 @@ dependencies = [
  "tower-service",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "tower-http"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
-dependencies = [
- "async-compression",
- "bitflags 2.13.2",
- "bytes",
- "futures-core",
- "http 1.5.0",
- "http-body 1.1.0",
- "http-body-util",
- "percent-encoding",
- "pin-project-lite",
- "tokio",
- "tokio-util",
- "tower-layer",
- "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -15425,34 +15386,20 @@ version = "7.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc12baa6db2b15a140161ce53d72209dacea594230798c24774139b54ecaa980"
 dependencies = [
- "crc32fast",
- "flate2",
- "indexmap 2.14.2",
- "memchr",
- "typed-path",
- "zopfli",
-]
-
-[[package]]
-name = "zip"
-version = "8.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
-dependencies = [
- "aes 0.9.4",
+ "aes",
  "bzip2",
  "constant_time_eq",
  "crc32fast",
  "deflate64",
  "flate2",
  "getrandom 0.4.3",
- "hmac 0.13.0",
+ "hmac 0.12.1",
  "indexmap 2.14.2",
  "lzma-rust2",
  "memchr",
  "pbkdf2",
  "ppmd-rust",
- "sha1 0.11.0",
+ "sha1 0.10.7",
  "time",
  "typed-path",
  "zeroize",

@@ -243,7 +243,7 @@ thiserror = { version = "2.0" }
 tokio = { version = "1.51.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["time"] }
 tower = { version = "0.4.13", features = ["limit", "timeout", "util"] }
-tower-http = { version = "0.7.1", features = ["cors", "decompression-br", "decompression-deflate", "decompression-gzip", "decompression-zstd", "limit", "trace"] }
+tower-http = { version = "0.5.2", features = ["cors", "decompression-br", "decompression-deflate", "decompression-gzip", "decompression-zstd", "limit", "trace"] }
 tracing = "0.1.44"
 tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
