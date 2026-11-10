@@ -3,8 +3,8 @@ name: writing-tests
 description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
   Use before any change to what a pytest, Jest, or Playwright test asserts or sets up, down to one fixture or one assertion added to an existing block.
-  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from absolute dates left to age against the real clock; no database a test never uses).
-  Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
+  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; the cheapest level that still observes what a caller observes; real dependencies or faithful fakes, stubs only to inject faults; Django TestCase over TransactionTestCase; no sleeps; no time bombs from unpinned dates; no database a test never uses).
+  For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
 # Writing tests worth keeping
@@ -45,6 +45,10 @@ A new standalone test is what you write when extending doesn't work, and you sho
 Extend to remove duplication, not to save setup time.
 A parameterized case is still its own test invocation, so `setUp` and `beforeEach` run for it just as they would for a standalone function.
 That sets the limit too: fold in variations of the same behavior, and don't bolt assertions about unrelated behavior onto a test that already passes.
+
+Extending a test adds your case, not the neighbor's habits.
+If the nearest test mocks internal helpers or asserts on mock calls, don't copy that into your case: drive the input through the public interface and assert the outcome a caller sees.
+When that test's harness can't observe the outcome, the setup differs, so write a standalone test.
 
 Search before you write.
 If you haven't looked for the nearest existing test, you can't answer this question.
@@ -99,16 +103,20 @@ The goal is a **ratio**, not a cap: many tests at the bottom, very few at the to
 A thousand pure unit tests are cheaper and more reliable than ten that boot Django, which are cheaper than one Playwright run.
 Want more coverage? Add it at the bottom.
 
+Pick the cheapest rung that still observes what a caller observes.
+A lower rung that sees only an internal call, or a mock standing in for the code under test, is not a cheaper test of the same behavior; it tests something else.
+
 **When something is hard to test cheaply, that's a design signal — extract, don't escalate.**
 If the only way to exercise your logic is to stand up a database, a request, and a render, the logic is tangled with its dependencies.
-Pull it into a pure function or a kea logic and test _that_ directly: you get a faster test and better-factored code at once.
-Escalating to the next rung is the last resort, not the default.
+Pull it into a pure function or a kea logic and test it through that unit's own interface (the function's signature, the logic's actions and values): you get a faster test and better-factored code at once.
+Don't make the tangled code cheap to test by mocking its internal helpers instead; that test observes the mocks.
+When the behavior can't be pulled out, because it lives in a query, a transaction, or the wiring, test it at the rung where a caller observes it.
 
 When you extract a decision this way, such as the dedupe, routing, or eligibility rule that [.agents/architecture.md](../../architecture.md) keeps pure, put the case matrix on the pure function and keep one database-backed test as a wiring guard.
 Without that guard, a refactor that stops calling the decision passes every pure case.
 
 - If logic is in (or can be moved to) a pure function, test the function — don't stand up a DB, a request, or a render.
-- Frontend: test the **kea logic** (`logic.actions` / `logic.values`), not a full component render, whenever the behavior lives in the logic.
+- Frontend: when the behavior lives in a **kea logic**, test the logic, not a full component render: call its actions as a component would and assert on the `logic.values` a component reads.
   A `render()` + DOM-query test is for things only the DOM can show.
 - Reach for ClickHouse or a browser only when the regression genuinely lives there — not because it was the first way the test came to mind.
 
@@ -144,8 +152,9 @@ Without that guard, a refactor that stops calling the decision passes every pure
   Our pytest configuration makes `self.subTest` fail fast so CI can retry the test.
   Do not use the pytest `subtests` fixture: it leaves a failure in the junit file after a rerun passes.
 - **No doc comments** in Python tests (house rule).
-- Mock only **true boundaries** — network, external APIs, the clock, queues.
+- Use the real dependency where the test environment has it — Postgres, ClickHouse, Redis — not a mock of it.
   Don't mock your own internal helpers (that's how change-detector tests are born).
+  For the clock and for services CI can't reach, see the determinism rules below.
 - **Person/group/cohort data:** use the helpers in `posthog/test/persons.py` (`create_person`, `create_group`, `create_group_type_mapping`, `add_cohort_members`, etc.) — never `Person.objects.create()` or similar ORM calls directly.
   See [`posthog/test/AGENTS.md`](../../../posthog/test/AGENTS.md) for the full API reference and rationale.
 - **Whole-repo guards go in `posthog/test/repo_invariants/`.** If a test's input is the entire repo — it walks `apps.get_models()`, inspects `sys.modules` after a cold `django.setup()`, enumerates every route or signal receiver, or `rglob`s the tree against a baseline — any file anywhere can break it and diff-based test selection can't select it. That directory runs unconditionally in the `repo-checks` CI job on every backend PR (products-only and drafts included) with no Postgres/ClickHouse, and the Core shards skip it. Tests with a bounded input stay next to the code they cover.
@@ -170,7 +179,7 @@ Without that guard, a refactor that stops calling the decision passes every pure
   - For elapsed-time behavior, enable fake timers before starting the work and advance
     exactly the duration the behavior requires.
   - For a final async result, use `wait_for` / `waitFor` on the observable result.
-  - For an in-flight state, make the mocked boundary await a promise controlled by the
+  - For an in-flight state, make the faked boundary await a promise controlled by the
     test. Assert the pending state, release the promise, then assert the final state.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
@@ -215,7 +224,8 @@ Without that guard, a refactor that stops calling the decision passes every pure
   `expect(elapsedMs).toBeLessThan(2000)` measures the runner, not the code, and on shared CI the runner is whatever else is running on it.
   It is usually dead as well: when the code under test already has a shorter internal budget, that budget trips first, so the duration assertion can never be the one that fails.
   If a unit test must cover scale, assert the output at scale — every key present, nothing truncated — and leave the timing to a benchmark.
-- **No real network / live external services.** Mock the boundary.
+- **No real network / live external services.** Use a faithful fake of the service, one that answers with its real response shape, refuses what the real one refuses, and lets the test hold a response in flight.
+  Stub a boundary only to inject a fault the fake can't produce (a timeout, a 500, a dropped connection), then assert the outcome — the response, the stored row, the retry — not that the stub was called.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
 - **A test must not inherit the CI matrix mode.**
