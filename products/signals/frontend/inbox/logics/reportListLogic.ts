@@ -264,6 +264,7 @@ export interface reportListLogicValues {
     livePrReportIds: string[]
     loadedContext: ReportListRequestContext | null
     loadedPersonalFallback: boolean
+    loadedPersonalOrder: boolean
     loadedQueryKey: string | null
     loadedRanker: string | null
     loadedRankingPill: boolean
@@ -536,6 +537,7 @@ export interface reportListLogicMeta {
         loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
         loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
+        loadedPersonalOrder: (reportsResponse: ReportListResponse | null) => boolean
         loadedPersonalFallback: (reportsResponse: ReportListResponse | null) => boolean
     }
 }
