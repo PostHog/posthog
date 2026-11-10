@@ -320,26 +320,6 @@ class RetrieveFailedOutputSerializer(serializers.Serializer):
     error = serializers.CharField()
 
 
-class RetrieveOutputSerializer(serializers.Serializer):
-    """Retrieve serializer with all fields optional except status.
-
-    The actual conditional shape is described by the polymorphic schema in
-    @extend_schema. This serializer exists as a runtime/fallback type.
-    """
-
-    status = serializers.ChoiceField(choices=BatchExportRunStatus.choices)
-    error = serializers.CharField(required=False)
-    files = serializers.ListField(
-        child=serializers.UUIDField(),
-        required=False,
-    )
-    records_completed = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Number of rows this run exported.",
-    )
-
-
 class TooManyConcurrentFileDownloads(APIException):
     """Raised when a team creates too many file download batch exports."""
 
