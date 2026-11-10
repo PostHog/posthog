@@ -251,6 +251,20 @@ tools:
             Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source
             issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required
             `fingerprint` and optional `name` or `description`.
+    error-tracking-issues-tag-definitions-retrieve:
+        operation: error_tracking_issues_tag_definitions_retrieve
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking issue tags
+        description: >
+            List the issue tags enabled for the project, with the key, label and description of each. Use a key with
+            `error-tracking-issues-tag-partial-update` to correct the answer of an issue to that tag. The list is empty
+            when the project does not have issue tags.
     error-tracking-issues-tag-partial-update:
         operation: error_tracking_issues_tag_partial_update
         enabled: true
@@ -263,9 +277,10 @@ tools:
         title: Correct error tracking issue tag
         description: >
             Correct the answer of an error tracking issue to one tag. Provide the issue ID as `id`, the tag as `key`,
-            and the answer as `value`: true for yes, false for no, or null for unknown. A correction ranks above AI
-            answers, so a later AI answer does not replace it. The call fails with "Issue tags are off for this
-            project." when the project does not have issue tags.
+            and the answer as `value`: true for yes, false for no, or null for unknown. Get the keys from
+            `error-tracking-issues-tag-definitions-retrieve`. A correction ranks above AI answers, so a later AI answer
+            does not replace it. The call fails with "Issue tags are off for this project." when the project does not
+            have issue tags.
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
         enabled: true

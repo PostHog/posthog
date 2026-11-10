@@ -5510,8 +5510,23 @@
             "readOnlyHint": false
         }
     },
+    "error-tracking-issues-tag-definitions-retrieve": {
+        "description": "List the issue tags enabled for the project, with the key, label and description of each. Use a key with `error-tracking-issues-tag-partial-update` to correct the answer of an issue to that tag. The list is empty when the project does not have issue tags.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking issue tags",
+        "title": "List error tracking issue tags",
+        "required_scopes": ["error_tracking:read"],
+        "api_operations": ["GET /api/projects/{project_id}/error_tracking/issues/tag_definitions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-tag-partial-update": {
-        "description": "Correct the answer of an error tracking issue to one tag. Provide the issue ID as `id`, the tag as `key`, and the answer as `value`: true for yes, false for no, or null for unknown. A correction ranks above AI answers, so a later AI answer does not replace it. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
+        "description": "Correct the answer of an error tracking issue to one tag. Provide the issue ID as `id`, the tag as `key`, and the answer as `value`: true for yes, false for no, or null for unknown. Get the keys from `error-tracking-issues-tag-definitions-retrieve`. A correction ranks above AI answers, so a later AI answer does not replace it. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Correct error tracking issue tag",

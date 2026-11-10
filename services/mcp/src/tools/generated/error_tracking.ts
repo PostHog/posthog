@@ -390,6 +390,27 @@ const errorTrackingIssuesSplitCreate = (): ToolBase<
     },
 })
 
+const ErrorTrackingIssuesTagDefinitionsRetrieveSchema = () => z.object({})
+
+const errorTrackingIssuesTagDefinitionsRetrieve = (): ToolBase<
+    ReturnType<typeof ErrorTrackingIssuesTagDefinitionsRetrieveSchema>,
+    Schemas.ErrorTrackingIssueTagDefinitionsResponse
+> => ({
+    name: 'error-tracking-issues-tag-definitions-retrieve',
+    schema: ErrorTrackingIssuesTagDefinitionsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof ErrorTrackingIssuesTagDefinitionsRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingIssueTagDefinitionsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/tag_definitions/`,
+        })
+        return result
+    },
+})
+
 const ErrorTrackingIssuesTagPartialUpdateSchema = () => {
     const ErrorTrackingIssuesTagPartialUpdateBody = orvalSchemas.ErrorTrackingIssuesTagPartialUpdateBody()
     const ErrorTrackingIssuesTagPartialUpdateParams = orvalSchemas.ErrorTrackingIssuesTagPartialUpdateParams()
@@ -1016,6 +1037,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
+    'error-tracking-issues-tag-definitions-retrieve': errorTrackingIssuesTagDefinitionsRetrieve,
     'error-tracking-issues-tag-partial-update': errorTrackingIssuesTagPartialUpdate,
     'error-tracking-recommendations-list': errorTrackingRecommendationsList,
     'error-tracking-settings-get': errorTrackingSettingsGet,
