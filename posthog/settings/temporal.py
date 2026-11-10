@@ -146,6 +146,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 GATEWAY_COMPUTE_DEBIT_ENABLED: bool = get_from_env("GATEWAY_COMPUTE_DEBIT_ENABLED", False, type_cast=str_to_bool)
+GATEWAY_COMPUTE_SETTLE_SINCE: str | None = get_from_env("GATEWAY_COMPUTE_SETTLE_SINCE", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
@@ -480,6 +481,15 @@ ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES: int = get_from_env(
 if ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform metrics check starts"
+    )
+# The platform's traces batches allowed to run at once, across every team. A batch runs its
+# `trace_spans` queries one after another, so this bounds the concurrent traces alert queries.
+ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform traces check starts"
     )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)

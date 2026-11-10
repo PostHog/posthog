@@ -4,7 +4,7 @@ import * as climber2Png from '@posthog/brand/hoggies/png/climber-2'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 const HedgehogClimber = pngHoggie(climber2Png)
 
@@ -31,7 +31,7 @@ const HOG_REST_POSITION = '62%'
 export function DanglingHedgehog({ className }: { className?: string }): JSX.Element {
     // The visual-regression runner pins every animation to its last keyframe, and Storybook has
     // no reason to animate at all, so both render the hedgehog at rest.
-    const animated = !inStorybook() && !inStorybookTestRunner()
+    const animated = !inStorybook()
 
     return (
         <div

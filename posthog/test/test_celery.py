@@ -1,21 +1,41 @@
+import gc
 import os
 import threading
 
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import posthoganalytics
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 import posthog.celery
-from posthog.celery import _initialize_worker_metrics, on_worker_process_shutdown, write_heartbeat_when_worker_is_ready
+from posthog.celery import (
+    _initialize_worker_metrics,
+    freeze_objects_before_pool_forks,
+    on_worker_process_shutdown,
+    write_heartbeat_when_worker_is_ready,
+)
 from posthog.celery_task_names import (
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
     VERIFY_FLAGS_CACHE_TASK_NAME,
     VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
 )
 from posthog.tasks.tasks import clickhouse_errors_count
+
+
+class TestFreezeBeforePoolForks(TestCase):
+    @parameterized.expand([(True,), (False,)])
+    def test_freezes_the_objects_the_pool_will_inherit_only_when_enabled(self, enabled: bool) -> None:
+        gc.unfreeze()
+        self.addCleanup(gc.unfreeze)
+
+        with override_settings(GC_FREEZE_BEFORE_POOL_FORK=enabled):
+            freeze_objects_before_pool_forks()
+
+        self.assertEqual(gc.get_freeze_count() > 0, enabled)
 
 
 class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):

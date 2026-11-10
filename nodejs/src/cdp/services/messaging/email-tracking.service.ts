@@ -4,7 +4,6 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import {
-    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     HogFunctionType,
     LogEntry,
@@ -25,6 +24,7 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
+import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -32,12 +32,8 @@ export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAA
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
-// Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
-const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
-
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
-const SES_NO_TRACK_ATTR_REGEX = /\bses:no-track\b/i
 
 /**
  * How anchors in the email body are prepared for click attribution.
@@ -142,14 +138,11 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
-// The workflow version that is sending this message, for the tracking code minted below. A flow's
-// email runs as a hog function invocation built by spreading the flow invocation, so `hogFlow` is
-// present at runtime even though the type is the narrower hog function shape. A hog function send
-// has none, and its engagement lands in the version-agnostic series alone.
-export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHogFunction): number | undefined => {
-    return 'hogFlow' in invocation
-        ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
-        : undefined
+export const resolveEmailSendingAppSourceVersion = (
+    invocation: CyclotronJobInvocationHogFunction
+): { id: string; version: number } | undefined => {
+    const version = invocation.state.renderedWorkflowVersion
+    return version === undefined ? undefined : { id: invocation.functionId, version }
 }
 
 export const resolveEmailTrackingDistinctId = (
@@ -207,7 +200,7 @@ export const addTrackingToEmail = (
     // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
-    const trackingInvocation = { ...invocation, distinctId, workflowVersion: resolveEmailSendingVersion(invocation) }
+    const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
     // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
@@ -229,11 +222,10 @@ export const addTrackingToEmail = (
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
-        // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = sensitive || LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
+        const optedOut = sensitive || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -241,7 +233,7 @@ export const addTrackingToEmail = (
             // keeps a universal link or app deeplink off awstrack.me; leaving the href alone (the
             // `redirect` mode's opt-out) does nothing here.
             if (optedOut) {
-                return SES_NO_TRACK_ATTR_REGEX.test(openingTag)
+                return hasSesNoTrack(openingTag)
                     ? m
                     : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
             }
@@ -471,6 +463,7 @@ export class EmailTrackingService {
                 properties: {
                     $workflow_id: appSourceId,
                     $workflow_action_id: actionId,
+                    $workflow_invocation_id: invocationId,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },

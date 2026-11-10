@@ -26,12 +26,6 @@ class TestRerunSignalReportCommand(BaseTest):
             signal_count=1,
             run_count=2,
         )
-        quota_patch = patch(
-            "products.signals.backend.management.commands.rerun_signal_report.self_driving_quota_gate",
-            return_value=SimpleNamespace(enforced=False),
-        )
-        quota_patch.start()
-        self.addCleanup(quota_patch.stop)
         daily_limit_patch = patch(
             "products.signals.backend.management.commands.rerun_signal_report.daily_report_limit_gate",
             return_value=SimpleNamespace(limited=False),
@@ -44,12 +38,6 @@ class TestRerunSignalReportCommand(BaseTest):
         )
         usage_patch.start()
         self.addCleanup(usage_patch.stop)
-        trial_patch = patch(
-            "products.signals.backend.management.commands.rerun_signal_report.self_driving_free_trial_enabled",
-            return_value=False,
-        )
-        trial_patch.start()
-        self.addCleanup(trial_patch.stop)
 
     def command(self, *, execute: bool = False) -> str:
         output = StringIO()
@@ -100,6 +88,7 @@ class TestRerunSignalReportCommand(BaseTest):
         assert inputs.report_id == str(self.report.id)
         assert inputs.requested_implementation_user_id == self.user.id
         assert inputs.requested_after_run_count == 2
+        assert inputs.operator_rerun
 
     @patch.object(Command, "_workflow_is_running", new_callable=AsyncMock, return_value=True)
     def test_running_summary_workflow_blocks_restart(self, _running: AsyncMock) -> None:

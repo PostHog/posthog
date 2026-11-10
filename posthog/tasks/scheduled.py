@@ -49,6 +49,7 @@ from posthog.tasks.tasks import (
     clickhouse_row_count,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
+    delete_scheduled_event_definitions,
     fail_stuck_video_exports,
     find_flags_with_enriched_analytics,
     ingestion_lag,
@@ -127,6 +128,7 @@ from products.signals.backend.facade.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
+    recover_incomplete_spend,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
@@ -401,6 +403,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="40"),
         reconcile_report_inbox_state_cache.s(),
         name="reconcile signals report inbox state",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        recover_incomplete_spend.s(),
+        name="recover signals spend",
+        expires_seconds=10 * 60,
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
@@ -717,13 +727,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="26"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="28"),
         update_survey_adaptive_sampling.s(),
         name="update survey's sampling feature flag rollout  based on date",
     )
@@ -762,6 +772,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(minute="33"),
             fail_stuck_video_exports.s(),
             name="fail stuck video exports",
+        )
+
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/15"),
+            delete_scheduled_event_definitions.s(),
+            name="delete scheduled event definitions",
         )
 
         # Daily cleanup of expired onboarding delegation invites. `pre_delete` re-enables

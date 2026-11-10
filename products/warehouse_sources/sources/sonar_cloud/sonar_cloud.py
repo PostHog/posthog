@@ -238,6 +238,7 @@ def _fanout_source(
         page_size_param=None,
         parent_endpoint_extra={"data_selector": parent.data_key},
         child_endpoint_extra={"data_selector": config.data_key, "paginator": child_paginator},
+        child_params_extra={"organization": organization} if config.requires_organization else None,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_state,
         resume_parent_pagination=True,
