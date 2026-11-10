@@ -3,7 +3,8 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { Server } from 'http'
+import { Server, createServer } from 'http'
+import { AddressInfo } from 'net'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 import supertest from 'supertest'
@@ -538,9 +539,12 @@ describe('EmailTrackingService', () => {
             })
 
             it.each([
-                { captureEngagement: undefined, captured: 1 },
-                { captureEngagement: true, captured: 1 },
-                { captureEngagement: false, captured: 0 },
+                {
+                    captureEngagement: undefined,
+                    captured: ['$workflows_email_link_clicked', '$workflows_email_opened'],
+                },
+                { captureEngagement: true, captured: ['$workflows_email_link_clicked', '$workflows_email_opened'] },
+                { captureEngagement: false, captured: [] },
             ])(
                 'records the open and click of a delivered email, and captures them for the recipient when the send choice is $captureEngagement',
                 async ({ captureEngagement, captured }) => {
@@ -575,28 +579,45 @@ describe('EmailTrackingService', () => {
                     const pathOf = (url: string): string => `${new URL(url).pathname}${new URL(url).search}`
                     const pixel = delivered.match(/<img src="([^"]+)"/)![1]
                     const link = delivered.match(/<a href="([^"]+)"/)![1].replace(/&amp;/g, '&')
-                    mockInternalFetch.mockClear()
-
-                    expect((await supertest(app).get(pathOf(pixel))).status).toBe(200)
-                    const clicked = await supertest(app).get(pathOf(link))
-
-                    expect(clicked.status).toBe(302)
-                    expect(clicked.headers.location).toBe('https://example.com/docs')
-                    await waitForExpect(() => {
-                        const metrics = mockProducerObserver
-                            .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                            .filter(({ value }) => value.instance_id === sendId)
-                            .map(({ value }) => value.metric_name)
-                        expect(metrics).toEqual(expect.arrayContaining(['email_opened', 'email_link_clicked']))
+                    const received: { api_key: string; distinct_id: string; event: string }[] = []
+                    const capture = createServer((req, res) => {
+                        let body = ''
+                        req.on('data', (chunk) => (body += chunk))
+                        req.on('end', () => {
+                            received.push(parseJSON(body))
+                            res.writeHead(200, { 'Content-Type': 'application/json' })
+                            res.end('{}')
+                        })
                     })
-                    const capturedEvents = mockInternalFetch.mock.calls
-                        .map(([, options]) => parseJSON(String(options?.body)))
-                        .filter((event) => event.distinct_id === 'user-1')
-                        .map((event) => event.event)
-                    expect(capturedEvents.filter((event) => event === '$workflows_email_opened')).toHaveLength(captured)
-                    expect(capturedEvents.filter((event) => event === '$workflows_email_link_clicked')).toHaveLength(
-                        captured
-                    )
+                    await new Promise<void>((resolve) => capture.listen(0, '127.0.0.1', resolve))
+                    const captureUrl = hub.CAPTURE_INTERNAL_URL
+                    const stubbedFetch = mockInternalFetch.getMockImplementation()
+                    hub.CAPTURE_INTERNAL_URL = `http://127.0.0.1:${(capture.address() as AddressInfo).port}/capture`
+                    mockInternalFetch.mockImplementation(jest.requireActual('~/common/utils/request').internalFetch)
+                    try {
+                        expect((await supertest(app).get(pathOf(pixel))).status).toBe(200)
+                        const clicked = await supertest(app).get(pathOf(link))
+
+                        expect(clicked.status).toBe(302)
+                        expect(clicked.headers.location).toBe('https://example.com/docs')
+                        await waitForExpect(() => {
+                            const metrics = mockProducerObserver
+                                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                                .filter(({ value }) => value.instance_id === sendId)
+                                .map(({ value }) => value.metric_name)
+                            expect(metrics).toEqual(expect.arrayContaining(['email_opened', 'email_link_clicked']))
+                        })
+                        expect(
+                            received
+                                .filter((event) => event.api_key === team.api_token && event.distinct_id === 'user-1')
+                                .map((event) => event.event)
+                                .sort()
+                        ).toEqual(captured)
+                    } finally {
+                        mockInternalFetch.mockImplementation(stubbedFetch)
+                        hub.CAPTURE_INTERNAL_URL = captureUrl
+                        capture.close()
+                    }
                 }
             )
 
