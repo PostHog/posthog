@@ -84,8 +84,7 @@ class Command(BaseCommand):
         # leaves the query off for the next run, and no row lock waits on Temporal. Until then the flag
         # is on in memory only, where the failure paths of schedule_materialization switch it off.
         saved_query.is_materialized = True
-        # Only a legacy row still carries a cadence in the column; enabling no longer writes it. The
-        # default reconcile logs a failure and does not raise it, so a query that no tier runs
+        # The default reconcile logs a failure and does not raise it, so a query that no tier runs
         # counts as re-enabled. Reconcile below instead, where a failure raises.
         saved_query.schedule_materialization(frequency_target=saved_query.sync_frequency_interval, reconcile=False)
         if not saved_query.is_materialized:
@@ -93,8 +92,7 @@ class Command(BaseCommand):
         nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query).select_related(
             "dag", "dag__team"
         )
-        # A first enable that failed before its target landed leaves the node with no cadence, and
-        # no column to recover one from. Report that instead of switching on a query no tier runs.
+        # A first enable that failed before its target landed leaves the node with no cadence.
         if any(get_declared_target(node) is None for node in nodes):
             raise NoCadenceError("no frequency target to schedule it at, set one on the node first")
         for dag in {node.dag for node in nodes}:
