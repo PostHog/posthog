@@ -41,6 +41,7 @@ import { ExpressionModal } from 'products/data_warehouse/frontend/shared/compone
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { WarehouseTableAccessControlModal } from 'products/data_warehouse/frontend/shared/components/WarehouseTableAccessControlModal'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
 import {
@@ -491,6 +492,18 @@ function AccessControlModal(): JSX.Element | null {
         return null
     }
 
+    if (editingAccessControlObject.resource === AccessControlResourceType.WarehouseTable) {
+        return (
+            <WarehouseTableAccessControlModal
+                isOpen={accessControlModalOpen}
+                onClose={closeAccessControlModal}
+                tableId={editingAccessControlObject.resourceId}
+                title={editingAccessControlObject.name}
+                description="Control who can query this table. Users without access won't see it and queries referencing it will fail for them."
+            />
+        )
+    }
+
     return (
         <AccessControlObjectModal
             isOpen={accessControlModalOpen}
@@ -501,11 +514,7 @@ function AccessControlModal(): JSX.Element | null {
             description={
                 editingAccessControlObject.resource === AccessControlResourceType.ExternalDataSource
                     ? 'Control who can manage this source. Access set here also applies to its tables, unless a table has access rules of its own.'
-                    : `Control who can query this ${
-                          editingAccessControlObject.resource === AccessControlResourceType.WarehouseTable
-                              ? 'table'
-                              : 'view'
-                      }. Users without access won't see it and queries referencing it will fail for them.`
+                    : "Control who can query this view. Users without access won't see it and queries referencing it will fail for them."
             }
         />
     )
@@ -529,6 +538,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         isSourceQueryLastRun,
         selectedConnectionId,
         hasEditorChanges,
+        saveAsViewDisabledReason,
     } = useValues(sqlEditorLogic)
     const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget } = useActions(editorSceneLogic)
     const {
@@ -642,7 +652,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return saveAsInsightDisabledReason
         }
         if (target === 'view') {
-            return saveAsDisabledReason ?? saveAsViewAccessDisabledReason
+            return saveAsViewDisabledReason ?? saveAsDisabledReason ?? saveAsViewAccessDisabledReason
         }
         if (target === 'endpoint') {
             return saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason

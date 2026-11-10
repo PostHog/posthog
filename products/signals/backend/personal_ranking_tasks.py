@@ -18,9 +18,9 @@ def build_lock_key(team_id: int, user_id: int) -> str:
     return f"signals_personal_ranking_build/{team_id}/{user_id}"
 
 
-def _skip_build(team: Team, user: User, config: PersonalRankingConfig) -> bool:
+def _skip_build(team: Team, user: User, config: PersonalRankingConfig, limit: int | None) -> bool:
     """Compare the latest list with the current inputs, as the tick does. True when the build must not run."""
-    check = check_inputs(team, user, config, now=timezone.now())
+    check = check_inputs(team, user, config, now=timezone.now(), limit=limit)
     if check.unchanged:
         return True
     # The read did not gather the candidates, so it could not know whether the build calls the model.
@@ -43,7 +43,7 @@ def build_personal_inbox_ranking(
         if team is None or user is None:
             return
         config = read_config()
-        if check_first and _skip_build(team, user, config):
+        if check_first and _skip_build(team, user, config, limit):
             return
         build_personal_ranking(team, user, focus=focus, limit=limit, config=config)
     finally:

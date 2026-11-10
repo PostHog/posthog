@@ -100,6 +100,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             ),
         ]
 
+    @classmethod
+    def latest_completed_job_subquery(cls, team_id: int, field: str) -> Subquery:
+        return Subquery(
+            cls.objects.filter(pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED)
+            .order_by("-created_at")
+            .values(field)[:1]
+        )
+
     def folder_path(self) -> str:
         if self.schema:
             return self.schema.folder_path()
@@ -133,11 +141,7 @@ def latest_completed_job_subquery(team_id: int, field: str) -> Subquery:
     to a LEFT OUTER JOIN onto the job table plus a GROUP BY, so Postgres reads and sorts every
     completed job the team has ever run to produce one timestamp per source.
     """
-    return Subquery(
-        ExternalDataJob.objects.filter(pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED)
-        .order_by("-created_at")
-        .values(field)[:1]
-    )
+    return ExternalDataJob.latest_completed_job_subquery(team_id, field)
 
 
 def latest_completed_job_prefetch(

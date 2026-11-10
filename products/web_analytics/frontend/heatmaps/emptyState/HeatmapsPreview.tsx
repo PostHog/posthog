@@ -2,7 +2,7 @@ import './HeatmapsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored daily series of clicks on the page's primary button.
 const LINE = 'M 0 30 L 14 27 L 28 29 L 42 22 L 56 24 L 70 16 L 84 14 L 100 9'
@@ -19,7 +19,7 @@ function areaPath(line: string): string {
  * overlays share one grid cell and crossfade, so switching never moves the page.
  */
 export function HeatmapsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('HeatmapsPreview', isStatic && 'HeatmapsPreview--static')}>

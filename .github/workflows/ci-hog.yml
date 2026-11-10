@@ -31,6 +31,20 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   persist-credentials: false
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      /hog/
+                      /services/mcp/
+                      /tools/openapi-codegen/
+                      /packages/llm-normalizer/
+                      /packages/quill/
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /patches/
+                      /.husky/
+                      /bin/fix-rdkafka-paths
+                  sparse-checkout-cone-mode: false
 
             # The root package brings oxlint. `@posthog/hog...` brings hog and the workspace
             # packages it depends on.
