@@ -16,6 +16,7 @@ from products.alerts_platform.backend.delivery import refusal_notices
 from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
 from products.alerts_platform.backend.delivery.transport import DestinationRefused
 from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.alerts_platform.backend.logic import source_access
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.tests.delivery_messages import alert_message
 from products.logs.backend.models import LogsAlertConfiguration
@@ -49,19 +50,32 @@ class TestRefusalNotices(BaseTest):
                 legacy_configuration_id=self.legacy_alert_id,
             )
 
-    def _notify(self, creator: User | None, *, destination: str = "destination-1", now: datetime = NOW) -> list[UUID]:
+    def _notify(
+        self,
+        creator: User | None,
+        *,
+        destination: str = "destination-1",
+        now: datetime = NOW,
+        can_view: bool = True,
+    ) -> list[UUID]:
         looked_up: list[UUID] = []
 
         def creator_of(*, team_id: int, alert_id: UUID) -> int | None:
             looked_up.append(alert_id)
             return creator.id if creator is not None else None
 
+        def viewer_of(*, team_id: int, alert_id: UUID, user_id: int) -> bool:
+            return can_view and alert_id == self.legacy_alert_id
+
         message = replace(
             alert_message(),
             configuration_id=str(self.configuration.id),
             alert_url="https://app.example.com/project/1/insights/abc123/alerts?alert_id=a1",
         )
-        with patch.dict(refusal_notices._creators, {SourceKind.LOGS: creator_of}):
+        with (
+            patch.dict(refusal_notices._creators, {SourceKind.LOGS: creator_of}),
+            patch.dict(source_access._viewers, {SourceKind.LOGS: viewer_of}),
+        ):
             notify_refused(team_id=self.team.id, message=message, destination=destination, refusal=REFUSAL, now=now)
         return looked_up
 
@@ -90,14 +104,24 @@ class TestRefusalNotices(BaseTest):
         assert len({kwargs["campaign_key"] for _, kwargs in self.email.call_args_list}) == 3
         assert {call.args[0] for call in self.email.return_value.add_user_recipient.call_args_list} == {self.user}
 
-    @parameterized.expand([("left the organization", True), ("no recorded creator", False)])
-    def test_nobody_is_told_when_the_creator_cannot_be_reached(self, _name: str, has_creator: bool) -> None:
+    @parameterized.expand(
+        [
+            ("left the organization", "former", True),
+            ("no recorded creator", None, True),
+            ("lost access to the alert", "member", False),
+        ]
+    )
+    def test_nobody_is_told_when_the_creator_cannot_be_reached(
+        self, _name: str, creator_kind: str | None, can_view: bool
+    ) -> None:
         creator = None
-        if has_creator:
+        if creator_kind == "former":
             creator = User.objects.create_and_join(self.organization, "former@example.com", None)
             creator.leave(organization=self.organization)
+        elif creator_kind == "member":
+            creator = self.user
 
-        self._notify(creator)
+        self._notify(creator, can_view=can_view)
 
         assert self._recipients() == []
         self.email.assert_not_called()

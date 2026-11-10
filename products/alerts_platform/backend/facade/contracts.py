@@ -1510,6 +1510,16 @@ class SourceAlertCreator(Protocol):
     def __call__(self, *, team_id: int, alert_id: UUID) -> int | None: ...
 
 
+class SourceAlertViewer(Protocol):
+    """Whether a user may still see an alert, by the access rules the source applies to its alerts.
+
+    `alert_id` is the alert's public id, the source row's id. Returns False for an alert with no
+    such row. The caller has already checked that the user can access the project.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID, user_id: int) -> bool: ...
+
+
 @frozen
 class SlackMessageContent:
     text: str

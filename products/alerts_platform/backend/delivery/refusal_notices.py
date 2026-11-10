@@ -1,7 +1,8 @@
 """Tells an alert's creator when a destination refuses the alert's message, because every later message fails the same way.
 
-The creator gets an in-app notification and an email while they still have access to the project.
-They created the alert, so naming it to them shows nothing they could not already see. An alert
+The creator gets an in-app notification and an email while they can still access the project and
+see the alert, by the access rules of the source that owns it. A creator who lost access to an
+insight would otherwise learn the alert's name and status after losing it. An alert
 whose source records no creator is noticed by nobody. A source registers how to find an alert's
 creator when Django starts, because the platform imports no source. The email follows the creator's
 "Data pipeline errors" email setting, as other destination failure emails do.
@@ -29,6 +30,7 @@ from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DestinationRefused
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import SourceAlertCreator, SourceKind
+from products.alerts_platform.backend.logic import source_access
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -89,7 +91,7 @@ def notify_refused(
 
 
 def _creator(team_id: int, message: AlertMessage) -> User | None:
-    """The alert's creator, if they still have access to the project."""
+    """The alert's creator, if they can still access the project and see the alert."""
     lookup = _creators.get(message.source)
     if lookup is None:
         return None
@@ -101,10 +103,16 @@ def _creator(team_id: int, message: AlertMessage) -> User | None:
     )
     if configuration is None:
         return None
-    creator_id = lookup(team_id=team_id, alert_id=configuration.destination_alert_id)
+    alert_id = configuration.destination_alert_id
+    creator_id = lookup(team_id=team_id, alert_id=alert_id)
     if creator_id is None:
         return None
-    return Team.objects.get(id=team_id).all_users_with_access().filter(id=creator_id, is_active=True).first()
+    creator = Team.objects.get(id=team_id).all_users_with_access().filter(id=creator_id, is_active=True).first()
+    if creator is not None and source_access.can_view(
+        message.source, team_id=team_id, alert_id=alert_id, user_id=creator.id
+    ):
+        return creator
+    return None
 
 
 def _try(
