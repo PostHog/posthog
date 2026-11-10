@@ -35,6 +35,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsRecommendationRule,
     NativeMarketingSource,
     NodeKind,
     ProductIntentContext,
@@ -117,6 +118,38 @@ export interface DashboardGoalsConfigured {
     customerGoal: boolean
     revenueGoal: boolean
 }
+
+export type RecommendationsShownState =
+    | 'recommendations'
+    | 'empty'
+    | 'error'
+    | 'no_selected_source'
+    | 'no_connected_source'
+
+export interface RecommendationsShownProperties {
+    state: RecommendationsShownState
+    recommendation_count: number
+    rule_count: number
+    rules: MarketingAnalyticsRecommendationRule[]
+    has_save_impact: boolean
+    has_gain_impact: boolean
+    has_invest_impact: boolean
+    source_types: string[]
+    data_gap_count: number
+    intro_shown: boolean
+}
+
+export type RecommendationsEntryPoint = 'button' | 'intro'
+
+export type RecommendationsAction = 'connect_google_ads' | 'manage_source' | 'view_instructions' | 'open_step_link'
+
+export type RecommendationsActionLocation =
+    | 'section_empty'
+    | 'section_campaigns'
+    | 'section_data_gaps'
+    | 'modal_data_gaps'
+    | 'rule_banner'
+    | 'instructions'
 
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a
@@ -511,6 +544,38 @@ export interface marketingAnalyticsLogicActions {
         configured: DashboardGoalsConfigured
         section: string
     }
+    reportRecommendationsActionClicked: (
+        action: RecommendationsAction,
+        location: RecommendationsActionLocation,
+        rule?: MarketingAnalyticsRecommendationRule
+    ) => {
+        action: RecommendationsAction
+        location: RecommendationsActionLocation
+        rule: MarketingAnalyticsRecommendationRule | undefined
+    }
+    reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => {
+        rule: MarketingAnalyticsRecommendationRule | null
+    }
+    reportRecommendationsIntroDismissed: () => {
+        value: true
+    }
+    reportRecommendationsOpened: (
+        entryPoint: RecommendationsEntryPoint,
+        recommendationCount: number
+    ) => {
+        entryPoint: RecommendationsEntryPoint
+        recommendationCount: number
+    }
+    reportRecommendationsRuleSelected: (
+        rule: MarketingAnalyticsRecommendationRule,
+        ruleRecommendationCount: number
+    ) => {
+        rule: MarketingAnalyticsRecommendationRule
+        ruleRecommendationCount: number
+    }
+    reportRecommendationsShown: (properties: RecommendationsShownProperties) => {
+        properties: RecommendationsShownProperties
+    }
     saveConversionGoal: () => {
         value: true
     }
@@ -841,6 +906,22 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             control,
             value,
         }),
+        reportRecommendationsShown: (properties: RecommendationsShownProperties) => ({ properties }),
+        reportRecommendationsOpened: (entryPoint: RecommendationsEntryPoint, recommendationCount: number) => ({
+            entryPoint,
+            recommendationCount,
+        }),
+        reportRecommendationsIntroDismissed: true,
+        reportRecommendationsRuleSelected: (
+            rule: MarketingAnalyticsRecommendationRule,
+            ruleRecommendationCount: number
+        ) => ({ rule, ruleRecommendationCount }),
+        reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => ({ rule }),
+        reportRecommendationsActionClicked: (
+            action: RecommendationsAction,
+            location: RecommendationsActionLocation,
+            rule?: MarketingAnalyticsRecommendationRule
+        ) => ({ action, location, rule }),
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -1704,6 +1785,30 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
             reportDashboardControlUsed: ({ section, control, value }) => {
                 posthog.capture('marketing analytics dashboard control used', { section, control, value })
+            },
+            reportRecommendationsShown: ({ properties }) => {
+                posthog.capture('marketing analytics recommendations shown', properties)
+            },
+            reportRecommendationsOpened: ({ entryPoint, recommendationCount }) => {
+                posthog.capture('marketing analytics recommendations opened', {
+                    entry_point: entryPoint,
+                    recommendation_count: recommendationCount,
+                })
+            },
+            reportRecommendationsIntroDismissed: () => {
+                posthog.capture('marketing analytics recommendations intro dismissed')
+            },
+            reportRecommendationsRuleSelected: ({ rule, ruleRecommendationCount }) => {
+                posthog.capture('marketing analytics recommendations rule selected', {
+                    rule,
+                    rule_recommendation_count: ruleRecommendationCount,
+                })
+            },
+            reportRecommendationsClosed: ({ rule }) => {
+                posthog.capture('marketing analytics recommendations closed', { rule })
+            },
+            reportRecommendationsActionClicked: ({ action, location, rule }) => {
+                posthog.capture('marketing analytics recommendations action clicked', { action, location, rule })
             },
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
