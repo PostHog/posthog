@@ -46,7 +46,8 @@ class FileSystemSyncMixin(Model):
             fs_data = instance.get_file_system_representation()
             try:
                 team = instance.team  # type: ignore
-                delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
+                with transaction.atomic():
+                    delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
             except Team.DoesNotExist:
                 # Team was already deleted
                 pass
