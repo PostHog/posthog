@@ -39,7 +39,7 @@ from posthog.api.file_system.access_levels import (
     canonical_file_system_ref,
     denied_short_id_refs,
     entries_missing_access_level,
-    file_system_ref_canonical_pattern,
+    file_system_ref_alternate_spellings,
     filter_workflow_files_by_access_level,
 )
 from posthog.api.file_system.deletion import (
@@ -177,23 +177,23 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
     )
 
 
-def _stored_spellings(team_id: int, file_type: str, refs: set[str]) -> dict[str, set[str]]:
+def _stored_spellings(team_id: int, file_type: str, refs: set[str], surface: str) -> dict[str, set[str]]:
     spellings = {ref: {ref} for ref in refs}
-    canonical_pattern = file_system_ref_canonical_pattern(file_type)
-    if not refs or canonical_pattern is None:
+    canonical_by_spelling = {
+        spelling: ref for ref in refs for spelling in file_system_ref_alternate_spellings(file_type, ref)
+    }
+    if not canonical_by_spelling:
         return spellings
-    other_spellings = (
-        FileSystem.objects.filter(team_id=team_id, type=file_type, shortcut=False, ref__isnull=False)
-        .exclude(ref__regex=canonical_pattern)
+    stored_spellings = (
+        FileSystem.objects.filter(
+            surface_q(surface), team_id=team_id, type=file_type, shortcut=False, ref__in=canonical_by_spelling
+        )
         .values_list("ref", flat=True)
         .distinct()
     )
-    for stored in other_spellings:
-        if stored is None:
-            continue
-        canonical = canonical_file_system_ref(file_type, stored)
-        if canonical in spellings:
-            spellings[canonical].add(stored)
+    for stored in stored_spellings:
+        if stored is not None:
+            spellings[canonical_by_spelling[stored]].add(stored)
     return spellings
 
 
@@ -1153,7 +1153,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for team_id, file_type, ref, _row_key in entries_by_group:
             if ref:
                 refs_by_type.setdefault((team_id, file_type), set()).add(ref)
-        spellings_by_type = {key: _stored_spellings(key[0], key[1], refs) for key, refs in sorted(refs_by_type.items())}
+        spellings_by_type = {
+            key: _stored_spellings(key[0], key[1], refs, self.file_system_surface)
+            for key, refs in sorted(refs_by_type.items())
+        }
 
         objects_to_delete: builtins.list[tuple[str, str, int]] = []
         reaches_backing_object: dict[UUID, bool] = {}

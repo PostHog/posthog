@@ -2,6 +2,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional, cast
+from uuid import UUID
 
 from django.apps import apps
 from django.core.cache import cache
@@ -135,16 +136,31 @@ def canonical_file_system_ref(entry_type: str, ref: str) -> str:
     return _canonical_ref(registration, ref) if registration else ref
 
 
-def file_system_ref_canonical_pattern(entry_type: str) -> Optional[str]:
+def file_system_ref_alternate_spellings(entry_type: str, ref: str) -> set[str]:
     registration = get_file_system_registration(entry_type)
     if registration is None:
-        return None
+        return set()
     field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(registration.lookup_field)
     if isinstance(field, UUIDField):
-        return r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        try:
+            uuid_value = UUID(ref)
+        except ValueError:
+            return set()
+        bodies = {str(uuid_value), uuid_value.hex}
+        bodies |= {body.upper() for body in bodies}
+        wrapped = {
+            f"{prefix}{body}{suffix}" for body in bodies for prefix, suffix in (("", ""), ("{", "}"), ("urn:uuid:", ""))
+        }
+        return wrapped - {ref}
     if isinstance(field, IntegerField):
-        return r"^(0|-?[1-9][0-9]*)$"
-    return None
+        try:
+            int_value = int(ref)
+        except ValueError:
+            return set()
+        signs = ("-",) if int_value < 0 else ("", "+")
+        padded = {f"{sign}{'0' * zeros}{abs(int_value)}" for sign in signs for zeros in range(4)}
+        return padded - {ref}
+    return set()
 
 
 def _ref_translation_queryset(
