@@ -8,6 +8,8 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { FetchResponse } from '~/common/utils/request'
 
@@ -16,33 +18,66 @@ import { createInvocationResult } from '../../../utils/invocation-utils'
 import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
+import { RateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
 import { RecipientTokensService } from '../recipient-tokens.service'
+import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { AUTHORIZATION_TIMEOUT_MS } from './sandbox-authorization'
+import { SandboxEventProperties, SandboxTerminalOutcome } from './sandbox-email-events'
 import { CAPS_VALKEY_TIMEOUT_MS } from './sandbox-email-runtime'
 import { SANDBOX_TEST_SEND_PATH, sandboxEmailTestRouter } from './sandbox-email-test-route'
-import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
-import { SandboxSendOutcome } from './sandbox-email.service'
+import { SANDBOX_TEST_TIMEOUT_MS, SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
 import { SES_SEND_TIMEOUT_MS } from './sandbox-ses-client'
 
+type RecordedEvent = { teamId: number; outcome: SandboxTerminalOutcome; properties: SandboxEventProperties }
+
 describe('sandbox email test sends', () => {
+    const world = useSandboxWorld()
     const secret = 'sandbox-test-secret'
     const workerJwt = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SANDBOX_EMAIL_TEST, secret)
     let hogFlow: HogFlow
-    let send: jest.Mock<Promise<SandboxSendOutcome>>
-    let capture: jest.Mock
+    let events: RecordedEvent[]
     let app: express.Application
     let server: Server
+    let sesBucketKey: string
 
-    const serveWorker = (service: { send: typeof send } | null): void => {
+    const member = () => `member-${world.team.id}@example.com`
+
+    const sesBucket = (capacity: number): RateLimitedQueueOptions => ({
+        limiter: world.limiter('ses'),
+        key: sesBucketKey,
+        capacity,
+        refillPerSecond: 0.0001,
+        throttledPollDelayMs: 1000,
+    })
+
+    const serveWorker = ({
+        sendingOn = true,
+        faults,
+        bucket = null,
+    }: { sendingOn?: boolean; faults?: SandboxFaults; bucket?: RateLimitedQueueOptions | null } = {}): void => {
+        server?.close()
         app = setupExpressApp({ internalApiSecret: 'shared-internal-secret' })
-        app.use(sandboxEmailTestRouter({ jwt: workerJwt, service, events: { capture } }))
+        app.use(
+            sandboxEmailTestRouter({
+                jwt: workerJwt,
+                service: sendingOn ? world.service({ faults }) : null,
+                events: {
+                    capture: (teamId, outcome, properties) => {
+                        events.push({ teamId, outcome, properties })
+                        return Promise.resolve()
+                    },
+                },
+                sesBucket: bucket,
+            })
+        )
         server = app.listen(0, () => {})
     }
 
-    beforeEach(() => {
-        send = jest.fn().mockResolvedValue({ status: 'accepted', messageId: 'ses-1' })
-        capture = jest.fn().mockResolvedValue(undefined)
-        serveWorker({ send })
+    beforeEach(async () => {
+        await world.addMember(member())
+        events = []
+        sesBucketKey = `@posthog/ses/test-${world.team.id}`
+        serveWorker()
         hogFlow = new FixtureHogFlowBuilder()
             .withWorkflow({
                 actions: {
@@ -64,13 +99,15 @@ describe('sandbox email test sends', () => {
                 edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
             })
             .build()
+        hogFlow.team_id = world.team.id
     })
 
-    afterEach(() => {
+    afterEach(async () => {
         server.close()
+        await deleteKeysWithPrefix(world.valkey, sesBucketKey)
     })
 
-    const fetchThroughWorker = jest.fn(async (url: string, options: any): Promise<FetchResponse> => {
+    const fetchThroughWorker = async (url: string, options: any): Promise<FetchResponse> => {
         const response = await supertest(app)
             .post(new URL(url).pathname)
             .set(options.headers)
@@ -82,7 +119,7 @@ describe('sandbox email test sends', () => {
             text: () => Promise.resolve(response.text),
             dump: () => Promise.resolve(),
         }
-    })
+    }
 
     const tester = (fetch: SandboxEmailTesterDeps['fetch'] = fetchThroughWorker): SandboxEmailTester =>
         new SandboxEmailTester({
@@ -98,14 +135,13 @@ describe('sandbox email test sends', () => {
         })
 
     const testRun = (
-        hogExecutorOptions: ActionHandlerOptions<SandboxEmailAction>['hogExecutorOptions'] = {}
+        hogExecutorOptions: ActionHandlerOptions<SandboxEmailAction>['hogExecutorOptions'] = {},
+        email = member()
     ): ActionHandlerOptions<SandboxEmailAction> => {
         const invocation = createExampleHogFlowInvocation(
             hogFlow,
             { currentAction: { id: 'email', startedAtTimestamp: 0 } },
-            {
-                properties: { email: 'member@example.com' },
-            }
+            { properties: { email } }
         )
         return {
             invocation,
@@ -118,52 +154,98 @@ describe('sandbox email test sends', () => {
     it('renders in cdp-api and sends inline on the sandbox worker as a test', async () => {
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'accepted', message_id: 'ses-1' })
 
-        const workerDeadlinesMs = 2 * AUTHORIZATION_TIMEOUT_MS + 3 * CAPS_VALKEY_TIMEOUT_MS + SES_SEND_TIMEOUT_MS
-        expect(fetchThroughWorker.mock.calls.at(-1)![1].timeoutMs).toBeGreaterThan(workerDeadlinesMs)
-
-        expect(send).toHaveBeenCalledWith(
+        expect(world.ses.delivered).toEqual([
             expect.objectContaining({
-                teamId: hogFlow.team_id,
-                hogFlowId: hogFlow.id,
-                actionId: 'email',
-                isTest: true,
-                email: { to: { email: 'member@example.com' }, subject: 'Hi', text: 'x' },
-                categoryId: 'news',
-                categoryType: 'marketing',
-            })
+                to: [{ name: '', address: member() }],
+                subject: 'Hi',
+                tags: expect.objectContaining({
+                    ph_sbx_team: String(world.team.id),
+                    ph_sbx_flow: hogFlow.id,
+                    ph_sbx_action: 'email',
+                    ph_sbx_test: 'true',
+                }),
+            }),
+        ])
+        expect(events).toEqual([
+            {
+                teamId: world.team.id,
+                outcome: 'accepted',
+                properties: { workflow_id: hogFlow.id, action_id: 'email', is_test: true },
+            },
+        ])
+    })
+
+    it('waits for the worker longer than the worker can spend on one send', () => {
+        expect(SANDBOX_TEST_TIMEOUT_MS).toBeGreaterThan(
+            2 * AUTHORIZATION_TIMEOUT_MS + 3 * CAPS_VALKEY_TIMEOUT_MS + SES_SEND_TIMEOUT_MS
         )
-        expect(capture).toHaveBeenCalledWith(hogFlow.team_id, 'accepted', {
-            workflow_id: hogFlow.id,
-            action_id: 'email',
-            is_test: true,
-        })
     })
 
     it('sends a test of a workflow that is not saved yet', async () => {
         hogFlow.id = 'new'
 
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'accepted', message_id: 'ses-1' })
-        expect(send).toHaveBeenCalledWith(expect.objectContaining({ hogFlowId: 'new', isTest: true }))
+        expect(world.ses.delivered.map((email) => email.tags.ph_sbx_flow)).toEqual(['new'])
     })
 
-    it.each<[string, SandboxSendOutcome, object]>([
-        [
-            'a retryable refusal',
-            { status: 'retry', reason: 'cap_storage_unavailable' },
-            { status: 'pending', reason: 'cap_storage_unavailable' },
-        ],
-        ['a block', { status: 'skipped', reason: 'not_member' }, { status: 'skipped', reason: 'not_member' }],
-    ])('reports %s from the worker', async (_name, outcome, expected) => {
-        send.mockResolvedValue(outcome)
+    it("holds a test to the step's message category", async () => {
+        await world.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+             VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+            [world.team.id, member(), JSON.stringify({ news: 'OPTED_OUT' })],
+            'test:opt-out'
+        )
 
-        await expect(tester().send(testRun())).resolves.toEqual(expected)
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
+        expect(world.ses.delivered).toEqual([])
+    })
+
+    it('reports a retryable refusal from the worker as pending', async () => {
+        serveWorker({ faults: { capsLimiter: world.unreachableLimiter() } })
+
+        await expect(tester().send(testRun())).resolves.toEqual({
+            status: 'pending',
+            reason: 'cap_storage_unavailable',
+        })
+        expect(world.ses.delivered).toEqual([])
+    })
+
+    it('reports a block from the worker', async () => {
+        await expect(tester().send(testRun({}, 'stranger@example.com'))).resolves.toEqual({
+            status: 'skipped',
+            reason: 'not_member',
+        })
+        expect(world.ses.delivered).toEqual([])
     })
 
     it('skips the test when the worker has sending off', async () => {
-        server.close()
-        serveWorker(null)
+        serveWorker({ sendingOn: false })
 
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'skipped', reason: 'sending_disabled' })
+        expect(world.ses.delivered).toEqual([])
+    })
+
+    it('holds test sends to the SES send rate that queued sends share', async () => {
+        const bucket = sesBucket(2)
+        serveWorker({ bucket })
+        await bucket.limiter.claimUpTo({
+            key: bucket.key,
+            requested: 1,
+            capacity: bucket.capacity,
+            refillPerSecond: bucket.refillPerSecond,
+        })
+
+        await expect(tester().send(testRun())).resolves.toMatchObject({ status: 'accepted' })
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
+        expect(world.ses.delivered).toHaveLength(1)
+    })
+
+    it('refuses a test send while the SES send rate cannot be read', async () => {
+        serveWorker({ bucket: { ...sesBucket(5), limiter: world.unreachableLimiter() } })
+
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
+        expect(world.ses.delivered).toEqual([])
     })
 
     it.each([
@@ -177,11 +259,11 @@ describe('sandbox email test sends', () => {
         const response = await (token ? request.set('Authorization', `Bearer ${token}`) : request).send({
             hog_flow_id: hogFlow.id,
             action_id: 'email',
-            email: {},
+            email: { to: { email: member() }, subject: 'Hi', text: 'x' },
         })
 
         expect(response.status).toBe(403)
-        expect(send).not.toHaveBeenCalled()
+        expect(world.ses.delivered).toEqual([])
     })
 
     it.each([
@@ -198,25 +280,24 @@ describe('sandbox email test sends', () => {
         const response = await supertest(app)
             .post(SANDBOX_TEST_SEND_PATH.replace(':team_id', String(hogFlow.team_id)))
             .set('Authorization', `Bearer ${token}`)
-            .send({ hog_flow_id: hogFlow.id, action_id: 'email', email: {} })
+            .send({
+                hog_flow_id: hogFlow.id,
+                action_id: 'email',
+                email: { to: { email: member() }, subject: 'Hi', text: 'x' },
+            })
 
         expect(response.status).toBe(403)
-        expect(send).not.toHaveBeenCalled()
+        expect(world.ses.delivered).toEqual([])
     })
 
-    it('mocks a test run after rendering, with no network', async () => {
-        const fetch = jest.fn()
-
-        await expect(tester(fetch).send(testRun({ functions: {} }))).resolves.toEqual({ status: 'accepted' })
+    it('mocks a test run after rendering, and sends nothing', async () => {
+        await expect(tester().send(testRun({ functions: {} }))).resolves.toEqual({ status: 'accepted' })
 
         const action = hogFlow.actions.find((candidate) => candidate.id === 'email')!
         ;(action.config as any).inputs.email.value.subject = ''
         const failedRun = testRun({ functions: {} })
-        await expect(tester(fetch).send(failedRun)).resolves.toEqual({
-            status: 'failed',
-            reason: 'render_failed',
-        })
-        expect(fetch).not.toHaveBeenCalled()
+        await expect(tester().send(failedRun)).resolves.toEqual({ status: 'failed', reason: 'render_failed' })
+        expect(world.ses.delivered).toEqual([])
         expect(failedRun.result.logs.map(({ level, message }) => [level, message])).toContainEqual([
             'error',
             expect.stringContaining('failed to render: The rendered sandbox email is missing a recipient, subject'),
@@ -237,9 +318,7 @@ describe('sandbox email test sends', () => {
                 }),
         ],
     ])('reports a test the worker stops answering %s as pending, never as sent', async (_name, respond) => {
-        const fetch = jest.fn(respond)
-
-        await expect(tester(fetch).send(testRun())).resolves.toEqual({
+        await expect(tester(respond).send(testRun())).resolves.toEqual({
             status: 'pending',
             reason: 'sandbox_worker_unreachable',
         })

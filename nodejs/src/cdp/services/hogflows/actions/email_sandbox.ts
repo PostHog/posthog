@@ -112,7 +112,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
         stepResult: SandboxEmailStepResult
     ): ActionHandlerResult {
         if (stepResult.status === 'failed') {
-            return { result: stepResult, error: new Error(`Sandbox email was not sent: ${stepResult.reason}`) }
+            return { result: stepResult, error: new Error(failureMessage(stepResult.reason)) }
         }
         this.log(
             options,
@@ -130,6 +130,14 @@ export class SandboxEmailActionHandler implements ActionHandler {
             message: `${actionIdForLogging(action)} ${message}`,
         })
     }
+}
+
+const FAILURE_MESSAGES: Record<string, string> = {
+    send_rate_limited: 'Too many emails are being sent right now. Send the test again in a moment.',
+}
+
+function failureMessage(reason: string | undefined): string {
+    return (reason && FAILURE_MESSAGES[reason]) ?? `Sandbox email was not sent: ${reason}`
 }
 
 function toStepResult({ outcome, reason, messageId }: SandboxEmailOutcome): SandboxEmailStepResult {

@@ -39,6 +39,8 @@ import { RecipientPreferencesService } from '../messaging/recipient-preferences.
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { SandboxEmailService } from '../messaging/sandbox/sandbox-email.service'
 import { SandboxEmailSendStep } from '../messaging/sandbox/sandbox-email-step'
+import { SandboxMessage } from '../messaging/sandbox/sandbox-message'
+import { CdpBillableInvocation } from '../usage/cdp-usage-reporter.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { QueuedSend } from './transactional-email'
@@ -3120,8 +3122,17 @@ describe('Hogflow Executor', () => {
         }
 
         it('bills hog functions and own-domain email, and never a sandbox email in the same run', async () => {
-            const usageReporter = { reportBillableInvocation: jest.fn() }
-            const sandboxSes = { send: jest.fn().mockResolvedValue({ status: 'accepted', messageId: 'ses-1' }) }
+            const billed: CdpBillableInvocation[] = []
+            const usageReporter = {
+                reportBillableInvocation: (invocation: CdpBillableInvocation) => billed.push(invocation),
+            }
+            const sandboxMailbox: SandboxMessage[] = []
+            const sandboxSes = {
+                send: (message: SandboxMessage) => {
+                    sandboxMailbox.push(message)
+                    return Promise.resolve({ status: 'accepted' as const, messageId: 'ses-1' })
+                },
+            }
             executor = new HogFlowExecutorService(
                 hogFlowFunctionsService,
                 recipientPreferencesService,
@@ -3160,7 +3171,7 @@ describe('Hogflow Executor', () => {
                             ),
                             siteUrl: hub.SITE_URL,
                             recipientPreferences: recipientPreferencesService,
-                            events: { capture: jest.fn().mockResolvedValue(undefined) },
+                            events: { capture: () => Promise.resolve() },
                         }),
                     },
                 }
@@ -3327,8 +3338,8 @@ describe('Hogflow Executor', () => {
             )
             expect(emailBilling).toHaveLength(2)
 
-            expect(sandboxSes.send).toHaveBeenCalledTimes(1)
-            expect(usageReporter.reportBillableInvocation.mock.calls.map(([call]) => call.usageKey).sort()).toEqual([
+            expect(sandboxMailbox.map((message) => message.to.address)).toEqual(['member@example.com'])
+            expect(billed.map(({ usageKey }) => usageKey).sort()).toEqual([
                 'workflow_billable_invocations',
                 'workflow_billable_invocations',
                 'workflow_emails_sent',

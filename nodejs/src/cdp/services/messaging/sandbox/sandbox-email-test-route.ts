@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { ScopedServiceJwt } from '../../../utils/scoped-service-jwt'
 import { SandboxEmailStepResult } from '../../hogflows/actions/email_sandbox'
+import { RateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
 
@@ -23,6 +24,7 @@ export type SandboxEmailTestRouteDeps = {
     jwt: Pick<ScopedServiceJwt, 'enabled' | 'verify'>
     service: Pick<SandboxEmailService, 'send'> | null
     events: Pick<SandboxEmailEvents, 'capture'>
+    sesBucket: Pick<RateLimitedQueueOptions, 'limiter' | 'key' | 'capacity' | 'refillPerSecond'> | null
 }
 
 export function sandboxEmailTestRouter(deps: SandboxEmailTestRouteDeps): express.Router {
@@ -37,7 +39,7 @@ export function sandboxEmailTestRouter(deps: SandboxEmailTestRouteDeps): express
 }
 
 async function handleTestSend(
-    { jwt, service, events }: SandboxEmailTestRouteDeps,
+    { jwt, service, events, sesBucket }: SandboxEmailTestRouteDeps,
     req: express.Request,
     res: express.Response
 ): Promise<void> {
@@ -57,6 +59,10 @@ async function handleTestSend(
     }
     if (!service) {
         res.json({ status: 'skipped', reason: 'sending_disabled' } satisfies SandboxEmailStepResult)
+        return
+    }
+    if (sesBucket && !(await claimSendSlot(sesBucket))) {
+        res.json({ status: 'failed', reason: 'send_rate_limited' } satisfies SandboxEmailStepResult)
         return
     }
     const { hog_flow_id, action_id, email, message_category_id, message_category_type } = body.data
@@ -80,6 +86,15 @@ async function handleTestSend(
         })
     }
     res.json(toTestResult(outcome))
+}
+
+async function claimSendSlot({
+    limiter,
+    key,
+    capacity,
+    refillPerSecond,
+}: NonNullable<SandboxEmailTestRouteDeps['sesBucket']>): Promise<boolean> {
+    return (await limiter.claimUpTo({ key, requested: 1, capacity, refillPerSecond })) >= 1
 }
 
 function isAuthorized(

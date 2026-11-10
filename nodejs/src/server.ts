@@ -391,13 +391,13 @@ export class PluginServer implements NodeServer {
                     postgres: this.postgres!,
                     teamManager: cdpDeps!.teamManager,
                 })
-                // Shares the email worker's account-wide SES bucket, so both workers stay under one send rate.
                 const sesValkey = createSesRateLimiterValkeyPool(this.config)
-                const queue = sesValkey
+                const sesBucket = sesValkey ? sesRateLimitedQueueOptions(this.config, sesValkey) : null
+                const queue = sesBucket
                     ? new CyclotronJobQueueRateLimitedPostgresV2(
                           this.config.CONSUMER_BATCH_SIZE,
                           this.config,
-                          sesRateLimitedQueueOptions(this.config, sesValkey)
+                          sesBucket
                       )
                     : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmailSandbox(
@@ -413,6 +413,7 @@ export class PluginServer implements NodeServer {
                         ),
                         service: sandboxEmail?.service ?? null,
                         events: sandboxEmail?.events ?? new SandboxEmailEvents(cdpDeps!.teamManager),
+                        sesBucket,
                     })
                 )
                 await worker.start()
