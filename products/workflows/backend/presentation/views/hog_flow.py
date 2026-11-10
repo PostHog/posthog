@@ -4241,6 +4241,11 @@ class HogFlowGraphUpdateSerializer(serializers.Serializer):
     )
 
 
+class EmailStepSender(models.TextChoices):
+    SANDBOX = "sandbox", "sandbox"
+    OWN = "own", "own"
+
+
 class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
     base_updated_at = serializers.DateTimeField(
         required=False,
@@ -4271,7 +4276,7 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         ),
     )
     sender = serializers.ChoiceField(
-        choices=["sandbox", "own"],
+        choices=EmailStepSender.choices,
         required=False,
         help_text=(
             "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to "

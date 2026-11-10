@@ -1128,9 +1128,9 @@ export interface DesignOperationApi {
  * * `sandbox` - sandbox
  * * `own` - own
  */
-export type SenderEnumApi = (typeof SenderEnumApi)[keyof typeof SenderEnumApi]
+export type EmailStepSenderEnumApi = (typeof EmailStepSenderEnumApi)[keyof typeof EmailStepSenderEnumApi]
 
-export const SenderEnumApi = {
+export const EmailStepSenderEnumApi = {
     Sandbox: 'sandbox',
     Own: 'own',
 } as const
@@ -1146,7 +1146,7 @@ export interface PatchedHogFlowActionEmailUpdateApi {
      *
      * * `sandbox` - sandbox
      * * `own` - own */
-    sender?: SenderEnumApi
+    sender?: EmailStepSenderEnumApi
     /** With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
     drop_own_sender_settings?: boolean
 }

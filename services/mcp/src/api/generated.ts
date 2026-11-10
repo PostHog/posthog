@@ -38800,6 +38800,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `sandbox` - sandbox
+     * * `own` - own
+     */
+    export type EmailStepSenderEnum = typeof EmailStepSenderEnum[keyof typeof EmailStepSenderEnum];
+
+
+    export const EmailStepSenderEnum = {
+      Sandbox: 'sandbox',
+      Own: 'own',
+    } as const;
+
+    /**
      * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
      */
     export type EmailTemplateDesignCounters = { [key: string]: unknown };
@@ -85695,18 +85707,6 @@ export namespace Schemas {
       allowed_hostnames?: string[];
     }
 
-    /**
-     * * `sandbox` - sandbox
-     * * `own` - own
-     */
-    export type SenderEnum = typeof SenderEnum[keyof typeof SenderEnum];
-
-
-    export const SenderEnum = {
-      Sandbox: 'sandbox',
-      Own: 'own',
-    } as const;
-
     export interface PatchedHogFlowActionEmailUpdate {
       /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
       base_updated_at?: string;
@@ -85718,7 +85718,7 @@ export namespace Schemas {
        *
        * * `sandbox` - sandbox
        * * `own` - own */
-      sender?: SenderEnum;
+      sender?: EmailStepSenderEnum;
       /** With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
       drop_own_sender_settings?: boolean;
     }
