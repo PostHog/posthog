@@ -3,6 +3,7 @@ import uuid
 import typing as t
 from datetime import date, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -560,6 +561,41 @@ class TestExternalDataSource(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization)
         ExternalDataSource.objects.create(team=other_team, source_type="Stripe")
         self.assertEqual(self.client.get(url).json(), {"exists": False})
+
+    @parameterized.expand(
+        [
+            ("schema_status", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(status="Running")),
+            ("sync_toggle", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False)),
+            (
+                "row_count",
+                lambda schema: DataWarehouseTable.objects.filter(pk=schema.table_id).update(row_count=10),
+            ),
+            (
+                "completed_run",
+                lambda schema: ExternalDataJob.objects.create(
+                    team_id=schema.team_id,
+                    pipeline_id=schema.source_id,
+                    schema=schema,
+                    status=ExternalDataJob.Status.COMPLETED,
+                ),
+            ),
+            ("schema_deleted", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(deleted=True)),
+            (
+                "source_deleted",
+                lambda schema: ExternalDataSource.objects.filter(pk=schema.source_id).update(deleted=True),
+            ),
+        ]
+    )
+    def test_sync_state_fingerprint_changes_only_with_sync_state(self, _name, change_sync_state) -> None:
+        schema = self._make_schema_with_table(self._make_source("tracked"), "Customer", status="Completed")
+        url = f"/api/projects/{self.team.pk}/external_data_sources/sync_state/"
+        before = self.client.get(url).json()["fingerprint"]
+        other_team = Team.objects.create(organization=self.organization)
+        ExternalDataSource.objects.create(team=other_team, source_type="Stripe")
+
+        assert self.client.get(url).json()["fingerprint"] == before
+        change_sync_state(schema)
+        assert self.client.get(url).json()["fingerprint"] != before
 
     def test_list_serializes_trimmed_schema_shape_while_retrieve_stays_full(self):
         # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
@@ -13279,6 +13315,19 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
         assert "data-warehouse-stored-credentials-list" in data["instructions"]
         assert "credential_id" in data["instructions"]
 
+    @parameterized.expand(
+        [
+            ("browser_session", {}, "web"),
+            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard; version: 2.0.0"}, "wizard"),
+        ]
+    )
+    def test_connect_link_names_the_surface_that_made_it(self, _name, headers, expected_source):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/connect_link?source_type=Postgres", **headers
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert parse_qs(urlparse(response.json()["connect_url"]).query)["utm_source"] == [expected_source]
+
     def test_connect_link_missing_source_type(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connect_link")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -13941,6 +13990,55 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()
         assert [result["credential_id"] for result in results] == [str(stripe_credential.pk)]
+
+    @parameterized.expand(
+        [
+            ("none_stored", [], "Postgres", 0, [], 0),
+            ("one_match", [("Postgres", False)], "Postgres", 1, [], 0),
+            ("several_matches", [("Postgres", False), ("Postgres", False)], "Postgres", 2, [], 0),
+            ("other_spelling", [("Postgres", False)], "postgres", 0, ["Postgres"], 0),
+            ("other_kind", [("Supabase", False), ("Postgres", False)], "Postgres", 1, ["Supabase"], 0),
+            ("teammate_stored_it", [("Postgres", True)], "Postgres", 0, [], 1),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.credential_store.report_user_action"
+    )
+    def test_stored_credentials_list_reports_what_the_lookup_found(
+        self,
+        _name,
+        stored,
+        requested_source_type,
+        expected_count,
+        expected_other_source_types,
+        expected_other_user_count,
+        mock_report,
+    ):
+        teammate = self._create_user("teammate@posthog.com")
+        for source_type, by_teammate in stored:
+            PendingSourceCredential.objects.for_team(self.team.pk).create(
+                team=self.team,
+                source_type=source_type,
+                payload={"password": "hunter2"},
+                created_by=teammate if by_teammate else self.user,
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/",
+            {"source_type": requested_source_type},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == expected_count
+        mock_report.assert_called_once()
+        assert mock_report.call_args.args[1] == "data warehouse stored credentials listed"
+        properties = mock_report.call_args.args[2]
+        assert properties == {
+            "source_type": requested_source_type,
+            "credential_count": expected_count,
+            "other_source_types": expected_other_source_types,
+            "other_user_credential_count": expected_other_user_count,
+        }
 
     def test_stored_credentials_list_orders_newest_first(self):
         older = PendingSourceCredential.objects.for_team(self.team.pk).create(

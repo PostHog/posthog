@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
-from posthog.models.integration import Integration
 
 from products.slack_app.backend.facade.enums import SlackSetupEntry
 from products.slack_app.backend.facade.types import ChannelJoinResult, ChannelOption, SlackSetupNotFound, WorkspaceSetup
@@ -99,6 +98,13 @@ logger = structlog.get_logger(__name__)
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE})
 
 
+def _slack_workspace_id(integration_id: int) -> str | None:
+    try:
+        return IntegrationManager.slack.any.get_by_id(integration_id).integration_id
+    except IntegrationNotFound:
+        return None
+
+
 def invalidate_slack_integration_auth_state(integration_id: int) -> None:
     """Drop the cached auth verdict for ``integration_id``.
 
@@ -111,13 +117,7 @@ def invalidate_slack_integration_auth_state(integration_id: int) -> None:
     invalidate_auth_state(integration_id)
     # Cache invalidation on the caller's own row, id straight from core's OAuth completion
     # path rather than user input; only the Slack workspace id is read off it.
-    slack_team_id = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id, kind="slack"
-        )
-        .values_list("integration_id", flat=True)
-        .first()
-    )
+    slack_team_id = _slack_workspace_id(integration_id)
     if slack_team_id:
         invalidate_workspace_bot_user_id(slack_team_id)
 
@@ -166,11 +166,7 @@ def slack_followup_invite(
 def record_slack_feature_used(integration_id: int, slack_user_id: str | None, feature: SlackFeature) -> None:
     """Never raises, so a caller can record use from inside the feature's own code path."""
     try:
-        slack_workspace_id = (
-            Integration.objects.filter(id=integration_id, kind="slack")  # nosemgrep: idor-lookup-without-team
-            .values_list("integration_id", flat=True)
-            .first()
-        )
+        slack_workspace_id = _slack_workspace_id(integration_id)
     except Exception:
         logger.warning("slack_app_feature_used_lookup_failed", integration_id=integration_id, exc_info=True)
         return
