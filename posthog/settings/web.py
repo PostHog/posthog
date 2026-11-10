@@ -1020,6 +1020,13 @@ FIRECRAWL_EGRESS_PER_MINUTE_BUDGET = get_from_env("FIRECRAWL_EGRESS_PER_MINUTE_B
 FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 1000, type_cast=int)
 
 ####
+# Perplexity (outbound Agent API calls, see posthog/egress/perplexity/)
+PERPLEXITY_API_KEY = get_from_env("PERPLEXITY_API_KEY", "")
+# Operator ceilings on spend rather than Perplexity's tier limits, which the process can't see.
+PERPLEXITY_EGRESS_PER_MINUTE_BUDGET = get_from_env("PERPLEXITY_EGRESS_PER_MINUTE_BUDGET", 60, type_cast=int)
+PERPLEXITY_EGRESS_HOURLY_BUDGET = get_from_env("PERPLEXITY_EGRESS_HOURLY_BUDGET", 2000, type_cast=int)
+
+####
 # TypeSafe (System One judgments from the Jev model, see posthog/egress/typesafe/)
 TYPESAFE_API_KEY = get_from_env("TYPESAFE_API_KEY", "")
 # Half of TypeSafe's published per-minute request limit, which can change without notice.
@@ -1518,6 +1525,9 @@ AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
 # killed run only pick up the prompts it missed, however late the previous day's run finished.
 AEO_RUN_DAY_START_UTC_HOUR = get_from_env("AEO_RUN_DAY_START_UTC_HOUR", 7, type_cast=int)
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
+# The Perplexity engine also needs PERPLEXITY_API_KEY. It stays off until legal confirms which
+# Perplexity terms cover the stored web_search output.
+AEO_PERPLEXITY_ENABLED = get_from_env("AEO_PERPLEXITY_ENABLED", False, type_cast=str_to_bool)
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
 
