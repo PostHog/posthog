@@ -5,7 +5,8 @@ never imports the product and nothing loads until a run needs it. Self-driving c
 the start of every pass, so the agent always reads the entity as it is at that time.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from django.utils.module_loading import import_string
 
@@ -57,6 +58,31 @@ def register_agent_source(
     _SOURCES[_SourceKey(agent=agent, product=product, type=type)] = AgentSource(
         load=load, on_result=on_result, on_fix_run_ended=on_fix_run_ended
     )
+
+
+@contextmanager
+def agent_source_registered(
+    *,
+    agent: str,
+    product: str,
+    type: str,
+    load: str,
+    on_result: str,
+    on_fix_run_ended: str | None = None,
+) -> Iterator[None]:
+    """Register a source for the length of a block, then put back what was registered before. For tests."""
+    key = _SourceKey(agent=agent, product=product, type=type)
+    previous = _SOURCES.get(key)
+    register_agent_source(
+        agent=agent, product=product, type=type, load=load, on_result=on_result, on_fix_run_ended=on_fix_run_ended
+    )
+    try:
+        yield
+    finally:
+        if previous is None:
+            _SOURCES.pop(key, None)
+        else:
+            _SOURCES[key] = previous
 
 
 def get_agent_source(*, agent: str, product: str, type: str) -> AgentSource | None:

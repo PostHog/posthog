@@ -58,6 +58,7 @@ from products.signals.backend.spend import (
     record_task_spend,
     register_report_task_spend,
     report_triggering_signal,
+    scout_implementation_spend_kind,
     signal_spend_summaries,
     signal_spend_totals,
 )
@@ -385,7 +386,13 @@ class TestSignalSpend(BaseTest):
         assert rows.get(task_run_id=rerun.id).signal_id == UUID(other)
         assert set(rows.values_list("kind", flat=True)) == {stage}
 
-    @parameterized.expand([("reviewer_triggered_implementation",), ("scout_triggered_implementation",)])
+    @parameterized.expand(
+        [
+            ("reviewer_triggered_implementation",),
+            ("scout_triggered_implementation",),
+            ("agent_run_triggered_implementation",),
+        ]
+    )
     def test_each_kind_finalizes_independently_and_new_implementation_keeps_settled_rows(
         self, implementation_kind: str
     ) -> None:
@@ -897,6 +904,34 @@ class TestSignalSpend(BaseTest):
         assert scout.total_spend == Decimal("16.3457")
         assert scout.metadata is not None
         assert scout.metadata["spend_accounting_failed_stages"] == []
+
+    @parameterized.expand([(None, "scout_run"), (SignalSpend.Kind.AGENT_RUN, "agent_run")])
+    def test_a_scout_run_receipt_takes_the_kind_of_what_started_the_run(
+        self, scout_run_kind: SignalSpend.Kind | None, expected: str
+    ) -> None:
+        task_run = self._run()
+        scout = SignalScoutRun.objects.for_team(self.team.id).create(
+            team=self.team, task_run=task_run, skill_name="example-scout", skill_version=1
+        )
+
+        record_task_spend(
+            team_id=self.team.id,
+            run_id=str(task_run.id),
+            scout_run_id=str(scout.id),
+            stage="scout",
+            scout_run_kind=scout_run_kind,
+        )
+
+        assert SignalSpend.objects.for_team(self.team.id).get(scout_run=scout).kind == expected
+
+    @parameterized.expand(
+        [
+            ("signals-scout-support-ticket", "agent_run_triggered_implementation"),
+            ("signals-scout-general", "scout_triggered_implementation"),
+        ]
+    )
+    def test_a_fix_takes_the_spend_kind_of_the_scout_that_started_it(self, skill_name: str, expected: str) -> None:
+        assert scout_implementation_spend_kind(skill_name) == expected
 
     @parameterized.expand([("subscription",), ("missing_cost",), ("gateway_error",)])
     def test_task_cost_failure_distinguishes_permanent_from_recoverable(self, failure: str) -> None:

@@ -3889,7 +3889,7 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             raise exceptions.NotFound()
         skill_name = config.skill_name
         if skill_name in SYSTEM_SCOUT_NAMES:
-            raise exceptions.ValidationError("This scout runs once during onboarding.")
+            raise exceptions.ValidationError("Self-driving runs this scout itself. It cannot be run by hand.")
         # A withheld scout is invisible across the whole config API (it's excluded from list), so a
         # run request for one is a 404 here too — and the runner would refuse it anyway. Resolved
         # against the canonical team, matching `list`/`sync`.

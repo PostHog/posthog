@@ -24,7 +24,7 @@ SELECT
     sum(a.credits) AS recorded_credits,
     sumIf(a.credits, a.kind = 'ad-hoc') AS processing_credits,
     sumIf(a.credits, a.kind IN ('research', 'repo_selection')) AS research_credits,
-    sumIf(a.credits, a.kind IN ('reviewer_triggered_implementation', 'scout_triggered_implementation')) AS implementation_credits
+    sumIf(a.credits, a.kind IN ('reviewer_triggered_implementation', 'scout_triggered_implementation', 'agent_run_triggered_implementation')) AS implementation_credits
 FROM (
     SELECT
         s.credits AS credits,
@@ -37,7 +37,7 @@ FROM (
             ifNull(toString(signal_id), '') AS signal_key
         FROM system.signal_spend
         WHERE finalized_at >= {date_from} AND finalized_at < {date_to}
-            AND kind != 'scout_run'
+            AND kind NOT IN ('scout_run', 'agent_run')
     ) AS s
     LEFT JOIN (
         SELECT toString(id) AS rid, toString(triggering_signal_id) AS trigger_key

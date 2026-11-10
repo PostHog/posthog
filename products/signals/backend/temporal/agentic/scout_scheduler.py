@@ -107,6 +107,8 @@ class RunSignalsScoutInput:
     # tick. 0 for every other trigger, so those runs start at once.
     start_delay_seconds: int = 0
     monitoring_check: MonitoringScoutCheck | None = None
+    # The `SignalAgentRun` pass an `agent_run` dispatch belongs to. The run loads its record through it.
+    agent_run_id: str | None = None
 
 
 @frozen
@@ -440,6 +442,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 check_id=input.check_id,
                 precheck_rows=input.precheck_rows,
                 precheck_query_source=input.precheck_query_source,
+                agent_run_id=input.agent_run_id,
             )
         run_started = result.run_id is not None
     except SkillNotFoundError:
@@ -842,6 +845,17 @@ def start_check_signals_scout_run(
         check_id=check_id,
         check_dispatched_at=dispatched_at,
     )
+
+
+def agent_run_scout_workflow_id(team_id: int, skill_name: str, entity_key: str) -> str:
+    """Deterministic workflow id for the scout run of one pass of an agent over one record.
+
+    The other off-schedule ids are per `(team, skill)`. This one adds the record, because the skill
+    runs for many records at once and only two runs for the same record must not overlap. The agent
+    run workflow starts the scout run as its child under this id (`temporal/agent_run.py`).
+    """
+    entity_digest = hashlib.sha256(entity_key.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+    return f"{_off_schedule_run_workflow_id('signals-scout-agent-run', team_id, skill_name)}-{entity_digest}"
 
 
 def start_workflow_signals_scout_run(

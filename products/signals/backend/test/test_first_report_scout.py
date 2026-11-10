@@ -14,7 +14,11 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team, User
 
 from products.notifications.backend.facade.api import create_notification
-from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.constants import (
+    FIRST_REPORT_SCOUT,
+    FIRST_REPORT_SCOUT_TIMEOUT_SECONDS,
+    SUPPORT_TICKET_SCOUT,
+)
 from products.signals.backend.first_report_completion import complete_first_report_investigation
 from products.signals.backend.first_report_experiment import (
     first_report_outcome_properties,
@@ -92,12 +96,13 @@ class TestFirstReportExperiment(SimpleTestCase):
 
 
 class TestFirstReportScout(BaseTest):
-    def test_system_scout_never_enters_the_scheduled_fleet(self) -> None:
-        LLMSkill.objects.create(team=self.team, name=FIRST_REPORT_SCOUT, body="# First report", is_latest=True)
-        assert FIRST_REPORT_SCOUT not in register_missing_configs(self.team.id)
-        assert not SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name=FIRST_REPORT_SCOUT).exists()
-        SignalScoutConfig.objects.create(team=self.team, skill_name=FIRST_REPORT_SCOUT, enabled=True)
-        assert FIRST_REPORT_SCOUT not in live_scout_skill_names(self.team.id)
+    @parameterized.expand([(FIRST_REPORT_SCOUT,), (SUPPORT_TICKET_SCOUT,)])
+    def test_system_scout_never_enters_the_scheduled_fleet(self, skill_name: str) -> None:
+        LLMSkill.objects.create(team=self.team, name=skill_name, body="# System scout", is_latest=True)
+        assert skill_name not in register_missing_configs(self.team.id)
+        assert not SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name=skill_name).exists()
+        SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, enabled=True)
+        assert skill_name not in live_scout_skill_names(self.team.id)
 
     def setUp(self) -> None:
         super().setUp()

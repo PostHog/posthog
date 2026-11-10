@@ -10,10 +10,13 @@ from products.signals.backend.agent_run_links import (
     get_attached as get_attached,
     linked_entities as linked_entities,
 )
+from products.signals.backend.agent_run_requests import request_agent_run as request_agent_run
 from products.signals.backend.agent_run_types import (
     AgentEntity as AgentEntity,
     AgentEntityContent as AgentEntityContent,
+    AgentRunHandle as AgentRunHandle,
     AgentRunOutcome as AgentRunOutcome,
+    AgentRunRequestState as AgentRunRequestState,
     AgentRunResult as AgentRunResult,
     Attached as Attached,
     AttachedReport as AttachedReport,

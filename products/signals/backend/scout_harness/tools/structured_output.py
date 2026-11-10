@@ -26,6 +26,12 @@ Cardinality is deliberately the scout's call, not a config mode: the schema desc
 record, and the scout may submit one per run, one per judged entity, or a batch per call
 (`MAX_RECORDS_PER_CALL`), bounded per run by `MAX_RECORDS_PER_RUN` via a counter on the
 run row.
+
+One kind of run is the exception to "the events are the record": a run that another product
+asked for on one of its records (`agent_run_requests.request_agent_run`). Its record is the
+answer to that product and can hold text derived from the record, which people who can read
+the project's events are not always allowed to read. So it is validated the same way, kept on
+the run's `SignalAgentRun` row, and never becomes an event.
 """
 
 from __future__ import annotations
@@ -48,7 +54,9 @@ from posthog.api.capture import capture_batch_internal
 from posthog.event_usage import groups
 from posthog.models import Team
 
+from products.signals.backend.agent_run_passes import store_agent_run_output
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.run_gates import AGENT_RUN_ID_METADATA_KEY
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 
 logger = logging.getLogger(__name__)
@@ -224,6 +232,9 @@ def record_structured_output_sync(
     schema = _resolve_schema(team, run)
     _validate_records(records, schema)
     _reserve_capacity(team=team, run=run, count=len(records))
+    if _agent_run_id(run) is not None:
+        _return_to_requester(team=team, run=run, records=records)
+        return RecordStructuredOutputResult(recorded_count=len(records), record_ids=[])
     forwards = _build_forwards(run=run, records=records)
     _forward_structured_output_events(team=team, run=run, forwards=forwards)
     _capture_recorded(team=team, run=run, recorded_count=len(records))
@@ -247,6 +258,9 @@ async def record_structured_output(
     schema = await database_sync_to_async(_resolve_schema, thread_sensitive=False)(team, run)
     _validate_records(records, schema)
     await database_sync_to_async(_reserve_capacity, thread_sensitive=False)(team=team, run=run, count=len(records))
+    if _agent_run_id(run) is not None:
+        await database_sync_to_async(_return_to_requester, thread_sensitive=False)(team=team, run=run, records=records)
+        return RecordStructuredOutputResult(recorded_count=len(records), record_ids=[])
     forwards = _build_forwards(run=run, records=records)
     # One blocking batch HTTP POST; `to_thread` keeps it off the event loop without
     # occupying the DB-thread pool for the HTTP leg.
@@ -258,6 +272,23 @@ async def record_structured_output(
         recorded_count=len(records),
         record_ids=[forward.event_uuid for forward in forwards],
     )
+
+
+def _agent_run_id(run: SignalScoutRun) -> str | None:
+    """The pass this run belongs to, when another product asked for the run."""
+    agent_run_id = (run.metadata or {}).get(AGENT_RUN_ID_METADATA_KEY)
+    return agent_run_id if isinstance(agent_run_id, str) else None
+
+
+def _return_to_requester(*, team: Team, run: SignalScoutRun, records: list[StructuredOutputRecord]) -> None:
+    """Keep the run's record for the product that asked for the run. The last record of a batch wins."""
+    agent_run_id = _agent_run_id(run)
+    if agent_run_id is None or not store_agent_run_output(
+        team_id=team.id, agent_run_id=agent_run_id, payload=records[-1].payload
+    ):
+        raise InvalidStructuredOutputError(
+            "The request this run answers is not waiting for a record any more, so nothing was recorded."
+        )
 
 
 def _assert_team_owns_run(team: Team, run: SignalScoutRun) -> None:

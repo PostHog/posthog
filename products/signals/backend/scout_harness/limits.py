@@ -181,6 +181,9 @@ TRIGGERED_BY_WORKFLOW = "workflow"
 # threshold derived from that cadence.
 TRIGGERED_BY_CHECK = "check"
 TRIGGERED_BY_MONITORING = "monitoring"
+# Another product asked for a run on one of its records (`agent_run_requests.request_agent_run`).
+# Many such runs of one skill are live at once, so single-flight for this source is per record.
+TRIGGERED_BY_AGENT_RUN = "agent_run"
 
 # Minimum gap between two workflow-triggered runs of the same (team, skill), enforced scout-side.
 # The workflow layer has its own first line of defence (trigger masking), but that lives in

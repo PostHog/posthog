@@ -18,6 +18,7 @@ from asgiref.sync import async_to_sync
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 
+from products.signals.backend.constants import AGENT_RUN_SCOUT_NAMES
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.spend_billing import (
@@ -271,6 +272,13 @@ def _save_scout_total(spend: SignalSpend) -> None:
         )
 
 
+def scout_implementation_spend_kind(skill_name: str | None) -> str:
+    """The spend kind of a fix that a scout's report started."""
+    if skill_name in AGENT_RUN_SCOUT_NAMES:
+        return SignalSpend.Kind.AGENT_RUN_TRIGGERED_IMPLEMENTATION.value
+    return SignalSpend.Kind.SCOUT_TRIGGERED_IMPLEMENTATION.value
+
+
 def record_task_spend(
     *,
     team_id: int,
@@ -280,21 +288,21 @@ def record_task_spend(
     scout_run_id: str | None = None,
     report_id: str | None = None,
     implementation_kind: str | None = None,
+    scout_run_kind: SignalSpend.Kind | None = None,
 ) -> None:
     from products.tasks.backend.facade.billing import locked_task_run_spend  # noqa: PLC0415
 
     if scout_run_id:
-        kind = SignalSpend.Kind.SCOUT_RUN
+        kind = scout_run_kind or SignalSpend.Kind.SCOUT_RUN
+        if kind not in SignalSpend.SCOUT_RUN_KINDS:
+            raise ValueError("A scout run requires a scout run spend kind")
         signal_id, report_id = None, None
     elif stage == "custom_agent":
         kind = SignalSpend.Kind.CUSTOM_AGENT
         signal_id, report_id = None, None
     elif stage == "implementation":
         kind = SignalSpend.Kind(implementation_kind or SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION)
-        if kind not in {
-            SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION,
-            SignalSpend.Kind.SCOUT_TRIGGERED_IMPLEMENTATION,
-        }:
+        if kind not in SignalSpend.IMPLEMENTATION_KINDS:
             raise ValueError("Implementation requires an implementation spend kind")
         if report_id is None:
             raise ValueError("Implementation spend requires its report")

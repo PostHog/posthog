@@ -16,7 +16,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
-import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
+import { SYSTEM_SCOUT_NAMES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { reconcileById } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -798,7 +798,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         // roster re-renders on every poll even when nothing changed.
                         return reconcileById(
                             values.scoutConfigs ?? [],
-                            configs.filter((config) => values.isStaff || config.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                            configs.filter(
+                                (config) => values.isStaff || !SYSTEM_SCOUT_NAMES.includes(config.skill_name)
+                            ),
                             (config) => config.id
                         )
                     } catch (error) {
@@ -832,7 +834,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         actions.setScoutFleetSyncOutcome('synced')
                         return reconcileById(
                             values.scoutConfigs ?? [],
-                            configs.filter((config) => values.isStaff || config.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                            configs.filter(
+                                (config) => values.isStaff || !SYSTEM_SCOUT_NAMES.includes(config.skill_name)
+                            ),
                             (config) => config.id
                         )
                     } catch (error) {
@@ -933,7 +937,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     // that must keep advancing with each poll.
                     return reconcileById(
                         values.scoutRuns,
-                        nextRuns.filter((run) => values.isStaff || run.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                        nextRuns.filter((run) => values.isStaff || !SYSTEM_SCOUT_NAMES.includes(run.skill_name)),
                         (run) => run.run_id,
                         isSettledRun
                     )
@@ -995,7 +999,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             // page — dedupe by run_id to be safe.
                             if (
                                 !seen.has(run.run_id) &&
-                                (values.isStaff || run.skill_name !== FIRST_REPORT_SCOUT_NAME)
+                                (values.isStaff || !SYSTEM_SCOUT_NAMES.includes(run.skill_name))
                             ) {
                                 seen.add(run.run_id)
                                 runs.push(run)

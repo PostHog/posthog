@@ -33,15 +33,20 @@ from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.activity_summary.search import searchable_config
+from products.signals.backend.agent_run_passes import AgentRunScoutContext, load_agent_run_scout_context
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
-from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.constants import (
+    FIRST_REPORT_SCOUT,
+    FIRST_REPORT_SCOUT_TIMEOUT_SECONDS,
+    SUPPORT_TICKET_SCOUT,
+)
 from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.first_report_completion import complete_first_report_investigation
 from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
 from products.signals.backend.first_report_scout import set_first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.github_optional import ResearchAccessPolicy
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalSpend
 from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
 from products.signals.backend.report_search import search_enabled as report_search_enabled
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
@@ -60,6 +65,7 @@ from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
     TRIAL_ACTIVITY_TIMEOUT_S,
     TRIAL_MAX_RUNTIME_S,
+    TRIGGERED_BY_AGENT_RUN,
     TRIGGERED_BY_ONBOARDING,
     TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
@@ -72,7 +78,11 @@ from products.signals.backend.scout_harness.prompt import (
     SignalScoutRunSummary,
     build_run_prompt,
 )
-from products.signals.backend.scout_harness.run_gates import lane_has_live_run
+from products.signals.backend.scout_harness.run_gates import (
+    AGENT_RUN_ENTITY_METADATA_KEY,
+    AGENT_RUN_ID_METADATA_KEY,
+    lane_has_live_run,
+)
 from products.signals.backend.scout_harness.skill_loader import (
     SIGNALS_SCOUT_SKILL_PREFIX,
     LoadedSkill,
@@ -284,6 +294,7 @@ async def _arun_signals_scout(
     check_id: str | None = None,
     precheck_rows: str | None = None,
     precheck_query_source: str | None = None,
+    agent_run_id: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -307,10 +318,35 @@ async def _arun_signals_scout(
     `precheck_rows` are the rows the pre-check of a scheduled run found (`scout_harness/precheck.py`).
     They render in their own prompt section as untrusted data. `precheck_query_source` says which
     pre-check started the run, and is stamped on the run row.
+
+    `agent_run_id` is the `SignalAgentRun` pass an `"agent_run"` run belongs to. The run is about
+    that pass's record: single-flight is per record, and the record the agent returns goes to the pass.
     """
     if skill_name == FIRST_REPORT_SCOUT and triggered_by != TRIGGERED_BY_ONBOARDING:
         raise ValueError("The first-report scout only accepts onboarding dispatches.")
+    if skill_name == SUPPORT_TICKET_SCOUT and triggered_by != TRIGGERED_BY_AGENT_RUN:
+        raise ValueError("The support ticket scout only accepts agent run dispatches.")
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
+    agent_run: AgentRunScoutContext | None = None
+    if triggered_by == TRIGGERED_BY_AGENT_RUN:
+        agent_run = (
+            await database_sync_to_async(load_agent_run_scout_context, thread_sensitive=False)(
+                team_id=team.parent_team_id or team.id, agent_run_id=agent_run_id
+            )
+            if agent_run_id is not None
+            else None
+        )
+        if agent_run is None:
+            return RunResult(
+                run_id=None,
+                task_run_id=None,
+                status=None,
+                last_message=None,
+                runtime_s=0.0,
+                skill_name=skill_name,
+                skill_version=skill_version or 0,
+                skip_reason="agent run is gone",
+            )
     trial = (
         await database_sync_to_async(load_trial_launch, thread_sensitive=False)(
             team.parent_team_id or team.id, trial_launch_id
@@ -411,7 +447,9 @@ async def _arun_signals_scout(
     # this check and the bridge-row insert inside _spawn_and_run (a second trigger could
     # land in between), which we accept until a claim/lease primitive lands.
     if trial is None and await database_sync_to_async(_has_running_run, thread_sensitive=False)(
-        team_id=team.parent_team_id or team.id, skill_name=skill.name
+        team_id=team.parent_team_id or team.id,
+        skill_name=skill.name,
+        agent_run_entity=agent_run.entity_key if agent_run is not None else None,
     ):
         logger.info(
             "signals_scout: skipping trigger, prior run still in progress",
@@ -604,6 +642,7 @@ async def _arun_signals_scout(
             check_id=check_id,
             precheck_rows=precheck_rows,
             precheck_query_source=precheck_query_source,
+            agent_run=agent_run,
         )
         trial_status = tasks_facade.TaskRunStatus.COMPLETED.value
         runtime_s = time.monotonic() - started
@@ -838,6 +877,7 @@ async def arun_signals_scout(
     check_id: str | None = None,
     precheck_rows: str | None = None,
     precheck_query_source: str | None = None,
+    agent_run_id: str | None = None,
 ) -> RunResult:
     with private_capture_context() if trial_launch_id is not None else nullcontext():
         return await _arun_signals_scout(
@@ -855,6 +895,7 @@ async def arun_signals_scout(
             check_id=check_id,
             precheck_rows=precheck_rows,
             precheck_query_source=precheck_query_source,
+            agent_run_id=agent_run_id,
         )
 
 
@@ -1084,6 +1125,7 @@ async def _spawn_and_run(
     check_id: str | None = None,
     precheck_rows: str | None = None,
     precheck_query_source: str | None = None,
+    agent_run: AgentRunScoutContext | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -1220,6 +1262,7 @@ async def _spawn_and_run(
         is_private_trial=trial is not None,
         precheck_rows=precheck_rows,
         report_tags_in_use=report_tags_in_use,
+        agent_run_steering=agent_run.steering if agent_run is not None else None,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1259,6 +1302,7 @@ async def _spawn_and_run(
             check_id=check_id,
             precheck_query_source=precheck_query_source,
             mcp_tool_allowlist=mcp_tool_allowlist,
+            agent_run=agent_run,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1391,7 +1435,7 @@ def _resolve_config(team: Team, skill_name: str) -> SignalScoutConfig:
     return config
 
 
-def _has_running_run(*, team_id: int, skill_name: str) -> bool:
+def _has_running_run(*, team_id: int, skill_name: str, agent_run_entity: str | None = None) -> bool:
     # Locked on (canonical team, skill_name) — different skills for the same team are
     # allowed to fan out (the coordinator can dispatch several due scouts per tick). Status flows
     # from the linked TaskRun now that SignalScoutRun is just a bridge; treat both QUEUED
@@ -1407,6 +1451,10 @@ def _has_running_run(*, team_id: int, skill_name: str) -> bool:
         .filter(team_id=team_id, skill_name=skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
     )
+    # A run that another product asked for is about one record, and the skill runs for many records
+    # at once. Only a live run for the same record blocks it.
+    if agent_run_entity is not None:
+        lane_runs = lane_runs.filter(metadata__contains={AGENT_RUN_ENTITY_METADATA_KEY: agent_run_entity})
     return lane_has_live_run(lane_runs)
 
 
@@ -1575,6 +1623,7 @@ def _create_run_row(
     check_id: str | None = None,
     precheck_query_source: str | None = None,
     mcp_tool_allowlist: list[str] | None = None,
+    agent_run: AgentRunScoutContext | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1687,6 +1736,11 @@ def _create_run_row(
     # by it. Absent when no pre-check ran.
     if precheck_query_source:
         metadata["precheck_query_source"] = precheck_query_source
+    # The pass and the record of a run that another product asked for. The record endpoint reads the
+    # pass id to return the agent's record to that product, and single-flight reads the record key.
+    if agent_run is not None:
+        metadata[AGENT_RUN_ID_METADATA_KEY] = agent_run.agent_run_id
+        metadata[AGENT_RUN_ENTITY_METADATA_KEY] = agent_run.entity_key
     with transaction.atomic():
         run = SignalScoutRun.objects.for_team(team.id).create(
             id=run_id,
@@ -1698,7 +1752,13 @@ def _create_run_row(
             metadata=metadata,
             trial_state=initial_trial_state() if trial is not None else None,
         )
-        record_task_spend(team_id=team.id, run_id=str(task_run_id), scout_run_id=str(run.id), stage="scout")
+        record_task_spend(
+            team_id=team.id,
+            run_id=str(task_run_id),
+            scout_run_id=str(run.id),
+            stage="scout",
+            scout_run_kind=SignalSpend.Kind.AGENT_RUN if agent_run is not None else None,
+        )
     return run
 
 

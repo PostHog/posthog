@@ -3835,10 +3835,15 @@ class SignalAgentRun(TeamScopedRootMixin, UUIDModel):
     # A request arrived while this pass was active. One more pass starts when this one ends,
     # however many requests arrived in between.
     look_again = models.BooleanField(default=False)
+    # The reason and note of the request that started the pass. Once `look_again` is set, they are
+    # those of the newest waiting request, and the next pass takes them.
     reason = models.CharField(max_length=40, choices=Reason.choices, null=True, blank=True)
     note = models.TextField(blank=True, default="")
     requested_by = models.CharField(max_length=40, choices=RequestedBy.choices, null=True, blank=True)
     content_hash = models.CharField(max_length=64, null=True, blank=True)
+    # The record the agent wrote for the owning product. It can hold text derived from the entity,
+    # so it lives here and not on the scout run row, which more people can read.
+    output = models.JSONField(null=True, blank=True)
     result = models.JSONField(null=True, blank=True)
     scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -4311,6 +4316,15 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         SCOUT_RUN = "scout_run"
         REVIEWER_TRIGGERED_IMPLEMENTATION = "reviewer_triggered_implementation"
         SCOUT_TRIGGERED_IMPLEMENTATION = "scout_triggered_implementation"
+        AGENT_RUN = "agent_run"
+        AGENT_RUN_TRIGGERED_IMPLEMENTATION = "agent_run_triggered_implementation"
+
+    SCOUT_RUN_KINDS = (Kind.SCOUT_RUN, Kind.AGENT_RUN)
+    IMPLEMENTATION_KINDS = (
+        Kind.REVIEWER_TRIGGERED_IMPLEMENTATION,
+        Kind.SCOUT_TRIGGERED_IMPLEMENTATION,
+        Kind.AGENT_RUN_TRIGGERED_IMPLEMENTATION,
+    )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Old workers omit kind during rolling deploys; their receipts remain unbillable.
@@ -4380,14 +4394,18 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
                             report__isnull=True,
                         )
                         | models.Q(
-                            kind="scout_run",
+                            kind__in=["scout_run", "agent_run"],
                             scout_run__isnull=False,
                             signal_id__isnull=True,
                             report__isnull=True,
                             task_run_id__isnull=False,
                         )
                         | models.Q(
-                            kind__in=["reviewer_triggered_implementation", "scout_triggered_implementation"],
+                            kind__in=[
+                                "reviewer_triggered_implementation",
+                                "scout_triggered_implementation",
+                                "agent_run_triggered_implementation",
+                            ],
                             report__isnull=False,
                             signal_id__isnull=True,
                             scout_run__isnull=True,
@@ -4402,7 +4420,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
                         spend=0,
                     )
                 ),
-                name="signals_owner_spend_kind_owner_v2",
+                name="signals_owner_spend_kind_owner_v3",
             ),
             models.CheckConstraint(condition=models.Q(spend__gte=0), name="signals_owner_spend_nonnegative"),
         ]

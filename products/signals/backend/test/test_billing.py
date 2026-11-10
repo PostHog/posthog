@@ -671,7 +671,7 @@ class TestSpendBasedBilling(BaseTest):
             report = _make_report(self.team)
         with time_machine.travel(_at(10), tick=False):
             scout = None
-            if kind == SignalSpend.Kind.SCOUT_RUN:
+            if kind in SignalSpend.SCOUT_RUN_KINDS:
                 task = _task_model().objects.create(team=self.team, title="Synthetic scout", description="")
                 run = _task_run_model().objects.create(team=self.team, task=task)
                 scout = SignalScoutRun.objects.for_team(self.team.id).create(

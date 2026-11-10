@@ -33,6 +33,23 @@ class AgentEntityContent:
     content_hash: str
 
 
+class AgentRunRequestState(StrEnum):
+    STARTED = "started"
+    JOINED = "joined"
+    UNCHANGED = "unchanged"
+    REJECTED = "rejected"
+
+
+@frozen
+class AgentRunHandle:
+    """What happened to a request, returned at once."""
+
+    state: AgentRunRequestState
+    # The pass the request started or joined, or the last pass when nothing changed.
+    run_id: str | None
+    reason_code: str | None = None
+
+
 class AgentRunOutcome(StrEnum):
     REPORTS = "reports"
     NOT_ACTIONABLE = "not_actionable"

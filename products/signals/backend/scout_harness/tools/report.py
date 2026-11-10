@@ -163,6 +163,7 @@ from products.signals.backend.scout_report.judge import (
 )
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.source_issues import parse_source_issue_url
+from products.signals.backend.spend import scout_implementation_spend_kind
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
 from products.signals.backend.task_profiles import REPO_SELECTION_WITHOUT_REPORT
 from products.signals.backend.trial.direct_reports import funded_report, funded_report_sync
@@ -1757,18 +1758,22 @@ async def _resolve_report_repository(
     )
 
 
-async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
+async def _maybe_autostart_report(*, team_id: int, report_id: str, skill_name: str | None = None) -> None:
     """Best-effort autostart hand-off after a report surfaced. Reconstructs the autostart inputs from
     the report's artefacts (the same shared entry point the reviewer-edit hook uses) and swallows
     failures so a draft-PR hiccup never fails the emit. No-ops unless the report is immediately
-    actionable, has a repo + priority, and a suggested reviewer clears their autonomy threshold."""
+    actionable, has a repo + priority, and a suggested reviewer clears their autonomy threshold.
+
+    `skill_name` is the scout whose run wrote the report. It decides which kind the fix's spend gets."""
     from products.signals.backend.auto_start import (
         maybe_autostart_from_report_artefacts,  # noqa: PLC0415 — break worker-boot import cycle
     )
 
     try:
         await maybe_autostart_from_report_artefacts(
-            team_id=team_id, report_id=report_id, implementation_spend_kind="scout_triggered_implementation"
+            team_id=team_id,
+            report_id=report_id,
+            implementation_spend_kind=scout_implementation_spend_kind(skill_name),
         )
     except Exception:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
@@ -2529,7 +2534,11 @@ async def emit_report(
                     # findings using the emission id); edits keep per-delivery ids since each notifies.
                     delivery_id=persisted.report_id,
                 )
-            await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+            await _maybe_autostart_report(
+                team_id=team.id,
+                report_id=persisted.report_id,
+                skill_name=author.scout_run.skill_name if author.scout_run is not None else None,
+            )
         return await finish(_emit_result(persisted.report_id, judgement))
 
 
@@ -3179,7 +3188,9 @@ def _do_edit_report(
     # Routing changes, a new work decision, and a new replacement decision each need an autostart
     # evaluation. Run it after the commit because it spawns a task.
     if reviewers_set or repository_set or decision_fields_set or supersede_recorded:
-        async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
+        async_to_sync(_maybe_autostart_report)(
+            team_id=team.id, report_id=report_id, skill_name=run.skill_name if run is not None else None
+        )
     logger.info(
         "signals_scout.edit_report: edited",
         extra={

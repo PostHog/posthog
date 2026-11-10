@@ -823,3 +823,5 @@ export const SDK_KEY_TO_SNIPPET_LANGUAGE: Partial<Record<SDKKey, string>> = {
 }
 
 export const FIRST_REPORT_SCOUT_NAME = 'signals-scout-first-report'
+// Scouts that Self-driving starts itself. Kept in sync with SYSTEM_SCOUT_NAMES in products/signals/backend/constants.py.
+export const SYSTEM_SCOUT_NAMES: readonly string[] = [FIRST_REPORT_SCOUT_NAME, 'signals-scout-support-ticket']

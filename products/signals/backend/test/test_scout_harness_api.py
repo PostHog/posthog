@@ -47,8 +47,10 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
+    SignalAgentRun,
     SignalProjectProfile,
     SignalReport,
     SignalReportArtefact,
@@ -1099,6 +1101,34 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         # The per-run cap counter is the only Postgres trace, on the run row itself.
         run.refresh_from_db()
         assert (run.metadata or {}).get("structured_output_count") == 3
+
+    def test_record_output_of_an_agent_run_goes_to_its_pass_and_never_becomes_an_event(self) -> None:
+        agent_run = SignalAgentRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            agent=SignalAgentRun.Agent.RESEARCH,
+            source_product="conversations",
+            source_type="ticket",
+            source_id="ticket-1",
+            pass_number=1,
+            status=SignalAgentRun.Status.RUNNING,
+        )
+        run = self._make_run_with_schema()
+        run.metadata = {**(run.metadata or {}), "agent_run_id": str(agent_run.id)}
+        run.save(update_fields=["metadata"])
+        payload = {"verdict": "good", "reason": "quotes the ticket"}
+
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            response = self.client.post(
+                self._record_url(str(run.id)), data={"records": [{"payload": payload}]}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"recorded_count": 1, "record_ids": []}
+        mock_capture.assert_not_called()
+        agent_run.refresh_from_db()
+        assert agent_run.output == payload
 
     def test_record_output_is_all_or_nothing_on_invalid_record(self) -> None:
         run = self._make_run_with_schema()
@@ -4582,9 +4612,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     @parameterized.expand([(None, True), ("onboarding", False)])
     def test_sync_materializes_fleet_for_fresh_team(self, surface: str | None, enabled: bool) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
-        scout_names = {
-            n for n in canonical_names if n.startswith("signals-scout-") and n != "signals-scout-first-report"
-        }
+        scout_names = {n for n in canonical_names if n.startswith("signals-scout-") and n not in SYSTEM_SCOUT_NAMES}
         companion_names = canonical_names - scout_names
         assert scout_names, "expected canonical signals-scout-* skills on disk"
         assert "authoring-scouts" in companion_names

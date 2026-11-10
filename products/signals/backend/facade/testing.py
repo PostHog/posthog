@@ -4,10 +4,11 @@ from django.db.models import Q
 
 from posthog.models import Team
 
+from products.signals.backend.facade.agent_sources import agent_source_registered
 from products.signals.backend.models import SignalSpend
 from products.signals.backend.trial.policy import TrialPolicy
 
-__all__ = ["claim_trial", "trial_incomplete_sources"]
+__all__ = ["agent_source_registered", "claim_trial", "trial_incomplete_sources"]
 
 
 def claim_trial(*, team: Team, user_id: int) -> UUID:
