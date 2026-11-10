@@ -755,7 +755,7 @@ export type notebookLogicType = MakeLogicType<
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ shortId, mode }) => `${shortId}-${mode}`),
+    key(({ shortId, mode = 'notebook' }) => `${shortId}-${mode}`),
 
     connect((props: NotebookLogicProps) => ({
         values: [

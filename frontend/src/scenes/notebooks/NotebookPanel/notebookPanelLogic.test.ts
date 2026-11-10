@@ -4,12 +4,28 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import { notebookLogic } from '../Notebook/notebookLogic'
+import { NotebookTarget } from '../types'
 import { notebookPanelLogic } from './notebookPanelLogic'
 
 describe('notebookPanelLogic', () => {
     beforeEach(() => {
         initKeaTests()
         notebookPanelLogic.mount()
+    })
+
+    it('shares the mounted notebook store between implicit and explicit notebook modes', () => {
+        const shortId = 'template-panel-note'
+        const panelNotebook = notebookLogic({ shortId, target: NotebookTarget.Popover })
+        const unmount = panelNotebook.mount()
+        try {
+            const explicitNotebook = notebookLogic({ shortId, mode: 'notebook' })
+            expect(explicitNotebook.values.mode).toBe('notebook')
+            expect(explicitNotebook).toBe(panelNotebook)
+            expect(notebookLogic({ shortId, mode: 'canvas' })).not.toBe(panelNotebook)
+        } finally {
+            unmount()
+        }
     })
 
     it('keeps the side panel state unchanged while dragging notebook resources', async () => {
