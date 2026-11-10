@@ -4,7 +4,7 @@ import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconDatabase, IconExternal, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlus, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -309,6 +309,18 @@ export function QueryWindow({
                             />
                         )}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
+                        {mode === SQLEditorMode.FullScene ? (
+                            <LemonButton
+                                icon={<IconPlus />}
+                                type="secondary"
+                                size="small"
+                                to={urls.sqlEditor()}
+                                targetBlank
+                                tooltip="Open a new SQL editor in a new browser tab"
+                                aria-label="Open a new SQL editor in a new browser tab"
+                                data-attr="sql-editor-new-browser-tab"
+                            />
+                        ) : null}
                         <LemonDivider vertical />
                         {!hideVariables ? (
                             <QueryVariablesMenu
@@ -340,17 +352,6 @@ export function QueryWindow({
 
                     <div className="ml-auto flex items-center gap-2">
                         {showOpenInSqlEditor ? <OpenInSqlEditorButton /> : null}
-                        {mode === SQLEditorMode.FullScene ? (
-                            <LemonButton
-                                icon={<IconExternal />}
-                                type="secondary"
-                                size="small"
-                                to={urls.sqlEditor()}
-                                targetBlank
-                                tooltip="Open a new SQL editor in a new browser tab"
-                                data-attr="sql-editor-new-browser-tab"
-                            />
-                        ) : null}
                         {hideAiTools ? null : <FixErrorButton type="secondary" size="small" source="action-bar" />}
                         {editorSettingsItems.length > 0 ? (
                             <LemonMenu

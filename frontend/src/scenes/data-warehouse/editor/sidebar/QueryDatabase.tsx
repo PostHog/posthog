@@ -1446,7 +1446,7 @@ export const QueryDatabase = ({
                     )
                 }
                 if (item.record?.type === 'source-folder' && item.record?.sourceType === 'System') {
-                    return "System tables hold this project's PostHog data, such as dashboards, insights, cohorts and feature flags. Query them like any other table."
+                    return 'Query PostHog project metadata, such as saved insights, dashboards, and feature flags, plus query logs and schema information.'
                 }
                 if (item.record?.type === 'field-traverser') {
                     const traversalChain = formatTraversalChain(item.record?.field?.chain)

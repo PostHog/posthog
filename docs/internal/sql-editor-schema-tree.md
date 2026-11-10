@@ -39,7 +39,9 @@ Changing the visible range preserves the focused row so mouse-down and mouse-up 
 Right-clicking a row opens the same actions as its `...` menu.
 Row tooltips show the table or column description from the HogQL schema when one is set.
 A collapsed table or view's tooltip also says that a click shows its columns.
-The System folder tooltip explains what system tables contain.
+The System folder tooltip describes project metadata, query logs, and schema information.
+The plus button next to Run opens a new SQL editor in a new browser tab.
+When the database panel is collapsed, this button follows the connection selector.
 System tables mark `team_id` hidden, so it is absent from the tree, `SELECT *`, and `system.information_schema.columns`.
 The team guard still filters on it.
 
