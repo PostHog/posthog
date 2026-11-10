@@ -138,6 +138,8 @@ from products.alerts.backend.facade.platform import (
     native_insight_alert_view,
     native_insight_alert_views,
     platform_takes_new_alert_with,
+    show_platform_subscribers,
+    subscribers_of,
     sync_subscriber_destinations,
     write_moved_alert_edit,
 )
@@ -902,7 +904,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         from products.product_analytics.backend.presentation.insight import InsightBasicSerializer  # noqa: PLC0415
 
         data = super().to_representation(instance)
-        data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
+        data["subscribed_users"] = UserBasicSerializer(subscribers_of(instance), many=True, read_only=True).data
         data["insight"] = InsightBasicSerializer(instance.insight).data
         if data.get("checks_total") is None:
             data.pop("checks_total", None)
@@ -1887,6 +1889,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             offset = 0
 
         _show_platform_status([instance], now=timezone.now())
+        show_platform_subscribers([instance])
         platform_page = (
             moved_alert_check_page(
                 team_id=instance.team_id,
@@ -2033,6 +2036,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # An alert deleted since its key was read drops out of the page rather than failing it.
         alerts = [loaded[key.id] for key in listed if key.id in loaded]
         _show_platform_status(alerts, now=timezone.now())
+        show_platform_subscribers(alerts)
 
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:

@@ -25,7 +25,11 @@ from products.alerts.backend.platform_ownership import (
     platform_takes_new_alert_with,
     write_moved_alert_edit,
 )
-from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
+from products.alerts.backend.platform_subscribers import (
+    show_platform_subscribers,
+    subscribers_of,
+    sync_subscriber_destinations,
+)
 
 
 def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
@@ -48,6 +52,8 @@ __all__ = [
     "native_insight_alert_view",
     "native_insight_alert_views",
     "platform_takes_new_alert_with",
+    "show_platform_subscribers",
+    "subscribers_of",
     "sync_subscriber_destinations",
     "write_moved_alert_edit",
 ]

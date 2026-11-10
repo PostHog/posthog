@@ -22,7 +22,7 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.evaluation.detector import _earlier_flags
-from products.alerts.backend.facade.api import snooze_alert_from_slack
+from products.alerts.backend.facade.api import first_subscriber, snooze_alert_from_slack
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -38,11 +38,13 @@ from products.alerts.backend.models.alert import (
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
+from products.alerts.backend.platform_subscribers import SUBSCRIBER_EVENT_KINDS
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     get_configuration,
     record_verdict_change,
+    set_subscriber_destinations,
     subscriber_user_ids_by_public_id,
     update_configuration,
 )
@@ -378,6 +380,30 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [names[alert["id"]] for alert in response.json()["results"]] == expected
+
+    def test_an_alert_insight_keeps_no_row_for_shows_the_subscribers_its_destinations_name(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+            set_subscriber_destinations(
+                team_id=self.team.id,
+                public_id=self.copy_id,
+                user_ids=[self.user.id],
+                event_kinds=SUBSCRIBER_EVENT_KINDS,
+                in_app_resource_type="insight",
+                in_app_resource_id=self.alert.insight.short_id,
+            )
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=self.copy_id
+            )
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+
+        listed = self.client.get(f"{self.url}/").json()["results"]
+        detail = self.client.get(f"{self.url}/{self.copy_id}/").json()
+
+        assert [[user["id"] for user in alert["subscribed_users"]] for alert in listed] == [[self.user.id]]
+        assert [user["id"] for user in detail["subscribed_users"]] == [self.user.id]
+        assert view is not None
+        assert first_subscriber(AlertConfiguration.from_platform_view(view, team_id=self.team.id)) == self.user
 
     def test_a_page_of_alerts_insight_keeps_no_row_for_builds_in_queries_that_do_not_grow_with_it(self) -> None:
         def native(insight_id: int) -> PlatformAlertConfigurationView:

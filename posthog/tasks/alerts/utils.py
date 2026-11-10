@@ -24,7 +24,11 @@ from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import absolute_uri
 
-from products.alerts.backend.facade.api import LLM_DETECTOR_PAUSED_ERROR_CODE, LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
+from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    first_subscriber,
+)
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     alert_internal_event_delivered,
@@ -486,7 +490,7 @@ def _resolve_alert_render_user(alert: AlertConfiguration) -> User | None:
             return User.objects.get(id=alert.created_by_id)
         except User.DoesNotExist:
             pass
-    return alert.subscribed_users.first()
+    return first_subscriber(alert)
 
 
 def prepare_alert_insight_chart_url(

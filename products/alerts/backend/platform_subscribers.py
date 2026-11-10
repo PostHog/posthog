@@ -5,14 +5,15 @@ writer that changes it calls `sync_subscriber_destinations` too. The platform de
 destinations, which resolve each user's address and insight access at send time.
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from typing import Final
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
-from products.alerts_platform.backend.facade.api import set_subscriber_destinations
+from products.alerts_platform.backend.facade.api import set_subscriber_destinations, subscriber_user_ids_by_public_id
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
 
 # What a subscriber hears today: a firing and a failed check. An insight alert sends no resolve.
@@ -67,3 +68,33 @@ def backfill_subscriber_destinations(*, team_id: int | None = None) -> Subscribe
         else:
             without_copy += 1
     return SubscriberBackfillCounts(written=written, without_copy=without_copy)
+
+
+def show_platform_subscribers(alerts: Sequence[AlertConfiguration]) -> None:
+    """Shows each alert's subscribers as its platform copy's destinations name them, in place.
+
+    An alert whose copy has no subscriber destination keeps its subscriptions, which hold the same
+    users until the backfill reaches it.
+    """
+    by_team: dict[int, list[AlertConfiguration]] = {}
+    for alert in alerts:
+        by_team.setdefault(alert.team_id, []).append(alert)
+    for team_id, team_alerts in by_team.items():
+        user_ids = subscriber_user_ids_by_public_id(team_id=team_id, public_ids=[alert.id for alert in team_alerts])
+        users = User.objects.in_bulk({user_id for ids in user_ids.values() for user_id in ids})
+        for alert in team_alerts:
+            if alert.id in user_ids:
+                alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
+
+
+def subscribers_of(alert: AlertConfiguration) -> list[User]:
+    """The alert's subscribers: as `show_platform_subscribers` left them, or its subscriptions."""
+    shown = getattr(alert, "platform_subscribers", None)
+    return list(shown) if shown is not None else list(alert.subscribed_users.all())
+
+
+def first_subscriber(alert: AlertConfiguration) -> User | None:
+    """One subscriber, from the platform copy's destinations when it has any. None when nobody subscribes."""
+    show_platform_subscribers([alert])
+    subscribers = subscribers_of(alert)
+    return subscribers[0] if subscribers else None
