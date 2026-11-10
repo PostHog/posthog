@@ -375,6 +375,7 @@ mod tests {
                 timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
+                options: None,
             },
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,

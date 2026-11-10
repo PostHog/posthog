@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from posthog.dataclasses import frozen
+
 
 class StatisticError(ValueError):
     """Base exception for statistic-related errors."""
@@ -14,6 +16,17 @@ class InvalidStatisticError(StatisticError):
     """Raised when statistic inputs are invalid."""
 
     pass
+
+
+@frozen
+class RelativeEffectBaseline:
+    """The mean that relative effects divide by, with its variance and its covariance with the treatment-control
+    difference. Moments are on the scale of sample means, not individual observations."""
+
+    mean: float
+    variance: float
+    # The adjusted difference contains control observations, so it covaries with the raw baseline.
+    difference_covariance: float
 
 
 @dataclass

@@ -98,6 +98,7 @@ import type {
     ScoutTrialSetupApi,
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
+    SelfDrivingTrialStatusApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -124,6 +125,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportSearchResponseApi,
     SignalReportSectionCountsApi,
     SignalReportSourceMetadataRequestApi,
     SignalReportSourceMetadataResponseApi,
@@ -167,6 +169,7 @@ import type {
     SignalsReportsForMeRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
+    SignalsReportsSearchParams,
     SignalsReportsSectionCountsRetrieveParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
@@ -1751,6 +1754,37 @@ export const signalsReportsRefundSummaryRetrieve = async (
     options?: RequestInit
 ): Promise<SignalReportRefundSummaryResponseApi> => {
     return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsSearchUrl = (projectId: string, params: SignalsReportsSearchParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/search/`
+}
+
+/**
+ * Rank the project's inbox reports by how well they match a query, best match first. A hybrid search merges keyword matches on the title and summary with semantic matches on the report's meaning. Reports older than 3 months can match on keywords only. Returns at most 25 results, with no total count and no pages: rephrase the query for different results.
+ * @summary Search inbox reports
+ */
+export const signalsReportsSearch = async (
+    projectId: string,
+    params: SignalsReportsSearchParams,
+    options?: RequestInit
+): Promise<SignalReportSearchResponseApi> => {
+    return apiMutator<SignalReportSearchResponseApi>(getSignalsReportsSearchUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -3436,6 +3470,34 @@ export const signalsSpendOverview = async (projectId: string, options?: RequestI
     return apiMutator<SpendOverviewApi>(getSignalsSpendOverviewUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsTrialListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/trial/`
+}
+
+export const signalsTrialList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingTrialStatusApi> => {
+    return apiMutator<SelfDrivingTrialStatusApi>(getSignalsTrialListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsTrialCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/trial/`
+}
+
+export const signalsTrialCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingTrialStatusApi> => {
+    return apiMutator<SelfDrivingTrialStatusApi>(getSignalsTrialCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

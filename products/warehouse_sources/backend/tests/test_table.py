@@ -30,6 +30,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Team
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
@@ -85,7 +86,8 @@ class TestHogQLDefinitionDirectDispatch(BaseTest):
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
         )
 
-        assert type(table.hogql_definition()) is expected_class
+        with read_unsaved_source_inputs_as_stored():
+            assert type(table.hogql_definition()) is expected_class
 
 
 class TestDataWarehouseTableColumnOrder(BaseTest):

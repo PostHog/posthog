@@ -1,10 +1,13 @@
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -13,6 +16,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.web_analytics.backend.achievements import tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext, PriorProgress, TrackEvaluation
@@ -334,3 +338,41 @@ class TestSweep(BaseTest):
             ),
         }
         self.assertEqual(self._sweep(batch_size, kill_switch), [team_ids[name] for name in expected])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_user_recompute_skips_a_locked_progress_row_instead_of_waiting(team: Team, user: User) -> None:
+    locked_row = WebAnalyticsAchievementProgress(team=team, user=user, track_key="explorer")
+    locked_row.save()
+
+    def recompute() -> None:
+        tasks.recompute_web_analytics_achievements_sync(team.id, user_id=user.id, cheap_only=True)
+
+    def recompute_on_another_connection() -> None:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '1s'")
+            recompute()
+        finally:
+            connection.close()
+
+    with (
+        patch.object(tasks, "EVALUATORS", make_evaluators(data_events=lambda ctx: 1, recordings_opened=lambda ctx: 1)),
+        patch.object(tasks, "streak_arm_for_user", return_value="daily-only"),
+    ):
+        with transaction.atomic():
+            WebAnalyticsAchievementProgress.objects.for_team(team.id).select_for_update().get(pk=locked_row.pk)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(recompute_on_another_connection).result(timeout=10)
+
+        stages = dict(
+            WebAnalyticsAchievementProgress.objects.for_team(team.id)
+            .filter(user=user)
+            .values_list("track_key", "current_stage")
+        )
+        assert (stages["explorer"], stages["detective"]) == (0, 1)
+
+        recompute()
+
+    locked_row.refresh_from_db()
+    assert locked_row.current_stage == 1
