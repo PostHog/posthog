@@ -90,6 +90,15 @@
       ],
     },
   },
+  // Use one branch per package across catalogs and overrides; preset family rules take precedence.
+  npm: {
+    minor: {
+      groupName: 'npm non-major {{packageName}}',
+    },
+    patch: {
+      groupName: 'npm non-major {{packageName}}',
+    },
+  },
   packageRules: [
     // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml.
     // Go modules and GitHub Actions have no package manager cooldown, so this is their only one
@@ -124,14 +133,14 @@
       minimumReleaseAge: null,
     },
     {
-      matchManagers: ['npm', 'pep621', 'cargo'],
+      matchManagers: ['pep621', 'cargo'],
       matchUpdateTypes: ['minor', 'patch'],
       groupName: '{{manager}} non-major',
     },
     // Directories with their own lock file. Digest updates join the group because a pseudo-version
     // pin (such as x/vt in tools/phrocs) can depend on the same libraries as its tagged neighbors
     {
-      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchManagers: ['pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor', 'patch', 'digest'],
       matchFileNames: [
         '**/go.mod',
@@ -153,10 +162,106 @@
       groupName: '{{manager}} non-major in {{packageFileDir}}',
     },
     {
-      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchManagers: ['pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor', 'patch'],
       matchFileNames: ['products/desktop/**', 'packages/agent/**'],
       groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['pyproject.toml'],
+      groupName: 'python non-major {{depType}}',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: [
+        'fakeredis',
+        'pytest',
+        'pytest-*',
+        'hypothesis',
+        'shrinkray',
+        'ty',
+        'mypy',
+        'mypy-*',
+        'types-*',
+        'grpcio-tools',
+      ],
+      groupName: 'python test and typing tools non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['aiohttp', 'requests', 'tenacity', 'urllib3', 'dnspython', 'websockets'],
+      groupName: 'python http non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['opentelemetry-*'],
+      groupName: 'python opentelemetry non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['django*', 'djangorestframework*', 'drf-*'],
+      groupName: 'python django non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['dagster*'],
+      groupName: 'python dagster non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: [
+        'boto3',
+        'botocore',
+        'boto3-stubs',
+        'types-boto3',
+        'types-aiobotocore',
+        'aioboto3',
+        'aiobotocore',
+      ],
+      groupName: 'python aws non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: [
+        'anthropic',
+        'openai',
+        'langchain*',
+        'langgraph*',
+        'mistralai',
+        'optimum',
+        'transformers',
+        'torch*',
+        'xgboost',
+        'elevenlabs',
+        'mcp',
+      ],
+      groupName: 'python ai non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: [
+        '*sql*',
+        '*mongo*',
+        '*arrow*',
+        'deltalake',
+        'dlt',
+        'azure-storage-blob',
+        'google-cloud-*',
+        'snowflake-*',
+        'clickhouse-*',
+        'databricks-*',
+      ],
+      groupName: 'python warehouse non-major',
     },
     // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml. pnpm does not check these
     // versions, so stamphog never approves them. Their own group keeps them out of the groups above,
