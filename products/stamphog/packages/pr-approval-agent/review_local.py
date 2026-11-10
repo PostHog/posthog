@@ -539,6 +539,20 @@ def _gate_refusal_reasoning(pipeline: Pipeline) -> str:
     )
 
 
+def _pipeline_without_checkout(context: dict) -> Pipeline:
+    pipeline = Pipeline(
+        0,
+        context.get("repo") or "",
+        self_driving=bool(context.get("self_driving_review")),
+        review_trigger=str(context.get("review_trigger") or ""),
+        admitted_bot=str(context.get("admitted_bot") or ""),
+        head_checkout=True,
+        checkout=False,
+    )
+    pipeline.pr = _build_pr_data(context, checkout=False)
+    return pipeline
+
+
 def pregate(context: dict) -> dict:
     """Gate-only run for the hosted server, before it waits for other bots or makes a sandbox.
 
@@ -558,16 +572,7 @@ def pregate(context: dict) -> dict:
     ``folder_policies_known`` in the context means the server placed the PR head's AGENT_APPROVALS.md
     files in the pre-check tree. ``not_final_reason`` names why a non-final outcome needs the sandbox.
     """
-    pipeline = Pipeline(
-        0,
-        context.get("repo") or "",
-        self_driving=bool(context.get("self_driving_review")),
-        review_trigger=str(context.get("review_trigger") or ""),
-        admitted_bot=str(context.get("admitted_bot") or ""),
-        head_checkout=True,
-        checkout=False,
-    )
-    pipeline.pr = _build_pr_data(context, checkout=False)
+    pipeline = _pipeline_without_checkout(context)
     # Only the server's commit messages work here, because the pre-check tree is not a git
     # repository. Without them, provenance stays null on the fast-path event.
     if "commit_messages" in context:
@@ -618,16 +623,7 @@ def attest(context: dict) -> dict:
     needs its texts in ``manifest_contents``. Without them the reason is ``dependency_manifest``,
     and ``manifests`` names the paths for the server to read and pass in on a second run.
     """
-    pipeline = Pipeline(
-        0,
-        context.get("repo") or "",
-        self_driving=bool(context.get("self_driving_review")),
-        review_trigger=str(context.get("review_trigger") or ""),
-        admitted_bot=str(context.get("admitted_bot") or ""),
-        head_checkout=True,
-        checkout=False,
-    )
-    pipeline.pr = _build_pr_data(context, checkout=False)
+    pipeline = _pipeline_without_checkout(context)
 
     def outcome(reason: str) -> dict:
         gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
