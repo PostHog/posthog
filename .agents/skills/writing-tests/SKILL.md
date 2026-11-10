@@ -3,7 +3,7 @@ name: writing-tests
 description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
   Use before any change to what a pytest, Jest, or Playwright test asserts or sets up, down to one fixture or one assertion added to an existing block.
-  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; the cheapest level that still observes what a caller observes; real dependencies or faithful fakes, stubs only for faults or timing; Django TestCase over TransactionTestCase; no sleeps; no time bombs from unpinned dates; no database a test never uses).
+  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; the cheapest level that still observes what a caller observes; real dependencies or faithful fakes, stubs only to inject faults; Django TestCase over TransactionTestCase; no sleeps; no time bombs from unpinned dates; no database a test never uses).
   For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
@@ -179,7 +179,7 @@ Without that guard, a refactor that stops calling the decision passes every pure
   - For elapsed-time behavior, enable fake timers before starting the work and advance
     exactly the duration the behavior requires.
   - For a final async result, use `wait_for` / `waitFor` on the observable result.
-  - For an in-flight state, make the mocked boundary await a promise controlled by the
+  - For an in-flight state, make the faked boundary await a promise controlled by the
     test. Assert the pending state, release the promise, then assert the final state.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
@@ -217,8 +217,8 @@ Without that guard, a refactor that stops calling the decision passes every pure
   `expect(elapsedMs).toBeLessThan(2000)` measures the runner, not the code, and on shared CI the runner is whatever else is running on it.
   It is usually dead as well: when the code under test already has a shorter internal budget, that budget trips first, so the duration assertion can never be the one that fails.
   If a unit test must cover scale, assert the output at scale — every key present, nothing truncated — and leave the timing to a benchmark.
-- **No real network / live external services.** Use a faithful fake of the service, one that answers with its real response shape and refuses what the real one refuses.
-  Stub a boundary only to inject a fault or a timing the fake can't produce (a timeout, a 500, a dropped connection, a response held in flight), then assert the outcome — the response, the stored row, the retry — not that the stub was called.
+- **No real network / live external services.** Use a faithful fake of the service, one that answers with its real response shape, refuses what the real one refuses, and lets the test hold a response in flight.
+  Stub a boundary only to inject a fault the fake can't produce (a timeout, a 500, a dropped connection), then assert the outcome — the response, the stored row, the retry — not that the stub was called.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
 - **A test must not inherit the CI matrix mode.**
