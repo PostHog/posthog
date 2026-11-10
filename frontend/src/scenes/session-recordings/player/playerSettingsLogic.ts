@@ -16,7 +16,6 @@ import { urls } from 'scenes/urls'
 import { AutoplayDirection, ReplayTabs, SessionRecordingSidebarStacking } from '~/types'
 
 export type WatchPanelSection = 'overview' | 'observations' | 'debug'
-// Overview starts closed; opening it is remembered.
 const WATCH_PANEL_OPEN_BY_DEFAULT: WatchPanelSection[] = ['observations', 'debug']
 export type WatchPanelLayout = Record<string, number>
 export type WatchDebugDock = 'bottom' | 'right'
@@ -372,7 +371,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null): boolean =>
                 urlOverrideSidebarOpen ?? debugModePreference,
         ],
-        // The scene banner that points legacy users at the Watch/Debug toggle. Gone on the first switch to Debug.
         debugHintShown: [
             (s) => [s.replayLayout, s.debugMode, s.debugHintDismissed],
             (replayLayout: ReplayLayout, debugMode: boolean, debugHintDismissed: boolean): boolean =>

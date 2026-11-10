@@ -49,7 +49,6 @@ export function WatchPanelSections({
     const debugTabs = debugTabKeys(linkedIssuesAvailable)
     const debugTab = debugTabs.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
 
-    // The debug item sits under Overview and Observations, so opening it from the mode toggle lands below the fold.
     const debugItemRef = useRef<HTMLDivElement>(null)
     const debugOpen = debug && open.includes('debug')
     useEffect(() => {

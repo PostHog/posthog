@@ -203,8 +203,6 @@ const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
 // Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
 const FIELD_GUIDE_DISMISS_KEY = 'replay-field-guide-callout'
 
-// Tells users of the new layouts where the inspector went. It goes first: the field guide and the
-// vision promo wait until it is gone so the banners never stack.
 function DebugHintBanner(): JSX.Element | null {
     const { debugHintShown } = useValues(playerSettingsLogic)
     const { setDebugMode, dismissDebugHint } = useActions(playerSettingsLogic)

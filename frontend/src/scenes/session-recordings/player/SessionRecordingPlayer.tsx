@@ -183,7 +183,7 @@ function SessionRecordingPlayerInternal({
                 >
                     <ResizablePanel
                         id="player"
-                        // Fullscreen takes this element alone, so the watch panel stays mounted and the split survives.
+                        // Fullscreen targets the player alone so the watch panel stays mounted
                         elementRef={playerRef}
                         defaultSize={70}
                         minSize="12rem"
