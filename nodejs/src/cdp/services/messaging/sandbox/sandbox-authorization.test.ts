@@ -4,6 +4,7 @@ import { defaultConfig } from '~/common/config/config'
 import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     createOrganization,
     createOrganizationMembership,
@@ -13,7 +14,11 @@ import {
 import { Team } from '~/types'
 
 import { createMissingSandboxSenderTables } from './_tests/sandbox-world'
-import { MAX_PENDING_AUTHORIZATION_CONNECTIONS, readSandboxAuthorization } from './sandbox-authorization'
+import {
+    MAX_PENDING_AUTHORIZATION_CONNECTIONS,
+    readSandboxAuthorization,
+    sandboxReadRouter,
+} from './sandbox-authorization'
 
 describe('readSandboxAuthorization', () => {
     let postgres: PostgresRouter
@@ -176,7 +181,7 @@ describe('readSandboxAuthorization', () => {
 
         it('refuses at once after enough reads gave up waiting for a connection, until the pool frees one', async () => {
             await createMember(memberEmail, organizationId, true)
-            const busy = await onePoolRouter.connect(PostgresUse.COMMON_WRITE)
+            const busy = await sandboxReadRouter(onePoolRouter).connect(PostgresUse.COMMON_WRITE)
             const queued = (): Promise<string> => new Promise((resolve) => setTimeout(resolve, 100, 'queued'))
             try {
                 const gaveUp = await Promise.all(
@@ -188,7 +193,7 @@ describe('readSandboxAuthorization', () => {
             } finally {
                 busy.release()
             }
-            ;(await onePoolRouter.connect(PostgresUse.COMMON_WRITE)).release()
+            ;(await sandboxReadRouter(onePoolRouter).connect(PostgresUse.COMMON_WRITE)).release()
 
             expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
         })
@@ -210,7 +215,8 @@ describe('readSandboxAuthorization', () => {
             expect(burst).toEqual(burst.map(() => expect.objectContaining({ ok: true, storedAddress: memberEmail })))
         })
 
-        it('opens at most that many connections to a database that stops answering a burst of reads', async () => {
+        it('opens at most that many connections to a database that stops answering a burst of reads, and reads again once new connections answer', async () => {
+            await createMember(memberEmail, organizationId, true)
             const database = new URL(defaultConfig.DATABASE_URL)
             const proxy = new StallingValkeyProxy({ host: database.hostname, port: Number(database.port || 5432) })
             database.host = `127.0.0.1:${await proxy.start()}`
@@ -228,6 +234,12 @@ describe('readSandboxAuthorization', () => {
 
                 expect(burst).toEqual(burst.map(() => unavailable))
                 expect(proxy.openConnections).toBeLessThanOrEqual(MAX_PENDING_AUTHORIZATION_CONNECTIONS)
+
+                proxy.answerNewConnections()
+                await waitForExpect(
+                    async () => expect(await readThrough(wide)).toMatchObject({ ok: true, storedAddress: memberEmail }),
+                    10_000
+                )
             } finally {
                 proxy.stop()
                 await wide.end()
@@ -236,11 +248,11 @@ describe('readSandboxAuthorization', () => {
 
         it('hands a connection that arrives after the deadline back to the pool', async () => {
             await createMember(memberEmail, organizationId, true)
-            const busy = await onePoolRouter.connect(PostgresUse.COMMON_WRITE)
+            const busy = await sandboxReadRouter(onePoolRouter).connect(PostgresUse.COMMON_WRITE)
             expect(await readThrough(onePoolRouter)).toEqual(unavailable)
 
             busy.release()
-            ;(await onePoolRouter.connect(PostgresUse.COMMON_WRITE)).release()
+            ;(await sandboxReadRouter(onePoolRouter).connect(PostgresUse.COMMON_WRITE)).release()
 
             expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
         })
@@ -257,7 +269,7 @@ describe('readSandboxAuthorization', () => {
                 expect(await readThrough(onePoolRouter)).toEqual(unavailable)
                 expect(
                     (
-                        await onePoolRouter.query(
+                        await sandboxReadRouter(onePoolRouter).query(
                             PostgresUse.COMMON_WRITE,
                             'SELECT 1 AS answered',
                             undefined,
