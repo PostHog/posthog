@@ -31,10 +31,9 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.integrations import IntegrationManager
-from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
-from posthog.ownership.github_files import fetcher_for_team
+from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
 from posthog.ownership.paths import resolve_path_owners
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -833,18 +832,17 @@ def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
     return github
 
 
-def _devex_lens_files(team_id: int, repository: str, pr_files: list[PRFile]) -> list[str]:
+def _devex_lens_files(repository: str, pr_files: list[PRFile], *, token: str, installation_id: str | None) -> list[str]:
     """The changed files that the repository's `owners.yaml` files give to the devex team.
 
-    Ownership comes from the default branch, so a pull request cannot move itself out of the lens.
+    The rules come from the default branch, so a pull request that edits an `owners.yaml` does not change the answer.
+    A renamed file is matched at its new path only, so a rename out of a devex-owned path leaves the lens.
     Empty when the repository declares no ownership or its files could not be read.
     """
     paths = [pr_file.filename for pr_file in pr_files]
-    try:
-        files = fetcher_for_team(team_id, repository, priority=Priority.BATCH)
-    except GitHubIntegrationError:
-        logger.warning("Could not read ownership for the devex lens; reviewing without it", exc_info=True)
-        return []
+    files = AuthenticatedRepoFiles(
+        repository, GitHubFilesFetcher.from_token(token, installation_id=installation_id, priority=Priority.BATCH)
+    )
     ownership = resolve_path_owners(repository, paths, files=files)
     return [path for path in paths if ownership.team_by_path[path] == DEVEX_OWNER_TEAM]
 
@@ -955,6 +953,33 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_comments=fetched.pr_comments,
         diff=fetched.diff,
     )
+    lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
+    # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
+    # delivery, so the webhook payload can miss the label.
+    skip_agent_review = input.trigger_source == TRIGGER_AUTOMATIC and has_skip_agent_review_label(
+        fetched.pr_metadata.labels
+    )
+    if skip_agent_review:
+        observe_dispatch("label_skipped")
+    turn_skipped = already_published or (
+        input.trigger_source == TRIGGER_AUTOMATIC
+        and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
+    )
+    if turn_skipped:
+        ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
+            status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
+        )
+    coordinator = single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number)
+    separate_sessions = single_agent and not coordinator
+    # The coordinator has no sub-agent slot for it, so a coordinated PR runs without the devex lens.
+    devex_lens_files = (
+        _devex_lens_files(input.repository, fetched.pr_files, token=token, installation_id=installation_id)
+        if not turn_skipped
+        and separate_sessions
+        and pr_number is not None
+        and devex_lens_on(input.repository, pr_number)
+        else []
+    )
     persist_pr_snapshot(
         team_id=input.team_id,
         report_id=report_id,
@@ -965,24 +990,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         review_design=design_choice.design,
         merge_base_sha=fetched.merge_base_sha,
         skipped_paths=fetched.skipped_paths,
+        devex_lens_files=devex_lens_files,
     )
-    lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
-    # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
-    # delivery, so the webhook payload can miss the label.
-    skip_agent_review = input.trigger_source == TRIGGER_AUTOMATIC and has_skip_agent_review_label(
-        fetched.pr_metadata.labels
-    )
-    if skip_agent_review:
-        observe_dispatch("label_skipped")
-    if already_published or (
-        input.trigger_source == TRIGGER_AUTOMATIC
-        and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
-    ):
-        ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
-            status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
-        )
-    coordinator = single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number)
-    separate_sessions = single_agent and not coordinator
     return ReviewMeta(
         report_id=report_id,
         head_sha=head_sha,
@@ -1007,11 +1016,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
         coordinator=coordinator,
-        # The coordinator has no sub-agent slot for it, so a coordinated PR runs without the devex lens.
-        devex_lens=separate_sessions
-        and pr_number is not None
-        and devex_lens_on(input.repository, pr_number)
-        and bool(_devex_lens_files(input.team_id, input.repository, fetched.pr_files)),
+        devex_lens=bool(devex_lens_files),
         zero_change_skip=pr_number is not None and skips_zero_change_follow_ups(input.repository, pr_number),
         # The delta review only exists for separate sessions, so a coordinated PR stays in the control arm.
         delta_band=separate_sessions
@@ -1577,9 +1582,7 @@ def _changed_since_head(
     return ChangedSinceReview.between(earlier.pr_files, current_files)
 
 
-def _prepare_single_agent_prompt(
-    input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str, devex_lens: bool = False
-) -> str:
+def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str) -> str:
     """The prompt of the main session, of one lens session on lens part `chunk_id`, or of the devex lens session."""
     snapshot = load_pr_snapshot(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
@@ -1588,12 +1591,13 @@ def _prepare_single_agent_prompt(
         raise ApplicationError("PR snapshot missing for the single-agent review", non_retryable=True)
     change = _changed_since_head(input.team_id, input.report_id, input.delta_since_head_sha, snapshot.pr_files)
     scope_files: list[str] | None = None
+    if isinstance(input, LensReviewInput) and input.lens == DEVEX_LENS_NAME:
+        scope_files = snapshot.devex_lens_files
+        if not scope_files:
+            # A later fetch at this head replaced the snapshot that routed this session, and a retry reads the same one.
+            raise ApplicationError("The snapshot of this head names no file for the devex lens", non_retryable=True)
     # The workflow starts one session per lens on a delta turn, so a delta turn whose baseline is gone reviews the whole
     # PR in that session instead of one lens part.
-    if devex_lens:
-        scope_files = _devex_lens_files(input.team_id, input.repository, snapshot.pr_files)
-        if not scope_files:
-            raise ApplicationError("Could not read which files the devex team owns for the devex lens")
     elif for_lens and input.delta_since_head_sha is None:
         chunks = plan_lens_chunks(snapshot.pr_files).chunks
         if not 1 <= chunk_id <= len(chunks):
@@ -1646,7 +1650,6 @@ async def _run_single_agent_session(
     guidelines: str,
     step_name: str,
     for_lens: bool,
-    devex_lens: bool = False,
 ) -> bool:
     """Run one single-agent session and persist its findings as one review result (idempotent).
 
@@ -1664,7 +1667,7 @@ async def _run_single_agent_session(
         logger.info("Reusing the persisted %s result for this turn", step_name)
         return (pass_number, chunk_id) in done.fallbacks
     prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
-        input, chunk_id, for_lens, guidelines, devex_lens
+        input, chunk_id, for_lens, guidelines
     )
     fallback_for: ReviewArm | None = None
     try:
@@ -1724,8 +1727,7 @@ async def lens_review_activity(input: LensReviewInput) -> bool | None:
 
     Never None, for the same reason as `single_agent_review_activity`.
     """
-    devex_lens = input.lens == DEVEX_LENS_NAME
-    lens = DEVEX_LENS if devex_lens else FLASH_LENSES[input.lens]
+    lens = DEVEX_LENS if input.lens == DEVEX_LENS_NAME else FLASH_LENSES[input.lens]
     return await _run_single_agent_session(
         input,
         arms=single_agent_arms(input.arm_set),
@@ -1735,7 +1737,6 @@ async def lens_review_activity(input: LensReviewInput) -> bool | None:
         guidelines=load_prompt_file(lens_prompt_path(lens.prompt_file)),
         step_name=f"flash-lens-{input.lens}-c{input.chunk_id}",
         for_lens=True,
-        devex_lens=devex_lens,
     )
 
 

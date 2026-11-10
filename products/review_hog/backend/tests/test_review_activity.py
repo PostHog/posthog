@@ -46,7 +46,11 @@ from products.review_hog.backend.reviewer.tools.coordinator_review import Coordi
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
 from products.review_hog.backend.reviewer.tools.publish_review import PublishOutcome
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
-from products.review_hog.backend.reviewer.tools.single_agent_review import FlashSelection
+from products.review_hog.backend.reviewer.tools.single_agent_review import (
+    FlashSelection,
+    lens_prompt_path,
+    load_prompt_file,
+)
 from products.review_hog.backend.temporal.activities import (
     CoordinatorReviewInput,
     LensReviewInput,
@@ -486,6 +490,32 @@ async def test_reused_single_agent_session_reports_whether_its_result_fell_back(
 
     assert fell_back is persisted_as_fallback
     mock_review.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_devex_lens_session_sends_its_guidelines_scoped_to_the_files_the_fetch_recorded() -> None:
+    # A devex session that takes another lens's prompt or a lens part as its scope still persists a result,
+    # so only the prompt it sends shows the mistake.
+    pr_files = [PRFile(filename=name, status="modified", additions=5, deletions=0) for name in ("ci.yml", "app.py")]
+    routed = _snapshot(pr_files).model_copy(update={"devex_lens_files": ["ci.yml"]})
+    mock_review = AsyncMock(return_value=SingleAgentReview(findings=[]))
+    lens_input = LensReviewInput(**_single_agent_stage(lens=DEVEX_LENS_NAME, chunk_id=1))
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_single_agent_results", return_value=_NO_RESULTS),
+        patch(f"{_MODULE}.load_pr_snapshot", side_effect=[routed, _snapshot(pr_files)]),
+        patch(f"{_MODULE}.load_prior_findings", return_value=[]),
+        patch(f"{_MODULE}.persist_perspective_results"),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        await ActivityEnvironment().run(lens_review_activity, lens_input)
+        prompt = mock_review.call_args.kwargs["prompt"]
+        assert load_prompt_file(lens_prompt_path(DEVEX_LENS.prompt_file)) in prompt
+        assert "Review the changes in these files: `ci.yml`." in prompt
+        with pytest.raises(ApplicationError) as unrouted:
+            await ActivityEnvironment().run(lens_review_activity, lens_input)
+
+    assert unrouted.value.non_retryable is True
 
 
 @pytest.mark.parametrize("devex_lens", [False, True])

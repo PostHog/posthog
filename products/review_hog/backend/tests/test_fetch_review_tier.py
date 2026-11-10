@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.ownership.paths import PathOwnership
 
 from products.review_hog.backend.models import ReviewReport
@@ -169,14 +168,13 @@ class TestFetchDecidesTheTier(BaseTest):
 
     @parameterized.expand(
         [
-            ("devex_owned_file_with_flag", "team-devex", True, False, None, True),
-            ("flag_off", "team-devex", False, False, None, False),
-            ("file_of_another_team", "team-surveys", True, False, None, False),
-            ("coordinated_turn", "team-devex", True, True, None, False),
-            ("installation_probe_failed", "team-devex", True, False, GitHubIntegrationError("probe failed"), False),
+            ("devex_owned_file_with_flag", "team-devex", True, False, "open", True),
+            ("flag_off", "team-devex", False, False, "open", False),
+            ("file_of_another_team", "team-surveys", True, False, "open", False),
+            ("coordinated_turn", "team-devex", True, True, "open", False),
+            ("skipped_turn_on_a_closed_pr", "team-devex", True, False, "closed", False),
         ]
     )
-    @patch(f"{_MODULE}.fetcher_for_team")
     @patch(f"{_MODULE}.resolve_path_owners")
     @patch(f"{_MODULE}.devex_lens_on")
     @patch(f"{_MODULE}.standard_coordinator_on")
@@ -189,7 +187,7 @@ class TestFetchDecidesTheTier(BaseTest):
         owner: str,
         flag_on: bool,
         coordinator_on: bool,
-        probe_error: Exception | None,
+        state: str,
         expected: bool,
         mock_fetcher: MagicMock,
         _auth: MagicMock,
@@ -197,16 +195,18 @@ class TestFetchDecidesTheTier(BaseTest):
         coordinator_flag: MagicMock,
         devex_flag: MagicMock,
         path_owners: MagicMock,
-        files_fetcher: MagicMock,
     ) -> None:
-        files_fetcher.side_effect = probe_error
         devex_flag.return_value = flag_on
-        path_owners.return_value = PathOwnership(team_by_path={"ci.yml": owner}, registry={}, resolved=True)
+        path_owners.return_value = PathOwnership(
+            team_by_path={"ci.yml": owner, "app.py": "team-surveys"}, registry={}, resolved=True
+        )
         coordinator_flag.return_value = coordinator_on
         mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
-            pr_metadata=_pr_metadata(),
+            pr_metadata=_pr_metadata().model_copy(update={"state": state}),
             pr_comments=[],
-            pr_files=[PRFile(filename="ci.yml", status="modified", additions=5, deletions=0)],
+            pr_files=[
+                PRFile(filename=name, status="modified", additions=5, deletions=0) for name in ("ci.yml", "app.py")
+            ],
             diff="",
         )
         meta = _fetch_and_persist(
@@ -218,10 +218,14 @@ class TestFetchDecidesTheTier(BaseTest):
                 repo="r",
                 pr_number=9,
                 review_mode=REVIEW_MODE_FLASH,
+                trigger_source="automatic",
             )
         )
 
         assert meta.devex_lens is expected
+        # The lens session reviews the files recorded here, so a turn that runs the lens always has its scope.
+        snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
+        assert snapshot is not None and snapshot.devex_lens_files == (["ci.yml"] if expected else [])
 
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")

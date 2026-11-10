@@ -310,7 +310,8 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   It is not in `FLASH_LENSES`.
   It runs only when the repository's `owners.yaml` files give a changed file to `DEVEX_OWNER_TEAM` and the per-PR flag `reviewhog-devex-lens` is on.
   `_devex_lens_files` reads ownership from the default branch through `posthog/ownership`, so a repository without `owners.yaml` never runs the lens.
-  The fetch activity records the answer on `ReviewMeta.devex_lens`.
+  The fetch activity reads ownership once. It records the owned files on the turn's `pr_snapshot`, where the session reads its scope, and whether there are any on `ReviewMeta.devex_lens`.
+  A renamed file is routed by its new path.
   The session is one more lens unit of `lens_review_activity` under pass 2003, so a turn that runs it opens at most 10 sessions.
   Its diff holds only the owned files, and its findings go through the same dedup, ranking, and cap as the other lens findings.
   Its prompt holds the review method only. The session reads the repository's rules from the checkout (the `AGENTS.md` files above the changed paths, and the guides and skills those files route the change to), so a rule lives in one place and the prompt names no path of any repository.
