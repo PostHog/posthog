@@ -16,7 +16,6 @@ from products.data_catalog.evals.scorers import (
     AnswerTableQueried,
     AnswerValueStated,
     CanonicalMetricRun,
-    CatalogSearchUsed,
     DeprecationProposed,
     MetricDescriptionConcise,
     MetricDescriptionQuality,
@@ -24,6 +23,7 @@ from products.data_catalog.evals.scorers import (
     MetricsCatalogBeforeAnswer,
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogQueried,
+    NoDataSqlRun,
     NoncanonicalBadgeShown,
     QueryTermsUsed,
     RunOverrideUsed,
@@ -332,6 +332,16 @@ def test_metric_list_counts_as_a_catalog_lookup() -> None:
             0.0,
         ),
         (
+            "extra_metric_allowed",
+            [
+                ("execute-sql", {"query": CATALOG_QUERY}, "completed"),
+                ("data-catalog-metric-run", {"name": "monthly_recurring_revenue"}, "completed"),
+                ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
+            ],
+            {"metric_name": METRIC_NAME, "outcome": "succeeded", "allow_other_metrics": True},
+            1.0,
+        ),
+        (
             "wrong_order",
             [
                 ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
@@ -373,7 +383,7 @@ def test_metric_list_counts_as_a_catalog_lookup() -> None:
 def test_canonical_metric_run(
     _name: str,
     calls: list[tuple[str, dict[str, Any], str]],
-    spec: dict[str, str],
+    spec: dict[str, Any],
     expected_score: float,
 ) -> None:
     score = CanonicalMetricRun()._run_eval_sync(
@@ -752,16 +762,16 @@ def test_metric_found_requires_a_successful_call_on_the_metric(
 
 @parameterized.expand(
     [
-        ("first_page_only", [(_LIST, {}, "completed")], 0.0),
-        ("search_param", [(_LIST, {"search": "active accounts"}, "completed")], 1.0),
-        ("paged", [(_LIST, {}, "completed"), (_LIST, {"offset": 50}, "completed")], 1.0),
-        ("catalog_sql", [("execute-sql", {"query": CATALOG_QUERY}, "completed")], 1.0),
+        ("system_table_lookup", "SELECT group_type, group_type_index FROM system.group_type_mappings", 1.0),
+        ("schema_lookup", "SELECT column_name FROM system.information_schema.columns", 1.0),
+        ("events_query", "SELECT count() FROM events WHERE event = 'logged_in'", 0.0),
+        ("system_join_events", "SELECT count() FROM events JOIN system.group_type_mappings AS g ON 1 = 1", 0.0),
     ]
 )
-def test_catalog_search_used_rejects_a_first_page_read(
-    _name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float
-) -> None:
-    score = CatalogSearchUsed()._run_eval_sync({"raw_log": _tool_log(calls)}, {"catalog_search_used": {}})
+def test_no_data_sql_run_ignores_system_table_lookups(_name: str, query: str, expected_score: float) -> None:
+    score = NoDataSqlRun()._run_eval_sync(
+        {"raw_log": _tool_log([("execute-sql", {"query": query}, "completed")])}, {"no_data_sql_run": {}}
+    )
 
     assert score.score == expected_score
 
@@ -771,6 +781,8 @@ def test_catalog_search_used_rejects_a_first_page_read(
         ("any_date_from", {"name": "wau", "date_from": "-12w"}, {"date_from": None}, 1.0),
         ("no_override", {"name": "wau"}, {"date_from": None}, 0.0),
         ("wrong_interval", {"name": "wau", "interval": "week", "date_from": "-30d"}, {"interval": "day"}, 0.0),
+        ("accepted_value", {"name": "wau", "date_from": "-1m"}, {"date_from": ["-30d", "-1m"]}, 1.0),
+        ("not_accepted_value", {"name": "wau", "date_from": "-4w"}, {"date_from": ["-30d", "-1m"]}, 0.0),
         ("other_metric", {"name": "mrr", "date_from": "-12w"}, {"date_from": None}, 0.0),
     ]
 )

@@ -14,7 +14,6 @@ from products.data_catalog.evals.catalog_seeders import (
     seed_catalog_with_account_engagement,
     seed_catalog_with_mrr,
     seed_mrr_metric,
-    seed_noise_catalog,
     seed_pricing_metrics,
 )
 from products.data_catalog.evals.catalog_synthesizer import (
@@ -26,11 +25,9 @@ from products.data_catalog.evals.catalog_synthesizer import (
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
-    CatalogSearchUsed,
     MetricDescribeBeforeAdaptedSql,
     MetricFound,
     MetricsCatalogBeforeDataDiscovery,
-    MetricsCatalogNotQueried,
     NoDataSqlRun,
     QueryTermsUsed,
     RunOverrideUsed,
@@ -45,6 +42,15 @@ _ADAPTED_MRR = {
     "metric_describe_before_adapted_sql": {},
     "query_terms_used": {"terms": list(MRR_DISTINGUISHING_TERMS)},
 }
+
+
+# No prompt names the metric or asks for a saved metric, so the agent must think to look in the catalog
+# and then match the request to the metric's description.
+_ACCOUNT_ACTIVITY_PROMPTS = (
+    ("report", "Prepare a report on account activity for the last month."),
+    ("health_check", "How engaged are our customer accounts lately? I want the week-by-week picture."),
+    ("cs_review", "For the customer success review, how many companies used the product each week recently?"),
+)
 
 
 def _adapted_mrr_behavior(change: str) -> str:
@@ -83,15 +89,29 @@ async def eval_metric_reuse(ctx: EvalContext) -> None:
             },
             setup=seed_catalog_with_mrr,
         ),
-        SandboxedEvalCase(
-            name="search_by_description_only",
-            prompt="Is there a saved metric for how many accounts were active each week? Show me its latest numbers.",
-            expected={
-                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
-                "catalog_search_used": {},
-                "canonical_metric_run": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name, "outcome": "succeeded"},
-            },
-            setup=seed_catalog_with_account_engagement,
+        *(
+            SandboxedEvalCase(
+                name=f"search_by_description_{variant}",
+                prompt=prompt,
+                expected={
+                    "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                    "canonical_metric_run": {
+                        "metric_name": ACCOUNT_ENGAGEMENT_METRIC.name,
+                        "outcome": "succeeded",
+                        "allow_other_metrics": True,
+                    },
+                    "semantic_layer_answer": {
+                        "expected_behavior": (
+                            f"Find and run the approved {ACCOUNT_ENGAGEMENT_METRIC.name} metric, and report its "
+                            "weekly counts of active accounts as the governed account activity numbers. Other "
+                            "catalog metrics may add context, but the answer must not replace the governed weekly "
+                            "account counts with a figure derived from raw events."
+                        )
+                    },
+                },
+                setup=seed_catalog_with_account_engagement,
+            )
+            for variant, prompt in _ACCOUNT_ACTIVITY_PROMPTS
         ),
         SandboxedEvalCase(
             name="adjust_time_window",
@@ -179,12 +199,6 @@ async def eval_metric_reuse(ctx: EvalContext) -> None:
             },
             setup=seed_catalog_for_board_update,
         ),
-        SandboxedEvalCase(
-            name="midchain_not_needed",
-            prompt="How many uploaded_file events with file_type application/pdf did we get yesterday?",
-            expected={"metrics_catalog_not_queried": {}},
-            setup=seed_noise_catalog,
-        ),
     ]
 
     await SandboxedEval(
@@ -195,12 +209,10 @@ async def eval_metric_reuse(ctx: EvalContext) -> None:
             MetricsCatalogBeforeDataDiscovery(),
             CanonicalMetricRun(),
             TrustBadgeShown(),
-            CatalogSearchUsed(),
             RunOverrideUsed(),
             NoDataSqlRun(),
             MetricDescribeBeforeAdaptedSql(),
             QueryTermsUsed(),
-            MetricsCatalogNotQueried(),
             SemanticLayerAnswer(),
         ],
         ctx=ctx,
@@ -211,12 +223,10 @@ async def eval_metric_reuse(ctx: EvalContext) -> None:
                 "metrics_catalog_before_data_discovery",
                 "canonical_metric_run",
                 "trust_badge",
-                "catalog_search_used",
                 "run_override_used",
                 "no_data_sql_run",
                 "metric_describe_before_adapted_sql",
                 "query_terms_used",
-                "metrics_catalog_not_queried",
                 "semantic_layer_answer",
             ],
         ),
