@@ -4,8 +4,6 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -130,10 +128,7 @@ describe('DashboardHeader', () => {
         logic.unmount()
     })
 
-    it.each([true, false])('offers Undo once a layout change has saved, when the undo flag is %s', async (flagOn) => {
-        featureFlagLogic.actions.setFeatureFlags(flagOn ? [FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO] : [], {
-            [FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO]: flagOn,
-        })
+    it('offers Undo once a layout change has saved', async () => {
         const dashboard = makeDashboard({
             user_access_level: AccessControlLevel.Editor,
             tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
@@ -142,16 +137,12 @@ describe('DashboardHeader', () => {
         expect(document.querySelector('[data-attr="dashboard-layout-undo"]')).not.toBeInTheDocument()
 
         act(() => logic.actions.pushLayoutUndo({ 1: { layouts: {}, group_key: null } }))
-        const undoButton = document.querySelector('[data-attr="dashboard-layout-undo"]') as HTMLElement | null
-        if (!flagOn) {
-            expect(undoButton).not.toBeInTheDocument()
-        } else {
-            expect(undoButton).toBeInTheDocument()
-            await expectLogic(logic, () => {
-                fireEvent.click(undoButton!)
-            }).toDispatchActions(['undoLayoutChange'])
-            expect(logic.values.canUndoLayoutChange).toBe(false)
-        }
+        const undoButton = document.querySelector('[data-attr="dashboard-layout-undo"]') as HTMLElement
+        expect(undoButton).toBeInTheDocument()
+        await expectLogic(logic, () => {
+            fireEvent.click(undoButton)
+        }).toDispatchActions(['undoLayoutChange'])
+        expect(logic.values.canUndoLayoutChange).toBe(false)
 
         logic.unmount()
     })

@@ -1906,16 +1906,6 @@ describe('dashboardLogic', () => {
         })
 
         describe('layout autosave and undo', () => {
-            beforeEach(() => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO], {
-                    [FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO]: true,
-                })
-            })
-
-            afterEach(() => {
-                featureFlagLogic.actions.setFeatureFlags([], {})
-            })
-
             const moveFirstTileRight = (): DashboardTile => {
                 const firstTile = logic.values.dashboard!.tiles[0]
                 logic.actions.stageLayouts({
@@ -2023,24 +2013,6 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(logic.values.layoutUndoStack).toHaveLength(1)
-            })
-
-            it('still saves a move but offers no undo when the undo flag is off', async () => {
-                featureFlagLogic.actions.setFeatureFlags([], {})
-                await storeComputedLayouts()
-                jest.spyOn(api, 'update').mockClear()
-                const successToast = jest.spyOn(lemonToast, 'success')
-
-                await expectLogic(logic, () => {
-                    moveFirstTileRight()
-                }).toFinishAllListeners()
-
-                expect(api.update).toHaveBeenCalledTimes(1)
-                expect(logic.values.canUndoLayoutChange).toBe(false)
-                expect(successToast).toHaveBeenLastCalledWith(
-                    'Layout saved',
-                    expect.objectContaining({ button: undefined })
-                )
             })
 
             it('undo puts the tile back where it was and saves that', async () => {
@@ -2960,9 +2932,6 @@ describe('dashboardLogic', () => {
         })
 
         it('confirms a real save with a success toast that offers Undo', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO], {
-                [FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO]: true,
-            })
             await expectLogic(logic).toFinishAllListeners()
 
             const firstTile = logic.values.dashboard!.tiles[0]
@@ -2988,7 +2957,6 @@ describe('dashboardLogic', () => {
                 'Layout saved',
                 expect.objectContaining({ button: expect.objectContaining({ label: 'Undo' }) })
             )
-            featureFlagLogic.actions.setFeatureFlags([], {})
         })
 
         it('counts a duplicated tile as saved only when the server has it', async () => {

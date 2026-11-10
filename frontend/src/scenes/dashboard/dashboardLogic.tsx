@@ -1729,10 +1729,7 @@ export interface dashboardLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         filterEditModeActive: (dashboardEditing: DashboardEditing | null) => boolean
-        canUndoLayoutChange: (
-            layoutUndoStack: Record<number, TilePlacement>[],
-            featureFlags: FeatureFlagsSet
-        ) => boolean
+        canUndoLayoutChange: (layoutUndoStack: Record<number, TilePlacement>[]) => boolean
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile[]) => boolean
         savedDashboardSettings: (dashboard: DashboardType | null) => DashboardSettings
@@ -3695,9 +3692,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,
         ],
         canUndoLayoutChange: [
-            (s) => [s.layoutUndoStack, s.featureFlags],
-            (layoutUndoStack: Record<DashboardTile['id'], TilePlacement>[], featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO] && layoutUndoStack.length > 0,
+            (s) => [s.layoutUndoStack],
+            (layoutUndoStack: Record<DashboardTile['id'], TilePlacement>[]): boolean => layoutUndoStack.length > 0,
         ],
         shouldUseStreaming: [
             (s) => [s.featureFlags],
