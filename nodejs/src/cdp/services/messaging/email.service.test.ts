@@ -203,20 +203,21 @@ describe('EmailService', () => {
             limiters.workflowEmailRateLimiter ?? null,
             limiters.teamEmailRateLimiter ?? null
         )
-    const createRateLimiter = (name: string): RateLimiterService =>
-        new RateLimiterService(
-            createRedisV2PoolFromConfig({
-                connection: hub.CDP_REDIS_HOST
-                    ? {
-                          url: hub.CDP_REDIS_HOST,
-                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                      }
-                    : { url: hub.REDIS_URL },
-                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-            }),
-            { name }
-        )
+    // RedisV2 cannot be closed, so every limiter in this file shares one pool instead of opening one per test.
+    let limiterRedis: RedisV2 | undefined
+    const createRateLimiter = (name: string): RateLimiterService => {
+        limiterRedis ??= createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        return new RateLimiterService(limiterRedis, { name })
+    }
     const unreachableValkey: RedisV2 = {
         useClient: () => Promise.reject(new Error('connect ECONNREFUSED')),
         usePipeline: () => Promise.reject(new Error('connect ECONNREFUSED')),
@@ -837,14 +838,16 @@ describe('EmailService', () => {
             it('sends a burst of one second of budget, then parks only the workflow over its limit', async () => {
                 // Burst capacity is about one second of budget, not the count, so the first period
                 // cannot send about twice the limit and an idle-expired bucket cannot burst again.
-                limitTo(120, 'minute')
+                // 61 a minute still holds 2 tokens, and refills one only after about a second,
+                // which leaves both deliveries time to finish before the third claim.
+                limitTo(61, 'minute')
 
                 const burst = [await timedSend(), await timedSend()]
                 const denied = await timedSend()
 
                 expect(burst.map((send) => send.result.finished)).toEqual([true, true])
                 expect(denied.result.finished).toBe(false)
-                expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 500)
+                expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 1000)
 
                 const otherWorkflow = createExampleInvocation({ team_id: team.id, id: 'function-2' })
                 otherWorkflow.state.vmState = { stack: [] } as any
