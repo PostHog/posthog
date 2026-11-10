@@ -2573,6 +2573,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
         mock_refresh_delay.assert_called_once()
         assert mock_refresh_delay.call_args.args[:3] == (str(integration.id), repo, False)
+        assert mock_refresh_delay.call_args.args[4] == integration.team_id
 
     @patch("posthog.models.github_integration_base.get_redis_client", side_effect=ConnectionError("redis down"))
     def test_list_cached_branches_serves_stale_cache_when_the_refresh_lock_is_unavailable(

@@ -3168,7 +3168,13 @@ class GitHubIntegrationBase:
         from posthog.tasks.integrations import refresh_github_branch_cache  # noqa: PLC0415
 
         try:
-            refresh_github_branch_cache.delay(str(self.integration.id), repo, self.is_user_integration, lock_token)
+            refresh_github_branch_cache.delay(
+                str(self.integration.id),
+                repo,
+                self.is_user_integration,
+                lock_token,
+                None if self.is_user_integration else self.integration.team_id,
+            )
         except Exception:
             self.release_branch_refresh_lock(repo, lock_token)
             logger.warning(

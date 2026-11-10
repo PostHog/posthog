@@ -234,6 +234,20 @@ class TestCalendarSync(BaseTest):
         assert len(selected) == 200
         assert self.integration.id not in [item.integration_id for item in selected]
 
+    @parameterized.expand([(1,), (2,), (3,), (100,)])
+    def test_collector_reads_every_account_across_pages(self, page_size: int) -> None:
+        Integration.objects.bulk_create(
+            [
+                Integration(team=self.team, kind="google-calendar", integration_id=f"google-sub-{i + 2}")
+                for i in range(3)
+            ]
+        )
+
+        with patch.object(temporal_calendar_sync, "CALENDAR_PAGE_SIZE", page_size):
+            selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert len(selected) == 4
+
     def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
         self.integration.config["calendar_sync_token"] = "existing"
         self.integration.save(update_fields=["config"])
