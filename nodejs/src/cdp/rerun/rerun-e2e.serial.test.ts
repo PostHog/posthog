@@ -646,40 +646,14 @@ describe('CDP hog invocation rerun e2e', () => {
                 { type: 'native_email', key: 'email', integration: 'email', required: true, templating: 'liquid' },
             ],
         })
-        // The workflow Django saves for a template send. Its step is transactional; the send says otherwise.
+        // Its step is transactional; the send says otherwise.
         const flow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
-            .withStatus('active')
-            .withExitCondition('exit_only_at_end')
-            .withWorkflow({
-                actions: {
-                    trigger: { type: 'trigger', config: { type: 'api' } },
-                    email_1: {
-                        type: 'function_email',
-                        on_error: 'abort',
-                        config: {
-                            template_id: 'template-email',
-                            message_category_type: 'transactional',
-                            inputs: {
-                                email: {
-                                    templating: 'liquid',
-                                    value: {
-                                        to: { email: '{{ event.properties.to | raw }}', name: '' },
-                                        from: { integrationId: senderId, email: 'sender@posthog.com' },
-                                        subject: 'News',
-                                        text: 'News',
-                                        html: '<p>News</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    exit: { type: 'exit', config: {} },
-                },
-                edges: [
-                    { from: 'trigger', to: 'email_1', type: 'continue' },
-                    { from: 'email_1', to: 'exit', type: 'continue' },
-                ],
+            .withApiEmailWorkflow('transactional', {
+                from: { integrationId: senderId, email: 'sender@posthog.com' },
+                subject: 'News',
+                text: 'News',
+                html: '<p>News</p>',
             })
             .build()
         await insertHogFlow(hub.postgres, flow)

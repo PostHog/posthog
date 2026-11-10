@@ -3307,53 +3307,29 @@ describe('Workflows E2E (email queue)', () => {
         let app: express.Application
         let server: ReturnType<express.Application['listen']>
 
-        // The workflows Django saves for a template send and for a code send.
-        const sendFlow = (kind: 'template' | 'code', stepCategory: 'transactional' | 'marketing'): HogFlow => {
-            const to = { email: '{{ event.properties.to | raw }}', name: '' }
-            const email =
-                kind === 'template'
-                    ? {
-                          to,
-                          from: { integrationId: 1, email: 'sender@posthog.com' },
-                          subject: 'News',
-                          text: 'News',
-                          html: '<p>News</p>',
-                      }
-                    : {
-                          to,
-                          cc: '',
-                          bcc: '',
-                          from: { integrationId: null },
-                          replyTo: '',
-                          subject: '',
-                          text: '',
-                          html: '',
-                      }
-            return new FixtureHogFlowBuilder()
+        const sendFlow = (kind: 'template' | 'code', stepCategory: 'transactional' | 'marketing'): HogFlow =>
+            new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
-                .withStatus('active')
-                .withExitCondition('exit_only_at_end')
-                .withWorkflow({
-                    actions: {
-                        trigger: { type: 'trigger', config: { type: 'api' } },
-                        email_1: {
-                            type: 'function_email',
-                            on_error: 'abort',
-                            config: {
-                                template_id: 'template-email',
-                                message_category_type: stepCategory,
-                                inputs: { email: { templating: 'liquid', value: email } },
-                            },
-                        },
-                        exit: { type: 'exit', config: {} },
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'email_1', type: 'continue' },
-                        { from: 'email_1', to: 'exit', type: 'continue' },
-                    ],
-                })
+                .withApiEmailWorkflow(
+                    stepCategory,
+                    kind === 'template'
+                        ? {
+                              from: { integrationId: 1, email: 'sender@posthog.com' },
+                              subject: 'News',
+                              text: 'News',
+                              html: '<p>News</p>',
+                          }
+                        : {
+                              cc: '',
+                              bcc: '',
+                              from: { integrationId: null },
+                              replyTo: '',
+                              subject: '',
+                              text: '',
+                              html: '',
+                          }
+                )
                 .build()
-        }
 
         const codeSend = (messageCategory?: { id: string; type: 'marketing' | 'transactional' }) => ({
             content: {
