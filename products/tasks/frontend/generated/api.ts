@@ -2777,7 +2777,7 @@ export const getTasksModelsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.
+ * Return the models a task run may use, with the reasoning efforts each one supports. Read from the PostHog model catalog, narrowed to the models a PostHog Code token may call. Each model is marked with whether the project's plan allows it.
  * @summary List available models
  */
 export const tasksModelsRetrieve = async (

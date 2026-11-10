@@ -100,6 +100,7 @@ from products.tasks.backend.facade.client_provenance import (
 )
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
+from products.tasks.backend.facade.desktop_gateway import posthog_code_plan
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     StreamTokenRoute,
@@ -114,7 +115,11 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_resume_gap,
     observe_stream_token_routed,
 )
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_catalogue import (
+    FREE_TIER_PIN_KEY,
+    TASK_RUN_GATEWAY_PRODUCT,
+    plan_model_choices,
+)
 from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
@@ -1204,14 +1209,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List available models",
         description=(
             "Return the models a task run may use, with the reasoning efforts each one supports. "
-            "Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. "
-            "An empty list means the gateway is unreachable — clients should fall back to their own default rather "
-            "than treating it as 'no models exist'."
+            "Read from the PostHog model catalog, narrowed to the models a PostHog Code token may call. "
+            "Each model is marked with whether the project's plan allows it."
         ),
     )
     @action(detail=False, methods=["get"], url_path="models", required_scopes=["task:read"])
     def models(self, request, **kwargs):
-        choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+        plan_pin = FREE_TIER_PIN_KEY if posthog_code_plan(self.team) == "free" else TASK_RUN_GATEWAY_PRODUCT
+        choices = plan_model_choices(TASK_RUN_GATEWAY_PRODUCT, plan_pin)
         return Response(ModelCatalogueResponseSerializer({"models": choices}).data)
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
