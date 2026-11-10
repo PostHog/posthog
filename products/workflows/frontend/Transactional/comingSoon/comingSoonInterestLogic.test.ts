@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
 
+import { getSurveyResponseValue } from 'scenes/surveys/utils'
+
 import { initKeaTests } from '~/test/init'
 
 import { comingSoonInterestLogic } from './comingSoonInterestLogic'
@@ -15,47 +17,64 @@ const SURVEY = {
 }
 
 interface StoredResponse {
-    submissionId: string
     surveyId: string
     completed: boolean
     answers: Record<string, string>
     surface: string
 }
 
-// Stands in for PostHog's survey results: one response per submission id, read from its latest event.
-function surveyReceiver(): { responses: () => StoredResponse[] } {
-    const stored = new Map<string, StoredResponse>()
+const QUESTIONS = [
+    { index: 0, id: 'interest-q' },
+    { index: 1, id: 'note-q' },
+]
+
+// Merges like the survey results query: one row per submission id, the latest answer to each question,
+// and completed once any event completed it.
+function surveyResults(): { responses: () => Record<string, StoredResponse>; loseNextSend: () => void } {
+    const stored: Record<string, StoredResponse> = {}
+    let loseNext = false
     jest.mocked(posthog.capture).mockImplementation((event, properties) => {
-        if (event === 'survey sent' && properties) {
-            const answers = Object.fromEntries(
-                Object.entries(properties)
-                    .filter(([key]) => key.startsWith('$survey_response_') && !/^\$survey_response(_\d+)?$/.test(key))
-                    .map(([key, value]) => [key.replace('$survey_response_', ''), value])
-            )
-            stored.set(properties.$survey_submission_id, {
-                submissionId: properties.$survey_submission_id,
-                surveyId: properties.$survey_id,
-                completed: properties.$survey_completed,
-                answers,
-                surface: properties.feedback_surface,
-            })
+        if (event !== 'survey sent' || !properties) {
+            return undefined
+        }
+        if (loseNext) {
+            loseNext = false
+            return undefined
+        }
+        const previous = stored[properties.$survey_submission_id]
+        const answers = { ...previous?.answers }
+        for (const { index, id } of QUESTIONS) {
+            const value = getSurveyResponseValue(properties, index, id)
+            if (value != null) {
+                answers[id] = value
+            }
+        }
+        stored[properties.$survey_submission_id] = {
+            surveyId: properties.$survey_id,
+            completed: !!previous?.completed || properties.$survey_completed !== false,
+            answers,
+            surface: properties.feedback_surface,
         }
         return undefined
     })
-    return { responses: () => [...stored.values()] }
+    return {
+        responses: () => stored,
+        loseNextSend: () => {
+            loseNext = true
+        },
+    }
 }
 
-const interestOnly = (submissionId: unknown = expect.any(String)): StoredResponse => ({
-    submissionId: submissionId as string,
+const INTEREST: StoredResponse = {
     surveyId: 'survey-1',
     completed: false,
     answers: { 'interest-q': 'Interested' },
     surface: 'test',
-})
+}
 
 describe('comingSoonInterestLogic', () => {
     let logic: ReturnType<typeof comingSoonInterestLogic.build>
-    let receiver: ReturnType<typeof surveyReceiver>
+    let results: ReturnType<typeof surveyResults>
 
     const mountFor = (accountId: string): void => {
         logic.unmount()
@@ -69,7 +88,7 @@ describe('comingSoonInterestLogic', () => {
         initKeaTests()
         jest.clearAllMocks()
         jest.useFakeTimers()
-        receiver = surveyReceiver()
+        results = surveyResults()
         logic = comingSoonInterestLogic(SURVEY)
         logic.mount()
     })
@@ -86,8 +105,16 @@ describe('comingSoonInterestLogic', () => {
         expect(logic.values.noteOpen).toBe(false)
         logic.actions.registerInterest()
 
-        expect(receiver.responses()).toEqual([interestOnly()])
+        expect(Object.values(results.responses())).toEqual([INTEREST])
         expect(logic.values.noteOpen).toBe(true)
+    })
+
+    it('records the interest on a later click when the first send was lost', () => {
+        results.loseNextSend()
+        logic.actions.registerInterest()
+        logic.actions.registerInterest()
+
+        expect(Object.values(results.responses())).toEqual([INTEREST])
     })
 
     it('keeps the note open when the second click of a double click lands on the overlay', () => {
@@ -108,12 +135,11 @@ describe('comingSoonInterestLogic', () => {
         logic.actions.setNote('  Our billing system only speaks SMTP  ')
         logic.actions.submitNote()
         expect(logic.values.noteOpen).toBe(false)
-        // The note event already carries the interest, so a later click must not replace it with one that has no note.
         logic.actions.registerInterest()
 
-        expect(receiver.responses()).toEqual([
+        expect(Object.values(results.responses())).toEqual([
             {
-                ...interestOnly(),
+                ...INTEREST,
                 completed: true,
                 answers: { 'interest-q': 'Interested', 'note-q': 'Our billing system only speaks SMTP' },
             },
@@ -128,7 +154,7 @@ describe('comingSoonInterestLogic', () => {
 
         logic.actions.registerInterest()
 
-        expect(receiver.responses()).toEqual([interestOnly('first-account')])
+        expect(results.responses()).toEqual({ 'first-account': INTEREST })
     })
 
     it("hides the last account's interest and note from the next account on the same browser", () => {
@@ -141,7 +167,7 @@ describe('comingSoonInterestLogic', () => {
         expect(logic.values.note).toBe('')
         expect(logic.values.hasRecordedInterest).toBe(false)
         logic.actions.registerInterest()
-        expect(receiver.responses()).toEqual([interestOnly('first-account'), interestOnly('second-account')])
+        expect(results.responses()).toEqual({ 'first-account': INTEREST, 'second-account': INTEREST })
     })
 
     it.each([
@@ -168,7 +194,7 @@ describe('comingSoonInterestLogic', () => {
         logic.actions.setNote('   ')
         logic.actions.submitNote()
 
-        expect(receiver.responses()).toEqual([interestOnly()])
+        expect(Object.values(results.responses())).toEqual([INTEREST])
         expect(logic.values.noteOpen).toBe(true)
     })
 })
