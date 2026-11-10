@@ -73,6 +73,7 @@ import {
 } from './services/messaging/attachment-store'
 import { ATTACHMENT_VERIFICATION_DEADLINE_MS, AttachmentUploads } from './services/messaging/attachment-uploads'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
+import { UTM_VALUE_LIMIT_CHARS } from './services/messaging/helpers/utm'
 import { InFlightRegistry } from './services/messaging/in-flight-registry'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './services/messaging/message-estimate'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
@@ -3634,22 +3635,49 @@ describe('CDP API', () => {
                 expect(JSON.stringify(warn.mock.calls)).not.toContain(secret)
             })
 
-            it('refuses a send with files whose email step goes over a template limit, queues nothing, and frees its key', async () => {
-                const options = await storedTemplateRendering({ html: renderThatOutlastsTheLiquidLimit }, 'x')
-                const key = newKey()
+            const storedUtmValue = async (utmCampaign: string): Promise<SendOptions> => {
+                const flow = transactionalFlow('api', 'active', 'transactional', storedEmail({ html: '<p>x</p>' }))
+                const emailStep = flow.actions.find((action) => action.type === 'function_email')!
+                Object.assign(emailStep.config, { utm_tags_enabled: true, utm_params: { utm_campaign: utmCampaign } })
+                const { id: flowId } = await insertHogFlow(flow)
+                return { flowId, acceptedSend: { tracking: { captureEngagement: false } } }
+            }
 
-                const refused = await sendWithFiles(key, [reference(invoice)], options)
-                const retried = await sendWithFiles(key, [reference(invoice)], options)
+            it.each<[string, string, () => Promise<SendOptions>]>([
+                [
+                    'goes over a template limit',
+                    'email_render_limit_exceeded',
+                    () => storedTemplateRendering({ html: renderThatOutlastsTheLiquidLimit }, 'x'),
+                ],
+                [
+                    'has a UTM value one character over the length limit',
+                    'utm_value_too_long',
+                    () => storedUtmValue('x'.repeat(UTM_VALUE_LIMIT_CHARS + 1)),
+                ],
+                [
+                    'has a UTM value full of Liquid tags, which would take seconds to parse',
+                    'utm_value_too_long',
+                    () => storedUtmValue('{{ x }}'.repeat(100_000)),
+                ],
+            ])(
+                'refuses a send with files whose email step %s, queues nothing, and frees its key',
+                async (_name, error, arrange) => {
+                    const options = await arrange()
+                    const key = newKey()
 
-                expect(refused.status).toBe(400)
-                expect(refused.body).toEqual({
-                    error: 'email_render_limit_exceeded',
-                    reason: expect.stringContaining('"function_email"'),
-                    fix: expect.any(String),
-                })
-                expect(retried.body.error).toBe('email_render_limit_exceeded')
-                expect(await queuedIds()).toEqual([])
-            })
+                    const refused = await sendWithFiles(key, [reference(invoice)], options)
+                    const retried = await sendWithFiles(key, [reference(invoice)], options)
+
+                    expect(refused.status).toBe(400)
+                    expect(refused.body).toEqual({
+                        error,
+                        reason: expect.stringContaining('"function_email"'),
+                        fix: expect.any(String),
+                    })
+                    expect(retried.body.error).toBe(error)
+                    expect(await queuedIds()).toEqual([])
+                }
+            )
         })
 
         it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([

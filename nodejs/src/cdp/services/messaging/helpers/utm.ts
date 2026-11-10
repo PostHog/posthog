@@ -1,6 +1,7 @@
 import { getDomain } from 'tldts'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
+import { throwIfDeadlinePassed } from '~/cdp/utils/deadline'
 import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
@@ -24,6 +25,17 @@ export type WorkflowRunTag = {
 }
 
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as const
+
+export const UTM_VALUE_LIMIT_CHARS = 1_000
+
+/** The first custom value longer than UTM_VALUE_LIMIT_CHARS, which LiquidJS could take seconds to parse. */
+export const utmValueOverLimit = (raw: unknown): (typeof UTM_KEYS)[number] | undefined =>
+    raw && typeof raw === 'object'
+        ? UTM_KEYS.find((key) => {
+              const value = (raw as Record<string, unknown>)[key]
+              return typeof value === 'string' && value.length > UTM_VALUE_LIMIT_CHARS
+          })
+        : undefined
 
 // One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
 // inside another attribute's value or as part of a longer name like `data-href`.
@@ -69,6 +81,7 @@ export const renderUtmOverrides = (
         if (typeof value !== 'string' || !value.trim()) {
             continue
         }
+        throwIfDeadlinePassed(deadline)
         try {
             // Liquid escapes HTML in what it renders, and a URL needs the plain text.
             rendered[key] = decodeHtmlEntitiesInHref(

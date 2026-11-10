@@ -93,6 +93,7 @@ import { EmailValidationService } from './services/messaging/email-validation.se
 import { utmTagsFor } from './services/messaging/helpers/email-html'
 import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
+import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     HogWatcherService,
@@ -208,6 +209,15 @@ const emailRenderLimitExceeded = (emailStep: EmailStep): SendRefusal => ({
         error: 'email_render_limit_exceeded',
         reason: `Rendering the "${emailStep.name}" email step went over a template limit on time or length, so the size of this email with its files could not be checked.`,
         fix: 'Simplify the template of this email step, or send this email without files.',
+    },
+})
+
+const utmValueTooLong = (emailStep: EmailStep, key: string): SendRefusal => ({
+    status: 400,
+    body: {
+        error: 'utm_value_too_long',
+        reason: `The ${key} value of the "${emailStep.name}" email step is longer than ${UTM_VALUE_LIMIT_CHARS} characters, so the size of this email with its files could not be checked.`,
+        fix: `Shorten the ${key} value of this email step to ${UTM_VALUE_LIMIT_CHARS} characters or fewer, or send this email without files.`,
     },
 })
 
@@ -1563,6 +1573,12 @@ export class CdpApi {
         emailStep: EmailStep,
         deadline: AbortSignal
     ): Promise<MessageBodySizing> {
+        const longUtmValue = emailStep.config.utm_tags_enabled
+            ? utmValueOverLimit(emailStep.config.utm_params)
+            : undefined
+        if (longUtmValue) {
+            return { refused: utmValueTooLong(emailStep, longUtmValue) }
+        }
         const renderContext = await this.workerRenderContext(hogFlow, invocation)
         deadline.throwIfAborted()
         try {

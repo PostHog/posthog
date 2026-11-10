@@ -264,6 +264,7 @@ export type TransactionalEmailOutcome =
     | 'attachment_not_uploaded'
     | 'message_too_large'
     | 'email_render_limit_exceeded'
+    | 'utm_value_too_long'
     | 'delivery_unavailable'
     | 'error'
 
