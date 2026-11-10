@@ -68,7 +68,6 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             ("no_dedupe", None, 10, 1000, [1, 2, 3, 4, 5]),
             # The cap cuts the audience in id order, so the resolver's truncation sees the same first persons.
             ("capped", None, 2, 1000, [1, 2]),
-            # One person per id range: persons 1 and 2 share an email across two ranges and still collapse.
             ("email_dedupe_across_ranges", "email", 10, 1, [1, 3, 4, 5]),
             ("no_dedupe_across_ranges", None, 10, 1, [1, 2, 3, 4, 5]),
             ("capped_across_ranges", None, 2, 1, [1, 2]),

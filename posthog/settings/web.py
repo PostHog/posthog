@@ -1155,8 +1155,6 @@ WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS = int(
 )
 if WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS < 1:
     raise ImproperlyConfigured("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS must be at least 1")
-# A batch run that resolves its audience once splits a big team's person rows into id ranges of about this many
-# rows, one ClickHouse query each, so no single query has to hold the whole team in memory.
 WORKFLOWS_BATCH_AUDIENCE_SNAPSHOT_ROWS_PER_CHUNK = int(
     get_from_env("WORKFLOWS_BATCH_AUDIENCE_SNAPSHOT_ROWS_PER_CHUNK", 25_000_000)
 )

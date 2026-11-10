@@ -148,8 +148,6 @@ def _remaining_budget(query_settings: HogQLGlobalSettings, deadline: float) -> H
     remaining = math.floor(deadline - time.monotonic())
     if remaining < 1:
         raise ClickHouseQueryTimeOut("The audience used up its query budget")
-    # The cohort limit context raises a lower cap to this floor anyway, so a range that starts close to the
-    # deadline can run past it by up to the floor. Stating it here keeps that ceiling visible.
     return query_settings.model_copy(
         update={"max_execution_time": max(remaining, settings.HOGQL_INCREASED_MAX_EXECUTION_TIME)}
     )
@@ -182,6 +180,17 @@ def _person_id_chunk_boundaries(team: Team, query_settings: HogQLGlobalSettings)
     return boundaries
 
 
+def _audience_where_exprs(team: Team, prop_group: PropertyGroup) -> list[ast.Expr]:
+    return [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        ),
+        property_to_expr(prop_group, team, scope="person"),
+    ]
+
+
 def _build_snapshot_chunk_query(
     team: Team,
     prop_group: PropertyGroup,
@@ -190,14 +199,7 @@ def _build_snapshot_chunk_query(
     id_to: Optional[str],
     limit: int,
 ) -> ast.SelectQuery:
-    where_exprs: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["persons", "team_id"]),
-            right=ast.Constant(value=team.pk),
-        ),
-        property_to_expr(prop_group, team, scope="person"),
-    ]
+    where_exprs = _audience_where_exprs(team, prop_group)
     if id_from is not None:
         where_exprs.append(
             ast.CompareOperation(
@@ -216,8 +218,6 @@ def _build_snapshot_chunk_query(
         )
 
     if dedupe_key == EMAIL_DEDUPE_KEY:
-        # The range filter can sit inside the aggregation here, unlike the paged query's cursor, because the
-        # caller merges ranges in id order and keeps the first person it sees for each email.
         return ast.SelectQuery(
             select=[
                 ast.Alias(alias="person_id", expr=ast.Call(name="min", args=[ast.Field(chain=["persons", "id"])])),
@@ -259,14 +259,7 @@ def _build_audience_person_query(
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
 ) -> ast.SelectQuery:
-    where_exprs: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["persons", "team_id"]),
-            right=ast.Constant(value=team.pk),
-        ),
-        property_to_expr(prop_group, team, scope="person"),
-    ]
+    where_exprs = _audience_where_exprs(team, prop_group)
 
     if dedupe_key == EMAIL_DEDUPE_KEY:
         return _wrap_with_email_dedupe(where_exprs, cursor)
