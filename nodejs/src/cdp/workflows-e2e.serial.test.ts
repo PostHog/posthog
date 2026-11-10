@@ -30,6 +30,7 @@ import { template as webhookTemplate } from '~/cdp/templates/_destinations/webho
 import { setupExpressApp } from '~/common/api/router'
 import {
     KAFKA_APP_METRICS_2,
+    KAFKA_EMAIL_STATUS,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_MESSAGE_ASSETS,
@@ -87,6 +88,7 @@ import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
 import { mailDevWebUrl } from './services/messaging/helpers/maildev'
+import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
@@ -3784,32 +3786,52 @@ describe('Workflows E2E (email queue)', () => {
         )
 
         it.each([
-            { showFooter: true, sent: true },
-            { showFooter: false, sent: false },
-        ])(
-            'a marketing template send whose unsubscribe footer renders only when show_footer is $showFooter sends: $sent',
-            async ({ showFooter, sent }) => {
-                const flow = await insertHogFlow(
-                    hub.postgres,
-                    sendFlow('template', 'transactional', {
-                        html: '',
-                        text: 'News{% if variables.show_footer %} Bye: {{ unsubscribe_url }}{% endif %}',
-                    })
-                )
-                const to = `reader-${new UUIDT().toString()}@example.com`
-
-                const res = await post('template', flow, {
-                    to,
-                    distinct_id: 'reader',
-                    variables: { show_footer: showFooter },
-                    message_category: newsletter,
+            { name: 'shows its footer', showFooter: true, otherLink: false, sent: true },
+            { name: 'hides its footer', showFooter: false, otherLink: false, sent: false },
+            {
+                name: "hides its footer but links another recipient's preferences",
+                showFooter: false,
+                otherLink: true,
+                sent: false,
+            },
+        ])('a marketing template send that $name sends: $sent', async ({ showFooter, otherLink, sent }) => {
+            const otherPreferences = new RecipientTokensService(
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL
+            ).generatePreferencesUrl({ team_id: team.id, identifier: 'someone-else@example.com' })
+            const flow = await insertHogFlow(
+                hub.postgres,
+                sendFlow('template', 'transactional', {
+                    html: '',
+                    text: `News${otherLink ? ` Settings: ${otherPreferences}` : ''}{% if variables.show_footer %} Bye: {{ unsubscribe_url }}{% endif %}`,
                 })
-                expect(res.status).toEqual(202)
-                await deliver()
+            )
+            const to = `reader-${new UUIDT().toString()}@example.com`
 
-                expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
+            const res = await post('template', flow, {
+                to,
+                distinct_id: 'reader',
+                variables: { show_footer: showFooter },
+                message_category: newsletter,
+            })
+            expect(res.status).toEqual(202)
+            await deliver()
+
+            expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
+            if (!sent) {
+                await waitForExpect(() =>
+                    expect(
+                        mockProducerObserver
+                            .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                            .filter((m: any) => m.value.message_id === res.body.invocation_id)
+                            .map((m: any) => [m.value.status, m.value.reason])
+                    ).toEqual([
+                        ['queued', ''],
+                        ['failed', 'unsubscribe_link_required'],
+                    ])
+                )
             }
-        )
+        })
 
         it('refuses a retry of a template send that reuses its idempotency key in another category', async () => {
             const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))

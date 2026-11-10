@@ -1447,7 +1447,12 @@ export class EmailService {
         ) {
             return false
         }
-        return !(params.html || params.text || '').includes(`${this.siteUrl}/messaging-preferences/`)
+        const recipient = params.to?.email && unquoteMailbox(params.to.email)
+        const links = (params.html || params.text || '').split(`${this.siteUrl}/messaging-preferences/`).slice(1)
+        return !links.some((link) => {
+            const owner = this.recipientTokensService.validatePreferencesToken(link.split('/')[0])
+            return owner.valid && owner.team_id === invocation.teamId && unquoteMailbox(owner.identifier) === recipient
+        })
     }
 
     private generateUnsubscribeHeaders(
