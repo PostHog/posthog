@@ -396,7 +396,7 @@ const meta: Meta<typeof SearchPerformanceTab> = {
     },
     render: () => (
         <>
-            <MarketingAnalyticsFilters tabs={<></>} />
+            <MarketingAnalyticsFilters tabs={<></>} searchOnly />
             <SearchPerformanceTab />
         </>
     ),
@@ -965,7 +965,7 @@ export const PostHogConversions: Story = {
     },
     render: (): JSX.Element => (
         <>
-            <MarketingAnalyticsFilters tabs={<></>} />
+            <MarketingAnalyticsFilters tabs={<></>} searchOnly />
             <SearchPerformanceTab />
         </>
     ),
