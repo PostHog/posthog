@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.db import transaction
 from django.utils import timezone
@@ -21,6 +21,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import captur
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
+from products.signals.backend.trial.funding import direct_report_funding_snapshot
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ def create_custom_agent_ready_report(
     task_id: str | None = None,
     agent_identifier: tuple[str, str],
     registered_artefacts: Sequence[ArtefactContent] = (),
+    funded_report_id: UUID | None = None,
 ) -> PersistedCustomAgentReport:
     """Create a final READY report plus compatible artefacts in one transaction.
 
@@ -45,12 +47,13 @@ def create_custom_agent_ready_report(
     artefact type, queued during the run via the agent's `register_artefact`, written in queue
     order (status types route through their latest-wins append semantics).
     """
-    report_id = str(uuid4())
+    report_id = str(funded_report_id or uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     with transaction.atomic():
         report = SignalReport.objects.create(
             id=report_id,
             team_id=team_id,
+            self_driving_funding=direct_report_funding_snapshot(team_id),
             status=SignalReport.Status.READY,
             title=final_report.title,
             summary=final_report.description,

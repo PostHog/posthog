@@ -95,6 +95,10 @@ class DeepLinksView(BearerResourceAPIView):
 
         scoped_teams = access_token.scoped_teams or []
         team_id = scoped_teams[0] if scoped_teams else None
+        if team_id is not None:
+            team = Team.objects.filter(id=team_id).first()
+            if team is not None:
+                self.enforce_team_ip_policy(team, access_token, resource_id=str(team_id))
 
         host = current_region_host()
 

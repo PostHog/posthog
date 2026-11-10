@@ -28,6 +28,7 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
     RatioStatistic,
+    RelativeEffectBaseline,
     SampleMeanStatistic,
     StatisticError,
 )
@@ -495,8 +496,26 @@ class TestRelativeEffectSignedBaseline(TestCase):
         [
             ("frequentist", 0.0, lambda t, c: FrequentistMethod().run_test(t, c)),
             ("bayesian", 0.0, lambda t, c: BayesianMethod().run_test(t, c)),
-            ("frequentist_cuped_baseline", 2.0, lambda t, c: FrequentistMethod().run_test(t, c, unadjusted_mean=0.0)),
-            ("bayesian_cuped_baseline", 2.0, lambda t, c: BayesianMethod().run_test(t, c, unadjusted_mean=1e-12)),
+            (
+                "frequentist_cuped_baseline",
+                2.0,
+                lambda t, c: FrequentistMethod().run_test(
+                    t,
+                    c,
+                    relative_effect_baseline=RelativeEffectBaseline(mean=0.0, variance=0.0, difference_covariance=0.0),
+                ),
+            ),
+            (
+                "bayesian_cuped_baseline",
+                2.0,
+                lambda t, c: BayesianMethod().run_test(
+                    t,
+                    c,
+                    relative_effect_baseline=RelativeEffectBaseline(
+                        mean=1e-12, variance=0.0, difference_covariance=0.0
+                    ),
+                ),
+            ),
         ]
     )
     def test_zero_baseline_is_rejected(self, _name: str, control_mean: float, run_test: Any) -> None:
@@ -504,6 +523,19 @@ class TestRelativeEffectSignedBaseline(TestCase):
         control = _sample_mean_stat(n=500, mean=control_mean, variance=4.0)
 
         with pytest.raises(StatisticError, match="Baseline mean is zero"):
+            run_test(treatment, control)
+
+    @parameterized.expand(
+        [
+            ("frequentist", lambda t, c: FrequentistMethod().run_test(t, c)),
+            ("bayesian", lambda t, c: BayesianMethod().run_test(t, c)),
+        ]
+    )
+    def test_zero_treatment_without_spread_is_rejected(self, _name: str, run_test: Any) -> None:
+        treatment = _sample_mean_stat(n=100, mean=0.0, variance=0.0)
+        control = _sample_mean_stat(n=100, mean=2.5, variance=2.25)
+
+        with pytest.raises(StatisticError, match="variance must be positive"):
             run_test(treatment, control)
 
 

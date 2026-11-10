@@ -6,9 +6,9 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
-import { emailAttachmentOutcomesTotal } from '../messaging/email-attachments.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { v2JobToInvocation } from './job-codec'
+import { createCyclotronPool } from './pg-pool'
 import { CYCLOTRON_COUNTER_MAX, CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
 // Stable, low-cardinality `error_kind` stamped on the failed invocation result
@@ -71,18 +71,6 @@ const conversionWatchersSweptCounter = new Counter({
     help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
 })
 
-export const EMAIL_ATTACHMENTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
-
-const emailAttachmentsTableBytesGauge = new Gauge({
-    name: 'cdp_email_attachments_table_bytes',
-    help: 'Total size of cyclotron_email_attachments on disk, with its TOAST data and indexes (pg_total_relation_size). Sampled by the janitor sweep.',
-})
-
-const emailAttachmentsRowsGauge = new Gauge({
-    name: 'cdp_email_attachments_rows',
-    help: 'Planner estimate (pg_class.reltuples) of the rows in cyclotron_email_attachments, one per file of a transactional email that waits to send. Sampled by the janitor sweep without a table scan.',
-})
-
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
@@ -115,8 +103,6 @@ export class CyclotronV2Janitor {
     private intervalHandle: ReturnType<typeof setInterval> | null = null
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
-    // created_at travels as text, because a Date drops the microseconds and would land on the last row again.
-    private attachmentSweepCursor: { createdAt: string; id: string } | null = null
 
     private readonly cleanupBatchSize: number
     private readonly cleanupIntervalMs: number
@@ -135,7 +121,7 @@ export class CyclotronV2Janitor {
         // refuses to drop a job it can't record a recovery row for.
         private invocationResults?: HogInvocationResultsService
     ) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('janitor', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 5,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
@@ -182,7 +168,6 @@ export class CyclotronV2Janitor {
         // sweep touches a different table and swallows its own errors, so running it up front keeps
         // expired watchers draining even while cyclotron cleanup is failing.
         await this.sweepExpiredConversionWatchers()
-        await this.sweepEmailAttachments()
 
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
@@ -520,72 +505,6 @@ export class CyclotronV2Janitor {
             return deleted
         } catch (err) {
             logger.error('CyclotronV2Janitor conversion watcher sweep failed', { error: String(err) })
-            captureException(err)
-            return 0
-        }
-    }
-
-    async sweepEmailAttachments(): Promise<number> {
-        try {
-            // The rows of a scheduled send that still waits stay past the max age, so each sweep examines one batch
-            // after the cursor instead of rescanning all of them.
-            const after = this.attachmentSweepCursor
-            const result = await this.pool.query<{
-                swept: string
-                examined: string
-                last_created_at: string | null
-                last_id: string | null
-            }>(
-                `WITH examined AS (
-                     SELECT a.id, a.job_id, a.created_at FROM cyclotron_email_attachments a
-                     WHERE a.created_at < $1
-                       AND ($3::timestamptz IS NULL OR (a.created_at, a.id) > ($3::timestamptz, $4::uuid))
-                     ORDER BY a.created_at, a.id
-                     LIMIT $2
-                     FOR UPDATE OF a SKIP LOCKED
-                 ), swept AS (
-                     DELETE FROM cyclotron_email_attachments d
-                     USING examined e
-                     WHERE d.id = e.id
-                       AND NOT EXISTS (
-                           SELECT 1 FROM cyclotron_jobs j WHERE j.id = e.job_id AND j.status IN ('available', 'running')
-                       )
-                     RETURNING d.id
-                 ), last AS (
-                     SELECT created_at, id FROM examined ORDER BY created_at DESC, id DESC LIMIT 1
-                 )
-                 SELECT (SELECT count(*) FROM swept) AS swept,
-                        (SELECT count(*) FROM examined) AS examined,
-                        (SELECT created_at::text FROM last) AS last_created_at,
-                        (SELECT id FROM last) AS last_id`,
-                [
-                    new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS),
-                    this.cleanupBatchSize,
-                    after?.createdAt ?? null,
-                    after?.id ?? null,
-                ]
-            )
-            const { swept: sweptCount, examined, last_created_at, last_id } = result.rows[0]
-            // A short batch reached the end, so the next sweep starts over and rechecks the rows that waited.
-            this.attachmentSweepCursor =
-                Number(examined) < this.cleanupBatchSize || !last_created_at || !last_id
-                    ? null
-                    : { createdAt: last_created_at, id: last_id }
-            const swept = Number(sweptCount)
-            if (swept > 0) {
-                emailAttachmentOutcomesTotal.inc({ outcome: 'swept' }, swept)
-                logger.info('CyclotronV2Janitor swept email attachment rows', { count: swept })
-            }
-            const size = await this.pool.query<{ bytes: string; rows: string }>(
-                `SELECT pg_total_relation_size('cyclotron_email_attachments') AS bytes,
-                        (SELECT GREATEST(reltuples, 0)::bigint FROM pg_class
-                         WHERE oid = 'cyclotron_email_attachments'::regclass) AS rows`
-            )
-            emailAttachmentsTableBytesGauge.set(Number(size.rows[0].bytes))
-            emailAttachmentsRowsGauge.set(Number(size.rows[0].rows))
-            return swept
-        } catch (err) {
-            logger.error('CyclotronV2Janitor email attachment sweep failed', { error: String(err) })
             captureException(err)
             return 0
         }

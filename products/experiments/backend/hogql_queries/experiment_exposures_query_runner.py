@@ -258,7 +258,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
         tag_queries(experiment_exposures_path="direct_scan")
-        return builder.get_exposure_timeseries_query()
+        return builder.get_exposure_timeseries_query(with_library=True)
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
         """Chi-squared goodness-of-fit test of the observed variant counts against the rollout
@@ -534,7 +534,10 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             settings=HogQLGlobalSettings(max_execution_time=600),
         )
 
-        response.results = self._fill_date_gaps(response.results)
+        # The precomputed exposures carry no library, and with an activation the timeseries reads none.
+        reads_library = not self._reads_precomputed_exposures and exposure_params.activation_config is None
+        exposed_by_library = _exposed_by_library(response.results) if reads_library else None
+        response.results = self._fill_date_gaps([row[:3] for row in response.results])
         variant_series: dict[str, ExperimentExposureTimeSeries] = {}
 
         variant_data: dict[str, dict[str, int]] = {}
@@ -599,6 +602,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             bias_risk=bias_risk,
             health_findings=self._health_findings(health),
             health_checks=self._health_checks(health),
+            exposed_by_library=exposed_by_library,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -652,3 +656,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 _RULE_TESTS: dict[ExperimentHealthRuleTest, Literal["chi_squared"]] = {
     ExperimentHealthRuleTest.CHI_SQUARED: "chi_squared"
 }
+
+
+def _exposed_by_library(rows: list[Any]) -> dict[str, int]:
+    """Sums the `exposed_by_library` column of the timeseries rows over the days and the variants."""
+    exposed: dict[str, int] = {}
+    for *_, (libraries, counts) in rows:
+        for library, count in zip(libraries, counts):
+            exposed[library] = exposed.get(library, 0) + int(count)
+    return exposed
