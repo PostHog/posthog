@@ -66,9 +66,15 @@ export function PredictionsTab(): JSX.Element {
     if (!pipeline.last_scored_at) {
         return (
             <EmptyTab icon={<IconGraph />} title="No predictions yet" cta={<ScoreNowButton />}>
-                Once the champion scores your inference population, each user's predicted probability lands on the{' '}
-                <code>{pipeline.output_person_property}</code> person property and an{' '}
-                <code>autoresearch_prediction</code> event is emitted. Score now to populate this tab.
+                Once the live model scores your inference population, each person's predicted probability is recorded as
+                an <code>autoresearch_prediction</code> event.
+                {pipeline.write_person_property && (
+                    <>
+                        {' '}
+                        It is also written to the <code>{pipeline.output_person_property}</code> person property.
+                    </>
+                )}{' '}
+                Score now to populate this tab.
             </EmptyTab>
         )
     }
@@ -81,9 +87,16 @@ export function PredictionsTab(): JSX.Element {
                 title="Likelihood segments"
                 description={
                     <>
-                        Each scoring run writes the champion's predicted probability to the{' '}
-                        <code>{pipeline.output_person_property}</code> person property and emits an{' '}
-                        <code>autoresearch_prediction</code> event. These views read straight from those events.
+                        Each scoring run records every person's predicted probability as an{' '}
+                        <code>autoresearch_prediction</code> event.
+                        {pipeline.write_person_property && (
+                            <>
+                                {' '}
+                                It also writes the score to the <code>{pipeline.output_person_property}</code> person
+                                property.
+                            </>
+                        )}{' '}
+                        These views read from those events.
                     </>
                 }
             >

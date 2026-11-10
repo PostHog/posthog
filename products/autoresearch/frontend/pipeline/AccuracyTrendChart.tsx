@@ -73,7 +73,7 @@ export function AccuracyTrendChart({
                     {banded.length > 0 && (
                         <span>
                             <span className="inline-block w-3 h-2 align-middle mr-1 bg-[var(--data-color-1)] opacity-20" />
-                            Champion 95% interval
+                            Live model 95% interval
                         </span>
                     )}
                     {reference != null && (

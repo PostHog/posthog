@@ -1,7 +1,7 @@
 const STEPS = [
     'An agent builds features from your events and trains candidate models on past data.',
     'It keeps the model with the best holdout score, and stops when the score stops improving or the experiment budget runs out.',
-    'The best model scores your population every day and saves each score as a person property.',
+    "The best model scores your population every day. You can also save each score to the person's profile, to use in feature flags, cohorts and workflows.",
     'When the prediction horizon passes, Autoresearch compares the predictions with what people did.',
 ]
 

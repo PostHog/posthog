@@ -90,6 +90,7 @@ from ..training.explanation import (
     FeatureDirection as _FeatureDirection,
     normalize_model_explanation,
 )
+from ..training.promotion import CHAMPION_PROMOTION_MARGIN
 from ..training.recipe_validation import RecipeValidationError, feature_sql_hints, validate_feature_sql, validate_recipe
 from ..training.schedule import ScheduleRun, research_schedule, schedule_runs_for
 from ..training.shadow_set import shadow_set_ids
@@ -462,6 +463,7 @@ def _pipeline_to_contract(
             if row.status == AutoresearchPipeline.Status.BOOTSTRAPPING and champion is None
             else None
         ),
+        promotion_margin=CHAMPION_PROMOTION_MARGIN,
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,

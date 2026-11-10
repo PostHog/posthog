@@ -738,6 +738,13 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "or a failed scorability check. Set only while the pipeline is bootstrapping with no champion."
         ),
     )
+    promotion_margin = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "How much a training run's best holdout AUC must beat the live champion's holdout AUC before the run's "
+            "model replaces it."
+        ),
+    )
     success_auc = serializers.FloatField(
         required=False,
         allow_null=True,
@@ -875,6 +882,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "training_phase",
             "next_research_at",
             "not_promoted_reason",
+            "promotion_margin",
             "success_auc",
             "plateau_iterations",
             "output_person_property",

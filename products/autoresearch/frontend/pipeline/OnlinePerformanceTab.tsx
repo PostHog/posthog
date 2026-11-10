@@ -19,7 +19,7 @@ import { SectionCard } from './SectionCard'
 import { SegmentCalibrationBars } from './SegmentCalibrationBars'
 
 const MODEL_ROLE: Record<string, { type: 'success' | 'default' | 'highlight'; label: string }> = {
-    champion: { type: 'success', label: 'Champion' },
+    champion: { type: 'success', label: 'Live model' },
     challenger: { type: 'highlight', label: 'Challenger' },
     archived: { type: 'default', label: 'Archived' },
 }

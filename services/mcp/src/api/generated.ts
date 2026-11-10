@@ -17007,6 +17007,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly not_promoted_reason: string | null;
+      /** How much a training run's best holdout AUC must beat the live champion's holdout AUC before the run's model replaces it. */
+      readonly promotion_margin: number;
       /**
          * Target AUC threshold. Training stops early if this score is reached.
          * @nullable
