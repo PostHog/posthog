@@ -19,7 +19,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
-from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
+from posthog.integrations.contracts import CrossTeamFilter, IntegrationPatch, IntegrationRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -166,9 +166,20 @@ class EmailIntegration:
         self.integration = model.integration_model(
             row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
         )
+        if provider == "ses" and mail_from_changed:
+            self._move_domain_senders_to_mail_from_subdomain(mail_from_subdomain)
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
+
+    def _move_domain_senders_to_mail_from_subdomain(self, mail_from_subdomain: str) -> None:
+        accessor = row_writes.row_accessor(self.integration)
+        domain_senders = accessor.list_across_teams(
+            CrossTeamFilter(where={"domain": self.integration.config["domain"]})
+        )
+        for sender in domain_senders:
+            if sender.config.get("mail_from_subdomain") != mail_from_subdomain:
+                accessor.update(sender.team_id, sender.id, config_patch={"mail_from_subdomain": mail_from_subdomain})
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")

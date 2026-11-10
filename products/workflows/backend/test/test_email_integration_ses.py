@@ -163,6 +163,50 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         integration_b.refresh_from_db()
         assert integration_b.config.get("verified") is False
 
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_verifying_another_sender_keeps_a_changed_mail_from_subdomain(self, _mock_resolver_cls, _mock_reload):
+        provider = self._build_ses_provider()
+        mail_from_domains: dict[str, str] = {}
+
+        def _set_mail_from(Identity: str, MailFromDomain: str, **_kwargs: object) -> dict:
+            mail_from_domains[Identity] = MailFromDomain
+            return {}
+
+        def _get_mail_from(Identities: list[str]) -> dict:
+            return {
+                "MailFromDomainAttributes": {
+                    identity: {"MailFromDomain": mail_from_domains[identity], "MailFromDomainStatus": "Pending"}
+                    for identity in Identities
+                    if identity in mail_from_domains
+                }
+            }
+
+        provider.ses_client.set_identity_mail_from_domain.side_effect = _set_mail_from
+        provider.ses_client.get_identity_mail_from_domain_attributes.side_effect = _get_mail_from
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+
+        with patch("products.workflows.backend.providers.SESProvider", return_value=provider):
+            sender_a = EmailIntegration.create_native_integration(
+                {"email": "a@partner.com", "name": "A"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+            sender_b = EmailIntegration.create_native_integration(
+                {"email": "b@partner.com", "name": "B"},
+                team_id=other_team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+            EmailIntegration(sender_a).update_native_integration({"mail_from_subdomain": "bounces"}, self.team.id)
+            sender_b.refresh_from_db()
+            EmailIntegration(sender_b).verify()
+
+        assert mail_from_domains["partner.com"] == "bounces.partner.com"
+        sender_b.refresh_from_db()
+        assert sender_b.config["mail_from_subdomain"] == "bounces"
+
     def test_aws_account_id_is_looked_up_once_across_providers(self):
         cache.delete(AWS_ACCOUNT_ID_CACHE_KEY)
         providers = [self._build_ses_provider(), self._build_ses_provider()]
