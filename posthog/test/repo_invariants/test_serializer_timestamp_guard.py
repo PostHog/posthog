@@ -95,7 +95,6 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.actions.backend.presentation.views.action.ActionSerializer.last_calculated_at": "TODO: server-owned, written by the action calculation job",
     "products.actions.backend.presentation.views.action.ActionSerializer.pinned_at": "TODO: server-derived on pin. update() discards the supplied value and stores its own now(); only the null that unpins is the client's",
     "products.alerts.backend.presentation.views.alert.AlertSerializer.snoozed_until": "TODO: server-derived. The client sends a relative date string and update() resolves it to the stored instant",
-    "products.annotations.backend.api.annotation.AnnotationSerializer.date_marker": "Client sets when the annotation happened, to place it on a chart",
     "products.billing_alerts.backend.presentation.serializers.BillingAlertConfigurationSerializer.snoozed_until": "Client-set instant: a plain DateTimeField that ModelSerializer writes to the column unchanged, with no relative-duration parsing on this path",
     "products.conversations.backend.api.tickets.TicketSerializer.sla_due_at": "Client or a workflow sets the SLA deadline, and null clears it",
     "products.conversations.backend.api.tickets.TicketSerializer.snoozed_until": "Client-set instant: the ticket action assigns validated_data['snoozed_until'] to ticket.snoozed_until, with no relative-duration parsing on this path",

@@ -34,6 +34,7 @@ from products.batch_exports.backend.facade.contracts import (
     DestinationTestStep,
     DestinationTestStepResult,
 )
+from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedDestination
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
     ExternalDataSchemaDestination,
@@ -43,6 +44,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
     CONNECT_TOKEN_TTL,
     issue_connect_token,
@@ -1508,6 +1510,125 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         assert "external-data-destinations-connect-link-status" in data["instructions"]
         assert f"type='{destination_type}'" in data["instructions"]
         assert ("tests the connection" in data["instructions"]) == tested_on_create
+
+    def _planned_item(self, team: Team, destination_type: str = "Postgres") -> WarehouseMigrationItem:
+        return WarehouseMigrationItem.objects.for_team(team.pk).create(
+            team_id=team.pk,
+            migration=WarehouseMigration.objects.for_team(team.pk).create(team_id=team.pk, provider="fivetran"),
+            vendor_connection_id="conn_shop",
+            vendor_service="postgres",
+            name="shop",
+            verdict=WarehouseMigrationItem.Verdict.AS_IS,
+            proposal=ItemProposal(
+                source_type=ExternalDataSourceType.POSTGRES,
+                prefix="shop",
+                prefill={},
+                schemas=None,
+                sync_frequency="6hour",
+                sync_time_of_day=None,
+                destination=ProposedDestination(
+                    type=destination_type,
+                    config={"host": "db.example.com", "port": 5432, "database": "analytics", "user": "loader"},
+                ),
+            ).to_json(),
+        )
+
+    @parameterized.expand(
+        [
+            ("planned_type", "own", "Postgres", status.HTTP_200_OK),
+            ("other_team", "other", "Postgres", status.HTTP_400_BAD_REQUEST),
+            ("type_mismatch", "own", "Snowflake", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_carries_a_migration_item_for_prefill(
+        self, _name: str, owner: str, destination_type: str, expected_status: int
+    ) -> None:
+        team = self.team if owner == "own" else self.create_team_with_organization(organization=self.organization)
+        item = self._planned_item(team)
+
+        response = self.client.get(
+            f"{self.base}/connect_link",
+            {"destination_type": destination_type, "migration_item_id": str(item.id)},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            data = response.json()
+            assert data["connect_url"].endswith(f"&migration_id={item.migration_id}&migration_item_id={item.id}")
+            assert data["suggested_config"] == {"database": "analytics", "schema": "posthog_shop"}
+            assert "suggested_config" in data["instructions"]
+            assert "analytics" not in data["instructions"]
+
+    @parameterized.expand(
+        [
+            ("matching_settings", "own", "Postgres", "db.example.com", 5432, status.HTTP_201_CREATED, None),
+            ("port_as_text", "own", "Postgres", "db.example.com", "5432", status.HTTP_201_CREATED, None),
+            (
+                "changed_host",
+                "own",
+                "Postgres",
+                "elsewhere.example.net",
+                5432,
+                status.HTTP_400_BAD_REQUEST,
+                "integration",
+            ),
+            (
+                "other_team_item",
+                "other",
+                "Postgres",
+                "db.example.com",
+                5432,
+                status.HTTP_400_BAD_REQUEST,
+                "migration_item_id",
+            ),
+            (
+                "other_type_item",
+                "own",
+                "Snowflake",
+                "db.example.com",
+                5432,
+                status.HTTP_400_BAD_REQUEST,
+                "migration_item_id",
+            ),
+        ]
+    )
+    def test_create_rejects_an_integration_that_changes_the_migration_prefill(
+        self,
+        _name: str,
+        item_owner: str,
+        planned_type: str,
+        host: str,
+        port: int | str,
+        expected_status: int,
+        error_attr: str | None,
+    ) -> None:
+        team = self.team if item_owner == "own" else self.create_team_with_organization(organization=self.organization)
+        item = self._planned_item(team, planned_type)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.POSTGRESQL,
+            integration_id="pg-shop",
+            config={"host": host, "port": port, "user": "loader"},
+        )
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": "Postgres",
+                "name": "shop",
+                "integration": integration.pk,
+                "config": {"database": "analytics", "schema": "posthog_shop"},
+                "migration_item_id": str(item.id),
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            self.check_connection.assert_called_once()
+        else:
+            assert response.json()["attr"] == error_attr
+            self.check_connection.assert_not_called()
 
     @time_machine.travel("2026-03-01T12:00:00Z", tick=False)
     def test_each_link_gets_its_own_token_that_expires_after_the_ttl(self) -> None:

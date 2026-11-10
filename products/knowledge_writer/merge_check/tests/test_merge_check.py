@@ -10,7 +10,7 @@ import requests
 from anthropic import Anthropic
 
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind
-from products.knowledge_writer.merge_check.check import PullRequestNotIndexed, run_merge_check
+from products.knowledge_writer.merge_check.check import MergeNotOnDefaultBranch, PullRequestNotIndexed, run_merge_check
 from products.knowledge_writer.merge_check.judge import JudgeVerdict
 from products.knowledge_writer.merge_check.sources import LandedChange
 
@@ -22,8 +22,8 @@ FLAGS_PATHS = [f"feature-flags/page-{number}" for number in range(200)]
 FLAGS_PAGES = [f"https://posthog.com/docs/{path}" for path in FLAGS_PATHS]
 
 
-def landed(commit_sha: str) -> LandedChange:
-    return LandedChange(repository="PostHog/posthog", after=commit_sha)
+def landed(commit_sha: str, pull_request_number: int | None = None) -> LandedChange:
+    return LandedChange(repository="PostHog/posthog", after=commit_sha, pull_request_number=pull_request_number)
 
 
 class FakePostHogGitHub:
@@ -33,10 +33,12 @@ class FakePostHogGitHub:
         published_page_paths: tuple[str, ...] = (),
         *,
         is_commit_indexed: bool = True,
+        comparison_with_default_branch: str = "behind",
     ) -> None:
         self.commit_sha = commit_sha
         self.published_page_paths = published_page_paths
         self.is_commit_indexed = is_commit_indexed
+        self.comparison_with_default_branch = comparison_with_default_branch
 
     def merged_pull_request(self) -> dict[str, object]:
         return {
@@ -45,11 +47,15 @@ class FakePostHogGitHub:
             "html_url": "https://github.com/PostHog/posthog/pull/7",
             "merge_commit_sha": self.commit_sha,
             "merged_at": "2026-10-27T00:00:00Z",
-            "base": {"ref": "stack/parent-branch"},
+            "base": {"ref": "stack/parent-branch", "repo": {"default_branch": "master"}},
             "author_association": "MEMBER",
         }
 
     def api_request(self, method: str, path: str, **_options: object) -> requests.Response:
+        if path.endswith("/pulls/7"):
+            return github_response(json.dumps(self.merged_pull_request()))
+        if path.endswith(f"/compare/master...{self.commit_sha}"):
+            return github_response(json.dumps({"status": self.comparison_with_default_branch}))
         if path.endswith(f"/commits/{self.commit_sha}/pulls"):
             pulls = [self.merged_pull_request()] if self.is_commit_indexed else []
             return github_response(json.dumps(pulls))
@@ -177,21 +183,22 @@ def test_malformed_judge_output_declines_instead_of_raising() -> None:
 
 
 @pytest.mark.parametrize(
-    "is_commit_indexed, is_final_attempt, expected_reason",
+    "is_commit_indexed, is_final_attempt, pull_request_number, expected_reason",
     [
-        pytest.param(True, False, "no docs needed", id="indexed_pull_request_is_judged"),
-        pytest.param(False, True, "no_pull_request", id="final_attempt_without_a_pull_request"),
+        pytest.param(True, False, None, "no docs needed", id="indexed_pull_request_is_judged"),
+        pytest.param(False, True, None, "no_pull_request", id="final_attempt_without_a_pull_request"),
+        pytest.param(False, False, 7, "no docs needed", id="numbered_pull_request_skips_the_commit_index"),
     ],
 )
 def test_a_landed_change_is_judged_once_github_lists_its_pull_request(
-    is_commit_indexed: bool, is_final_attempt: bool, expected_reason: str
+    is_commit_indexed: bool, is_final_attempt: bool, pull_request_number: int | None, expected_reason: str
 ) -> None:
     commit_sha = "e" * 40
     judge_requests: list[dict] = []
     verdict = JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="no docs needed")
 
     report = run_merge_check(
-        landed(commit_sha),
+        landed(commit_sha, pull_request_number),
         is_final_attempt=is_final_attempt,
         github=FakePostHogGitHub(commit_sha, is_commit_indexed=is_commit_indexed),
         http=fake_sitemap(),
@@ -213,3 +220,29 @@ def test_an_unindexed_merge_retries_instead_of_recording_no_pull_request() -> No
             http=fake_sitemap(),
             anthropic_client=judge_returning_malformed_output(),
         )
+
+
+@pytest.mark.parametrize("comparison_with_default_branch", ["ahead", "diverged"])
+def test_a_merge_into_a_branch_that_never_reached_the_default_branch_is_retried_then_recorded(
+    comparison_with_default_branch: str,
+) -> None:
+    commit_sha = "f" * 40
+    github = FakePostHogGitHub(commit_sha, comparison_with_default_branch=comparison_with_default_branch)
+
+    with pytest.raises(MergeNotOnDefaultBranch):
+        run_merge_check(
+            landed(commit_sha, pull_request_number=7),
+            is_final_attempt=False,
+            github=github,
+            http=fake_sitemap(),
+            anthropic_client=judge_returning_malformed_output(),
+        )
+    report = run_merge_check(
+        landed(commit_sha, pull_request_number=7),
+        is_final_attempt=True,
+        github=github,
+        http=fake_sitemap(),
+        anthropic_client=judge_returning_malformed_output(),
+    )
+
+    assert (report.needs_docs, report.reason) == (False, "not_on_default_branch")

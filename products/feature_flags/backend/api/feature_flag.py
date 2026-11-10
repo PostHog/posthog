@@ -96,6 +96,8 @@ from posthog.views import format_bytes
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
+    property_key_overlaps_restriction,
+    redact_restricted_properties,
     split_restricted_property_names,
 )
 from products.access_control.backend.facade.contracts import RestrictedPropertyNames
@@ -780,12 +782,12 @@ def _redact_restricted_actual_values(
 
     def is_restricted(condition_index: Any, prop: dict[str, Any]) -> bool:
         key = prop.get("key")
-        if prop.get("type") != "group":
-            return key in restricted.person
         if not isinstance(key, str):
             return False
+        if prop.get("type") != "group":
+            return property_key_overlaps_restriction(key, restricted.person)
         indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
-        return any(restricted.is_group_property_restricted(key, index) for index in indexes)
+        return any(property_key_overlaps_restriction(key, restricted.group_property_names(index)) for index in indexes)
 
     redacted: list[Any] = []
     for condition in conditions:
@@ -6335,13 +6337,12 @@ class FeatureFlagViewSet(
                 "reason_description": reason_description,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": {
-                    key: value
-                    for key, value in _filter_person_properties_for_flag(
+                "person_properties": redact_restricted_properties(
+                    _filter_person_properties_for_flag(
                         evaluation_filters, person_properties, flag_key=feature_flag.key
-                    ).items()
-                    if key not in restricted_properties.person
-                },
+                    ),
+                    restricted_properties.person,
+                ),
                 "evaluation_distinct_id": response_evaluation_distinct_id,
                 "conditions": _redact_restricted_actual_values(
                     detailed_conditions, evaluation_filters, restricted_properties
