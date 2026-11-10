@@ -8,11 +8,11 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from rest_framework.exceptions import ValidationError
 
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from . import model, refresh_tracking
+from . import model, refresh_tracking, row_writes
 
 logger = structlog.get_logger(__name__)
 
@@ -115,12 +115,9 @@ class GoogleCloudServiceAccountIntegration:
                 },
                 "sensitive_config": sensitive_config,
                 "created_by": created_by,
+                "errors": "",
             },
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 
@@ -195,12 +192,9 @@ class GoogleCloudIntegration:
                     "access_token": credentials.token,
                 },
                 "created_by": created_by,
+                "errors": "",
             },
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 
@@ -226,43 +220,48 @@ class GoogleCloudIntegration:
         else:
             raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
 
-        key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
+        sensitive_config = self.integration.sensitive_config
+        key_info = dict(sensitive_config.get("key_info", sensitive_config))
         try:
             key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
         except InvalidGoogleTokenUriError:
-            refresh_tracking.record_refresh_failure(
+            failure, _ = refresh_tracking.refresh_failure_patch(
                 self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_INVALID_TOKEN_URI
             )
-            self.integration.save(update_fields=["config"])
+            self._store(failure)
             raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
-            refresh_tracking.record_refresh_failure(self.integration)
-            self.integration.save(update_fields=["config"])
+            failure, _ = refresh_tracking.refresh_failure_patch(self.integration)
+            self._store(failure)
             raise ValidationError(f"Failed to authenticate with provided service account key")
 
         # Wholesale replacement also clears any refresh backoff state
-        self.integration.config = {
+        new_config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
         }
-        # Migrate pre-migration integrations where sensitive_config contains the
-        # keyfile directly (not nested under "key_info"). Without this, setting
-        # access_token pollutes the keyfile dict and breaks subsequent refreshes.
-        if "key_info" not in self.integration.sensitive_config:
-            self.integration.sensitive_config = {
-                "key_info": self.integration.sensitive_config,
-                "access_token": credentials.token,
-            }
+        if "key_info" in sensitive_config:
+            tokens = IntegrationPatch(sensitive_config_patch={"key_info": key_info, "access_token": credentials.token})
         else:
-            self.integration.sensitive_config["access_token"] = credentials.token
-        self.integration.save()
+            # Migrate pre-migration integrations where sensitive_config contains the
+            # keyfile directly (not nested under "key_info"). Without this, setting
+            # access_token pollutes the keyfile dict and breaks subsequent refreshes.
+            tokens = row_writes.replaced_sensitive_config_patch(
+                sensitive_config, {"key_info": key_info, "access_token": credentials.token}
+            )
+        self._store(
+            row_writes.merged_patch(row_writes.replaced_config_patch(self.integration.config, new_config), tokens)
+        )
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+    def _store(self, patch: IntegrationPatch) -> None:
+        self.integration = model.integration_model(row_writes.update_row(self.integration, patch))
 
     def get_access_token(self) -> str:
         if self.access_token_expired():
