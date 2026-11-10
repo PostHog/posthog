@@ -434,7 +434,7 @@ function DataTableVisualizationContent({
                 ? {
                       ...dateAxis,
                       tickFormatter: (value: string, index: number): string | null => {
-                          const label = aliasFormatter(value)
+                          const label = aliasFormatter(chartXData?.data[index])
                           return label !== value
                               ? label
                               : fallbackTickFormatter

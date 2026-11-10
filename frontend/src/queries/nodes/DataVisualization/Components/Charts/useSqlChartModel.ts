@@ -100,9 +100,15 @@ export function useSqlChartModel<
             legendRenderItem,
             embedded,
         })
+        const rawValuesByLabel = new Map(xData.data.map((value) => [String(value ?? '[No value]'), value]))
         const formatLabel = labelFormatter
             ? (value: string): string => {
-                  const raw = visualizationType === ChartDisplayType.ActionsBarValue ? xData.data[Number(value)] : value
+                  const raw =
+                      visualizationType === ChartDisplayType.ActionsBarValue
+                          ? xData.data[Number(value)]
+                          : rawValuesByLabel.has(value)
+                            ? rawValuesByLabel.get(value)!
+                            : value
                   const label = labelFormatter(raw)
                   return label === raw ? (config.tooltip?.labelFormatter?.(value) ?? label) : label
               }
