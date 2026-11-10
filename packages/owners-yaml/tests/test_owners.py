@@ -1291,6 +1291,12 @@ _CHANGES = [
     pytest.param({"gap/b.py": "gap/renamed.py"}, {}, [], id="moved-file-that-had-no-owners"),
     pytest.param({"owned/a.py": "gap/a.py"}, {}, ["gap/a.py"], id="file-moved-away-from-its-owners"),
     pytest.param({}, {"owners.yaml": "version: 1\nowners: []\n"}, ["owned/a.py"], id="rule-removed"),
+    pytest.param(
+        {},
+        {"owned/owners.yaml": "version: 1\nowners: []\ninherit: false\n"},
+        ["owned/a.py", "owned/owners.yaml"],
+        id="nested-file-drops-the-owners",
+    ),
 ]
 
 
