@@ -198,7 +198,6 @@ class GitHubRecorder:
         # The files every compare lists, for a caller that pins a PR's file list to two commits.
         self.compare_files: list[dict] = []
         self.check_runs: dict[tuple[str, str], list[dict]] = {}
-        # Whether the egress limiter sheds every request on the BATCH lane.
         self.shed_batch = False
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.

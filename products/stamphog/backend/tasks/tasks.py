@@ -2008,9 +2008,7 @@ def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, 
 def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     """Queue a new review when every check ``run`` waits on has reported. False means poll again.
 
-    The review workflow polls this after it saves a WAIT. It reads the run's own record of what it
-    waited on and GitHub's record of the checks, and it queues through the same gates as the external
-    re-review. The poll is background work, so it reads the checks on the sheddable lane, and a shed or
+    The poll is background work, so it reads the checks on the sheddable lane, and a shed or
     rate-limited read means poll again. Any other GitHub or Temporal error propagates, so the calling
     activity retries.
     """

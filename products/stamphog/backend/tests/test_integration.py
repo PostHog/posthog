@@ -665,7 +665,6 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
     pull_request = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).latest("created_at")
     assert run.output["pregate_outcome"] == expect_pregate_outcome
-    # The workflow polls for exactly the checks that the engine recorded on a WAIT.
     assert pending_attestation_checks(run) == (
         [PendingCheck(name="Migration risk", app_id=_MIGRATION_RISK_APP_ID)]
         if expect_pregate_outcome == "final:WAIT"
@@ -2302,7 +2301,6 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
     expected_done: bool,
     expected_starts: int,
 ) -> None:
-    # The poll trusts the run's own record of what it waited on and GitHub's record of the checks.
     repo_config = _repo_config(team.id)
     head_sha = "sha127b"
     live_pr = _pr_object(127, "devex-dev", head_sha) | {"state": "open", "author_association": "MEMBER"}
@@ -2358,7 +2356,6 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
 def test_a_wait_polls_for_its_checks_only_while_a_report_can_wake_it(
     team, output: dict, earlier_wakes: int, expected: bool
 ) -> None:
-    # The workflow polls for up to an hour on this answer, and a report never wakes these runs.
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=_repo_config(team.id), pr_number=128, author_login="devex-dev"
     )
