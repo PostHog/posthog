@@ -1957,7 +1957,7 @@ export interface ReportMetricListApi {
      */
     minimum_data_points?: number | null
     /**
-     * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`. The last bucket is the one that contains `value_at`, in the project's timezone. Null when the stored query names no interval.
+     * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`. The last bucket is the one that contains `value_at`, in the project's timezone, and the buckets before it are consecutive. `day` when the stored query names none, as in Trends. Null when the query skips buckets with `daysOfWeek` or `excludeIncompletePeriods`, or is not a Trends query.
      * @nullable
      */
     readonly interval: string | null
@@ -2413,6 +2413,7 @@ export interface ReportPlanApi {
  * * `not_on_track` - Not on track
  * * `on_track` - On track
  * * `awaiting_reading` - Awaiting first reading
+ * * `readings_hidden` - Readings hidden
  * * `final_check_only` - Final check only
  * * `window_ended` - Window ended
  */
@@ -2423,6 +2424,7 @@ export const MonitoringSummaryStateEnumApi = {
     NotOnTrack: 'not_on_track',
     OnTrack: 'on_track',
     AwaitingReading: 'awaiting_reading',
+    ReadingsHidden: 'readings_hidden',
     FinalCheckOnly: 'final_check_only',
     WindowEnded: 'window_ended',
 } as const
@@ -2491,7 +2493,7 @@ export interface MonitoringReadingApi {
     /** When this interim reading was measured. */
     measured_at: string
     /**
-     * Whether the reading met the target at that point in the window. Null when the measurement failed.
+     * Whether the reading met the target at that point in the window. Null when the measurement failed or this viewer may not read the check's data.
      * @nullable
      */
     matches: boolean | null
@@ -2501,7 +2503,7 @@ export interface MonitoringReadingApi {
      */
     observed_value: number | null
     /**
-     * Target the reading was compared with, scaled to elapsed time when the check scales linearly. Null for a `between` target or a failed measurement.
+     * Target the reading was compared with, scaled to elapsed time when the check scales linearly. Null for a `between` target, a failed measurement, or a viewer who may not read the check's data.
      * @nullable
      */
     threshold: number | null
@@ -2513,7 +2515,7 @@ export interface MonitoringLeadCheckApi {
     /** The check's short label. */
     title: string
     /**
-     * The report metric the check measures, matching `metrics[].metric_id`, when it names one.
+     * The report metric the check measures, matching `metrics[].metric_id`. Null when the check names none, or the report metric with that id no longer runs the check's query.
      * @nullable
      */
     metric_id: string | null
@@ -2563,11 +2565,12 @@ export interface MonitoringLeadCheckApi {
 }
 
 export interface ReportMonitoringSummaryApi {
-    /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
+    /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
      *
      * * `not_on_track` - Not on track
      * * `on_track` - On track
      * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
      * * `final_check_only` - Final check only
      * * `window_ended` - Window ended */
     state: MonitoringSummaryStateEnumApi
@@ -2575,7 +2578,7 @@ export interface ReportMonitoringSummaryApi {
     started_at: string
     /** When the last open check's observation window ends. */
     ends_at: string
-    /** The metric check that best stands for the report: the first one off track, otherwise the first metric check. Null when no metric check takes interim readings. */
+    /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
     lead_check: MonitoringLeadCheckApi | null
 }
 

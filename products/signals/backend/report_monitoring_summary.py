@@ -12,8 +12,13 @@ from pydantic import ValidationError
 from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import CheckObservation
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
-from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalReportMonitoringAttempt,
+)
+from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming, MonitoringCheckTimingState
 from products.signals.backend.report_checks import (
     CheckComparison,
     CheckConfigValidationError,
@@ -22,12 +27,14 @@ from products.signals.backend.report_checks import (
     monitoring_window_end,
     parse_check_config,
 )
+from products.signals.backend.report_monitoring_attempts import check_definition_version
 
 
 class MonitoringSummaryState(TextChoices):
     NOT_ON_TRACK = "not_on_track", "Not on track"
     ON_TRACK = "on_track", "On track"
     AWAITING_READING = "awaiting_reading", "Awaiting first reading"
+    READINGS_HIDDEN = "readings_hidden", "Readings hidden"
     FINAL_CHECK_ONLY = "final_check_only", "Final check only"
     WINDOW_ENDED = "window_ended", "Window ended"
 
@@ -64,19 +71,32 @@ class ReportMonitoringSummary:
     lead_check: MonitoringLeadCheck | None
 
 
+_READING_DUE_STATES = frozenset(
+    {MonitoringCheckTimingState.SCHEDULED, MonitoringCheckTimingState.DUE, MonitoringCheckTimingState.WAITING}
+)
+
+
 @frozen
 class _OpenCheck:
     check: SignalReportCheck
     config: MetricThresholdConfig | None
     ends_at: datetime
     readings: tuple[MonitoringReading, ...]
+    readable: bool
+    timing: MonitoringCheckTiming | None
 
     @property
-    def is_expectation(self) -> bool:
+    def takes_interim_readings(self) -> bool:
+        """An expectation check that has an interim reading, or still has one coming.
+
+        A soak no longer than the measurement cadence schedules its first run at the window end, so
+        its outcome waits for the final check like an agent's does.
+        """
         return (
             self.config is not None
             and self.config.monitoring is not None
             and self.config.monitoring.purpose == "expectation"
+            and (bool(self.readings) or (self.timing is not None and self.timing.state in _READING_DUE_STATES))
         )
 
     @property
@@ -120,7 +140,7 @@ def monitoring_summaries(
     now: datetime,
     may_read_values: Callable[[Mapping[str, object]], bool],
 ) -> dict[str, ReportMonitoringSummary]:
-    """Summarize each Monitoring report on a list page for its row, in two queries for the whole page."""
+    """Summarize each Monitoring report on a list page for its row, in three queries for the whole page."""
     monitored = {
         report.id: report
         for report in reports
@@ -128,11 +148,18 @@ def monitoring_summaries(
     }
     if not monitored:
         return {}
+    attempts = {
+        attempt.report_id: attempt
+        for attempt in SignalReportMonitoringAttempt.objects.for_team(team_id).filter(report_id__in=monitored.keys())
+        if attempt.monitoring_started_at == monitored[attempt.report_id].monitoring_started_at
+    }
     checks_by_report: defaultdict[UUID, list[SignalReportCheck]] = defaultdict(list)
     for check in (
         SignalReportCheck.objects.for_team(team_id)
-        .filter(report_id__in=monitored.keys(), status__in=SignalReportCheck.OPEN_STATUSES)
-        .defer("rationale")
+        .filter(
+            report_id__in=attempts.keys(),
+            id__in=[check_id for attempt in attempts.values() for check_id in attempt.check_versions],
+        )
         .order_by("created_at", "id")
     ):
         check.report = monitored[check.report_id]
@@ -148,6 +175,7 @@ def monitoring_summaries(
             monitored[report_id],
             checks,
             {str(check.id): observations.get(str(check.id), []) for check in checks},
+            check_versions=attempts[report_id].check_versions,
             now=now,
             may_read_values=may_read_values,
         )
@@ -161,31 +189,41 @@ def summarize_monitoring(
     checks: Sequence[SignalReportCheck],
     observations: Mapping[str, Sequence[CheckObservation]],
     *,
+    check_versions: Mapping[str, str],
     now: datetime,
     may_read_values: Callable[[Mapping[str, object]], bool],
 ) -> ReportMonitoringSummary | None:
     """Roll a Monitoring report's open checks and interim readings up into what its inbox row shows.
 
-    `may_read_values` gates measured numbers the way a check result is gated: a viewer who may not read
-    the check's data keeps the verdicts and the target, but not the observed values or the baseline.
+    `may_read_values` gates readings the way the report's artefacts gate a check observation: a viewer
+    who may not read a check's data sees when it was measured, but not the value, the threshold, or
+    whether it matched, and no state derived from them.
+
+    Only the attempt's snapshot members count, whatever their status, because those are the checks
+    final verification decides the attempt with. A member whose definition changed since the snapshot
+    keeps its window but contributes no readings, since final verification will not accept them either.
     """
     started_at = report.monitoring_started_at
     if started_at is None:
         return None
     members: list[_OpenCheck] = []
     for check in checks:
-        if check.is_terminal or check.expires_at <= now or check.soak_minutes is None:
+        snapshot_version = check_versions.get(str(check.id))
+        if snapshot_version is None or check.soak_minutes is None:
             continue
+        current = check_definition_version(check) == snapshot_version
         config = _metric_config(check)
         readable = config is not None and may_read_values(check.config)
         readings = tuple(
             MonitoringReading(
                 measured_at=observation.measured_at,
-                matches=observation.matches,
+                matches=observation.matches if readable else None,
                 observed_value=observation.observed_value if readable else None,
-                threshold=observation.comparison.value if observation.comparison else None,
+                threshold=observation.comparison.value if readable and observation.comparison else None,
             )
-            for observation in sorted(observations.get(str(check.id), ()), key=lambda o: o.measured_at)
+            for observation in sorted(
+                observations.get(str(check.id), ()) if current else (), key=lambda o: o.measured_at
+            )
             # A restarted Monitoring period keeps the earlier period's observations on the report.
             if observation.monitoring_started_at == started_at
         )
@@ -195,50 +233,60 @@ def summarize_monitoring(
                 config=config,
                 ends_at=monitoring_window_end(started_at, check.soak_minutes),
                 readings=readings,
+                readable=readable,
+                timing=MonitoringCheckTiming.for_check(check, now=now) if config is not None else None,
             )
         )
     if not members:
         return None
 
     ends_at = max(member.ends_at for member in members)
-    expectations = [member for member in members if member.is_expectation]
-    off_track = [member for member in expectations if member.latest_verdict is False]
+    interim = [member for member in members if member.takes_interim_readings]
+    visible = [member for member in interim if member.readable]
+    off_track = [member for member in visible if member.latest_verdict is False]
     if now >= ends_at:
         state = MonitoringSummaryState.WINDOW_ENDED
     elif off_track:
         state = MonitoringSummaryState.NOT_ON_TRACK
-    elif any(member.latest_verdict is None for member in expectations):
+    elif any(member.latest_verdict is None for member in visible):
         state = MonitoringSummaryState.AWAITING_READING
-    elif expectations:
+    elif len(visible) < len(interim):
+        state = MonitoringSummaryState.READINGS_HIDDEN
+    elif interim:
         state = MonitoringSummaryState.ON_TRACK
     else:
         state = MonitoringSummaryState.FINAL_CHECK_ONLY
-    lead = off_track[0] if off_track else (expectations[0] if expectations else None)
+    lead = off_track[0] if off_track else (interim[0] if interim else None)
     return ReportMonitoringSummary(
         state=state,
         started_at=started_at,
         ends_at=ends_at,
-        lead_check=_lead_check(lead, now=now, may_read_values=may_read_values) if lead else None,
+        lead_check=_lead_check(lead, report) if lead else None,
     )
 
 
-def _lead_check(
-    member: _OpenCheck, *, now: datetime, may_read_values: Callable[[Mapping[str, object]], bool]
-) -> MonitoringLeadCheck:
+def _lead_check(member: _OpenCheck, report: SignalReport) -> MonitoringLeadCheck:
     config = member.config
     assert config is not None and config.monitoring is not None
-    timing = MonitoringCheckTiming.for_check(member.check, now=now)
+    # A report can rewrite its metric under the same id while the check keeps measuring the query it
+    # was created with, so the row may only draw the report metric that still runs that query.
+    measures_report_metric = any(
+        isinstance(metric, Mapping)
+        and metric.get("metric_id") == config.metric_id
+        and metric.get("query") == member.check.config.get("query")
+        for metric in report.metrics or []
+    )
     return MonitoringLeadCheck(
         check_id=member.check.id,
         title=member.check.title,
-        metric_id=config.metric_id,
+        metric_id=config.metric_id if measures_report_metric else None,
         metric_kind=config.metric_kind,
         value_format=config.value_format,
         unit=config.unit,
         comparison=config.comparison,
         monitoring=config.monitoring,
-        baseline_value=config.baseline_value if may_read_values(member.check.config) else None,
+        baseline_value=config.baseline_value if member.readable else None,
         ends_at=member.ends_at,
-        next_measurement_at=timing.next_measurement_at if timing else None,
+        next_measurement_at=member.timing.next_measurement_at if member.timing else None,
         readings=member.readings,
     )

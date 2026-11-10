@@ -1500,7 +1500,9 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     interval = serializers.SerializerMethodField(
         help_text=(
             "Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`. The last bucket is the one "
-            "that contains `value_at`, in the project's timezone. Null when the stored query names no interval."
+            "that contains `value_at`, in the project's timezone, and the buckets before it are consecutive. "
+            "`day` when the stored query names none, as in Trends. Null when the query skips buckets with "
+            "`daysOfWeek` or `excludeIncompletePeriods`, or is not a Trends query."
         )
     )
 
@@ -1508,15 +1510,27 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     def get_interval(self, instance: Mapping[str, object]) -> str | None:
         query = instance.get("query")
         source = query.get("source") if isinstance(query, Mapping) else None
-        interval = source.get("interval") if isinstance(source, Mapping) else None
-        return interval if isinstance(interval, str) else None
+        if not isinstance(source, Mapping):
+            return None
+        date_range = source.get("dateRange")
+        # Either option drops buckets from the series, so its buckets can no longer be counted back from `value_at`.
+        if isinstance(date_range, Mapping) and (
+            date_range.get("daysOfWeek") or date_range.get("excludeIncompletePeriods")
+        ):
+            return None
+        interval = source.get("interval")
+        # Trends buckets by day when the query names no interval.
+        return interval if isinstance(interval, str) else "day"
 
 
 class MonitoringReadingSerializer(serializers.Serializer):
     measured_at = serializers.DateTimeField(help_text="When this interim reading was measured.")
     matches = serializers.BooleanField(
         allow_null=True,
-        help_text="Whether the reading met the target at that point in the window. Null when the measurement failed.",
+        help_text=(
+            "Whether the reading met the target at that point in the window. Null when the measurement failed or "
+            "this viewer may not read the check's data."
+        ),
     )
     observed_value = serializers.FloatField(
         allow_null=True,
@@ -1529,7 +1543,7 @@ class MonitoringReadingSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Target the reading was compared with, scaled to elapsed time when the check scales linearly. "
-            "Null for a `between` target or a failed measurement."
+            "Null for a `between` target, a failed measurement, or a viewer who may not read the check's data."
         ),
     )
 
@@ -1539,7 +1553,10 @@ class MonitoringLeadCheckSerializer(serializers.Serializer):
     title = serializers.CharField(help_text="The check's short label.")
     metric_id = serializers.CharField(
         allow_null=True,
-        help_text="The report metric the check measures, matching `metrics[].metric_id`, when it names one.",
+        help_text=(
+            "The report metric the check measures, matching `metrics[].metric_id`. Null when the check names "
+            "none, or the report metric with that id no longer runs the check's query."
+        ),
     )
     metric_kind = serializers.ChoiceField(
         choices=REPORT_METRIC_KINDS,
@@ -1584,9 +1601,10 @@ class ReportMonitoringSummarySerializer(serializers.Serializer):
         choices=MonitoringSummaryState.choices,
         help_text=(
             "Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. "
-            "`awaiting_reading`: a metric check has no interim reading yet. `on_track`: every metric check's latest "
-            "reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome "
-            "waits for the final checks. `window_ended`: every observation window has ended and final verification "
+            "`awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not "
+            "read the data of a metric check whose readings would decide the state. `on_track`: every metric "
+            "check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, "
+            "so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification "
             "is due or running."
         ),
     )
@@ -1595,8 +1613,8 @@ class ReportMonitoringSummarySerializer(serializers.Serializer):
     lead_check = MonitoringLeadCheckSerializer(
         allow_null=True,
         help_text=(
-            "The metric check that best stands for the report: the first one off track, otherwise the first metric "
-            "check. Null when no metric check takes interim readings."
+            "The metric check that best stands for the report: the first one this viewer can see is off track, "
+            "otherwise the first metric check that takes interim readings. Null when none does."
         ),
     )
 
