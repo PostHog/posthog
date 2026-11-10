@@ -22,10 +22,16 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 from posthog.query_cache.single_flight import query_single_flight_skipped
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
-from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
+from posthog.tasks.alerts.utils import (
+    AlertEvaluationResult,
+    InsightChartRenderFailed,
+    RenderedInsightChart,
+    next_check_time,
+)
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
@@ -61,6 +67,7 @@ from products.alerts.backend.platform_source_cycle import (
     QUERY_ID_PREFIX,
     QUERY_INFLIGHT_KEY,
     ChartRenderPoolFull,
+    ChartRenderTimedOut,
     evaluate_insight_check,
     fail_insight_check,
     plan_insight_batch,
@@ -245,6 +252,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
 
+    @parameterized.expand([("owner_taken_over_since_the_copy", True), ("not_yet_backfilled", False)])
+    def test_the_check_runs_as_the_alerts_current_owner_and_the_copy_follows(
+        self, _name: str, stale_creator: bool
+    ) -> None:
+        previous_owner = User.objects.create_and_join(self.organization, "previous-owner@example.com", None)
+        configuration = self._copy(self._alert(), created_by_id=previous_owner.id if stale_creator else None)
+
+        _, query = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
+
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], limit=10, offset=0
+            ).configurations
+        assert (query.call_args.args[0].created_by, copy.created_by_id) == (self.user, self.user.id)
+
     @parameterized.expand(
         [
             ("source_owned", "source", False),
@@ -269,7 +291,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
         }
 
-        with patch(f"{_MODULE}.render_alert_insight_chart") as render:
+        with patch(f"{_MODULE}.render_alert_insight_chart_or_raise") as render:
             outcome, _ = self._evaluate(
                 configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
             )
@@ -307,7 +329,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         held_until = time.time() + 60
 
         with patch(
-            f"{_MODULE}.render_alert_insight_chart", return_value=RenderedInsightChart(asset_id=7, render_user_id=3)
+            f"{_MODULE}.render_alert_insight_chart_or_raise",
+            return_value=RenderedInsightChart(asset_id=7, render_user_id=3),
         ) as render:
             # Back to back on a pool of one, so the second render needs the slot the first gave back.
             for _ in range(2):
@@ -319,6 +342,24 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 render_firing_chart(self.team.id, str(alert.id), held_until=held_until)
 
         assert render.call_count == 2
+
+    @parameterized.expand(
+        [("failed_quickly", timedelta(seconds=90), False), ("used_the_whole_limit", timedelta(0), True)]
+    )
+    def test_a_render_that_fails_at_the_export_limit_timed_out(
+        self, _name: str, limit: timedelta, timed_out: bool
+    ) -> None:
+        alert = self._alert()
+
+        with (
+            patch(f"{_MODULE}.render_alert_insight_chart_or_raise", side_effect=InsightChartRenderFailed("no content")),
+            patch(f"{_MODULE}.CHART_RENDER_TIMEOUT", limit),
+        ):
+            with pytest.raises(ChartRenderTimedOut if timed_out else InsightChartRenderFailed):
+                render_firing_chart(self.team.id, str(alert.id), held_until=time.time() + 60)
+
+        # The slot is free either way, so the next firing's render is not held back.
+        assert inflight_alert_ids(CHART_RENDER_INFLIGHT_KEY) == set()
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_check_holds_a_clickhouse_slot_only_while_its_query_runs(self) -> None:
@@ -940,7 +981,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         return alert, self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
 
     def _fire(self, configuration: PlatformConfigurationSnapshot) -> PlatformAlertOutcome:
-        with patch(f"{_MODULE}.render_alert_insight_chart"):
+        with patch(f"{_MODULE}.render_alert_insight_chart_or_raise"):
             outcome, _ = self._evaluate(
                 configuration,
                 result=AlertEvaluationResult(
@@ -992,7 +1033,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         uses_llm_detector = detector_config["type"] == "llm"
         result = AlertEvaluationResult(value=150.0, breaches=["above 100"])
 
-        with patch(f"{_MODULE}.render_alert_insight_chart"):
+        with patch(f"{_MODULE}.render_alert_insight_chart_or_raise"):
             first, _ = self._evaluate(configuration, result=result, uses_llm_detector=uses_llm_detector)
             assert first is not None
             assert first.groups[0].kind == AlertEventKind.FIRING

@@ -1641,6 +1641,37 @@ async def test_deleted_report_emits_matched_deleted_telemetry(ateam, patch_side_
     assert properties["source_product"] == "conversations"
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind", ["trial_source", "free_system_source", "unfunded_source"])
+async def test_exhausted_trial_preserves_admitted_signal_promotion(ateam, kind):
+    from products.signals.backend.spend import record_llm_spend
+    from products.signals.backend.trial.policy import TrialPolicy
+
+    inputs = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)
+    if kind == "free_system_source":
+        inputs.source_product = SignalSourceProduct.HEALTH_CHECKS
+
+    def exhaust():
+        grant = TrialPolicy(ateam).claim(user_id=42)
+        record_llm_spend(
+            "accepted-signal",
+            team_id=ateam.id,
+            signal_id=inputs.signal_id if kind == "trial_source" else str(uuid.uuid4()),
+            stage="grouping",
+            token_cost_microusd=grant.allowance_microusd + 1,
+            trial_grant_id=str(grant.id),
+        )
+
+    with (
+        patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+        patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False),
+    ):
+        await database_sync_to_async(exhaust)()
+        result = await assign_and_emit_signal_activity(inputs)
+    assert result.promoted is (kind != "unfunded_source")
+
+
 # ---------------------------------------------------------------------------
 # Quota gate: promotion withheld for enforced over-quota teams
 # ---------------------------------------------------------------------------

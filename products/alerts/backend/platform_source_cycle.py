@@ -32,10 +32,17 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
+from posthog.models.user import User
 from posthog.query_cache.single_flight import skip_query_single_flight
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
+from posthog.tasks.alerts.utils import (
+    CHART_RENDER_TIMEOUT,
+    AlertEvaluationResult,
+    InsightChartRenderFailed,
+    render_alert_insight_chart_or_raise,
+    skip_because_of_weekend,
+)
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
@@ -151,6 +158,10 @@ class ChartRenderPoolFull(Exception):
     """Every chart render slot is taken. The activity retries later, holding no worker slot meanwhile."""
 
 
+class ChartRenderTimedOut(Exception):
+    """The export ran out of time, so the firing goes out without its chart."""
+
+
 # How many threads of the shared AI pool the parallel run may hold, so a stalled platform check
 # never takes more than this from production. A thread counts until it ends, not until Temporal
 # gives up on its attempt. Created per worker process and used only from the activity's event loop.
@@ -212,7 +223,7 @@ _RECURRENCE: dict[str, tuple[int, str | None]] = {
 }
 
 # What an edit to an insight alert can change on its copy. The check refreshes these, and the due
-# time follows from them, so it is left to the next advance.
+# time follows from them, so it is left to the next advance. `take_ownership` changes the creator.
 SETTINGS_FIELDS: Final = (
     "name",
     "source_config",
@@ -220,6 +231,7 @@ SETTINGS_FIELDS: Final = (
     "check_interval_minutes",
     "recurrence_unit",
     "anchor_time",
+    "created_by_id",
 )
 
 
@@ -257,6 +269,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
         schedule_restriction=alert.schedule_restriction,
         next_check_at=alert.next_check_at,
         snooze_until=alert.snoozed_until,
+        created_by_id=alert.created_by_id,
     )
 
 
@@ -742,6 +755,7 @@ def _decide(
         unsnoozed = apply_unsnooze(snapshot)
         snapshot = replace(snapshot, state=unsnoozed.new_state, consecutive_failures=unsnoozed.consecutive_failures)
 
+    _run_as_copy_creator(check, alert)
     # Production's tags, so ClickHouse workload management treats the query the way it treats
     # production's and its cost is grouped the same way in the query log. The user is the
     # platform's own, so the parallel run never takes from production's per-user budget.
@@ -825,6 +839,16 @@ def _ai_detector_not_copied(check: PlatformAlertCheckInput, alert: AlertConfigur
     if check.owned_by_platform or not is_llm_detector_config(alert.detector_config):
         return False
     return not is_llm_detector_config(check.condition.get("detector"))
+
+
+def _run_as_copy_creator(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> None:
+    """Makes the creator the copy records the user the check's queries run as. A copy the creator
+    backfill has not reached records none, and one whose user is gone records an id that loads no
+    one. Both keep the alert row's, because a check with no user disables the alert."""
+    if check.created_by_id is None or check.created_by_id == alert.created_by_id:
+        return
+    if creator := User.objects.filter(id=check.created_by_id).first():
+        alert.created_by = creator
 
 
 def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> PlatformAlertCheckInput:
@@ -1060,10 +1084,12 @@ def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> b
 
 
 def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
-    """Render the chart a firing of this alert sends, or None when none applies or the render fails.
+    """Render the chart a firing of this alert sends, or None when none applies.
 
     The evaluation workflow calls this after the check, so the render never holds the check's slot.
-    Raises `ChartRenderPoolFull` when the render pool has no room.
+    Raises `ChartRenderPoolFull` when the render pool has no room, `ChartRenderTimedOut` when the
+    export used its whole time limit and returned nothing, and `InsightChartRenderFailed` when the
+    render fails otherwise.
     """
     if not admit_evaluation_slots(
         [alert_id],
@@ -1076,7 +1102,14 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
         alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
         if alert is None:
             return None
-        chart = render_alert_insight_chart(alert)
+        started = time.monotonic()
+        try:
+            chart = render_alert_insight_chart_or_raise(alert)
+        except InsightChartRenderFailed as error:
+            # A timed-out export fails like any other, so only its duration tells the two apart.
+            if time.monotonic() - started >= CHART_RENDER_TIMEOUT.total_seconds():
+                raise ChartRenderTimedOut() from error
+            raise
         return (
             RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
         )

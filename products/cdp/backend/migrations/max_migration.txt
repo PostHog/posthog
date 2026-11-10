@@ -1,1 +1,1 @@
-0006_hogfunction_last_terraform_read_at
+0008_squash_2026_11_02_schema_addons

@@ -29,6 +29,12 @@ x-hypercache-s3: &hypercache-s3
 x-single-temporal-queue: &single-temporal-queue
     TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
 
+# The Node consumers default to a short fetch.wait.max.ms, so on an idle install Redpanda spends its
+# CPU answering empty fetches. A fetch still returns as soon as data arrives, because fetch.min.bytes
+# stays at 1, so a longer wait only cuts the polling while there is nothing to read.
+x-slow-idle-kafka-fetch: &slow-idle-kafka-fetch
+    KAFKA_CONSUMER_FETCH_WAIT_MAX_MS: '1000'
+
 # The PersonHog services default to shadow-mode validation tables. Hobby has no shadow
 # mode, so identity and the publisher name the real tables.
 x-personhog-tables: &personhog-tables
@@ -118,8 +124,14 @@ services:
             # Each Celery pool process loads all of Django. Celery starts one per CPU by default,
             # which is more memory than a small host has. Raise it in .env on a larger host.
             WEB_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
+            # The pool children share one copy of Django with the worker parent instead of copying it.
+            GC_FREEZE_BEFORE_POOL_FORK: ${GC_FREEZE_BEFORE_POOL_FORK:-true}
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # The documented telemetry opt-out. web already receives it; beat and the
+            # Celery tasks run here, so without it the opt-out never reaches them.
+            # Same default as web, so web and both workers make the same capture decision.
+            OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -188,6 +200,8 @@ services:
             # Each granian worker loads all of Django, and bin/docker-server starts 4 by default.
             # That is more memory than a small host has. Raise it in .env on a larger host.
             GRANIAN_WORKERS: ${GRANIAN_WORKERS:-2}
+            # The workers share one copy of Django with the granian parent instead of loading their own.
+            POSTHOG_GRANIAN_PRELOAD: ${POSTHOG_GRANIAN_PRELOAD:-true}
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
@@ -248,6 +262,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             # Django's TEMPORAL_SECRET_KEY defaults to SECRET_KEY, so the evaluation scheduler must encrypt with the same value.
@@ -290,6 +305,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
@@ -312,6 +328,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             SESSION_RECORDING_V2_S3_TIMEOUT_MS: 120000
@@ -330,6 +347,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             # Read side of the session recording V2 blob store. Must point at the same
             # SeaweedFS the ingestion-sessionreplay writer uses — without these the
             # service falls back to its localhost:8333 default, so every playback
@@ -357,6 +375,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
         depends_on:
@@ -371,6 +390,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             LOGS_REDIS_TLS: 'false'
         depends_on:
             - db
@@ -384,6 +404,7 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             TRACES_REDIS_TLS: 'false'
         depends_on:
             - db
@@ -538,6 +559,10 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # The documented telemetry opt-out. web already receives it; the Temporal
+            # activities run Django code here, so without it the opt-out never reaches them.
+            # Same default as web, so web and both workers make the same capture decision.
+            OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
             BROWSERLESS_CDP_URL: 'ws://browserless:3000'
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'

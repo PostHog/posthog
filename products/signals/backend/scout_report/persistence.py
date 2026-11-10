@@ -92,6 +92,7 @@ from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGH
 from products.signals.backend.source_issues import append_source_issues
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
+from products.signals.backend.trial.funding import direct_report_funding_snapshot
 
 if TYPE_CHECKING:
     from products.signals.backend.supersession import ImplementationResearchContext
@@ -205,6 +206,7 @@ def create_scout_report(
     created_by_id: int | None = None,
     proposed_reviewer_count: int | None = None,
     reviewer_outcome: str | None = None,
+    funded_report_id: uuid.UUID | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -283,13 +285,14 @@ def create_scout_report(
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
 
-    report_id = str(uuid.uuid4())
+    report_id = str(funded_report_id or uuid.uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     try:
         with transaction.atomic():
             report = SignalReport.objects.create(
                 id=report_id,
                 team_id=team_id,
+                self_driving_funding=direct_report_funding_snapshot(team_id),
                 status=status,
                 title=title,
                 summary=summary,

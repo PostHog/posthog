@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use serde::Deserialize;
 use symbolic::debuginfo::Archive;
-use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
+use symbolic_demangle::{Demangle, DemangleOptions};
 use zip::ZipArchive;
 
 use posthog_symbol_data::{
