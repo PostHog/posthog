@@ -11963,14 +11963,14 @@ Note: The complete official Markdown export supplied every Data Export API opera
 
 ## Svix — **thin**
 
-Today (2): `applications`, `event_types`
+Today (6): `applications`, `endpoint_stats`, `endpoints`, `event_types`, `message_attempts`, `messages`
 
 Diffed against: <https://api.svix.com/api/v1/openapi.json>
 
-- [ ] `GET /api/v1/app/{app_id}/msg` — The message table - every webhook payload sent, the core transactional object of the product (high)
-- [ ] `GET /api/v1/app/{app_id}/attempt/msg/{msg_id} and /attempt/endpoint/{endpoint_id}` — Delivery attempts with response status, latency and retry count - the only way to analyze webhook reliability (high)
-- [ ] `GET /api/v1/app/{app_id}/endpoint` — Lookup table resolving the endpoint IDs carried on every attempt, plus per-endpoint filter/rate-limit config (high)
-- [ ] `GET /api/v1/app/{app_id}/endpoint/{endpoint_id}/stats` — Pre-aggregated success/pending/fail counts per endpoint (medium)
+- [x] `GET /api/v1/app/{app_id}/msg` — The message table - every webhook payload sent, the core transactional object of the product (high) → `messages` (incremental on `timestamp`, fan-out over `applications`)
+- [x] `GET /api/v1/app/{app_id}/attempt/msg/{msg_id} and /attempt/endpoint/{endpoint_id}` — Delivery attempts with response status, latency and retry count - the only way to analyze webhook reliability (high) → `message_attempts` (incremental on `timestamp`, by endpoint, fan-out over `applications` and `endpoints`)
+- [x] `GET /api/v1/app/{app_id}/endpoint` — Lookup table resolving the endpoint IDs carried on every attempt, plus per-endpoint filter/rate-limit config (high) → `endpoints` (full refresh, fan-out over `applications`)
+- [x] `GET /api/v1/app/{app_id}/endpoint/{endpoint_id}/stats` — Pre-aggregated success/pending/fail counts per endpoint (medium) → `endpoint_stats` (full refresh, trailing 28 days, fan-out over `applications` and `endpoints`)
 - [ ] `GET /api/v1/app/{app_id}/msg/{msg_id}/endpoint` — Message-to-endpoint fan-out membership table (medium)
 - [ ] `GET /api/v1/stream and /api/v1/stream/{stream_id}/sink` — Svix Streams objects - a second product surface with zero coverage (medium)
 - [ ] `GET /api/v1/stream/{stream_id}/sink/{sink_id}/events` — Stream event records, the analytical rows of the Streams product (medium)
