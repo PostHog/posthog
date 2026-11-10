@@ -64,7 +64,7 @@ describe('emailSenderControlLogic', () => {
         integrationsLogic.actions.loadIntegrationsSuccess([OWN_SENDER])
         sandboxSenderLogic.mount()
         sandboxSenderLogic.actions.loadSandboxStatusSuccess(status as any)
-        logic = emailSenderControlLogic({ workflowLogicProps: wfLogic.props, actionId: 'email_step' })
+        logic = emailSenderControlLogic({ workflowLogicProps: wfLogic.props, actionId: step.id })
         logic.mount()
     }
 
@@ -123,6 +123,7 @@ describe('emailSenderControlLogic', () => {
         ],
         ['a sandbox step when adoption is off', SANDBOX_STEP, { ...STATUS, adoption_enabled: false }, true, {}],
         ['an own step in a workflow another product owns', ownStep(), STATUS, false, { origin_product: 'broadcasts' }],
+        ['an own step whose id the sandbox sender rejects', { ...ownStep(), id: 'welcome.email' }, STATUS, false, {}],
     ])('offers the sandbox sender for %s', (_, step, status, expected, workflowInfo) => {
         setUp(step, status)
         wfLogic.actions.setWorkflowInfo(workflowInfo)

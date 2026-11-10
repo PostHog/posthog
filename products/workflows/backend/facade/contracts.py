@@ -1222,8 +1222,6 @@ class PushTokenImportRecord:
 
 @frozen
 class SandboxSenderStatus:
-    """Whether a team can use the sandbox sender, and what its emails show as the sender."""
-
     integration_id: int | None
     from_address: str
     display_name: str

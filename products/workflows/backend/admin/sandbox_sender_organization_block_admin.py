@@ -8,8 +8,6 @@ from products.workflows.backend.models import SandboxSenderOrganizationBlock
 
 @admin.register(SandboxSenderOrganizationBlock)
 class SandboxSenderOrganizationBlockAdmin(admin.ModelAdmin):
-    """Staff stop an organization from sending through the sandbox sender by adding a row here."""
-
     list_display = ("organization", "reason", "created_by", "created_at")
     fields = ("organization", "reason", "created_by", "created_at")
     search_fields = ("organization__id", "organization__name")
@@ -19,7 +17,6 @@ class SandboxSenderOrganizationBlockAdmin(admin.ModelAdmin):
     def get_readonly_fields(
         self, request: HttpRequest, obj: SandboxSenderOrganizationBlock | None = None
     ) -> tuple[str, ...]:
-        # A block names one organization for good. Lifting it is a delete.
         if obj is not None:
             return ("organization", "created_by", "created_at")
         return ("created_at",)
@@ -39,8 +36,6 @@ class SandboxSenderOrganizationBlockAdmin(admin.ModelAdmin):
             return form_class
         staff_member = request.user
 
-        # The row records the signed-in staff member whatever the add form posts. A save hook
-        # would do the same, but admin pages stay plain CRUD.
         class AddBlockForm(form_class):  # type: ignore[valid-type,misc]
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 super().__init__(*args, **kwargs)

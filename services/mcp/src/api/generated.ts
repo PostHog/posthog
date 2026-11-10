@@ -18553,9 +18553,8 @@ export namespace Schemas {
     /**
      * Typed configuration for a PostgreSQL batch-export destination.
      *
-     * Connection credentials may live in a linked Integration (when one is provided) or
-     * inline in this config (legacy). Mirrors the non-credential fields of
-     * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     * Connection credentials live in the linked Integration, never here. Mirrors the
+     * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface PostgresDestinationConfig {
       /** PostgreSQL database name to connect to. */
@@ -18672,22 +18671,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
-     */
-    export type RedshiftCopyInputsAuthorization = number | string | {
-      aws_access_key_id: string;
-      aws_secret_access_key: string;
-    };
-
-    /**
-     * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
-     */
-    export type RedshiftCopyInputsBucketCredentials = number | {
-      aws_access_key_id: string;
-      aws_secret_access_key: string;
-    };
-
-    /**
      * S3 staging configuration for a Redshift batch export running in COPY mode.
      */
     export interface RedshiftCopyInputs {
@@ -18697,10 +18680,10 @@ export namespace Schemas {
       region_name: string;
       /** Key prefix for staged files in the S3 bucket. */
       s3_key_prefix: string;
-      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-      authorization: RedshiftCopyInputsAuthorization;
-      /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-      bucket_credentials: RedshiftCopyInputsBucketCredentials;
+      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. */
+      authorization: number | string;
+      /** AWS S3 integration ID used to stage files in the S3 bucket. */
+      bucket_credentials: number;
     }
 
     export type RedshiftDestinationConfigType = typeof RedshiftDestinationConfigType[keyof typeof RedshiftDestinationConfigType];
@@ -18713,8 +18696,7 @@ export namespace Schemas {
     /**
      * Typed configuration for a Redshift batch-export destination.
      *
-     * Connection credentials may live in a linked Integration (when one is provided) or inline in
-     * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+     * Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
      * `products/batch_exports/backend/service.py`.
      */
     export interface RedshiftDestinationConfig {
@@ -97045,6 +97027,73 @@ export namespace Schemas {
       Event: 'event',
       Person: 'person',
     } as const;
+
+    /**
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session
+     */
+    export type PropertyUsageTypeEnum = typeof PropertyUsageTypeEnum[keyof typeof PropertyUsageTypeEnum];
+
+
+    export const PropertyUsageTypeEnum = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
+    export interface PropertyUsageEntry {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type?: PropertyUsageTypeEnum;
+      /**
+         * Property name, for example `$current_url`.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
+    }
+
+    export interface PropertyUsageMetricsItem {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type: PropertyUsageTypeEnum;
+      /** Property name. */
+      name: string;
+      /**
+         * Group type index of a group property, null for other types.
+         * @nullable
+         */
+      group_type_index: number | null;
+      /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+      query_usage_30_day: number;
+    }
+
+    export interface PropertyUsageMetricsRequest {
+      /** Properties to fetch 30-day query usage for, at most 100 per request. */
+      properties: PropertyUsageEntry[];
+    }
+
+    export interface PropertyUsageMetricsResponse {
+      /** One entry per requested property, in request order. */
+      results: PropertyUsageMetricsItem[];
+    }
 
     export interface PropertyValueItem {
       count?: number | null;
