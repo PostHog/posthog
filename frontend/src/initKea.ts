@@ -153,6 +153,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    loadActivitySummary: 'scenes.dashboard.dashboardActivitySummaryLogic', // The dashboard activity hover shows its own error
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -191,6 +192,7 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineResultPayload',
     'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
     'loadDatasetItemVersions',
+    'loadActivitySummary', // The dashboard activity hover shows an error when a deploy has not shipped the route yet
 ])
 
 /*

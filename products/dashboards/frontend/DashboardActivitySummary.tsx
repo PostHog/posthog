@@ -72,20 +72,18 @@ export function DashboardActivitySummary({
     createdBy: UserBasicType | null
 }): JSX.Element {
     const logic = dashboardActivitySummaryLogic({ dashboardId })
-    const { activitySummary, activitySummaryLoading } = useValues(logic)
-    const { loadActivitySummary } = useActions(logic)
+    const { activitySummary, activitySummaryFailed } = useValues(logic)
+    const { openActivitySummary } = useActions(logic)
 
     return (
         <Tooltip
             openOnClick
-            onOpen={() => {
-                if (!activitySummary && !activitySummaryLoading) {
-                    loadActivitySummary()
-                }
-            }}
+            onOpen={openActivitySummary}
             title={
                 activitySummary ? (
                     <SummaryContent createdAt={createdAt} createdBy={createdBy} summary={activitySummary} />
+                ) : activitySummaryFailed ? (
+                    <span>Couldn't load dashboard activity. Refresh the page to try again.</span>
                 ) : (
                     <Spinner textColored />
                 )
