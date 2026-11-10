@@ -5,7 +5,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
-import { ToastContainer, toast } from 'react-toastify'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -19,6 +18,8 @@ import { initKeaTests } from '~/test/init'
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
+
+const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
 const DOMAIN = 'mail.acme.com'
 const SENDER_ID = 42

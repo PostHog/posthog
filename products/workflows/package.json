@@ -23,8 +23,7 @@
         "@storybook/react": "catalog:",
         "@testing-library/react": "*",
         "@types/papaparse": "*",
-        "kea-test-utils": "catalog:",
-        "react-toastify": "*"
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",

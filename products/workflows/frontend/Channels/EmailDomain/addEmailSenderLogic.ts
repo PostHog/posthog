@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 
-import { integrationsCreate } from 'products/integrations/frontend/generated/api'
+import { integrationsCreate, integrationsEmailVerifyCreate } from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { openEmailDomainSetupPage } from './useStartEmailDomainSetup'
@@ -284,8 +284,9 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
                         )
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsEmailVerifyCreate returns void and demands a config body the endpoint ignores
-                    const verification = await api.integrations.verifyEmail(created.id).catch(() => null)
+                    const verification = await integrationsEmailVerifyCreate(String(currentTeamId), created.id).catch(
+                        () => null
+                    )
                     return { ...submitted, sender: created, verified: verification?.status === 'success' }
                 },
             },
