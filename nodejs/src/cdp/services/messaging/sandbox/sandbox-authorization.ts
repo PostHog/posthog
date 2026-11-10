@@ -1,4 +1,4 @@
-import { QueryResultRow } from 'pg'
+import { PoolClient, QueryResultRow } from 'pg'
 
 import { PostgresRouter, PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
@@ -6,6 +6,9 @@ import { logger } from '~/common/utils/logger'
 import { SandboxTenantMirror } from './sandbox-tenant-admission'
 
 export const AUTHORIZATION_TIMEOUT_MS = 2_000
+export const MAX_WAITING_AUTHORIZATION_CONNECTIONS = 8
+
+const waitingConnections = new WeakMap<PostgresRouter, number>()
 
 export type SandboxAuthorization =
     | {
@@ -61,7 +64,12 @@ WHERE team.id = $1`
 
 export async function readSandboxAuthorization(
     db: PostgresRouter,
-    { teamId, recipient, tenantName }: { teamId: number; recipient: string; tenantName: string }
+    {
+        teamId,
+        recipient,
+        tenantName,
+        timeoutMs = AUTHORIZATION_TIMEOUT_MS,
+    }: { teamId: number; recipient: string; tenantName: string; timeoutMs?: number }
 ): Promise<SandboxAuthorization> {
     let row: AuthorizationRow | undefined
     try {
@@ -69,7 +77,7 @@ export async function readSandboxAuthorization(
             db,
             AUTHORIZATION_QUERY,
             [teamId, recipient, tenantName],
-            AUTHORIZATION_TIMEOUT_MS
+            timeoutMs
         )
     } catch (error) {
         logger.warn('Could not read sandbox email authorization', { teamId, error: String(error) })
@@ -111,8 +119,6 @@ function pickStoredAddress(
     return spellings.includes(recipient.trim()) ? recipient.trim() : { reason: 'ambiguous_member' }
 }
 
-// A connection that arrives after the deadline runs no SQL, and one still busy at the deadline is destroyed rather
-// than returned to the pool, so a stalled database cannot pile abandoned reads onto the shared primary pool.
 export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
     db: PostgresRouter,
     text: string,
@@ -128,17 +134,8 @@ export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
             reject(new Error(`The ${tag} read passed its ${timeoutMs} ms deadline`))
         }, timeoutMs)
     })
-    const connecting = db.connect(PostgresUse.COMMON_WRITE)
-    connecting.then(
-        (client) => {
-            if (expired) {
-                client.release()
-            }
-        },
-        () => undefined
-    )
     try {
-        const client = await Promise.race([connecting, deadline])
+        const client = await Promise.race([connectUnlessQueueFull(db, () => expired), deadline])
         let failure: Error | undefined
         const onClientError = (error: Error): void => {
             failure = error
@@ -166,4 +163,23 @@ export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
     } finally {
         clearTimeout(timer)
     }
+}
+
+async function connectUnlessQueueFull(db: PostgresRouter, isAbandoned: () => boolean): Promise<PoolClient> {
+    const waiting = waitingConnections.get(db) ?? 0
+    if (waiting >= MAX_WAITING_AUTHORIZATION_CONNECTIONS) {
+        throw new Error(`${waiting} sandbox email authorization reads are already waiting for a connection`)
+    }
+    waitingConnections.set(db, waiting + 1)
+    const connecting = db.connect(PostgresUse.COMMON_WRITE)
+    const stopWaiting = (): void => {
+        waitingConnections.set(db, (waitingConnections.get(db) ?? 1) - 1)
+    }
+    void connecting.then((client) => {
+        stopWaiting()
+        if (isAbandoned()) {
+            client.release()
+        }
+    }, stopWaiting)
+    return await connecting
 }

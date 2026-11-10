@@ -1,10 +1,9 @@
 import { randomUUID } from 'crypto'
-import { EventEmitter } from 'events'
-import { PoolClient } from 'pg'
 
 import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     createOrganization,
     createOrganizationMembership,
@@ -13,7 +12,7 @@ import {
 } from '~/tests/helpers/sql'
 import { Team } from '~/types'
 
-import { readSandboxAuthorization } from './sandbox-authorization'
+import { MAX_WAITING_AUTHORIZATION_CONNECTIONS, readSandboxAuthorization } from './sandbox-authorization'
 
 const SANDBOX_SENDER_TABLES = `
     CREATE TABLE workflows_sandboxsendertenantstate (
@@ -30,8 +29,6 @@ const SANDBOX_SENDER_TABLES = `
         created_at timestamptz NOT NULL
     )`
 
-// The test database gains these tables from the workflows migration once it is on master. Until then the test
-// creates them, and drops them again so a later migrate can still create them.
 const createMissingSandboxSenderTables = async (postgres: PostgresRouter): Promise<() => Promise<void>> => {
     const { rows } = await postgres.query(
         PostgresUse.COMMON_WRITE,
@@ -203,63 +200,97 @@ describe('readSandboxAuthorization', () => {
     })
 
     describe('when the database stalls', () => {
-        type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
+        const unavailable = { ok: false, reason: 'authorization_unavailable' }
+        let applicationName: string
+        let onePoolRouter: PostgresRouter
 
-        const stalledRouter = (
-            connect: () => Promise<FakeClient>
-        ): { router: PostgresRouter; clients: FakeClient[] } => {
-            const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
-            const clients: FakeClient[] = []
-            jest.spyOn(router, 'connect').mockImplementation(() =>
-                connect().then((client) => {
-                    clients.push(client)
-                    return client as unknown as PoolClient
-                })
-            )
-            return { router, clients }
-        }
-        const fakeClient = (query: () => Promise<unknown>): FakeClient =>
-            Object.assign(new EventEmitter(), { query: jest.fn(query), release: jest.fn() })
+        const readThrough = (router: PostgresRouter, recipient = memberEmail) =>
+            readSandboxAuthorization(router, { teamId: team.id, recipient, tenantName, timeoutMs: 200 })
 
-        beforeEach(() => jest.useFakeTimers())
-        afterEach(() => jest.useRealTimers())
-
-        it('reports authorization as unavailable when no connection is free, and runs no SQL on one handed over late', async () => {
-            let handOver: () => void = () => undefined
-            const late = fakeClient(() => Promise.resolve({ rows: [] }))
-            const { router, clients } = stalledRouter(
-                () => new Promise<FakeClient>((resolve) => (handOver = () => resolve(late)))
-            )
-
-            const authorization = readSandboxAuthorization(router, { teamId: 1, recipient: memberEmail, tenantName })
-            await jest.advanceTimersByTimeAsync(2_000)
-            expect(await authorization).toEqual({ ok: false, reason: 'authorization_unavailable' })
-
-            handOver()
-            await jest.advanceTimersByTimeAsync(0)
-            expect(clients).toEqual([late])
-            expect(late.query).not.toHaveBeenCalled()
-            expect(late.release.mock.calls).toEqual([[]])
+        beforeEach(() => {
+            applicationName = `sandbox-authorization-${randomUUID()}`
+            onePoolRouter = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, applicationName)
         })
 
-        it('reports authorization as unavailable when a query stalls, and destroys that connection', async () => {
-            const stalled = fakeClient(() => new Promise<never>(() => undefined))
-            const { router } = stalledRouter(() => Promise.resolve(stalled))
+        afterEach(async () => {
+            await onePoolRouter.end()
+        })
 
-            const authorization = readSandboxAuthorization(router, { teamId: 1, recipient: memberEmail, tenantName })
-            await jest.advanceTimersByTimeAsync(2_000)
+        it('refuses at once while enough reads wait for a connection, also after they time out, until the pool frees one', async () => {
+            await createMember(memberEmail, organizationId, true)
+            const busy = await onePoolRouter.connect(PostgresUse.COMMON_WRITE)
+            const queued = (): Promise<string> => new Promise((resolve) => setTimeout(resolve, 100, 'queued'))
+            try {
+                const waiting = Array.from({ length: MAX_WAITING_AUTHORIZATION_CONNECTIONS }, () =>
+                    readThrough(onePoolRouter)
+                )
 
-            expect(await authorization).toEqual({ ok: false, reason: 'authorization_unavailable' })
-            expect(stalled.release).toHaveBeenCalledWith(expect.any(Error))
+                expect(
+                    await Promise.race([readThrough(onePoolRouter), waiting[0].then(() => 'a waiting read')])
+                ).toEqual(unavailable)
+                expect(await Promise.all(waiting)).toEqual(waiting.map(() => unavailable))
+                expect(await Promise.race([readThrough(onePoolRouter), queued()])).toEqual(unavailable)
+            } finally {
+                busy.release()
+            }
+            ;(await onePoolRouter.connect(PostgresUse.COMMON_WRITE)).release()
+
+            expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
+        })
+
+        it('hands a connection that arrives after the deadline back to the pool', async () => {
+            await createMember(memberEmail, organizationId, true)
+            const busy = await onePoolRouter.connect(PostgresUse.COMMON_WRITE)
+            expect(await readThrough(onePoolRouter)).toEqual(unavailable)
+
+            busy.release()
+            ;(await onePoolRouter.connect(PostgresUse.COMMON_WRITE)).release()
+
+            expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
+        })
+
+        it('serves the next read on a clean connection after a query passes the deadline', async () => {
+            await createMember(memberEmail, organizationId, true)
+            const locker = await postgres.connect(PostgresUse.COMMON_WRITE)
+            const sessionStates = async (): Promise<string[]> =>
+                (
+                    await postgres.query<{ state: string }>(
+                        PostgresUse.COMMON_WRITE,
+                        'SELECT state FROM pg_stat_activity WHERE application_name = $1',
+                        [applicationName],
+                        'test:sandbox-authorization-sessions'
+                    )
+                ).rows.map((row) => row.state)
+            let locked = false
+            try {
+                await locker.query('BEGIN')
+                await locker.query('LOCK TABLE workflows_sandboxsenderorganizationblock IN ACCESS EXCLUSIVE MODE')
+                locked = true
+
+                expect(await readThrough(onePoolRouter)).toEqual(unavailable)
+                await waitForExpect(async () => expect(await sessionStates()).not.toContain('active'), 2_000, 10)
+                await locker.query('COMMIT')
+                locked = false
+
+                expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
+            } finally {
+                if (locked) {
+                    await locker.query('COMMIT')
+                }
+                locker.release()
+            }
         })
 
         it('reports authorization as unavailable when connecting fails', async () => {
-            const { router } = stalledRouter(() => Promise.reject(new Error('connection refused')))
-
-            expect(await readSandboxAuthorization(router, { teamId: 1, recipient: memberEmail, tenantName })).toEqual({
-                ok: false,
-                reason: 'authorization_unavailable',
+            const unreachable = new PostgresRouter({
+                ...defaultConfig,
+                DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1:1/posthog',
             })
+            try {
+                expect(await readThrough(unreachable)).toEqual(unavailable)
+            } finally {
+                await unreachable.end()
+            }
         })
     })
 })

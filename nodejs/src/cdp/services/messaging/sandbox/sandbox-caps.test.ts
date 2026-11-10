@@ -1,15 +1,16 @@
 import { randomInt, randomUUID } from 'crypto'
+import { Redis } from 'ioredis'
 
+import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { Hub } from '~/types'
+import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { createRedisFromConfig } from '~/common/utils/db/redis'
 
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { claimSandboxCaps } from './sandbox-caps'
 
 describe('claimSandboxCaps', () => {
-    let hub: Hub
+    let client: Redis
     let redis: RedisV2
     let limiter: RateLimiterService
     let organizationId: string
@@ -19,22 +20,27 @@ describe('claimSandboxCaps', () => {
         claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress })
 
     beforeAll(async () => {
-        hub = await createHub()
-        redis = createRedisV2PoolFromConfig({
-            connection: hub.CDP_REDIS_HOST
+        client = await createRedisFromConfig(
+            defaultConfig.CDP_REDIS_HOST
                 ? {
-                      url: hub.CDP_REDIS_HOST,
-                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      url: defaultConfig.CDP_REDIS_HOST,
+                      options: { port: defaultConfig.CDP_REDIS_PORT, password: defaultConfig.CDP_REDIS_PASSWORD },
                   }
-                : { url: hub.REDIS_URL },
-            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-        })
+                : { url: defaultConfig.REDIS_URL }
+        )
+        redis = {
+            useClient: (_options, callback) => callback(client as unknown as RedisClient),
+            usePipeline: (_options, callback) => {
+                const pipeline = client.pipeline() as unknown as RedisClientPipeline
+                callback(pipeline)
+                return pipeline.exec()
+            },
+        }
         limiter = new RateLimiterService(redis, { name: 'sandbox-email-caps' })
     })
 
     afterAll(async () => {
-        await closeHub(hub)
+        await client.quit()
     })
 
     beforeEach(() => {
@@ -79,9 +85,7 @@ describe('claimSandboxCaps', () => {
     })
 
     it.each([
-        // A full project must not spend the member's allowance, which the organization's other projects share.
         ['project', { team: 1, recipient: 2 }, 'member@example.com', 1],
-        // A member at their cap must not spend the project's allowance for its other members.
         ['recipient', { team: 2, recipient: 1 }, 'other@example.com', 0],
     ])('charges neither bucket when the %s bucket is full', async (_full, caps, nextAddress, teamOffset) => {
         await claim(caps, 'member@example.com')
@@ -96,7 +100,6 @@ describe('claimSandboxCaps', () => {
             (await redis.useClient({ name: 'find-project-bucket' }, (client) =>
                 client.keys(`@posthog/sandbox-email/*project/${teamId}`)
             )) ?? []
-        // A project bucket that is not a hash fails the claim after the recipient bucket is read.
         await redis.useClient({ name: 'corrupt-project-bucket' }, (client) => client.set(projectKey, 'not a bucket'))
 
         expect(await claim({ team: 5, recipient: 1 }, 'member@example.com')).toEqual({
@@ -109,10 +112,18 @@ describe('claimSandboxCaps', () => {
     })
 
     it('reports an unreachable limiter as storage that cannot be read', async () => {
-        const broken = new RateLimiterService(
-            { useClient: jest.fn().mockRejectedValue(new Error('connection lost')) } as unknown as RedisV2,
-            { name: 'broken' }
-        )
+        const unreachable = createRedisV2PoolFromConfig({
+            connection: {
+                url: '127.0.0.1',
+                options: { port: 1, commandTimeout: 100, retryStrategy: () => null },
+                name: 'sandbox-caps-unreachable',
+                exitOnRepeatedErrors: false,
+            },
+            poolMinSize: 0,
+            poolMaxSize: 1,
+            acquireTimeoutMillis: 100,
+        })
+        const broken = new RateLimiterService(unreachable, { name: 'broken' })
 
         expect(
             await claimSandboxCaps(

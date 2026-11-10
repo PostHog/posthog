@@ -425,22 +425,31 @@ describe('EmailSuppressionService', () => {
         it.each([
             ['shadow', false],
             ['enforce', true],
-        ] as const)('in %s mode, a failed global read holds the send: %s', async (mode, enforce) => {
-            const email = `unread-${mode}-${team.id}@example.com`
-            await bounceForAnotherTeam(email)
-            const realQuery = hub.postgres.query.bind(hub.postgres)
-            jest.spyOn(hub.postgres, 'query').mockImplementation(((...args: Parameters<typeof realQuery>) =>
-                args[3] === 'loadGlobalHardBounces'
-                    ? Promise.reject(new Error('relation does not exist'))
-                    : realQuery(...args)) as typeof realQuery)
+        ] as const)(
+            'in %s mode, a failed global read holds the send until a retry reads the list: %s',
+            async (mode, enforce) => {
+                const email = `unread-${mode}-${team.id}@example.com`
+                await bounceForAnotherTeam(email)
+                const service = newService(enforce)
+                const realQuery = hub.postgres.query.bind(hub.postgres)
+                const failGlobalRead = jest
+                    .spyOn(hub.postgres, 'query')
+                    .mockImplementation(((...args: Parameters<typeof realQuery>) =>
+                        args[3] === 'loadGlobalHardBounces'
+                            ? Promise.reject(new Error('relation does not exist'))
+                            : realQuery(...args)) as typeof realQuery)
 
-            const lookup = newService(enforce).isSuppressed(team.id, email, { transactional: true })
-            if (enforce) {
-                await expect(lookup).rejects.toBeInstanceOf(SuppressionLookupError)
-            } else {
-                await expect(lookup).resolves.toBe(false)
+                const lookup = service.isSuppressed(team.id, email, { transactional: true })
+                if (enforce) {
+                    await expect(lookup).rejects.toBeInstanceOf(SuppressionLookupError)
+                } else {
+                    await expect(lookup).resolves.toBe(false)
+                }
+
+                failGlobalRead.mockRestore()
+                expect(await service.isSuppressed(team.id, email, { transactional: true })).toBe(enforce)
             }
-        })
+        )
 
         it.each([
             ['bounced once, an hour ago', 1 / 24, 1 / 24, true],
