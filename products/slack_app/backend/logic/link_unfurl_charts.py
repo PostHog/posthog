@@ -114,6 +114,23 @@ def with_chart_images(unfurls: dict[str, Any], image_urls: dict[str, str], title
     return result
 
 
+def reply_chart_blocks(image_urls: dict[str, str], titles: dict[str, str]) -> list[dict[str, Any]]:
+    """An image block for each chart, titled, with the link that opens it in PostHog under it."""
+    blocks: list[dict[str, Any]] = []
+    for url, image_url in image_urls.items():
+        title = (titles.get(url) or "Insight chart")[:_MAX_ALT_TEXT_CHARS]
+        blocks.append(
+            {"type": "image", "image_url": image_url, "alt_text": title, "title": {"type": "plain_text", "text": title}}
+        )
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Open in PostHog"}, "url": url}],
+            }
+        )
+    return blocks
+
+
 def _raise_if_transient(error: SlackApiError) -> None:
     response = error.response
     code = response.get("error") if response is not None else None
@@ -156,7 +173,24 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_key
                 image_urls[chart.url] = slack_fetchable_image_url(image_urls_by_key[key])
 
     adhoc_urls = {chart.url for chart in request.charts if chart.query is not None}
-    if image_urls:
+    if image_urls and request.reply_thread_ts is not None:
+        titles = {chart.url: chart.title for chart in request.charts}
+        try:
+            SlackIntegration(integration).client.chat_postMessage(
+                channel=request.channel,
+                thread_ts=request.reply_thread_ts,
+                text=", ".join(titles[url] for url in image_urls),
+                blocks=reply_chart_blocks(image_urls, titles),
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+        except SlackApiError as e:
+            _raise_if_transient(e)
+            error = e.response.get("error") if e.response is not None else None
+            logger.warning("slack_app_reply_charts_rejected", team_id=team.pk, error=error)
+            failure_reason = error or "slack_api_error"
+            image_urls = {}
+    elif image_urls:
         titles = {chart.url: chart.title for chart in request.charts}
         # The webhook posted no card for an ad hoc link, so its card goes out only with its chart.
         unfurls = {url: card for url, card in request.unfurls.items() if url not in adhoc_urls or url in image_urls}
@@ -189,4 +223,5 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_key
         adhoc_charts_shown=len(adhoc_urls & image_urls.keys()),
         duration_ms=post.elapsed_ms,
         failure_reason=failure_reason,
+        surface="reply" if request.reply_thread_ts is not None else "unfurl",
     )

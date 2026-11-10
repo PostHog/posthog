@@ -4,6 +4,10 @@ Kept apart from ``facade/api.py`` so ``temporalio`` stays off the light data-sur
 """
 
 from products.slack_app.backend.temporal import SLACK_APP_ACTIVITIES
+from products.slack_app.backend.temporal.activities.reply_presentation import (
+    is_slack_reply_presentation_enabled_activity,
+    present_slack_reply_activity,
+)
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
 )
@@ -14,6 +18,11 @@ from products.slack_app.backend.temporal.slack_app_mention_processing import Sla
 from products.slack_app.backend.temporal.slack_app_onboarding import SlackAppOnboardingWorkflow
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import SlackAppUnfurlChartsWorkflow
 from products.slack_app.backend.temporal.slack_app_work_focus import SlackAppWorkFocusWorkflow
+from products.slack_app.backend.temporal.types import (
+    PresentSlackReplyInput,
+    SlackReplyPresentation,
+    SlackReplyPresentationGateInput,
+)
 
 WORKFLOWS = [
     SlackAppMentionProcessingWorkflow,
@@ -28,4 +37,12 @@ WORKFLOWS = [
 
 ACTIVITIES = [*SLACK_APP_ACTIVITIES]
 
-__all__ = ["ACTIVITIES", "WORKFLOWS"]
+__all__ = [
+    "ACTIVITIES",
+    "WORKFLOWS",
+    "PresentSlackReplyInput",
+    "SlackReplyPresentation",
+    "SlackReplyPresentationGateInput",
+    "is_slack_reply_presentation_enabled_activity",
+    "present_slack_reply_activity",
+]

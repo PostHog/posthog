@@ -29,6 +29,10 @@ from products.slack_app.backend.temporal.activities.onboarding import (
     run_posthog_slack_inbox_onboarding,
     run_posthog_slack_inbox_onboarding_activity,
 )
+from products.slack_app.backend.temporal.activities.reply_presentation import (
+    is_slack_reply_presentation_enabled_activity,
+    present_slack_reply_activity,
+)
 from products.slack_app.backend.temporal.activities.repo_selection import (
     cascade_posthog_code_repository_activity,
     discover_posthog_code_repository_via_agent_activity,
@@ -108,4 +112,6 @@ __all__ = [
     "run_posthog_slack_inbox_onboarding_activity",
     "post_slack_unfurl_charts_activity",
     "prepare_slack_unfurl_charts_activity",
+    "is_slack_reply_presentation_enabled_activity",
+    "present_slack_reply_activity",
 ]

@@ -9,7 +9,13 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.slack_app.backend.facade.temporal import (
+    PresentSlackReplyInput,
+    SlackReplyPresentation,
+    SlackReplyPresentationGateInput,
+)
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
+    AppendSlackAgentDesignAnswerInput,
     AppendSlackAgentDesignStepsInput,
     SlackAgentDesignStream,
     StartSlackAgentDesignStreamInput,
@@ -35,13 +41,25 @@ CHECKING = [("agent_text_delta", "Checking."), ("agent_status_update", {"phase":
 
 
 class _SlackCalls:
-    def __init__(self, stream_closed: bool = False, plain_reply: bool = False) -> None:
+    def __init__(
+        self,
+        stream_closed: bool = False,
+        plain_reply: bool = False,
+        presentation: bool = False,
+        answer_lands: bool = True,
+    ) -> None:
         self.plain_reply = plain_reply
+        self.presentation = presentation
+        self.answer_lands = answer_lands
+        # Activity names in the order they ran, for the presentation path whose order is the point.
+        self.order: list[str] = []
+        self.answer_appends: list[AppendSlackAgentDesignAnswerInput] = []
         # Slack has closed every stream, so each append reports it.
         self.stream_closed = stream_closed
         self.starts: list[StartSlackAgentDesignStreamInput] = []
         self.appends: list[AppendSlackAgentDesignStepsInput] = []
         self.stops: list[StopSlackAgentDesignStreamInput] = []
+        self.presentations: list[PresentSlackReplyInput] = []
 
     def activities(self) -> list[Any]:
         @activity.defn(name="start_slack_agent_design_stream")
@@ -60,9 +78,26 @@ class _SlackCalls:
 
         @activity.defn(name="stop_slack_agent_design_stream")
         async def stop(input: StopSlackAgentDesignStreamInput) -> None:
+            self.order.append("stop")
             self.stops.append(input)
 
-        return [start, append, stop]
+        @activity.defn(name="is_slack_reply_presentation_enabled_activity")
+        async def gate(input: SlackReplyPresentationGateInput) -> bool:
+            return self.presentation
+
+        @activity.defn(name="append_slack_agent_design_answer")
+        async def append_answer(input: AppendSlackAgentDesignAnswerInput) -> bool:
+            self.order.append("append_answer")
+            self.answer_appends.append(input)
+            return self.answer_lands
+
+        @activity.defn(name="present_slack_reply_activity")
+        async def present(input: PresentSlackReplyInput) -> SlackReplyPresentation:
+            self.order.append("present")
+            self.presentations.append(input)
+            return SlackReplyPresentation(components=1)
+
+        return [start, append, stop, gate, append_answer, present]
 
     def final_lines(self) -> dict[str, tuple[str, str | None, str]]:
         lines: dict[str, tuple[str, str]] = {}
@@ -95,8 +130,12 @@ async def _run_relay(
     stream_closed: bool = False,
     plain_reply: bool = False,
     turn_trace_id: str | None = TRACE_ID,
+    presentation: bool = False,
+    answer_lands: bool = True,
 ) -> _SlackCalls:
-    calls = _SlackCalls(stream_closed=stream_closed, plain_reply=plain_reply)
+    calls = _SlackCalls(
+        stream_closed=stream_closed, plain_reply=plain_reply, presentation=presentation, answer_lands=answer_lands
+    )
     async with await WorkflowEnvironment.start_time_skipping() as env:
         task_queue = f"test-{uuid.uuid4()}"
         async with Worker(
@@ -136,11 +175,14 @@ class TestSlackAgentDesignRelay:
             [("agent_text_delta", "Signups grew.")],
             setup_title=setup_title,
             plain_reply=True,
+            presentation=True,
         )
 
         assert len(calls.stops) == 1
         assert calls.stops[0].ts is None
         assert calls.stops[0].answer_markdown == "Signups grew."
+        # A plain reply has no open stream to take components below the answer.
+        assert calls.presentations == []
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_tool_calls_collapse_into_one_line_per_phase(self) -> None:
@@ -337,6 +379,43 @@ class TestSlackAgentDesignRelay:
         assert [s.mention_sent for s in calls.stops] == [True]
         # Closing must tag the person the opening tagged.
         assert [s.actor_slack_user_id for s in calls.stops] == ["U9"]
+
+    @pytest.mark.parametrize(
+        "signals,answer_lands,order,stop_answer",
+        [
+            # The answer opened the stream, so the components follow it straight away.
+            pytest.param([("agent_text_delta", "Signups grew.")], True, ["present", "stop"], None, id="answer_opened"),
+            # The answer waits behind plan steps, so it goes into the stream before the components.
+            pytest.param(
+                [*CHECKING, (WAIT, 3), ("agent_text_delta", "Signups grew.")],
+                True,
+                ["append_answer", "present", "stop"],
+                None,
+                id="answer_after_steps",
+            ),
+            # The answer did not land, so the close posts it and nothing is presented.
+            pytest.param(
+                [*CHECKING, (WAIT, 3), ("agent_text_delta", "Signups grew.")],
+                False,
+                ["append_answer", "stop"],
+                "Signups grew.",
+                id="answer_did_not_land",
+            ),
+        ],
+    )
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_components_stream_under_the_answer_before_the_close(
+        self, signals: list[tuple[str, Any]], answer_lands: bool, order: list[str], stop_answer: str | None
+    ) -> None:
+        calls = await _run_relay(signals, presentation=True, answer_lands=answer_lands)
+
+        assert calls.order == order
+        assert [(p.answer_markdown, p.stream_ts, p.trace_id) for p in calls.presentations] == (
+            [("Signups grew.", "2.0", TRACE_ID)] if "present" in order else []
+        )
+        # The close must neither repeat an answer already in the stream nor tag the requester twice.
+        assert [(s.final_markdown, s.mention_sent) for s in calls.stops] == [(stop_answer, stop_answer is None)]
+        assert [s.answer_markdown for s in calls.stops] == ["Signups grew."]
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_stopped_run_marks_the_open_step_failed(self) -> None:

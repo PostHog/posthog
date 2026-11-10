@@ -28,6 +28,7 @@ from products.slack_app.backend.temporal.activities import (
     find_slack_app_work_focus_activity,
     forward_posthog_code_followup_activity,
     handle_posthog_code_slack_mention_command_activity,
+    is_slack_reply_presentation_enabled_activity,
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
     offer_slack_app_tool_connections_activity,
@@ -40,6 +41,7 @@ from products.slack_app.backend.temporal.activities import (
     post_slack_unfurl_charts_activity,
     posthog_code_thread_has_task_activity,
     prepare_slack_unfurl_charts_activity,
+    present_slack_reply_activity,
     process_slack_app_fork_thread_activity,
     remind_slack_app_onboarding_activity,
     request_untagged_followup_confirmation_activity,
@@ -107,6 +109,8 @@ SLACK_APP_ACTIVITIES = [
     run_posthog_slack_inbox_onboarding_activity,
     prepare_slack_unfurl_charts_activity,
     post_slack_unfurl_charts_activity,
+    is_slack_reply_presentation_enabled_activity,
+    present_slack_reply_activity,
 ]
 
 __all__ = [
@@ -166,4 +170,6 @@ __all__ = [
     "run_posthog_slack_inbox_onboarding_activity",
     "post_slack_unfurl_charts_activity",
     "prepare_slack_unfurl_charts_activity",
+    "is_slack_reply_presentation_enabled_activity",
+    "present_slack_reply_activity",
 ]

@@ -440,6 +440,32 @@ class SlackThreadHandler:
             **kwargs,
         )
 
+    def post_blocks(self, text: str, blocks: list[dict[str, Any]]) -> str | None:
+        """Post a message of blocks in the thread. Returns its ts, or `None` when Slack refused it."""
+        try:
+            return _response_ts(self._post_in_thread(text=text, blocks=blocks, unfurl_links=False, unfurl_media=False))
+        except Exception as e:
+            logger.warning("slack_app_post_blocks_failed", error=str(e))
+            return None
+
+    def update_blocks(self, ts: str, text: str, blocks: list[dict[str, Any]]) -> bool:
+        """Replace the blocks of a message this handler posted. Returns whether Slack took them."""
+        try:
+            self._get_client().chat_update(channel=self.context.channel, ts=ts, text=text, blocks=blocks)
+        except Exception as e:
+            logger.warning("slack_app_update_blocks_failed", error=str(e))
+            return False
+        return True
+
+    def append_status_answer(self, ts: str, markdown: str) -> bool:
+        """Append the answer to an open stream, opened by the @-mention, before the stream closes.
+        Returns whether every piece landed, so a caller can still post the answer some other way."""
+        chunks = [
+            {"type": "markdown_text", "text": piece}
+            for piece in _markdown_text_pieces(self._with_leading_mention(markdown))
+        ]
+        return bool(chunks) and self._append_chunks(ts, chunks, "slack_app_status_stream_answer_append_failed")
+
     def _find_progress_message_ts(self) -> str | None:
         """Find existing progress message in the thread."""
         try:

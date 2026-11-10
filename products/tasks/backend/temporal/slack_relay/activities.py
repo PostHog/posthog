@@ -199,11 +199,14 @@ class RelaySlackMessageInput:
     # Set only for the agent's own answer, so a notice or a placeholder never gets a feature tip.
     # Separate from the reply buttons, so turning those off for a surface leaves tips alone.
     offer_feature_tip: bool = False
+    # Set only for the agent's own answer, so the reply presenter never decorates a notice.
+    offer_presentation: bool = False
 
 
 @activity.defn
 @close_db_connections
-def relay_slack_message(input: RelaySlackMessageInput) -> None:
+def relay_slack_message(input: RelaySlackMessageInput) -> bool:
+    """Returns whether the agent's answer reached the thread, so the workflow knows a presentation can follow it."""
     from products.slack_app.backend.facade.api import SlackFeature, record_slack_feature_used
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_messages import (
@@ -223,23 +226,23 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         task_run = TaskRun.objects.get(id=input.run_id)
     except TaskRun.DoesNotExist:
         logger.warning("slack_relay_run_not_found", run_id=input.run_id, relay_id=input.relay_id)
-        return
+        return False
 
     state = task_run.state or {}
     sent_relay_ids = state.get("slack_sent_relay_ids") or []
     if input.relay_id in sent_relay_ids:
         logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)
-        return
+        return False
 
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
     if mapping is None:
         logger.info("slack_relay_mapping_not_found", run_id=input.run_id, relay_id=input.relay_id)
-        return
+        return False
 
     text = (input.text or "").strip()
     if not text:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
-        return
+        return False
 
     # Object tags become the markdown links Slack can render, and echoed ``<@U…|name>`` tokens
     # become the bare ``<@U…>`` so the mentions the agent composed actually notify their targets.
@@ -276,7 +279,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):
         handler.delete_progress()
-        return
+        return False
     text = handler.notification_text(text, target)
 
     # The mention opens the answer, in the same line, so the reply reads as one message.
@@ -305,7 +308,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
     except _RelayAlreadyRecorded:
         logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)
-        return
+        return False
 
     if input.delete_progress:
         handler.delete_progress()
@@ -346,3 +349,4 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         handler.offer_reply_suggestions(text)
     if answer_delivered and input.offer_feature_tip:
         handler.offer_feature_tip()
+    return answer_delivered
