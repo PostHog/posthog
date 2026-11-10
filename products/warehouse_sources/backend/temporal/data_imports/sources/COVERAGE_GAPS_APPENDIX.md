@@ -11983,14 +11983,14 @@ Note: Static 2-endpoint config in sources/svix/settings.py, no dynamic discovery
 
 ## Swarmia — gaps
 
-Today (6): `capex`, `capex_employees`, `dora`, `fte`, `investment`, `pull_requests`
+Today (9): `ai_adoption`, `capex`, `capex_employees`, `code_metrics`, `dora`, `fte`, `investment`, `pull_requests`, `teams`
 
 Diffed against: <https://help.swarmia.com/settings/integrations/swarmia-apis/export-api>
 
-- [ ] `GET /api/v0/teams` — Lookup table resolving the team names that every team-level report row is keyed on, including parent-team hierarchy and member lists (high)
-- [ ] `GET /api/v1/reports/ai/adoption/users-and-licenses` — AI assistant adoption and license utilization - a headline metric with no v0 equivalent and no coverage today (high)
-- [ ] `GET /api/v1/reports/custom/{id}` — Any custom report saved in the app, letting users sync breakdowns the fixed v0 endpoints cannot express (medium)
-- [ ] `GET /api/v1/reports/metrics/code` — v1 successor to /pullRequests; revision 2 adds teamFte and mergedPrsByFte columns the v0 export does not return (medium)
+- [x] `GET /api/v0/teams` — Lookup table resolving the team names that every team-level report row is keyed on, including parent-team hierarchy and member lists (high)
+- [x] `GET /api/v1/reports/ai/adoption/users-and-licenses` — AI assistant adoption and license utilization - a headline metric with no v0 equivalent and no coverage today (high)
+- [ ] `GET /api/v1/reports/custom/{id}` — Any custom report saved in the app, letting users sync breakdowns the fixed v0 endpoints cannot express (medium) — skipped: each report needs a user-supplied UUID and returns its own column set with no stable row key, so it does not fit the static table catalog
+- [x] `GET /api/v1/reports/metrics/code` — v1 successor to /pullRequests; revision 2 adds teamFte and mergedPrsByFte columns the v0 export does not return (medium)
 - [ ] `GET /api/v1/reports/metrics/dora` — v1 successor to /dora on the non-deprecated API surface (low)
 
 Note: The v0 Export API is 100% covered - all six documented endpoints (/pullRequests, /dora, /investment, /capex, /capex/employees, /fte) map to the six synced tables. The gap is that the vendor explicitly states v0 'will eventually become deprecated' in favor of the v1 Reports API (https://help.swarmia.com/settings/integrations/swarmia-apis/built-in-reports.md, which embeds an OpenAPI 3.1 doc served from https://app.swarmia.com/api/v1). The Time offs API (/api/v0/time-offs) has only create/get-by-id/update/delete, no list endpoint, so it is not syncable.
