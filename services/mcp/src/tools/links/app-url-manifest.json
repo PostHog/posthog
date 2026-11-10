@@ -609,6 +609,11 @@
         "params": [],
         "scope": "project"
     },
+    "dataDeletionRequestNew": {
+        "template": "/settings/environment-data-deletion/new",
+        "params": [],
+        "scope": "project"
+    },
     "dataManagementHistory": {
         "template": "/data-management/history",
         "params": [],
