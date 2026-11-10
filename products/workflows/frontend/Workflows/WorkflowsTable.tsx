@@ -118,7 +118,6 @@ export function WorkflowsTable(): JSX.Element {
         allArchivedSelected,
         selectedArchivedCount,
         localWorkflowTags,
-        tags: allTags,
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
@@ -143,7 +142,6 @@ export function WorkflowsTable(): JSX.Element {
         clearArchivedWorkflowSelection,
         updateWorkflowTags,
         setTagsFilter,
-        loadTagsIfNeeded,
     } = useActions(logic)
 
     useOnMountEffect(() => {
@@ -153,7 +151,6 @@ export function WorkflowsTable(): JSX.Element {
             id: 'new',
         })
         newWorkflowLogic?.unmount()
-        loadTagsIfNeeded()
 
         // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
         // when the component re-mounts
@@ -256,7 +253,6 @@ export function WorkflowsTable(): JSX.Element {
                 return (
                     <WorkflowTagsCell
                         tags={tags}
-                        tagsAvailable={allTags.filter((tag) => !tags.includes(tag))}
                         canEdit={canEdit}
                         onChange={(newTags) => updateWorkflowTags(item, newTags)}
                         onTagClick={filterByTag}

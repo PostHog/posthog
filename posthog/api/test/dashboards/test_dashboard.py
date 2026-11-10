@@ -1152,7 +1152,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with mute_selected_signals():
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-            baseline = 8
+            baseline = 10
             # Each dashboard GET that materializes at least one insight runner performs one
             # property-access-control feature check, memoized across all runners on the dashboard
             # by `get_restricted_properties_for_team`'s per-scope cache. It costs no Postgres

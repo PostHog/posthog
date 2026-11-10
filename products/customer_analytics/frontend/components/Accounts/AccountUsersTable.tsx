@@ -73,6 +73,7 @@ export function AccountUsersTable({
                 },
             },
             dataTableExportQuery: exportQuery,
+            dataTableSortOnHeaderClick: true,
         }),
         [externalId, exportQuery]
     )

@@ -56,6 +56,7 @@ def _context(
     exposed_during_overrides: dict[ChangeWindow, bool | None] | None = None,
     variants: list[dict[str, Any]] = EVEN,
     exposed_units: int | None = None,
+    early_exit: bool = False,
 ) -> HealthContext:
     variant_keys = [variant["key"] for variant in variants]
     changes = [
@@ -68,7 +69,9 @@ def _context(
     ]
     return replace(
         RUNNING_CONTEXT,
-        flag=parse_flag_state(active=True, deleted=False, groups=now or conditions[-1], variants=variants),
+        flag=parse_flag_state(
+            active=True, deleted=False, groups=now or conditions[-1], variants=variants, early_exit=early_exit
+        ),
         flag_history=flag_history(
             changes,
             start_date=LAUNCHED_AT,
@@ -100,6 +103,11 @@ WARNING = ExperimentHealthFindingSeverity.WARNING
 CHANGED_TITLE = "The release conditions changed after launch"
 OVERRIDE_TITLE = "A variant override was removed after launch"
 REORDERED_TITLE = "The order of the release conditions changed after launch"
+ROLLOUT_TITLE = "A release condition's rollout was lowered after launch"
+LOWERED_EFFECT = (
+    "Users it no longer serves get no variant, or the variant of a later condition. Their exposures stay in the "
+    "results, and their later events still count for the variant they got first."
+)
 OVERRIDE_MOVED = (
     'Users it matched got "test" while the override was in place and a random variant after, so those exposed while '
     'it was in place may have switched variants. Their exposures under "test" stay in the results.'
@@ -348,6 +356,41 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 "Review the change in the flag history.",
             ),
             (
+                "rollout_lowered",
+                _context([EVERYONE], [{**EVERYONE, "rollout_percentage": 50}]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                f"The rollout of Set 1 was lowered on {FIRST_CHANGE} and is at 50% now, down from 100%. {LOWERED_EFFECT} "
+                f"Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
+            ),
+            (
+                "rollouts_lowered",
+                _context([PRO, EVERYONE], [{**PRO, "rollout_percentage": 20}, {**EVERYONE, "rollout_percentage": 50}]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                f"The rollouts of 2 release conditions were lowered on {FIRST_CHANGE}: Set 1 is at 20% now, down from "
+                "100%, and Set 2 is at 50% now, down from 100%. Users these conditions no longer serve get no variant, "
+                "or the variant of a later condition. Their exposures stay in the results, and their later events still "
+                f"count for the variant they got first. Move the start date to {FIRST_CHANGE} so the results count only "
+                "exposures after it.",
+            ),
+            (
+                "rollout_lowered_in_front_of_an_override_and_a_condition_that_serves_everyone",
+                _context([PRO, EU_CONTROL, EVERYONE], [{**PRO, "rollout_percentage": 20}, EU_CONTROL, EVERYONE]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
+                "pinned_rollout_lowered_in_front_of_a_condition_that_serves_everyone",
+                _context([PRO_PINNED, EVERYONE], [{**PRO_PINNED, "rollout_percentage": 20}, EVERYONE]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
+                "rollout_lowered_in_front_of_a_condition_that_serves_everyone_with_early_exit",
+                _context([PRO, EVERYONE], [{**PRO, "rollout_percentage": 20}, EVERYONE], early_exit=True),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
                 "set_back_with_exposures_in_between",
                 _context([PRO], [EVERYONE], [PRO], exposed_between=True),
                 ("reverted", INFO, "The release conditions changed and were set back", "A6"),
@@ -387,6 +430,27 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         [
             ("no_change", _context([PRO]), None),
             ("set_back_with_nobody_in_between", _context([PRO], [EVERYONE], [PRO], exposed_between=False), None),
+            (
+                "rollout_lowered_and_raised_back",
+                _context([EVERYONE], [{**EVERYONE, "rollout_percentage": 50}], now=[EVERYONE]),
+                None,
+            ),
+            (
+                "rollout_lowered_to_zero",
+                _context([PRO_PINNED, EVERYONE], [{**PRO_PINNED, "rollout_percentage": 0}, EVERYONE]),
+                None,
+            ),
+            # Every user it no longer serves gets the same variant from the next condition.
+            (
+                "rollout_lowered_in_front_of_a_condition_that_serves_everyone",
+                _context([PRO, EVERYONE], [{**PRO, "rollout_percentage": 20}, EVERYONE]),
+                None,
+            ),
+            (
+                "rollout_lowered_behind_a_condition_that_serves_everyone",
+                _context([EVERYONE, PRO], [EVERYONE, {**PRO, "rollout_percentage": 20}]),
+                None,
+            ),
             (
                 "no_history_access",
                 _context([PRO], not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),

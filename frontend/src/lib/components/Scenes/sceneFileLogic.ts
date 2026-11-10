@@ -22,8 +22,10 @@ export interface sceneFileLogicValues {
 export interface sceneFileLogicActions {
     syncTypeAndRef: (
         type: string,
-        ref: string
+        ref: string,
+        afterWrite?: boolean | undefined
     ) => {
+        afterWrite: boolean
         ref: string
         type: string
     } // projectTreeDataLogic

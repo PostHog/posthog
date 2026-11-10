@@ -6,9 +6,12 @@ import { createElement } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo, MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
@@ -1513,6 +1516,48 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.hasUnsavedChanges).toBe(true)
             // Guard condition: props.id === 'new' → skip
             expect(logic.props.id).toBe('new')
+        })
+    })
+
+    describe('project tree', () => {
+        const treeEntry = (name: string): Record<string, unknown> => ({
+            id: 'file-1',
+            path: `Unfiled/Workflows/${name}`,
+            type: 'hog_flow',
+            ref: WORKFLOW_ID,
+        })
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': ({ request }) =>
+                        new URL(request.url).searchParams.get('ref') === WORKFLOW_ID
+                            ? [200, { results: [treeEntry('Renamed')], count: 1 }]
+                            : [200, { results: [], count: 0 }],
+                },
+            })
+            initKeaTests()
+            projectTreeDataLogic.mount()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        afterEach(() => {
+            projectTreeDataLogic.unmount()
+        })
+
+        it('shows the new name of a workflow the tree has loaded once a save lands', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Autosave test')] } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflowPartial({ name: 'Renamed' })
+            }).toDispatchActions(['saveWorkflowSuccess'])
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef[`hog_flow::${WORKFLOW_ID}`]?.path).toBe(
+                'Unfiled/Workflows/Renamed'
+            )
         })
     })
 })

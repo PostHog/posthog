@@ -36,6 +36,8 @@ export function WorkflowsListV2(): JSX.Element {
         folderMatchesText,
         displayedValue,
         showsAutomationSetup,
+        otherFilesScanFailed,
+        otherFilesReadyLoading,
     } = useValues(workflowFoldersLogic)
 
     useOnMountEffect(() => {
@@ -43,7 +45,7 @@ export function WorkflowsListV2(): JSX.Element {
         workflowLogic.findMounted({ id: 'new' })?.unmount()
     })
 
-    const { loadBrowser } = useActions(workflowFoldersLogic)
+    const { loadBrowser, loadOtherFiles } = useActions(workflowFoldersLogic)
     const metricsFailed = listLoaded && hasHealthFilter && !metricsLoaded && !metricsLoading
     const renderLoadError = (): JSX.Element => {
         if (browserLoadFailed) {
@@ -110,6 +112,23 @@ export function WorkflowsListV2(): JSX.Element {
                 <div className="min-w-0 flex-1 @container">
                     <WorkflowFolderDropMonitor />
                     <WorkflowFolderToolbar />
+                    {otherFilesScanFailed && !browserLoadFailed && (
+                        <div
+                            className="flex items-center gap-2 text-xs text-secondary mb-2"
+                            data-attr="workflows-folder-names-failed"
+                        >
+                            <span>Couldn't check existing folder names, so you can't add or rename folders yet.</span>
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                loading={otherFilesReadyLoading}
+                                onClick={() => loadOtherFiles()}
+                                data-attr="workflows-folder-names-retry"
+                            >
+                                Retry
+                            </LemonButton>
+                        </div>
+                    )}
                     {(loadFailed && !listLoaded) || browserLoadFailed || metricsFailed ? (
                         renderLoadError()
                     ) : showsAutomationSetup ? (

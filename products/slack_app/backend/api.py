@@ -57,6 +57,12 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
 from products.slack_app.backend.logic.connect_tool import CONNECT_TOOL_SKIP_ACTION_ID, resume_mention_workflow
+from products.slack_app.backend.logic.daily_focus import (
+    DAILY_FOCUS_OFF_ACTION_ID,
+    daily_focus_off_blocks,
+    read_off_click,
+    turn_off_daily_focus,
+)
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -4747,6 +4753,35 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _handle_daily_focus_off(payload: dict) -> HttpResponse:
+    """Turn the daily work focus off from its DM, and say so where the button was. The DM is the person's own, so
+    the clicker is the person it is for."""
+    integration_id = read_off_click(payload)
+    slack_team_id = payload.get("team", {}).get("id", "")
+    slack_user_id = payload.get("user", {}).get("id", "")
+    integration = get_workspace_integration(integration_id, slack_team_id) if integration_id else None
+    if integration is None or not slack_user_id:
+        return HttpResponse(status=200)
+    turn_off_daily_focus(integration, slack_user_id, source="dm")
+    container = payload.get("container") or {}
+    message = payload.get("message") or {}
+    blocks = message.get("blocks")
+    if isinstance(blocks, list) and container.get("channel_id") and container.get("message_ts"):
+        client = SlackIntegration(integration).client
+        client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+        try:
+            client.chat_update(
+                channel=container["channel_id"],
+                ts=container["message_ts"],
+                text=message.get("text") or "",
+                blocks=daily_focus_off_blocks(blocks),
+            )
+        except Exception:
+            # The setting is already off. Only the note in the DM is missing.
+            logger.warning("slack_app_daily_focus_off_note_failed", integration_id=integration.id, exc_info=True)
+    return HttpResponse(status=200)
+
+
 def _handle_work_focus_start_click(payload: dict) -> HttpResponse:
     """Start the request the person just read, as a task in the thread under it."""
     clicked = _work_focus_click(payload, WORK_FOCUS_START_ACTION_ID)
@@ -6667,6 +6702,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_work_focus_task_click(payload)
             if action_id == WORK_FOCUS_START_ACTION_ID:
                 return _handle_work_focus_start_click(payload)
+            if action_id == DAILY_FOCUS_OFF_ACTION_ID:
+                return _handle_daily_focus_off(payload)
             if action_id == CONNECT_TOOL_SKIP_ACTION_ID:
                 return _handle_connect_tool_skip(payload)
             if is_onboarding_action(action_id):

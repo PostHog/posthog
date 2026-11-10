@@ -17,7 +17,7 @@ from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import create_access_control, delete_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -74,6 +74,51 @@ class TestWorkflowFolders(APIBaseTest):
                 format="json",
             )
             self.assertEqual(restored.status_code, 200 if level == "editor" else 400, restored.content)
+
+    def test_a_template_creator_downgraded_to_viewer_cannot_delete_or_restore_it_from_the_tree(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        creator = User.objects.create_and_join(self.organization, "creator@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=creator, organization=self.organization)
+        editor_grant = create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="editor", organization_member_id=membership.id
+        )
+        self.client.force_login(creator)
+        template = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Creator email", "type": "email"},
+            format="json",
+        ).json()
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        entry = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"][0]
+        delete_access_control(team_id=self.team.id, access_control_id=editor_grant)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="viewer", organization_member_id=membership.id
+        )
+
+        deleted = self.client.delete(f"{files_url}{entry['id']}/")
+        self.client.force_login(self.user)
+        template_after_delete = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
+        self.client.delete(f"{files_url}{entry['id']}/")
+        self.client.force_login(creator)
+        restored = self.client.post(
+            f"{files_url}undo_delete/", {"items": [{"type": "message_template", "ref": template["id"]}]}, format="json"
+        )
+        self.client.force_login(self.user)
+        template_after_restore = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
+
+        self.assertEqual(
+            [
+                deleted.status_code,
+                template_after_delete.status_code,
+                restored.status_code,
+                template_after_restore.status_code,
+            ],
+            [403, 200, 400, 404],
+            [deleted.content, restored.content],
+        )
 
     def test_workflow_viewers_cannot_place_or_unlink_a_workflow_file(self) -> None:
         self.organization.available_product_features = [
@@ -576,7 +621,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(reloaded.json()["ref"], workflow_id)
 
 
-class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
+class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self) -> None:
@@ -586,6 +631,53 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
         self.addCleanup(flag.stop)
         self.client = APIClient()
         self.client.force_login(self.user)
+
+    def _refuse_file_rows(self, operation: str = "INSERT") -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "CREATE FUNCTION refuse_file_row() RETURNS trigger LANGUAGE plpgsql AS "
+                "$$ BEGIN RAISE EXCEPTION 'file row refused'; END $$"
+            )
+            cursor.execute(
+                f"CREATE TRIGGER refuse_file_row BEFORE {operation} ON posthog_filesystem "
+                "FOR EACH ROW EXECUTE FUNCTION refuse_file_row()"
+            )
+
+        def drop() -> None:
+            with connection.cursor() as cursor:
+                cursor.execute("DROP TRIGGER IF EXISTS refuse_file_row ON posthog_filesystem")
+                cursor.execute("DROP FUNCTION IF EXISTS refuse_file_row()")
+
+        self.addCleanup(drop)
+
+    def test_a_failed_file_row_keeps_the_created_template(self) -> None:
+        self._refuse_file_rows()
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+
+        created = self.client.post(templates_url, {"name": "Welcome", "type": "email"}, format="json")
+
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(self.client.get(f"{templates_url}{created.json()['id']}/").status_code, 200)
+
+    def test_a_failed_file_cleanup_still_deletes_the_workflow(self) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        created = self.client.post(
+            workflows_url,
+            {
+                "name": "Welcome",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        workflow_url = f"{workflows_url}{created.json()['id']}/"
+        self._refuse_file_rows("DELETE")
+
+        deleted = self.client.delete(workflow_url)
+
+        self.assertEqual(deleted.status_code, 204, deleted.content)
+        self.assertEqual(self.client.get(workflow_url).status_code, 404)
 
     @parameterized.expand(
         [

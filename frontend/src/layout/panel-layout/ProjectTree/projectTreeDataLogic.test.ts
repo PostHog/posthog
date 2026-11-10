@@ -1,3 +1,5 @@
+jest.unmock('lib/utils/concurrencyController')
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -540,6 +542,47 @@ describe('projectTreeDataLogic', () => {
             ['fs-2', 'Marketing/B'],
             ['fs-3', 'Marketing/C'],
         ])
+    })
+
+    it('moves a large selection a few items at a time and still reports it once', async () => {
+        const success = jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
+        const releases: (() => void)[] = []
+        let inFlight = 0
+        let mostInFlight = 0
+        const move = jest.spyOn(api.fileSystem, 'move').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    inFlight += 1
+                    mostInFlight = Math.max(mostInFlight, inFlight)
+                    releases.push(() => {
+                        inFlight -= 1
+                        resolve({} as any)
+                    })
+                })
+        )
+        const items = Array.from({ length: 40 }, (_, index) => ({
+            id: `fs-${index}`,
+            type: 'hog_flow',
+            path: `Old/${index}`,
+            ref: String(index),
+        }))
+
+        logic.actions.moveItems(
+            items.map((item) => ({ item: item as any, newPath: `New/${item.ref}` })),
+            true,
+            'test'
+        )
+        for (let round = 0; round < 100 && (releases.length > 0 || move.mock.calls.length < items.length); round++) {
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            releases.splice(0).forEach((release) => release())
+        }
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(move).toHaveBeenCalledTimes(items.length)
+        expect(mostInFlight).toBeGreaterThan(1)
+        expect(mostInFlight).toBeLessThanOrEqual(6)
+        expect(success).toHaveBeenCalledTimes(1)
+        expect(toastText(success.mock.calls[0][0])).toEqual('Moved 40 items')
     })
 
     it('reports a partly failed bulk move as what moved plus what did not', async () => {

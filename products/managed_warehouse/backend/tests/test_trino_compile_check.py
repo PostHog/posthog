@@ -6,9 +6,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from parameterized import parameterized
-from trino.dbapi import Cursor
 from trino.exceptions import TrinoQueryError
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -29,7 +29,7 @@ class TestTrinoCompileCheck(BaseTest):
         super().setUp()
         self.good = self._saved_query("a_good", "SELECT event FROM events")
         self.refused = self._saved_query("b_refused", "SELECT toTypeName(event) FROM events")
-        self._saved_query("d_bound", "SELECT event FROM events WHERE event = 'it''s'")
+        self._saved_query("d_bound", "SELECT event FROM events WHERE event = 'it''s' OR event = 'b'")
         deleted = self._saved_query("c_deleted", "SELECT event FROM events")
         DataWarehouseSavedQuery.objects.filter(pk=deleted.pk).update(deleted=True)
         membership = ManagedWarehouseTeamMembership(
@@ -71,27 +71,25 @@ class TestTrinoCompileCheck(BaseTest):
         assert self.control_plane["get_ready_trino_catalog_name"].call_count == 1
         assert self.control_plane["get_org_team_membership"].call_count == 1
 
-    def test_compile_stage_reports_an_unready_catalog_for_every_model(self) -> None:
+    def test_unready_catalog_aborts_before_writing_any_row(self) -> None:
         self.control_plane["get_ready_trino_catalog_name"].return_value = None
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "rows.jsonl"
 
-        rows = list(check_trino_compile(self.team))
+            with self.assertRaises(CommandError):
+                call_command("check_trino_compile", team_id=self.team.pk, output=output)
 
-        assert [(row.name, row.error_code) for row in rows] == [
-            ("a_good", "TrinoTargetUnavailable"),
-            ("b_refused", "TrinoTargetUnavailable"),
-            ("d_bound", "TrinoTargetUnavailable"),
-        ]
+            assert output.read_text() == ""
         assert self.control_plane["get_ready_trino_catalog_name"].call_count == 1
 
     @parameterized.expand(
         [
             ("without_values", "a_good", "EXPLAIN SELECT ", '"events_current"'),
-            ("with_values", "d_bound", "EXPLAIN EXECUTE IMMEDIATE 'SELECT ", " USING 'it''s'"),
+            ("with_values", "d_bound", "EXPLAIN EXECUTE IMMEDIATE 'SELECT ", " USING 'it''s', 'b'"),
         ]
     )
     def test_explain_stage_reports_trino_planning_errors(self, _case: str, name: str, prefix: str, suffix: str) -> None:
         cursor = MagicMock()
-        cursor._format_prepared_param.side_effect = lambda value: Cursor._format_prepared_param(cursor, value)
 
         def execute(statement: str, parameters: object = None) -> None:
             if statement.startswith("EXPLAIN"):

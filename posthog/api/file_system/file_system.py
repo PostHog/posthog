@@ -35,12 +35,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import (
+    RESOURCE_LEVEL_ONLY_TYPES,
     FileSystemAccessLevelSerializerMixin,
     _coerce_refs_for_lookup,
     canonical_file_system_ref,
     denied_short_id_refs,
     entries_missing_access_level,
     file_system_ref_alternate_spellings,
+    file_system_resource,
     filter_workflow_files_by_access_level,
 )
 from posthog.api.file_system.deletion import (
@@ -1405,9 +1407,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """`undo_delete` takes a caller-supplied (type, ref) rather than a tree row, so neither
         the tree's visibility filter nor `get_object` has run by the time we get here."""
         instance = get_restorable_object(type_string, ref, team_id=self.team.id)
+        user_access_control = self.user_access_control
         allowed = instance is not None and (
-            not self.user_access_control
-            or self.user_access_control.check_access_level_for_object(instance, required_level="editor")
+            not user_access_control
+            or (
+                user_access_control.check_access_level_for_resource(
+                    file_system_resource(type_string), required_level="editor"
+                )
+                if type_string in RESOURCE_LEVEL_ONLY_TYPES
+                else user_access_control.check_access_level_for_object(instance, required_level="editor")
+            )
         )
         if not allowed:
             raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})

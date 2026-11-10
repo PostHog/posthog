@@ -440,6 +440,7 @@
          AND "posthog_filesystem"."type" = 'notebook'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.15
@@ -1040,6 +1041,7 @@
          AND "posthog_filesystem"."type" = 'notebook'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.4
