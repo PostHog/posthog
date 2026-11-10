@@ -8,10 +8,12 @@ import { urls } from 'scenes/urls'
 
 import { TodayForYouEmpty } from './TodayForYouEmpty'
 import { type TodayForYouRow } from './todayForYouRows'
+import { TodayGitHubRow } from './TodayGitHubRow'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { todayLogic } from './todayLogic'
 import { TodayNewProjectForYou } from './TodayNewProjectForYou'
+import { reportWorkKind } from './todayNextStep'
 import { TodayReportRow } from './TodayReportRow'
 
 function TodayRowsSkeleton(): JSX.Element {
@@ -55,6 +57,10 @@ export function TodayForYou(): JSX.Element | null {
     } = useValues(todayLogic)
     const { showMoreForYou, setListExpanded, retryFailedLoads } = useActions(todayLogic)
 
+    const fixCount = forYouRows.rows.filter(
+        (row) => row.kind === 'report' && !row.done && reportWorkKind(row.report) === 'implement'
+    ).length
+
     if (isNewProject && forYouReady && forYouRows.rows.length === 0 && !forYouFailedNote) {
         return <TodayNewProjectForYou />
     }
@@ -69,7 +75,10 @@ export function TodayForYou(): JSX.Element | null {
             ) : forYouRows.rows.length === 0 ? (
                 !forYouFailedNote && <TodayForYouEmpty />
             ) : (
-                <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
+                <>
+                    {fixCount > 0 ? <TodayGitHubRow fixCount={fixCount} /> : null}
+                    <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
+                </>
             )}
             {forYouFailedNote && (
                 <div className="TodayHome__note flex flex-wrap items-center gap-x-2">

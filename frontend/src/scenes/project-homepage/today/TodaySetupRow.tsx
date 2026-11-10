@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconHide, IconRocket } from '@posthog/icons'
+import { IconCheckCircle, IconChevronRight, IconCircleDashed, IconHide, IconRocket } from '@posthog/icons'
 import {
     Button,
     Dialog,
@@ -45,10 +45,22 @@ export function TodaySetupRow(): JSX.Element {
                         >
                             Finish setting up PostHog
                         </button>
-                        <p className="TodayRow__meta">
-                            <span translate="no">{`${doneCount} of ${steps.length} done`}</span>
-                            {next ? <span>{` · Next: ${STEP_NAMES[next.key]}`}</span> : null}
-                        </p>
+                        <ul className="TodaySetupRow__steps" aria-label={`${doneCount} of ${steps.length} steps done`}>
+                            {steps.map((step) => (
+                                <li
+                                    key={step.key}
+                                    className="TodaySetupRow__step"
+                                    data-state={step.done ? 'done' : step.key === next?.key ? 'next' : 'todo'}
+                                >
+                                    {step.done ? (
+                                        <IconCheckCircle className="TodaySetupRow__stepIcon" aria-label="Done" />
+                                    ) : (
+                                        <IconCircleDashed className="TodaySetupRow__stepIcon" aria-hidden />
+                                    )}
+                                    <span>{STEP_NAMES[step.key]}</span>
+                                </li>
+                            ))}
+                        </ul>
                     </div>
                     <div className="TodayRow__end">
                         <div className="TodayRow__actions">

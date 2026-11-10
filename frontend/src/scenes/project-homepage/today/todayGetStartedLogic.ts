@@ -25,6 +25,9 @@ export interface todayGetStartedLogicValues {
     integrationsLoading: boolean // personalIntegrationsLogic
     isNewProject: boolean // todayLogic
     hiddenForTeams: Record<string, true>
+    githubRowHiddenForTeams: Record<string, true>
+    githubRowHidden: boolean
+    githubConnected: boolean
     guideOpen: boolean
     hidden: boolean
     stepsReady: boolean
@@ -45,6 +48,12 @@ export interface todayGetStartedLogicActions {
     }
     closeGuide: () => {
         value: true
+    }
+    hideGitHubRow: () => {
+        value: true
+    }
+    hideGitHubRowForTeam: (teamId: number | null) => {
+        teamId: number | null
     }
     hideGuideForTeam: (teamId: number | null) => {
         teamId: number | null
@@ -80,6 +89,8 @@ export const todayGetStartedLogic = kea<todayGetStartedLogicType>([
         openGuide: true,
         closeGuide: true,
         hideGuideForTeam: (teamId: number | null) => ({ teamId }),
+        hideGitHubRow: true,
+        hideGitHubRowForTeam: (teamId: number | null) => ({ teamId }),
         stepActed: (step: TodayGetStartedStepKey, action: string) => ({ step, action }),
     }),
     reducers({
@@ -89,6 +100,12 @@ export const todayGetStartedLogic = kea<todayGetStartedLogicType>([
             { persist: true },
             { hideGuideForTeam: (state, { teamId }) => ({ ...state, [String(teamId)]: true }) },
         ],
+        // pinned: localStorage key via the logic path and reducer name, renaming resets users' choice
+        githubRowHiddenForTeams: [
+            {} as Record<string, true>,
+            { persist: true },
+            { hideGitHubRowForTeam: (state, { teamId }) => ({ ...state, [String(teamId)]: true }) },
+        ],
         guideOpen: [false, { openGuide: () => true, closeGuide: () => false, hideGuide: () => false }],
     }),
     selectors({
@@ -96,6 +113,15 @@ export const todayGetStartedLogic = kea<todayGetStartedLogicType>([
             (s) => [s.hiddenForTeams, s.currentTeamId],
             (hiddenForTeams: Record<string, true>, currentTeamId: number | null): boolean =>
                 !!hiddenForTeams[String(currentTeamId)],
+        ],
+        githubRowHidden: [
+            (s) => [s.githubRowHiddenForTeams, s.currentTeamId],
+            (githubRowHiddenForTeams: Record<string, true>, currentTeamId: number | null): boolean =>
+                !!githubRowHiddenForTeams[String(currentTeamId)],
+        ],
+        githubConnected: [
+            (s) => [s.integrations],
+            (integrations: PersonalGitHubIntegration[]): boolean => integrations.length > 0,
         ],
         stepsReady: [
             (s) => [s.integrationsLoading, s.currentOrganization],
@@ -120,6 +146,10 @@ export const todayGetStartedLogic = kea<todayGetStartedLogicType>([
     listeners(({ actions, values }) => ({
         openGuide: () => {
             posthog.capture('today get started opened', { done_count: values.doneCount })
+        },
+        hideGitHubRow: () => {
+            posthog.capture('today github row hidden')
+            actions.hideGitHubRowForTeam(values.currentTeamId)
         },
         hideGuide: () => {
             posthog.capture('today get started hidden', { done_count: values.doneCount })

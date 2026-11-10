@@ -1,13 +1,14 @@
 import { useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { Button, IconStack, IconStackItem, Skeleton, Text } from '@posthog/quill'
+import { Button, IconStack, IconStackItem, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { todayGetStartedLogic } from './todayGetStartedLogic'
 import { TodaySetupRow } from './TodaySetupRow'
+import { TodayWatchedNote } from './TodayWatchedNote'
 
 export function TodayForYouEmpty(): JSX.Element {
     const { stepsReady, allDone, hidden } = useValues(todayGetStartedLogic)
@@ -20,9 +21,7 @@ export function TodayForYouEmpty(): JSX.Element {
         return (
             <>
                 <TodaySetupRow />
-                <Text size="xs" variant="muted" render={<p />} className="m-0">
-                    Nothing else needs you today.
-                </Text>
+                <TodayWatchedNote text="Nothing else needs you today." />
             </>
         )
     }
@@ -36,9 +35,7 @@ export function TodayForYouEmpty(): JSX.Element {
                 </IconStack>
                 <div className="min-w-0">
                     <span className="TodayRow__title">Nothing needs you today</span>
-                    <p className="TodayRow__meta">
-                        PostHog checks your alerts, experiments, flags and tickets each day.
-                    </p>
+                    <TodayWatchedNote text="Checks each day: alerts, experiments, flags, workflows and tickets." />
                 </div>
                 <div className="TodayRow__end">
                     <Button
