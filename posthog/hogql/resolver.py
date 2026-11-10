@@ -42,6 +42,7 @@ from posthog.hogql.errors import (
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
+from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
@@ -2206,6 +2207,10 @@ class Resolver(CloningVisitor):
         if self.dialect == "trino" and node.name.lower() == "date":
             node = self._copy(node)
             node.name = "toDate"
+
+        if node.name in NUMERIC_CONVERSION_ALIASES:
+            node = self._copy(node)
+            node.name = NUMERIC_CONVERSION_ALIASES[node.name]
 
         # Expand *COLUMNS(...) in function arguments
         expanded_args: list[ast.Expr] = []
