@@ -1,5 +1,5 @@
-import { ProviderEdge, TruthPage, startProviderEdge } from '.'
-import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { CardFault, ProviderEdge, TruthPage, startProviderEdge } from '.'
+import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import http from 'http'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
@@ -28,8 +28,6 @@ describe('provider edge', () => {
         ses.destroy()
         await edge.close()
     })
-
-    type Destination = { ToAddresses: string[]; CcAddresses?: string[]; BccAddresses?: string[] }
 
     const send = (to: string | Destination, trackingCode?: string): Promise<string> =>
         ses
@@ -208,7 +206,7 @@ describe('provider edge', () => {
         }
     })
 
-    const rejectFor = (recipient: string): object => ({
+    const rejectFor = (recipient: string): CardFault => ({
         name: 'ses.reject',
         params: { type: 'rejected' },
         match: { recipient },
