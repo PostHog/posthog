@@ -592,7 +592,8 @@ def send_code_email(
         if template is not None:
             send = _template_send(team.id, template, marketing_enabled=marketing_enabled)
             hog_flow_id = send.hog_flow_id
-            category = template_send_category(send.category, email.category)
+            if marketing_enabled:
+                category = template_send_category(send.category, email.category)
             kind = _kind_of(category)
         else:
             kind = requested_kind(email.category)

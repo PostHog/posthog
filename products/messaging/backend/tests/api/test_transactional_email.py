@@ -1062,6 +1062,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("code_send_with_a_category", "code", NEWSLETTER, status.HTTP_400_BAD_REQUEST),
             ("template_send_with_a_category", "template", NEWSLETTER, status.HTTP_400_BAD_REQUEST),
             ("code_send_named_transactional", "code", "transactional", status.HTTP_202_ACCEPTED),
+            ("code_send_under_a_categorized_templates_key", "template_key", None, status.HTTP_202_ACCEPTED),
         ]
     )
     def test_a_send_with_a_category_waits_for_the_categories_flag(
@@ -1074,14 +1075,22 @@ class TestTransactionalEmail(APIBaseTest):
             response = self.client.post(
                 self.send_email_url, self._code_send(category=category, html=self.UNSUBSCRIBE_HTML), format="json"
             )
+        elif form == "template_key":
+            receipts = self._category(key="receipts", name="Receipts", category_type=MessageCategoryType.TRANSACTIONAL)
+            MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", message_category=receipts)
+            response = self.client.post(
+                self.send_email_url, self._code_send(template_key="password-reset"), format="json"
+            )
         else:
             response = self.client.post(self.url, {**self.body, "category": category}, format="json")
 
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert (response.json()["code"], response.json()["attr"]) == ("categories_not_enabled", "category")
-        assert not MessageCategory.objects.filter(team=self.team).exists()
-        assert len(self.cdp.queued) == (1 if expected_status == status.HTTP_202_ACCEPTED else 0)
+        assert not MessageCategory.objects.filter(team=self.team, key="newsletter").exists()
+        assert [queued.category for queued in self.cdp.queued] == (
+            [None] if expected_status == status.HTTP_202_ACCEPTED else []
+        )
 
     @parameterized.expand(
         [
