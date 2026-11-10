@@ -1161,6 +1161,9 @@ class NativeAlertLifecycle:
     # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
     # destinations are `AlertDestination` rows from the start, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
+    # False for a kind whose alerts without a source row the platform deletes but does not create
+    # yet. The API then neither publishes nor accepts a create of the kind.
+    creates: bool = True
 
     @property
     def platform_destinations(self) -> bool:
@@ -1211,7 +1214,7 @@ class SourceConfigSpec:
 
     @property
     def creatable(self) -> bool:
-        return self.native is not None or self.create is not None
+        return (self.native is not None and self.native.creates) or self.create is not None
 
     def creates_natively(self, team_id: int) -> bool:
         """Whether a create for the team makes only the configuration, with no source row."""

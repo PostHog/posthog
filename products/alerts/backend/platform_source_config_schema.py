@@ -91,9 +91,11 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     admit=admit_platform_write,
     mirror=mirror_platform_edit,
     # For an insight alert with no insight row: the platform deletes it, and its destinations stay
-    # HogFunctions. Creates stay off until `creates_native_alert` turns them on.
-    # The interval only sets a native create's cadence, and no create reaches it yet.
-    native=NativeAlertLifecycle(check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations),
+    # HogFunctions. Creates stay off, and out of the API schema, until `creates` and
+    # `creates_native_alert` turn them on. The interval only sets a native create's cadence.
+    native=NativeAlertLifecycle(
+        check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations, creates=False
+    ),
     native_create=creates_native_alert,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
     kept_source_config_keys=frozenset({"config", "skip_weekend", "evaluation_delay_intervals"}),
