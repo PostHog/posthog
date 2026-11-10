@@ -9,13 +9,13 @@ Events are sent to the customer's PostHog project via their team's API token.
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from django.utils import timezone
 
 import structlog
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalResult, capture_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups as build_groups
 from posthog.models.group.util import get_groups_by_identifiers
@@ -48,6 +48,7 @@ CONVERSATION_ANALYTICS_EVENTS = (
     "$conversation_ticket_status_changed",
     "$conversation_ticket_priority_changed",
     "$conversation_ticket_assigned",
+    "$conversation_ticket_tag_added",
     "$conversation_message_sent",
     "$conversation_private_message_sent",
     "$conversation_message_received",
@@ -435,14 +436,21 @@ def _is_customer_email_verified(ticket: Ticket, customer_email: str) -> bool:
     )
 
 
+MAX_CUSTOMER_TRAIT_LENGTH = 500  # Mirrors the widget's cap on a trait value
+
+
+def _text_trait(traits: Mapping[str, object], key: str) -> str:
+    value = traits.get(key)
+    return value[:MAX_CUSTOMER_TRAIT_LENGTH] if isinstance(value, str) else ""
+
+
 def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:
     """Customer identity on the ticket, for workflow filters and analytics."""
-    traits = ticket.anonymous_traits or {}
-    # The ticket update API stores traits as any JSON value, so the email trait can be a non-string.
-    trait_email = traits.get("email")
-    customer_email = (trait_email if isinstance(trait_email, str) else "") or ticket.email_from or ""
+    # The ticket update API stores any JSON value as the traits, so neither the traits nor a trait has a fixed type.
+    traits = ticket.anonymous_traits if isinstance(ticket.anonymous_traits, dict) else {}
+    customer_email = _text_trait(traits, "email") or ticket.email_from or ""
     properties = {
-        "customer_name": traits.get("name", ""),
+        "customer_name": _text_trait(traits, "name"),
         "customer_email": customer_email,
         "customer_email_verified": _is_customer_email_verified(ticket, customer_email),
     }
@@ -617,6 +625,42 @@ def capture_ticket_assigned(
         distinct_id=_get_actor_distinct_id(ticket, actor, actor_type),
         timestamp=None,
         properties=properties,
+    )
+
+
+def build_ticket_tag_added_event(
+    ticket: Ticket,
+    tag_id: str,
+    tag_name: str,
+    actor: User | None = None,
+    actor_type: ActorType = "system",
+    workflow_id: str | None = None,
+) -> dict[str, Any]:
+    """The token, distinct_id, and properties of `$conversation_ticket_tag_added`, as JSON."""
+    properties = _get_ticket_base_properties(ticket)
+    properties["tag"] = tag_name
+    properties["tag_id"] = tag_id
+    properties["workflow_id"] = workflow_id
+    properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
+    if ticket.organization_id:
+        properties["organization_id"] = ticket.organization_id
+    return {
+        "token": ticket.team.api_token,
+        "distinct_id": _get_actor_distinct_id(ticket, actor, actor_type),
+        "properties": properties,
+    }
+
+
+def capture_ticket_tag_added(event: Mapping[str, Any], event_uuid: str, timestamp: str) -> CaptureInternalResult:
+    return capture_internal(
+        token=event["token"],
+        event_name="$conversation_ticket_tag_added",
+        event_source=EVENT_SOURCE,
+        distinct_id=event["distinct_id"],
+        timestamp=timestamp,
+        properties=event["properties"],
+        event_uuid=event_uuid,
     )
 
 

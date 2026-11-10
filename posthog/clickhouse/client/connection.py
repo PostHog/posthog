@@ -469,7 +469,10 @@ LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
 )
 # Named users that exist on the metrics cluster. Keep this a subset of LOGS_CLUSTER_USERS: the metrics
 # host falls back to the logs host, so a user listed here must also work there.
-METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset({ClickHouseUser.ALERTS_PLATFORM_METRICS})
+# ALERTS_PLATFORM_INSIGHT is here because an insight alert on metrics must keep its own concurrency budget.
+METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
+    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS}
+)
 
 _PINNED_CLUSTER_USERS: Mapping[Workload, frozenset[ClickHouseUser]] = {
     Workload.LOGS: LOGS_CLUSTER_USERS,
