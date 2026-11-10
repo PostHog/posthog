@@ -82,6 +82,7 @@ jobs:
                         - 'common/hogvm/**/*'
                         - 'posthog/hogql/**/*'
                         - 'bin/hoglang'
+                        - 'tools/hogvm_compile.py'
                         - 'package.json'
                         - requirements.txt
                         - requirements-dev.txt
