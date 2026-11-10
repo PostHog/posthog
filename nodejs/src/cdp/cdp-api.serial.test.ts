@@ -2928,6 +2928,24 @@ describe('CDP API', () => {
                 ],
                 ['an empty content id', () => withFile({ content_id: '' }), () => withFile({}), contentIdReason],
                 [
+                    'a file name that starts a new header line',
+                    () => withFile({ filename: 'invoice.pdf\r\nBcc: someone@example.com' }),
+                    () => withFile({ filename: 'invoice.pdf' }),
+                    'filename cannot contain control characters',
+                ],
+                [
+                    'a content type that starts a new header line',
+                    () => withFile({ content_type: 'application/pdf\r\nBcc: someone@example.com' }),
+                    () => withFile({}),
+                    'content_type cannot contain control characters',
+                ],
+                [
+                    'a content id with a control character',
+                    () => withFile({ content_id: 'logo\n' }),
+                    () => withFile({}),
+                    'content_id cannot contain control characters',
+                ],
+                [
                     'a file type SES does not send',
                     () => withFile({ filename: 'setup.exe' }),
                     () => withFile({ filename: 'setup.exe.pdf' }),
@@ -3524,6 +3542,23 @@ describe('CDP API', () => {
                     expect(await queuedIds()).toEqual([retried.body.invocation_id])
                 }
             )
+
+            it('queues a send with files whose email step fails to render at accept, and logs none of its variables', async () => {
+                const secret = `reset-token-${randomUUID()}`
+                const options = await storedTemplateRendering({ html: '{% include variables.chunk %}' }, secret)
+                const warn = jest.spyOn(logger, 'warn')
+
+                const res = await sendWithFiles(newKey(), [reference(invoice)], options)
+
+                expect(res.status).toBe(202)
+                expect(await queuedIds()).toEqual([res.body.invocation_id])
+                expect(warn).toHaveBeenCalledWith(
+                    '⚠️',
+                    'Could not render the email step of a send with files',
+                    expect.anything()
+                )
+                expect(JSON.stringify(warn.mock.calls)).not.toContain(secret)
+            })
 
             it('refuses a send with files whose email step goes over a template limit, queues nothing, and frees its key', async () => {
                 const options = await storedTemplateRendering({ html: renderThatOutlastsTheLiquidLimit }, 'x')

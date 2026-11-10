@@ -120,9 +120,21 @@ const lastExtension = (filename: string): string => {
     return dot === -1 ? '' : filename.slice(dot).toLowerCase()
 }
 
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
+const withoutControlCharacters = (field: string) =>
+    [
+        (value: string) => !CONTROL_CHARACTERS.test(value),
+        { message: `${field} cannot contain control characters` },
+    ] as const
+
 const attachmentHeaderValue = (field: string, maxLength: number) => {
     const message = `${field} needs 1 to ${maxLength} characters`
-    return z.string().min(1, { message }).max(maxLength, { message }).optional()
+    return z
+        .string()
+        .min(1, { message })
+        .max(maxLength, { message })
+        .refine(...withoutControlCharacters(field))
+        .optional()
 }
 
 export const AcceptedSendSchema = z
@@ -161,6 +173,7 @@ export const AcceptedSendSchema = z
                             .max(ATTACHMENT_FILENAME_MAX_LENGTH, {
                                 message: `filename can be at most ${ATTACHMENT_FILENAME_MAX_LENGTH} characters`,
                             })
+                            .refine(...withoutControlCharacters('filename'))
                             .refine((filename) => !SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS.has(lastExtension(filename)), {
                                 error: (issue) => {
                                     const filename = String(issue.input)

@@ -1577,7 +1577,7 @@ export class CdpApi {
             logger.warn('⚠️', 'Could not render the email step of a send with files', {
                 team_id: hogFlow.team_id,
                 hog_flow_id: hogFlow.id,
-                error: error instanceof Error ? error.message : String(error),
+                error: error instanceof Error ? error.name : 'UnknownError',
             })
             return sendBodies(invocation)
         }
