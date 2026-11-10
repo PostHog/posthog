@@ -71,7 +71,7 @@ function printDone(out: Output, result: SetupResult): void {
 }
 
 function printContext(out: Output, result: SetupResult): void {
-    const { warnings, token, apiHost, events, products = [], skills = [], agentsMd = [] } = result.context
+    const { warnings, token, apiHost, events, products = [], skills = [], agentsMd = [], mcp } = result.context
     const finished = result.status === 'connected' && products.length > 0
 
     printBlocks(out, [
@@ -96,6 +96,9 @@ function printContext(out: Output, result: SetupResult): void {
                   out.style('Skills you can add later with hog skills add <id...>:', 'bold'),
                   ...skills.map((skill) => `  ${escapeControls(skill.id)}: ${escapeControls(skill.description)}`),
               ]
+            : [],
+        finished && mcp && !mcp.configured
+            ? [`Connect PostHog's MCP server to your agent with ${out.style(mcp.command, 'bold')}`]
             : [],
         result.status === 'connected'
             ? agentsMd.map((file) => out.style(`The PostHog section is in ${escapeControls(file.path)}`, 'dim'))

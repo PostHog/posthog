@@ -1,6 +1,6 @@
 import { type Step } from '../setup-run'
 import { SETUP_NEXT } from '../state'
-import { readCommand, RULES_READ } from './5-install'
+import { readCommand, RULES_READ } from './05-install'
 
 const QUESTION = 'Did you check your changes against every install rule and fix any that break one?'
 

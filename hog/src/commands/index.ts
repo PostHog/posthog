@@ -9,6 +9,7 @@ import endpoints from './endpoints'
 import errorTracking from './error-tracking'
 import learn from './learn'
 import { LEGACY_COMMANDS } from './legacy'
+import mcp from './mcp'
 import query from './query'
 import schema from './schema'
 import setup from './setup'
@@ -22,6 +23,7 @@ export const COMMANDS: CommandTree = {
     api,
     learn,
     skills,
+    mcp,
     'error-tracking': errorTracking,
     endpoints,
     schema,

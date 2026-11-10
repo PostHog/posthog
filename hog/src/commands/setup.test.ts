@@ -284,6 +284,12 @@ describe('hog setup', () => {
         const instructions = (reviewed.json() as any).next.instructions
         expect(instructions).toContain("PostHog hasn't received any events yet.")
         expect(instructions).toContain('At the end of your turn, tell the user')
+        expect(instructions).toContain("connect PostHog's MCP server with `hog mcp add --agent claude-code`")
+        expect((reviewed.json() as any).context.mcp).toEqual({
+            agent: 'claude-code',
+            configured: false,
+            command: 'hog mcp add --agent claude-code',
+        })
         const polls = reviewed.requests.filter((request) => request.url.endsWith('/query'))
         expect(polls.length).toBeGreaterThan(1)
         expect(polls.every((request) => (request.body as { refresh: string }).refresh === 'force_blocking')).toBe(true)
@@ -356,7 +362,40 @@ describe('hog setup', () => {
 
         expect(finished.exitCode).toBe(0)
         expect(finished.stdout).toContain('PostHog is set up')
+        expect(finished.stdout).toContain("Connect PostHog's MCP server to your agent with hog mcp add --agent <name>")
     })
+
+    test.each<[string, Record<string, string>, boolean]>([
+        ['in the project', { '/work/.mcp.json': '{"mcpServers": {"posthog": {"type": "http", "url": "x"}}}' }, true],
+        [
+            'for the user',
+            { '/home/test/.claude.json': '{"mcpServers": {"posthog": {"type": "http", "url": "x"}}}' },
+            true,
+        ],
+        ['nowhere', { '/work/.mcp.json': '{"mcpServers": {"other": {"command": "x"}}}' }, false],
+    ])(
+        'the agent learns whether Claude Code has the MCP server %s, and nothing is written',
+        async (_name, files, configured) => {
+            const machine = world({ ...files })
+            await machine.run(['setup', 'next', ...ONE_PRODUCT])
+            await machine.run(['setup', 'next'])
+            await machine.run(['learn', 'posthog:instrument-integration'])
+            await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
+            await machine.run(['setup', 'next'])
+            machine.events.push(START + 60_000)
+
+            const finished = await machine.run(['setup', 'next', '--reviewed'])
+
+            expect(finished.json()).toMatchObject({
+                status: 'connected',
+                context: { mcp: { agent: 'claude-code', configured } },
+            })
+            expect((finished.json() as any).next.instructions.includes('hog mcp add')).toBe(!configured)
+            for (const [path, contents] of Object.entries(files)) {
+                expect(machine.files[path]).toBe(contents)
+            }
+        }
+    )
 
     test('a clone without the state file starts over at the first step it can not prove', async () => {
         const machine = world()
