@@ -1452,6 +1452,8 @@ describe('workflowLogic auto-save', () => {
 
             const status = 'status' in expected ? expected.status : undefined
             expect(subject()).toBe(expected.subject)
+            const body = status === 'applied' ? 'AI body' : act === 'typeBody' ? 'Typed by me' : 'Template body'
+            expect(prefilledEmailContent(logic.values.workflow)?.text).toContain(body)
             expect(logic.values.aiEmailDraftStatus?.status).toBe(status)
             expect(capture).toHaveBeenCalledWith(
                 'email draft prefilled',
