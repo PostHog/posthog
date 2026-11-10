@@ -471,9 +471,15 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(delete_response.json()["detail"], "Cannot delete type 'dashboard' without a reference.")
         self.assertTrue(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
-    @parameterized.expand([("signed", "+{pk}"), ("leading_zeros", "00{pk}")])
+    @parameterized.expand(
+        [
+            ("signed", "+{pk}", None),
+            ("leading_zeros", "00{pk}", None),
+            ("on_another_surface", "+{pk}", "desktop"),
+        ]
+    )
     def test_deleting_the_canonical_dashboard_file_keeps_the_dashboard_for_another_spelling(
-        self, _name: str, spelling: str
+        self, _name: str, spelling: str, surface: str | None
     ) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Spelled twice", created_by=self.user)
         canonical = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard.pk))
@@ -484,6 +490,7 @@ class TestFileSystemAPI(APIBaseTest):
             type="dashboard",
             ref=spelling.format(pk=dashboard.pk),
             shortcut=False,
+            surface=surface,
         )
 
         response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.pk}/")
