@@ -436,6 +436,13 @@ _ONE_LOCALE_PER_PATH = ["de_DE", "fr_FR", "en_US"]
         pytest.param(
             "fr_FR", ["50 %", "1 234,50 €"], ["50 %", "1 234,50 €"], id="space_grouped_percent_and_currency_stay_text"
         ),
+        pytest.param(
+            "de_DE",
+            ["1.5E+30", "1.000000000E+999999999", "1.234.567.890.123.456.789.012.345.678"],
+            ["1.5E+30", "1.000000000E+999999999", "1.234.567.890.123.456.789.012.345.678"],
+            id="grouped_text_beyond_decimal_precision_stays_text",
+        ),
+        pytest.param("fr_FR", ["1 5E+30"], ["1 5E+30"], id="space_grouped_text_beyond_decimal_precision_stays_text"),
         *(
             pytest.param(locale, ["1_000", "12_34"], ["1_000", "12_34"], id=f"underscores_stay_text_{locale}")
             for locale in _ONE_LOCALE_PER_PATH

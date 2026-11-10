@@ -1,6 +1,7 @@
 import re
 import time
 import random
+import decimal
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator
 from typing import Any, Optional, TypeVar, cast
@@ -230,7 +231,7 @@ def _parse_number_text(text: str, locale: Locale | None) -> int | float | str | 
             number_text = number_text.replace(space, group_symbol)
     try:
         number = parse_decimal(number_text, locale, strict=True)
-    except NumberFormatError:
+    except (NumberFormatError, decimal.DecimalException):
         return text
     # float() refuses a signaling NaN, and numericise keeps "sNaN" as text.
     if number.is_snan():
