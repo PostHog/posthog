@@ -49,7 +49,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                     <CalloutBox type="fyi" title="Plugin renamed in 4.47.0+">
                         <Markdown>
                             {dedent`
-                                \`@posthog/react-native-plugin\` (\`>= 2.0.1\`) is the renamed \`posthog-react-native-session-replay\` plugin — it was renamed in \`posthog-react-native\` 4.47.0+ and now also powers [native error tracking](https://posthog.com/docs/error-tracking/installation/react-native). If you're on a \`posthog-react-native\` version earlier than 4.47.0, install \`posthog-react-native-session-replay\` instead. Don't install it alongside \`@posthog/react-native-plugin\` 3.0: its pod still installs \`posthog-ios\` 3.x, and the Xcode build fails with \`Redefinition of module 'PostHog'\`.
+                                \`@posthog/react-native-plugin\` (\`>= 2.0.1\`) is the renamed \`posthog-react-native-session-replay\` plugin. It was renamed in \`posthog-react-native\` 4.47.0+ and now also powers [native error tracking](https://posthog.com/docs/error-tracking/installation/react-native). If you're on a \`posthog-react-native\` version earlier than 4.47.0, install \`posthog-react-native-session-replay\` instead. Don't install it alongside \`@posthog/react-native-plugin\` 3.0: its pod still installs \`posthog-ios\` 3.x, and the Xcode build fails with \`Redefinition of module 'PostHog'\`.
                             `}
                         </Markdown>
                     </CalloutBox>
