@@ -761,7 +761,6 @@ def _auto_promote(
                 promoted_at=now,
                 auto=True,
             )
-    # BotoCoreError covers transport failures such as a read timeout, which are not ClientErrors.
     except (BotoCoreError, ClientError, ValueError, KeyError) as error:
         context.log.warning(f"auto promotion skipped for dt={partition_key}: {error!r}")
         return f"not promoted: {error!r}"
