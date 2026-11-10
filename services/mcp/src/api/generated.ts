@@ -14092,10 +14092,10 @@ export namespace Schemas {
      * * `notify` - Notify
      * * `suppress` - Suppress
      */
-    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
+    export type AlertInvestigationInconclusiveActionEnum = typeof AlertInvestigationInconclusiveActionEnum[keyof typeof AlertInvestigationInconclusiveActionEnum];
 
 
-    export const InvestigationInconclusiveActionEnum = {
+    export const AlertInvestigationInconclusiveActionEnum = {
       Notify: 'notify',
       Suppress: 'suppress',
     } as const;
@@ -14193,7 +14193,7 @@ export namespace Schemas {
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
@@ -46222,7 +46222,7 @@ export namespace Schemas {
       /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
       checked: boolean;
       /**
-         * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+         * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action', 'exposure_criteria', 'too_many_saves' or 'too_many_conditions'. Null when they were.
          * @nullable
          */
       not_checked_reason: string | null;
@@ -46649,9 +46649,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46677,6 +46677,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `current` - Current settings
+     * * `previous` - Earlier settings
+     * * `unknown` - Settings not recorded
+     */
+    export type ExperimentResultConfigurationStatusEnum = typeof ExperimentResultConfigurationStatusEnum[keyof typeof ExperimentResultConfigurationStatusEnum];
+
+
+    export const ExperimentResultConfigurationStatusEnum = {
+      Current: 'current',
+      Previous: 'previous',
+      Unknown: 'unknown',
+    } as const;
+
+    /**
      * * `pending` - pending
      * * `completed` - completed
      * * `failed` - failed
@@ -46694,6 +46708,12 @@ export namespace Schemas {
      * One metric's recalculated result row, read back from ExperimentMetricResult.
      */
     export interface MetricRecalculationResult {
+      /** Whether this result uses current settings, earlier settings, or settings that were not recorded.
+       *
+       * * `current` - Current settings
+       * * `previous` - Earlier settings
+       * * `unknown` - Settings not recorded */
+      readonly configuration_status: ExperimentResultConfigurationStatusEnum;
       /** UUID of the metric this result belongs to */
       readonly metric_uuid: string;
       /** Status of this metric's calculation in the run
@@ -46740,9 +46760,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46765,7 +46785,7 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
       readonly metric_retries: unknown;
-      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      /** Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier completed result at the same window stays here and the failure is in metric_errors */
       readonly results: readonly MetricRecalculationResult[];
       /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
@@ -46784,6 +46804,8 @@ export namespace Schemas {
        * * `recalculation` - recalculation
        * * `timeseries_fallback` - timeseries_fallback */
       readonly result_source: ResultSourceEnum;
+      /** True when the experiment started too long ago for its metrics to be recalculated. A recalculation request then returns a rejected run with the recalculation_window_too_long error, and the saved results stay as they are */
+      readonly exceeds_recalculation_age_limit: boolean;
     }
 
     /**
@@ -46825,9 +46847,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46850,7 +46872,7 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
       readonly metric_retries: unknown;
-      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      /** Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier completed result at the same window stays here and the failure is in metric_errors */
       readonly results: readonly MetricRecalculationResult[];
       /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
@@ -47956,6 +47978,85 @@ export namespace Schemas {
          * @nullable
          */
       prompt_version?: string | null;
+    }
+
+    /**
+     * Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result.
+     */
+    export type ExperimentTimeseriesResultsTimeseries = {[key: string]: unknown};
+
+    /**
+     * Configuration provenance for each stored day: current, previous, or unknown.
+     */
+    export type ExperimentTimeseriesResultsConfigurationByDay = {[key: string]: 'current' | 'previous' | 'unknown'};
+
+    /**
+     * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+     * @nullable
+     */
+    export type ExperimentTimeseriesResultsErrors = {[key: string]: string} | null;
+
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `partial` - Partial
+     * * `failed` - Failed
+     */
+    export type ExperimentTimeseriesResultsStatusEnum = typeof ExperimentTimeseriesResultsStatusEnum[keyof typeof ExperimentTimeseriesResultsStatusEnum];
+
+
+    export const ExperimentTimeseriesResultsStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Partial: 'partial',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Day-by-day results of one metric under the experiment's current settings.
+     */
+    export interface ExperimentTimeseriesResults {
+      /** Experiment id. */
+      experiment_id: number;
+      /** UUID of the metric the series belongs to. */
+      metric_uuid: string;
+      /** 'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result and some failed, 'pending' when no day was calculated yet.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `partial` - Partial
+       * * `failed` - Failed */
+      status: ExperimentTimeseriesResultsStatusEnum;
+      /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
+      timeseries: ExperimentTimeseriesResultsTimeseries;
+      /** Configuration provenance for each stored day: current, previous, or unknown. */
+      configuration_by_day: ExperimentTimeseriesResultsConfigurationByDay;
+      /**
+         * When the most recent day's result was computed, or null.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** When the oldest stored day was written. */
+      created_at: string;
+      /** When the newest stored day was last written. */
+      updated_at: string;
+      /**
+         * 'pending' or 'in_progress' while a backfill of this series runs, otherwise null.
+         * @nullable
+         */
+      recalculation_status: string | null;
+      /**
+         * When the running backfill was requested, or null.
+         * @nullable
+         */
+      recalculation_created_at: string | null;
+      /** The series as a compact text table, one row per day, for language model consumers. */
+      formatted_results: string;
+      /**
+         * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+         * @nullable
+         */
+      errors: ExperimentTimeseriesResultsErrors;
     }
 
     export interface VariantsExperiment {
@@ -61162,6 +61263,14 @@ export namespace Schemas {
      */
     export type InsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
+    export type InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum = typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum[keyof typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum];
+
+
+    export const InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum = {
+      Notify: 'notify',
+      Suppress: 'suppress',
+    } as const;
+
     /**
      * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
      */
@@ -61181,6 +61290,12 @@ export namespace Schemas {
          * @minimum 0
          */
       evaluation_delay_intervals?: number;
+      /** Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API. */
+      investigation_agent_enabled?: boolean;
+      /** Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API. */
+      investigation_gates_notifications?: boolean;
+      /** What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API. */
+      investigation_inconclusive_action?: InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum;
     }
 
     /**
@@ -66127,83 +66242,6 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    /**
-     * Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed.
-     */
-    export type MCPDiscoverCandidateWhy = { [key: string]: unknown };
-
-    /**
-     * Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.
-     * @nullable
-     */
-    export type MCPDiscoverCandidateMeasured = { [key: string]: unknown } | null;
-
-    export type MCPDiscoverCandidateMatchedToolsItem = {
-      name?: string;
-      description?: string;
-      source?: string;
-    };
-
-    /**
-     * Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones.
-     */
-    export type MCPDiscoverCandidateConnect = { [key: string]: unknown };
-
-    /**
-     * One ranked candidate in a discover response, with everything an agent needs to act.
-     */
-    export interface MCPDiscoverCandidate {
-      /** 1-based position under the ranking version used. */
-      rank: number;
-      /** Registry server id, for the detail endpoint. */
-      id: string;
-      /** Official registry name, empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      title: string;
-      /** What the server does. */
-      description: string;
-      /** The server's own standing in [0, 1] under the ranking version used: liveness x trust, independent of the query. */
-      score: number;
-      /**
-         * How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no words worth matching on.
-         * @nullable
-         */
-      relevance: number | null;
-      /**
-         * The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null in two cases. When the intent held no words worth matching on, ordering falls back to `score`. When the ranking version has no completed run, `score` is 0 for every candidate and ordering falls back to `relevance`.
-         * @nullable
-         */
-      combined_score: number | null;
-      /** Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed. */
-      why: MCPDiscoverCandidateWhy;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /**
-         * Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.
-         * @nullable
-         */
-      measured: MCPDiscoverCandidateMeasured;
-      /** Tools that matched the intent: [{name, description, source}]. Empty when only the server description matched. */
-      matched_tools: MCPDiscoverCandidateMatchedToolsItem[];
-      /** Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones. */
-      connect: MCPDiscoverCandidateConnect;
-    }
-
-    /**
-     * Everything an agent gets back from one discover call.
-     */
-    export interface MCPDiscoverResponse {
-      /** The intent the candidates were ranked against, echoed back. */
-      intent: string;
-      /** Ranking version the candidates were ordered by. */
-      ranking_version: string;
-      /** Servers most likely to do the thing, best first. */
-      candidates: MCPDiscoverCandidate[];
-    }
-
     export interface MCPFeedbackCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -66638,18 +66676,6 @@ export namespace Schemas {
       readonly themes: readonly MCPIntentTheme[];
     }
 
-    /**
-     * One project's contribution to the measured layer, for the staff fleet view.
-     */
-    export interface MCPMeasuredProject {
-      /** Project supplying the MCP Analytics signal. */
-      team_id: number;
-      /** Distinct servers this project has measured. */
-      servers: number;
-      /** Tool calls this project contributes across those servers. */
-      calls: number;
-    }
-
     export interface MCPMissingCapabilityCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -66729,129 +66755,6 @@ export namespace Schemas {
       enabled?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    /**
-     * A completed ranking run.
-     */
-    export interface MCPRankingRun {
-      /** Run id. */
-      id: string;
-      /** Servers scored in the run. */
-      server_count: number;
-      /**
-         * When the run completed.
-         * @nullable
-         */
-      computed_at: string | null;
-    }
-
-    /**
-     * A registered ranking version and its latest completed run.
-     */
-    export interface MCPRankingVersion {
-      /** Ranking version key, passed as ?version= to the list endpoint. */
-      version: string;
-      /** What this version scores on. */
-      description: string;
-      /** Whether this is the version used when ?version= is omitted. */
-      is_default: boolean;
-      /** Latest completed run; null when the version never ran. */
-      latest_run: MCPRankingRun | null;
-    }
-
-    export type MCPRegistryServerDetailRemotesItem = {
-      type?: string;
-      url?: string;
-    };
-
-    export type MCPRegistryServerDetailPackagesItem = {
-      registry_type?: string;
-      identifier?: string;
-    };
-
-    export type MCPRegistryServerDetailToolsItem = { [key: string]: unknown };
-
-    export type MCPRegistryServerDetailMeasuredStatsItem = { [key: string]: unknown };
-
-    export type MCPRegistryServerDetailScoresItem = { [key: string]: unknown };
-
-    /**
-     * Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user).
-     */
-    export type MCPRegistryServerDetailConnect = { [key: string]: unknown };
-
-    export interface MCPRegistryServerDetail {
-      /** Registry server id. */
-      id: string;
-      /** Reverse-DNS name in the official MCP registry; empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      display_name: string;
-      /** Server description. */
-      description: string;
-      /** Primary hosted remote URL; empty for package-only servers. */
-      canonical_url: string;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /** Whether the server appears in the official MCP registry. */
-      listed_in_registry: boolean;
-      /** Whether real usage signal exists via MCP Analytics. */
-      is_measured: boolean;
-      /**
-         * Static score under the requested ranking version; null when the version has no completed run.
-         * @nullable
-         */
-      rank_score: number | null;
-      /** All hosted remotes: [{type, url}]. */
-      remotes: MCPRegistryServerDetailRemotesItem[];
-      /** Published packages: [{registry_type, identifier}]. */
-      packages: MCPRegistryServerDetailPackagesItem[];
-      /** Source repository URL, when published. */
-      repository_url: string;
-      /** Vendor website URL, when published. */
-      website_url: string;
-      /**
-         * When the shallow probe last ran.
-         * @nullable
-         */
-      last_probed_at: string | null;
-      /** Known tools, fused from probes and analytics. A tool known only from another project's traffic is limited to callers who may see that project's measurements. */
-      tools: MCPRegistryServerDetailToolsItem[];
-      /** Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public. */
-      measured_stats: MCPRegistryServerDetailMeasuredStatsItem[];
-      /** Latest score under every ranking version with a completed run. */
-      scores: MCPRegistryServerDetailScoresItem[];
-      /** Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user). */
-      connect: MCPRegistryServerDetailConnect;
-    }
-
-    export interface MCPRegistryServerList {
-      /** Registry server id. */
-      id: string;
-      /** Reverse-DNS name in the official MCP registry; empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      display_name: string;
-      /** Server description. */
-      description: string;
-      /** Primary hosted remote URL; empty for package-only servers. */
-      canonical_url: string;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /** Whether the server appears in the official MCP registry. */
-      listed_in_registry: boolean;
-      /** Whether real usage signal exists via MCP Analytics. */
-      is_measured: boolean;
-      /**
-         * Static score under the requested ranking version; null when the version has no completed run.
-         * @nullable
-         */
-      rank_score: number | null;
     }
 
     /**
@@ -74429,15 +74332,6 @@ export namespace Schemas {
       results: MCPOrgRule[];
     }
 
-    export interface PaginatedMCPRegistryServerListList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MCPRegistryServerList[];
-    }
-
     export interface PaginatedMCPServerInstallationList {
       count: number;
       /** @nullable */
@@ -77508,6 +77402,8 @@ export namespace Schemas {
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
       readonly assignee: SignalReportAssignee | null;
+      /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+      readonly implementation_in_flight: boolean;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -82628,7 +82524,7 @@ export namespace Schemas {
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
@@ -102864,6 +102760,8 @@ export namespace Schemas {
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
       readonly assignee: SignalReportAssignee | null;
+      /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+      readonly implementation_in_flight: boolean;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -136196,62 +136094,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    };
-
-    export type McpRegistryServersListParams = {
-    /**
-     * Number of results to return per page.
-     * @maximum 200
-     */
-    limit?: number;
-    /**
-     * Only servers with real MCP Analytics signal.
-     */
-    measured_only?: boolean;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Free-text query matched against server names, descriptions, and tool names.
-     */
-    search?: string;
-    /**
-     * Ranking version ordering the results; defaults to the current default version.
-     */
-    version?: string;
-    };
-
-    export type McpRegistryServersCompareRetrieveParams = {
-    /**
-     * Rows per arm (default 20, max 100).
-     */
-    limit?: number;
-    /**
-     * Optional text filter applied to every arm.
-     */
-    search?: string;
-    /**
-     * Comma-separated ranking versions to compare (2+).
-     */
-    versions: string;
-    };
-
-    export type McpRegistryServersCompareRetrieve200 = { [key: string]: unknown };
-
-    export type McpRegistryServersDiscoverRetrieveParams = {
-    /**
-     * What the agent is trying to do, in natural language.
-     */
-    intent: string;
-    /**
-     * Candidates to return (default 5, max 20).
-     */
-    limit?: number;
-    /**
-     * Ranking version to rank candidates by.
-     */
-    version?: string;
     };
 
     export type McpServerInstallationsListParams = {
