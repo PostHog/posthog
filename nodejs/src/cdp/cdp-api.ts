@@ -1374,10 +1374,6 @@ export class CdpApi {
                 // Straight to the email queue: the flow's only step is the email, so a hop through the
                 // workflow queue would only add latency to a password reset or a verification code.
                 const marketingStep = marketingEmailStep(hogFlow)
-                const marketingRefusal = marketingStep && marketingSendRefusal(marketingStep, send)
-                if (marketingRefusal) {
-                    return reply(marketingRefusal, 400, { error: marketingRefusal })
-                }
                 const priorityClass: EmailQueuePriorityClass = marketingStep ? 'bulk' : 'fast'
                 invocation.queue = 'email'
                 invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
@@ -1411,12 +1407,15 @@ export class CdpApi {
                 }
                 try {
                     stages.start('checks')
-                    const refusal = await this.refuseTransactionalEmail(
-                        team.id,
-                        hogFlow,
-                        transactionalEmailRecipients(parsed.data),
-                        marketingStep && (marketingStep.config.message_category_id || '$all')
-                    )
+                    const marketingRefusal = marketingStep && marketingSendRefusal(marketingStep, send)
+                    const refusal = marketingRefusal
+                        ? { outcome: marketingRefusal, status: 400 }
+                        : await this.refuseTransactionalEmail(
+                              team.id,
+                              hogFlow,
+                              transactionalEmailRecipients(parsed.data),
+                              marketingStep && (marketingStep.config.message_category_id || '$all')
+                          )
                     if (refusal) {
                         if (idempotencyKey) {
                             stages.start('idempotency')

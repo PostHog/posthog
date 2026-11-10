@@ -89,7 +89,8 @@ const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
 export const marketingEmailStep = (hogFlow: HogFlow): EmailStep | undefined =>
     hogFlow.actions.find(isMarketingEmailStep)
 
-const UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/
+const CODE_SEND_UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/
+const LIQUID_UNSUBSCRIBE_LINK = /\{\{-?\s*unsubscribe_url\s*(\|[^}]*)?-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/
 
 const hasAddresses = (value: unknown): boolean =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
@@ -106,8 +107,10 @@ export const marketingSendRefusal = (
         return undefined
     }
     const email = action.config.inputs.email?.value ?? {}
-    const content = send?.content ?? email
-    if (!UNSUBSCRIBE_PLACEHOLDER.test(content.html || content.text || '')) {
+    const hasUnsubscribeLink = send?.content
+        ? CODE_SEND_UNSUBSCRIBE_PLACEHOLDER.test(send.content.html || send.content.text || '')
+        : LIQUID_UNSUBSCRIBE_LINK.test(email.html || email.text || '')
+    if (!hasUnsubscribeLink) {
         return 'unsubscribe_link_required'
     }
     if (hasAddresses(send?.cc ?? email.cc) || hasAddresses(send?.bcc ?? email.bcc)) {

@@ -3349,14 +3349,19 @@ describe('Workflows E2E (email queue)', () => {
             ...(messageCategory && { messageCategory }),
         })
 
-        const post = async (kind: 'template' | 'code', flow: HogFlow, payload: Record<string, unknown>) => {
+        const post = async (
+            kind: 'template' | 'code',
+            flow: HogFlow,
+            payload: Record<string, unknown>,
+            pod: express.Application = app
+        ) => {
             const route = kind === 'code' ? 'transactional_email/send' : 'transactional_email'
             const token = jsonwebtoken.sign(
                 { team_id: team.id, hog_flow_id: flow.id, ...(kind === 'code' && { kind: 'code_send' }) },
                 hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
                 { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
             )
-            return supertest(app)
+            return supertest(pod)
                 .post(`/api/projects/${team.id}/hog_flows/${flow.id}/${route}`)
                 .set({ Authorization: `Bearer ${token}` })
                 .send(payload)
@@ -3621,6 +3626,14 @@ describe('Workflows E2E (email queue)', () => {
                 status: 202,
             },
             {
+                name: 'refuses a code send in a marketing category with the link only as a Liquid tag, which it does not render',
+                kind: 'code',
+                stepEmail: {},
+                send: { ...codeSend(newsletter), content: { subject: 'Our news', text: 'Bye: {% unsubscribe_url %}' } },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
                 name: 'refuses a code send in a marketing category whose email step has a bcc',
                 kind: 'code',
                 stepEmail: { bcc: 'audit@example.com' },
@@ -3634,6 +3647,18 @@ describe('Workflows E2E (email queue)', () => {
                 stepEmail: { html: '<p>News</p>', text: 'News' },
                 status: 400,
                 error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'sends a template send in a marketing category whose email step has the link as a Liquid tag',
+                kind: 'template',
+                stepEmail: { html: '', text: 'Bye: {% unsubscribe_url %}' },
+                status: 202,
+            },
+            {
+                name: 'sends a template send in a marketing category whose email step trims the link with Liquid',
+                kind: 'template',
+                stepEmail: { html: '', text: 'Bye: {{- unsubscribe_url -}}' },
+                status: 202,
             },
             {
                 name: 'refuses a template send in a marketing category whose email step has a cc',
@@ -3660,7 +3685,57 @@ describe('Workflows E2E (email queue)', () => {
             }
             await deliver()
             const [email] = await emailsTo(to)
-            expect(email.text).toMatch(/^Bye: \S*\/messaging-preferences\/[^/]+\/$/m)
+            expect(email.text).toMatch(/^Bye: ?\S*\/messaging-preferences\/[^/]+\/$/m)
+        })
+
+        it('replays a marketing template send retried after its email step lost the unsubscribe link', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            const send = {
+                to,
+                distinct_id: 'reader',
+                message_category: newsletter,
+                idempotency_key: new UUIDT().toString(),
+            }
+
+            const first = await post('template', flow, send)
+            expect(first.status).toEqual(202)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET actions = $1 WHERE id = $2`,
+                [JSON.stringify(sendFlow('template', 'transactional', { html: '', text: 'News' }).actions), flow.id],
+                'test-change-hog-flow'
+            )
+            // Another API pod, whose workflow cache loads the changed workflow.
+            const otherPod = new CdpApi(
+                hub,
+                { ...createCdpConsumerDeps(hub, kafkaProducer), idempotencyValkey: createIdempotencyValkeyPool(hub) },
+                {
+                    hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                    hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                }
+            )
+            await otherPod.start()
+            const otherApp = setupExpressApp()
+            otherApp.use('/', otherPod.router())
+            const otherServer = otherApp.listen(0, () => {})
+            try {
+                const fresh = await post(
+                    'template',
+                    flow,
+                    { ...send, idempotency_key: new UUIDT().toString() },
+                    otherApp
+                )
+                const retry = await post('template', flow, send, otherApp)
+
+                expect(fresh.body).toEqual({ error: 'unsubscribe_link_required' })
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+            } finally {
+                otherServer.close()
+                await otherPod.stop()
+            }
+            expect(await queuedPriorities()).toEqual([1])
         })
 
         it.each([
