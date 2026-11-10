@@ -12,8 +12,9 @@ import {
 import { wizardRunErrorDetails } from '../../lib/wizardRunErrorCatalog'
 import { WizardInstallRunArtifacts } from '../onboarding/components/WizardInstallRunArtifacts'
 import { WizardSpendAuditProgress } from './WizardSpendAuditProgress'
+import { WizardSpendAuditResults } from './WizardSpendAuditResults'
 
-function AuditOutcome({ run, tasks }: { run: WizardRunApi; tasks: readonly WizardRunTaskApi[] }): JSX.Element {
+function AuditOutcome({ run, tasks }: { run: WizardRunApi; tasks: readonly WizardRunTaskApi[] }): JSX.Element | null {
     if (wizardRunIsActive(run)) {
         return (
             <p className="mt-3 mb-0 text-xs text-muted">
@@ -35,12 +36,8 @@ function AuditOutcome({ run, tasks }: { run: WizardRunApi; tasks: readonly Wizar
     if (run.status === 'cancelled') {
         return <p className="mt-3 mb-0 text-xs text-muted">This audit was canceled. Run it again when you're ready.</p>
     }
-    return (
-        <p className="mt-3 mb-0 text-xs">
-            The audit is complete. The notebook lists the settings to change. If the agent opened a pull request, review
-            it before you merge it.
-        </p>
-    )
+    // A finished audit shows its results, notebook and pull request in WizardSpendAuditResults.
+    return null
 }
 
 export function WizardSpendAuditRunView({
@@ -60,24 +57,39 @@ export function WizardSpendAuditRunView({
     error: string | null
     onRetry: () => void
 }): JSX.Element {
+    const completed = run.status === 'completed'
+
     return (
         <LemonCard className="p-3" hoverEffect={false} data-attr="wizard-spend-audit-run">
             <div className="flex items-center gap-2">
                 <WizardRunStatusIcon status={run.status} />
-                <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold ph-no-capture">{run.program.name}</div>
-                    <div className="truncate text-xs text-muted ph-no-capture">
-                        {run.status === 'failed' ? 'Audit failed' : wizardRunActivityLabel(run, tasks)}
+                {completed ? (
+                    // The results are the headline once the run finishes, so the run itself drops to one quiet line.
+                    <div className="min-w-0 flex-1 truncate text-xs text-muted ph-no-capture">
+                        {`${run.program.name} · ${wizardWorkspaceLabel(run)}`}
                     </div>
-                </div>
-                <span className="shrink-0 text-xs tabular-nums text-muted" translate="no">
-                    {formatWizardRunElapsed(wizardRunElapsedSeconds(run, now))}
-                </span>
+                ) : (
+                    <>
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold ph-no-capture">{run.program.name}</div>
+                            <div className="truncate text-xs text-muted ph-no-capture">
+                                {run.status === 'failed' ? 'Audit failed' : wizardRunActivityLabel(run, tasks)}
+                            </div>
+                        </div>
+                        <span className="shrink-0 text-xs tabular-nums text-muted" translate="no">
+                            {formatWizardRunElapsed(wizardRunElapsedSeconds(run, now))}
+                        </span>
+                    </>
+                )}
             </div>
 
-            {run.status !== 'completed' && <WizardSpendAuditProgress run={run} tasks={tasks} />}
+            {!completed && <WizardSpendAuditProgress run={run} tasks={tasks} />}
             <AuditOutcome run={run} tasks={tasks} />
-            <WizardInstallRunArtifacts run={run} artifacts={artifacts} loading={loading} error={error} />
+            {completed ? (
+                <WizardSpendAuditResults run={run} artifacts={artifacts} />
+            ) : (
+                <WizardInstallRunArtifacts run={run} artifacts={artifacts} loading={loading} error={error} />
+            )}
             {error && (
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-danger">
                     <span>{error}</span>
@@ -86,7 +98,9 @@ export function WizardSpendAuditRunView({
                     </LemonButton>
                 </div>
             )}
-            <div className="mt-3 truncate text-2xs text-muted ph-no-capture">{wizardWorkspaceLabel(run)}</div>
+            {!completed && (
+                <div className="mt-3 truncate text-2xs text-muted ph-no-capture">{wizardWorkspaceLabel(run)}</div>
+            )}
         </LemonCard>
     )
 }

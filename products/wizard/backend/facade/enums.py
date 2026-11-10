@@ -87,3 +87,20 @@ class WizardRunErrorCode(StrEnum):
 class WizardRunArtifactType(StrEnum):
     GIT_DIFF = "git_diff"
     PULL_REQUEST = "pull_request"
+    NOTEBOOK = "notebook"
+    SPEND_PROJECTION = "spend_projection"
+
+
+class WizardSpendEffort(LabeledStrEnum):
+    CODE = "code", "Code"
+    SETTING = "setting", "Setting"
+    BILLING = "billing", "Billing"
+
+
+class WizardSpendFixLocation(LabeledStrEnum):
+    PULL_REQUEST = "pr", "Pull request"
+    NOTEBOOK = "notebook", "Notebook"
+
+
+class WizardSpendCurrency(LabeledStrEnum):
+    USD = "USD", "US dollar"

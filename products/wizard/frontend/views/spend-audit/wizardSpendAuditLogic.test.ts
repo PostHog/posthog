@@ -184,6 +184,32 @@ describe('wizardSpendAuditLogic', () => {
         expect(jest.mocked(wizardRunsTasksRetrieve).mock.calls.length).toBeGreaterThan(tasksCalls)
     })
 
+    it('shows the latest finished audit after a reload, until the user starts another', async () => {
+        const older = { ...run, id: 'older-audit', status: 'failed' as const, created_at: '2026-01-01T00:00:00Z' }
+        jest.mocked(wizardRunsList).mockResolvedValue({
+            count: 2,
+            results: [older, { ...run, status: 'completed' }],
+            next: null,
+            previous: null,
+        })
+
+        await mountLogic()
+        logic.actions.openModal('billing_button')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.view).toBe('run')
+        expect(logic.values.run?.id).toBe(run.id)
+        expect(wizardRunsCreate).not.toHaveBeenCalled()
+
+        logic.actions.runAgain()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.run).toBeNull()
+        expect(logic.values.view).toBe('pick_repository')
+        expect(logic.values.autoStartPending).toBe(false)
+        expect(wizardRunsCreate).not.toHaveBeenCalled()
+    })
+
     it('reopens the modal when GitHub sends the user back', async () => {
         await mountLogic()
         const next = new URL(logic.values.connectGitHubUrl, 'http://localhost').searchParams.get('next')

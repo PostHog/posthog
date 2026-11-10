@@ -198,6 +198,20 @@ class WizardObservability:
             level=logging.WARNING,
         )
 
+    def program_result_rejected(self, run: WizardRunDTO, *, reason: str) -> None:
+        self._observe(
+            name="wizard_program_result_rejected",
+            context={**self._run_context(run), "reason": reason},
+            level=logging.WARNING,
+        )
+
+    def spend_projection_dropped(self, run: WizardRunDTO, *, reason: str) -> None:
+        self._observe(
+            name="wizard_spend_projection_dropped",
+            context={**self._run_context(run), "reason": reason},
+            level=logging.WARNING,
+        )
+
     def artifact_created(self, run: WizardRunDTO, artifact: WizardRunArtifactDTO) -> None:
         self._observe(
             name="wizard_artifact_created",

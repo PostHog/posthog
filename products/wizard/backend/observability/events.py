@@ -7,6 +7,7 @@ from products.wizard.backend.facade.contracts import (
     WizardRunArtifactDTO,
     WizardRunDTO,
     WizardRunGitDiffArtifactDTO,
+    WizardRunNotebookArtifactDTO,
     WizardRunPullRequestArtifactDTO,
 )
 from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStage
@@ -92,6 +93,10 @@ def enqueue_artifact_created(run: WizardRunDTO, artifact: WizardRunArtifactDTO) 
         }
     elif isinstance(artifact, WizardRunGitDiffArtifactDTO):
         properties = {"type": "diff", "url": None, "name": "Git diff"}
+    elif isinstance(artifact, WizardRunNotebookArtifactDTO):
+        properties = {"type": "notebook", "url": None, "name": "Notebook"}
+    else:
+        properties = {"type": "spend_projection", "url": None, "name": "Spend projection"}
 
     _enqueue_run_event(run, WIZARD_RUN_ARTIFACT_CREATED_EVENT, f"artifact:{artifact.id}", properties)
 

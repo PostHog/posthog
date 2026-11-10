@@ -117,7 +117,8 @@ export function WizardSpendAuditModalView({
                             />
                         )}
                         <p className="mb-0 text-xs text-muted">
-                            Pick the repository that sends data to PostHog. The agent opens a pull request there.
+                            Pick the repository that sends data to PostHog. If code needs to change, the agent opens a
+                            pull request there.
                         </p>
                     </div>
                     {createError && <LemonBanner type="error">{createError}</LemonBanner>}
@@ -172,7 +173,7 @@ export function WizardSpendAuditModalView({
             isOpen={isOpen}
             onClose={onClose}
             title="Optimize my spend"
-            description="The setup agent audits how your code sends data to PostHog, opens a pull request with the code changes that lower your bill, and writes a notebook with the settings to change."
+            description="The setup agent audits how your code sends data to PostHog and estimates what you could save. It opens a pull request with the code changes that lower your bill, and writes a notebook with the settings to change."
             footer={footer}
             width={560}
             data-attr="wizard-spend-audit-modal"
