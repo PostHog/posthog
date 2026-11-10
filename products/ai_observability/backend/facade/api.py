@@ -1,4 +1,5 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from datetime import date, datetime, timedelta
 from itertools import batched
 from typing import IO
@@ -9,6 +10,7 @@ from posthog.schema import HogQLPropertyFilter
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
@@ -31,6 +33,10 @@ from products.surveys.backend.facade.api import (
 )
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
+from ..logic.evaluations.judge_preview import (
+    MAX_JUDGE_TEST_UNITS as MAX_JUDGE_TEST_UNITS,
+    run_judge_test,
+)
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
 from ..logic.evaluations.pass_filters import build_evaluation_pass_filters, build_pass_rules
@@ -38,6 +44,11 @@ from ..logic.evaluations.period import (
     InvalidPeriodError as InvalidPeriodError,
     PeriodBounds,
     overview_period,
+)
+from ..logic.evaluations.preview_units import (
+    DEFAULT_PREVIEW_UNITS as DEFAULT_PREVIEW_UNITS,
+    MAX_PREVIEW_UNITS as MAX_PREVIEW_UNITS,
+    sample_traffic,
 )
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
@@ -577,6 +588,33 @@ def get_evaluation_score_distribution(
     if meta.scale is None or buckets is None:
         raise NoScoreScaleError(evaluation_id)
     return load_score_distribution(team, user, evaluation_id, period, meta.scale, buckets)
+
+
+def sample_evaluation_traffic(
+    team: Team, user: User, scope: contracts.EvaluationPreviewScope, count: int | None
+) -> list[contracts.EvaluationTrafficSample]:
+    """The latest units an unsaved evaluation would run on, newest first. `count` defaults to
+    `DEFAULT_PREVIEW_UNITS` and is capped at what one test of the target covers."""
+    try:
+        return sample_traffic(team, user, scope, count)
+    except AIEventsUnavailableError:
+        return []
+
+
+def run_unsaved_judge(
+    team: Team,
+    user: User,
+    judge: contracts.UnsavedJudge,
+    scope: contracts.EvaluationPreviewScope,
+    sample_ids: Sequence[str] | None,
+    *,
+    reading: Callable[[], AbstractContextManager[None]] = nullcontext,
+) -> list[contracts.EvaluationTestResult]:
+    """Judge up to `MAX_JUDGE_TEST_UNITS` units with an unsaved LLM judge, on the team's own provider key.
+    Saves nothing and emits no results. `reading` wraps the ClickHouse reads only, not the model calls.
+
+    Raises `contracts.JudgeModelError` and `contracts.JudgeTestAlreadyRunningError`."""
+    return run_judge_test(team, user, judge, scope, sample_ids, reading=reading)
 
 
 def get_trace_summary(team: Team, user: User, trace_id: str) -> contracts.TraceSummary:

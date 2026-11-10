@@ -42082,15 +42082,35 @@ export namespace Schemas {
       properties?: PreviewConditionPropertiesItem[];
     }
 
+    /**
+     * * `fixed_window` - Fixed window
+     * * `inactivity` - Inactivity
+     */
+    export type PreviewSettleStrategyEnum = typeof PreviewSettleStrategyEnum[keyof typeof PreviewSettleStrategyEnum];
+
+
+    export const PreviewSettleStrategyEnum = {
+      FixedWindow: 'fixed_window',
+      Inactivity: 'inactivity',
+    } as const;
+
+    /**
+     * The evaluation's own `target_config` works here, so a client sends it as it is.
+     */
     export interface TestHogTargetConfig {
+      /** The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.
+       *
+       * * `fixed_window` - Fixed window
+       * * `inactivity` - Inactivity */
+      strategy?: PreviewSettleStrategyEnum;
       /**
-         * Aggregation window for trace samples, in seconds.
+         * Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.
          * @minimum 10
-         * @maximum 7200
+         * @maximum 604800
          */
       window_seconds?: number;
       /**
-         * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
+         * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.
          * @minimum 10
          * @maximum 86400
          */
@@ -42112,7 +42132,7 @@ export namespace Schemas {
       /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
       target_config?: TestHogTargetConfig;
       /**
-         * How many units to return (1-10, default 5).
+         * How many units to return, 5 by default. Sessions return at most 3, the number a session test covers.
          * @minimum 1
          * @maximum 10
          */
@@ -91516,6 +91536,22 @@ export namespace Schemas {
       preferences_url: string;
     }
 
+    /**
+     * * `pass` - Pass
+     * * `fail` - Fail
+     * * `na` - Not applicable
+     * * `error` - Error
+     */
+    export type PreviewOutcomeEnum = typeof PreviewOutcomeEnum[keyof typeof PreviewOutcomeEnum];
+
+
+    export const PreviewOutcomeEnum = {
+      Pass: 'pass',
+      Fail: 'fail',
+      Na: 'na',
+      Error: 'error',
+    } as const;
+
     export interface PreviewPathCleaningSuggestionResponse {
       /** Up to 20 before/after pairs for sampled paths the suggested rules would rewrite. */
       examples: PathCleaningPreviewExample[];
@@ -113268,6 +113304,13 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** How the evaluation's passing rule grades this result: pass, fail, na for a not-applicable result, or error. Null when there is no rule to grade it, such as a score with no passing rule.
+       *
+       * * `pass` - Pass
+       * * `fail` - Fail
+       * * `na` - Not applicable
+       * * `error` - Error */
+      outcome: PreviewOutcomeEnum | null;
     }
 
     export interface TestHogResponse {

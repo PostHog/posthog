@@ -55,18 +55,21 @@ def extract_text_from_messages(messages: Union[str, list, dict, None], media_mar
     return "\n".join(rendered for rendered in rendered_messages if rendered is not None)
 
 
-def last_message_text(messages: Union[str, list, dict, None], role: str) -> str:
+def last_message_text(
+    messages: Union[str, list, dict, None], role: str, media_marker: MediaMarker | None = None
+) -> str:
     """Text of the last message in a role, or all the text when no message has that role.
 
     A preview built from the start of the input shows the system prompt, which is the same on every sample.
+    With `media_marker`, media blocks render as the markers it returns, as in `extract_text_from_messages`.
     """
     if isinstance(messages, list):
         for msg in reversed(messages):
             if isinstance(msg, dict) and msg.get("role") == role and not _only_tool_results(msg):
-                rendered = extract_text_from_messages([msg])
+                rendered = extract_text_from_messages([msg], media_marker)
                 if rendered:
                     return rendered.removeprefix(f"{role}: ")
-    return extract_text_from_messages(messages)
+    return extract_text_from_messages(messages, media_marker)
 
 
 def _only_tool_results(msg: dict) -> bool:

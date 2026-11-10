@@ -1,3 +1,4 @@
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Annotated, Any, Literal, get_args
 
@@ -633,3 +634,80 @@ class ScoreHistogram(Contract):
     buckets: list[ScoreBucket] = Field(
         description="One bucket per integer on a small integer scale, else ten equal buckets across the scale."
     )
+
+
+EvaluationUnitKind = Literal["generation", "trace", "session"]
+PreviewOutcome = Literal["pass", "fail", "na", "error"]
+
+
+@frozen
+class EvaluationPreviewSettle:
+    """How an unsaved trace or session evaluation waits for a unit to settle, as far as a preview reads it."""
+
+    strategy: Literal["fixed_window", "inactivity"] | None = None
+    window_seconds: int | None = None
+    quiet_period_seconds: int | None = None
+
+
+@frozen
+class EvaluationPreviewScope:
+    """Which traffic an unsaved evaluation would run on."""
+
+    target: EvaluationUnitKind
+    conditions: Sequence[Mapping[str, Any]]
+    settle: EvaluationPreviewSettle
+
+
+@frozen
+class EvaluationTrafficSample:
+    """One unit an unsaved evaluation would run on, previewed from its latest generation."""
+
+    sample_id: str
+    sample_type: EvaluationUnitKind
+    trace_id: str | None
+    timestamp: datetime
+    input_preview: str
+    output_preview: str
+
+
+@frozen
+class JudgeModel:
+    provider: str
+    model: str
+    provider_key_id: str | None
+
+
+@frozen
+class UnsavedJudge:
+    """An LLM judge that is not saved yet, already validated the way saving validates it."""
+
+    evaluation_config: Mapping[str, Any]
+    output_type: Literal["boolean", "numeric", "categorical"]
+    output_config: Mapping[str, Any]
+    model: JudgeModel | None
+
+
+@frozen
+class EvaluationTestResult:
+    """What an unsaved evaluation returned for one unit."""
+
+    sample_id: str
+    sample_type: EvaluationUnitKind
+    event_uuid: str | None
+    trace_id: str | None
+    input_preview: str
+    output_preview: str
+    result: bool | None
+    score: float | None
+    categories: list[str] | None
+    reasoning: str | None
+    error: str | None
+    outcome: PreviewOutcome | None
+
+
+class JudgeModelError(Exception):
+    """The judge's model settings name a provider key it cannot use."""
+
+
+class JudgeTestAlreadyRunningError(Exception):
+    """This user's previous judge test has not finished."""

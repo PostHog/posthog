@@ -1605,15 +1605,12 @@ export const evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageMi
 export const evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageMax = 100
 
 export const evaluationsSampleTrafficCreateBodyTargetDefault = `generation`
-export const evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsMax = 7200
+export const evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsMax = 604800
 
-export const evaluationsSampleTrafficCreateBodyTargetConfigOneQuietPeriodSecondsDefault = 3600
 export const evaluationsSampleTrafficCreateBodyTargetConfigOneQuietPeriodSecondsMin = 10
 export const evaluationsSampleTrafficCreateBodyTargetConfigOneQuietPeriodSecondsMax = 86400
 
-export const evaluationsSampleTrafficCreateBodyCountDefault = 5
 export const evaluationsSampleTrafficCreateBodyCountMax = 10
 
 export const EvaluationsSampleTrafficCreateBody = /* @__PURE__ */ zod
@@ -1655,29 +1652,39 @@ export const EvaluationsSampleTrafficCreateBody = /* @__PURE__ */ zod
             ),
         target_config: zod
             .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .describe('\* `fixed_window` - Fixed window\n\* `inactivity` - Inactivity')
+                    .optional()
+                    .describe(
+                        "The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.\n\n\* `fixed_window` - Fixed window\n\* `inactivity` - Inactivity"
+                    ),
                 window_seconds: zod
                     .number()
                     .min(evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsMax)
-                    .default(evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsDefault)
-                    .describe('Aggregation window for trace samples, in seconds.'),
+                    .optional()
+                    .describe('Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.'),
                 quiet_period_seconds: zod
                     .number()
                     .min(evaluationsSampleTrafficCreateBodyTargetConfigOneQuietPeriodSecondsMin)
                     .max(evaluationsSampleTrafficCreateBodyTargetConfigOneQuietPeriodSecondsMax)
-                    .default(evaluationsSampleTrafficCreateBodyTargetConfigOneQuietPeriodSecondsDefault)
+                    .optional()
                     .describe(
-                        'For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.'
+                        'For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.'
                     ),
             })
+            .describe("The evaluation's own `target_config` works here, so a client sends it as it is.")
             .optional()
             .describe('Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.'),
         count: zod
             .number()
             .min(1)
             .max(evaluationsSampleTrafficCreateBodyCountMax)
-            .default(evaluationsSampleTrafficCreateBodyCountDefault)
-            .describe('How many units to return (1-10, default 5).'),
+            .optional()
+            .describe(
+                'How many units to return, 5 by default. Sessions return at most 3, the number a session test covers.'
+            ),
     })
     .describe("What a preview samples from: the unsaved evaluation's conditions and target.")
 
@@ -1691,11 +1698,9 @@ export const evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMax = 100
 
 export const evaluationsTestHogCreateBodyTargetDefault = `generation`
-export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax = 7200
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax = 604800
 
-export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsDefault = 3600
 export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMin = 10
 export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 86400
 
@@ -1759,21 +1764,29 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod
             ),
         target_config: zod
             .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .describe('\* `fixed_window` - Fixed window\n\* `inactivity` - Inactivity')
+                    .optional()
+                    .describe(
+                        "The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.\n\n\* `fixed_window` - Fixed window\n\* `inactivity` - Inactivity"
+                    ),
                 window_seconds: zod
                     .number()
                     .min(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax)
-                    .default(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault)
-                    .describe('Aggregation window for trace samples, in seconds.'),
+                    .optional()
+                    .describe('Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.'),
                 quiet_period_seconds: zod
                     .number()
                     .min(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMin)
                     .max(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax)
-                    .default(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsDefault)
+                    .optional()
                     .describe(
-                        'For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.'
+                        'For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.'
                     ),
             })
+            .describe("The evaluation's own `target_config` works here, so a client sends it as it is.")
             .optional()
             .describe('Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.'),
         output_type: zod
@@ -1910,11 +1923,9 @@ export const evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageMin
 export const evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageMax = 100
 
 export const evaluationsTestOnSampleCreateBodyTargetDefault = `generation`
-export const evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsMin = 10
-export const evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsMax = 7200
+export const evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsMax = 604800
 
-export const evaluationsTestOnSampleCreateBodyTargetConfigOneQuietPeriodSecondsDefault = 3600
 export const evaluationsTestOnSampleCreateBodyTargetConfigOneQuietPeriodSecondsMin = 10
 export const evaluationsTestOnSampleCreateBodyTargetConfigOneQuietPeriodSecondsMax = 86400
 
@@ -1979,21 +1990,29 @@ export const EvaluationsTestOnSampleCreateBody = /* @__PURE__ */ zod
             ),
         target_config: zod
             .object({
+                strategy: zod
+                    .enum(['fixed_window', 'inactivity'])
+                    .describe('\* `fixed_window` - Fixed window\n\* `inactivity` - Inactivity')
+                    .optional()
+                    .describe(
+                        "The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.\n\n\* `fixed_window` - Fixed window\n\* `inactivity` - Inactivity"
+                    ),
                 window_seconds: zod
                     .number()
                     .min(evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsMax)
-                    .default(evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsDefault)
-                    .describe('Aggregation window for trace samples, in seconds.'),
+                    .optional()
+                    .describe('Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.'),
                 quiet_period_seconds: zod
                     .number()
                     .min(evaluationsTestOnSampleCreateBodyTargetConfigOneQuietPeriodSecondsMin)
                     .max(evaluationsTestOnSampleCreateBodyTargetConfigOneQuietPeriodSecondsMax)
-                    .default(evaluationsTestOnSampleCreateBodyTargetConfigOneQuietPeriodSecondsDefault)
+                    .optional()
                     .describe(
-                        'For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.'
+                        'For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.'
                     ),
             })
+            .describe("The evaluation's own `target_config` works here, so a client sends it as it is.")
             .optional()
             .describe('Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.'),
         evaluation_type: zod

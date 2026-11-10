@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
+from django.utils.module_loading import import_string
 
 from drf_spectacular.plumbing import get_override
 from parameterized import parameterized
@@ -1191,26 +1192,43 @@ class TestEvaluationConfigsApi(APIBaseTest):
             self.assertEqual(response.data["attr"], "model_configuration")
             self.assertIn("Choose a chat model or a supported decision model.", response.data["detail"])
 
-    @parameterized.expand([("omitted", False), ("null", True)])
-    def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):
-        payload: dict[str, object] = {
-            "name": "Judge without model",
-            "evaluation_type": "llm_judge",
-            "evaluation_config": {"prompt": "Test"},
-            "output_type": "boolean",
-        }
-        if include_null_configuration:
-            payload["model_configuration"] = None
-
+    @parameterized.expand(
+        [
+            ("omitted", {}, False),
+            ("null", {"model_configuration": None}, False),
+            ("enabled", {"enabled": True}, False),
+            # A team with no provider key has no model to pick, so it can still save the judge paused.
+            ("paused", {"enabled": False}, True),
+            (
+                "paused_with_a_judge_method",
+                {"enabled": False, "evaluation_config": {"prompt": "Test", "judge_method": "llm"}},
+                True,
+            ),
+        ]
+    )
+    def test_llm_judge_creation_requires_a_model_unless_it_starts_paused(
+        self, _name: str, fields: dict[str, object], created: bool
+    ) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
-            payload,
+            {
+                "name": "Judge without model",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test"},
+                "output_type": "boolean",
+                **fields,
+            },
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "model_configuration")
-        self.assertEqual(Evaluation.objects.count(), 0)
+        if created:
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            evaluation = Evaluation.objects.get()
+            self.assertEqual((evaluation.enabled, evaluation.model_configuration), (False, None))
+        else:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.data["attr"], "model_configuration")
+            self.assertEqual(Evaluation.objects.count(), 0)
 
     def test_configured_llm_judge_rejects_clearing_model_configuration(self) -> None:
         eval_obj, mc = self._create_configured_llm_judge()
@@ -2032,10 +2050,11 @@ class TestTestHogEndpoint(APIBaseTest):
     def test_test_hog_compilation_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": "this is not valid hog {{{{"},
+            {"source": "let ok := true\nthis is not valid hog {{{{"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Compilation error", response.json()["error"])
+        self.assertIn("Compilation error on line 2", response.json()["error"])
+        self.assertNotIn("ErrorDetail", response.json()["error"])
 
     @parameterized.expand([({"source": ""},), ({"source": "return 0;", "output_config": []},)])
     def test_test_hog_invalid_request_rejected(self, payload: dict) -> None:
@@ -2145,7 +2164,8 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        # Two hours back, so every target's default settle window has elapsed.
+        # Two hours back, so every target's default settle window has elapsed. Unit b is an hour older, so the
+        # second copy of unit a's generation sorts ahead of it.
         timestamp = timezone.now() - timedelta(hours=2)
         self.units = {
             name: {
@@ -2153,7 +2173,7 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     event="$ai_generation",
                     distinct_id="user-1",
-                    timestamp=timestamp,
+                    timestamp=timestamp - timedelta(hours=age_hours),
                     properties={
                         "$ai_model": f"model-{name}",
                         "$ai_trace_id": f"trace-{name}",
@@ -2165,7 +2185,7 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
                 "trace": f"trace-{name}",
                 "session": f"session-{name}",
             }
-            for name in ("a", "b")
+            for name, age_hours in (("a", 0), ("b", 1))
         }
         # At-least-once ingestion can store a generation twice; every preview must still count it once.
         _create_event(
@@ -2185,34 +2205,44 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     @staticmethod
-    def _conditions(model: str, rollout_percentage: float = 100) -> list[dict[str, Any]]:
+    def _conditions(model: str | None, rollout_percentage: float = 100) -> list[dict[str, Any]]:
         # No id: previews accept condition sets that were never saved.
         return [
             {
                 "rollout_percentage": rollout_percentage,
-                "properties": [{"key": "$ai_model", "value": model, "operator": "exact", "type": "event"}],
+                "properties": [{"key": "$ai_model", "value": model, "operator": "exact", "type": "event"}]
+                if model
+                else [],
             }
         ]
 
     @parameterized.expand(
-        [(target, rollout) for target in ("generation", "trace", "session") for rollout in (100, 0)],
+        [
+            (target, *case)
+            for target in ("generation", "trace", "session")
+            for case in (
+                ("model-a", 100, ["a"]),
+                ("model-a", 0, []),
+                # Unit a's generation is stored twice. A copy counted as a row would push unit b out.
+                (None, 100, ["a", "b"]),
+            )
+        ],
     )
-    def test_sample_traffic_returns_only_units_the_scheduler_would_run(self, target: str, rollout: int) -> None:
+    def test_sample_traffic_returns_only_units_the_scheduler_would_run(
+        self, target: str, model: str | None, rollout: int, expected: list[str]
+    ) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/sample_traffic/",
-            {"target": target, "conditions": self._conditions("model-a", rollout)},
+            {"target": target, "conditions": self._conditions(model, rollout)},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         results = response.json()["results"]
-        if rollout == 0:
-            self.assertEqual(results, [])
-            return
-        self.assertEqual([result["sample_id"] for result in results], [self.units["a"][target]])
-        self.assertEqual(results[0]["trace_id"], "trace-a")
-        self.assertEqual(results[0]["input_preview"], "Question a")
-        self.assertEqual(results[0]["output_preview"], "Answer a")
+        self.assertEqual([result["sample_id"] for result in results], [self.units[name][target] for name in expected])
+        self.assertEqual([result["trace_id"] for result in results], [f"trace-{name}" for name in expected])
+        self.assertEqual([result["input_preview"] for result in results], [f"Question {name}" for name in expected])
+        self.assertEqual([result["output_preview"] for result in results], [f"Answer {name}" for name in expected])
 
     @parameterized.expand(
         [(endpoint, rollout) for endpoint in ("sample_traffic", "test_on_sample") for rollout in ("invalid", 150)]
@@ -2304,8 +2334,53 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_report.call_args.args[2]["error_count"], 0 if provider_error is None else 1)
         self.assertFalse(Evaluation.objects.filter(team=self.team).exists())
 
-    @patch("products.ai_observability.backend.api.evaluations.execute_generation_llm_judge")
-    def test_test_on_sample_refuses_a_second_test_while_one_runs(self, mock_judge: Mock) -> None:
+    @parameterized.expand(
+        [
+            ("trace", "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation"),
+            ("session", "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation"),
+        ]
+    )
+    @patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client")
+    def test_test_on_sample_reads_a_trace_or_session_as_the_requesting_user(
+        self, target: str, fetch_path: str, mock_client_class: Mock
+    ) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="team key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+        )
+        mock_client_class.return_value.complete.return_value = Mock(
+            parsed=BooleanEvalResult(verdict=True, reasoning="Answered the question"),
+            usage=Mock(input_tokens=10, output_tokens=5, total_tokens=15),
+        )
+
+        with patch(fetch_path, wraps=import_string(fetch_path)) as fetch:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
+                {
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Is the answer correct?"},
+                    "model_configuration": {
+                        "provider": "openai",
+                        "model": "gpt-5-mini",
+                        "provider_key_id": str(key.id),
+                    },
+                    "target": target,
+                    "sample_ids": [self.units["a"][target]],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        [row] = response.json()["results"]
+        self.assertEqual((row["sample_id"], row["result"], row["outcome"]), (self.units["a"][target], True, "pass"))
+        self.assertEqual(fetch.call_args.kwargs["user"], self.user)
+
+    @patch("products.ai_observability.backend.logic.evaluations.preview_units.load_generation_events")
+    @patch("products.ai_observability.backend.logic.evaluations.preview_units.run_generation_llm_judge")
+    def test_test_on_sample_refuses_a_second_test_while_one_runs(self, mock_judge: Mock, mock_load: Mock) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team, provider="openai", name="team key", state=LLMProviderKey.State.OK, encrypted_config={}
         )
@@ -2325,8 +2400,9 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.json())
         mock_judge.assert_not_called()
+        mock_load.assert_not_called()
 
-    @patch("products.ai_observability.backend.api.evaluations.execute_generation_llm_judge")
+    @patch("products.ai_observability.backend.logic.evaluations.preview_units.run_generation_llm_judge")
     def test_test_on_sample_rejects_a_key_from_another_provider(self, mock_judge: Mock) -> None:
         anthropic_key = LLMProviderKey.objects.create(
             team=self.team,
@@ -2936,7 +3012,7 @@ class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
             ),
         ]
     )
-    @patch("products.ai_observability.backend.api.evaluations.query_ai_events")
+    @patch("products.ai_observability.backend.logic.evaluations.preview_queries.query_ai_events")
     def test_object_level_grant_does_not_authorize_team_wide_preview(
         self, endpoint: str, payload: dict, mock_query: Mock
     ) -> None:
