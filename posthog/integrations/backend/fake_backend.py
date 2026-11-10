@@ -300,9 +300,10 @@ class FakeBackend:
         # The lock covers the provider call, like the row lock of `DjangoBackend`.
         with self._lock:
             record = self._row(scope, team_id, id)
-            stale = stale_access_token is not None and record.access_token == stale_access_token
-            if not (stale or OauthIntegration(record).access_token_expired()):
+            stale = stale_access_token is not None and (record.access_token or "") == stale_access_token
+            expired = OauthIntegration(record).access_token_expired()
+            if not (stale or expired):
                 return TokenRefresh(record=self._copy(record), result="fresh")
             refreshed = self._patched(record, self._token_refresher(self._copy(record))) or record
-            result: TokenRefreshResult = "error" if refreshed.errors else "stale_token" if stale else "refreshed"
+            result: TokenRefreshResult = "error" if refreshed.errors else "refreshed" if expired else "stale_token"
             return TokenRefresh(record=self._copy(refreshed), result=result)

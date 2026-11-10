@@ -29,7 +29,12 @@ from posthog.integrations.contracts import (
 )
 from posthog.integrations.enums import AuthType
 from posthog.models.integration.auth_types import ANY, default_auth_type
-from posthog.models.integration.model import Integration, IntegrationQuerySet, defer_repository_cache_fields
+from posthog.models.integration.model import (
+    Integration,
+    IntegrationQuerySet,
+    UndecryptedIntegrationSecretError,
+    defer_repository_cache_fields,
+)
 from posthog.models.integration.oauth import OauthIntegration
 
 # The unique key of a row: (team, kind, external id).
@@ -96,6 +101,15 @@ def _patch_row(row: Integration, patch: IntegrationPatch) -> builtins.list[str]:
     for field, value in changed.items():
         setattr(row, field, value)
     return builtins.list(changed)
+
+
+def _stores_access_token(row: Integration, access_token: str) -> bool:
+    try:
+        stored = row.access_token
+    except UndecryptedIntegrationSecretError:
+        # A caller that holds an unreadable token passes the stored value as it is.
+        stored = row.sensitive_config.get("access_token")
+    return (stored or "") == access_token
 
 
 class DjangoBackend:
@@ -240,8 +254,11 @@ class DjangoBackend:
         with transaction.atomic():
             row = self._row(scope, team_id, id, lock=True)
             oauth = OauthIntegration(row)
-            stale = stale_access_token is not None and row.access_token == stale_access_token
-            if not (stale or oauth.access_token_expired()):
+            stale = stale_access_token is not None and _stores_access_token(row, stale_access_token)
+            expired = oauth.access_token_expired()
+            if not (stale or expired):
                 return TokenRefresh(record=row, result="fresh")
-            oauth.refresh_access_token()
-            return TokenRefresh(record=row, result="error" if row.errors else "stale_token" if stale else "refreshed")
+            update_fields = _patch_row(row, oauth.token_refresh_patch())
+            if update_fields:
+                row.save(update_fields=update_fields)
+            return TokenRefresh(record=row, result="error" if row.errors else "refreshed" if expired else "stale_token")

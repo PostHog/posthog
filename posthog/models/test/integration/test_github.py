@@ -1939,6 +1939,24 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
+    @patch("posthog.models.integration.github.reload_integrations_on_workers")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_refresh_keeps_config_that_another_writer_stored_meanwhile(self, mock_client_request, mock_reload):
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
+        integration = self.create_integration({"installation_id": "INSTALLATION_ID"})
+        github = GitHubIntegration(
+            Integration.objects.get(id=integration.id), source="test", priority=Priority.CRITICAL
+        )
+        integration.config = {**integration.config, "written_meanwhile": True}
+        integration.save()
+
+        github.refresh_access_token()
+
+        stored = Integration.objects.get(id=integration.id)
+        assert stored.config["written_meanwhile"] is True
+        assert stored.sensitive_config["access_token"] == "ACCESS_TOKEN"
+        assert github.integration.config["written_meanwhile"] is True
+
     @parameterized.expand(
         [
             ("uninstalled_404", 404, "Not Found", {}, True),
