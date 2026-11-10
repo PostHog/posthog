@@ -4656,9 +4656,9 @@ export interface ModelChoiceApi {
      */
     cost_multiplier?: string | null
     /** Largest context window the model accepts, in tokens. */
-    context_window: number
+    context_window?: number
     /** Whether the project's plan may run this model. A free plan may run only the free-tier models. */
-    allowed: boolean
+    allowed?: boolean
 }
 
 export interface ModelCatalogueResponseApi {

@@ -6,7 +6,11 @@ picker and model-override classifier) import from here rather than reaching into
 `logic/services/`.
 """
 
-from products.tasks.backend.logic.services.gateway_model_pin import FREE_TIER_PIN_KEY, model_allowed_by_product_pin
+from products.tasks.backend.logic.services.gateway_model_pin import (
+    FREE_TIER_PIN_KEY,
+    desktop_legacy_runtime_adapter,
+    model_allowed_by_product_pin,
+)
 from products.tasks.backend.logic.services.model_catalogue import (
     COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
@@ -22,6 +26,7 @@ from products.tasks.backend.logic.services.model_catalogue import (
     label_for,
     offered_model_choices,
     plan_model_choices,
+    runnable_model_choices,
     runtime_adapter_for,
 )
 from products.tasks.backend.model_catalog import CAPABILITY_LADDER_BY_RUNTIME_ADAPTER, normalize_model_id
@@ -37,6 +42,7 @@ __all__ = [
     "RuntimeGroup",
     "available_model_choices",
     "catalog_model_choices",
+    "desktop_legacy_runtime_adapter",
     "display_name_for_model",
     "filter_unsupported_effort",
     "group_by_runtime",
@@ -45,5 +51,6 @@ __all__ = [
     "normalize_model_id",
     "offered_model_choices",
     "plan_model_choices",
+    "runnable_model_choices",
     "runtime_adapter_for",
 ]

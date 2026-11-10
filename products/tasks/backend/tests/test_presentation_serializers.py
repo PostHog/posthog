@@ -160,6 +160,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("gpt-5.5", "high", "codex"),
+            ("gpt-5.3-codex", "high", "codex"),
             ("claude-sonnet-4-6", "medium", "claude"),
             ("unknown-model", "high", None),
             ("gpt-5.5", "ultracode", None),

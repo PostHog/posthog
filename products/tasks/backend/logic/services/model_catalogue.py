@@ -97,6 +97,11 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     return tuple(choice for choice in offered_model_choices() if model_allowed_by_product_pin(product, choice.model))
 
 
+def runnable_model_choices(product: Product) -> tuple[ModelChoice, ...]:
+    """Every model a run on the given gateway product may call, retired ones included."""
+    return tuple(choice for choice in catalog_model_choices() if model_allowed_by_product_pin(product, choice.model))
+
+
 def plan_model_choices(product: Product, plan_pin: str) -> tuple[ModelChoice, ...]:
     """The product's choices, each marked with whether the caller's plan pin admits it."""
     return tuple(
@@ -188,6 +193,7 @@ __all__ = [
     "catalog_model_choices",
     "offered_model_choices",
     "plan_model_choices",
+    "runnable_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",
     "group_by_runtime",
