@@ -2,6 +2,8 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { memo, useEffect } from 'react'
 
 import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
+import type { TraceApi } from '../../../generated/api.schemas'
+import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
 import { traceExportLogic } from '../traceExportLogic'
 import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
@@ -99,12 +101,36 @@ interface ReadyActions {
     setMessagesOpening: (opening: MessagesOpening) => void
 }
 
+function toSummaryProps(trace: TraceApi, values: ReadyValues, actions: ReadyActions): TraceSummaryBarProps {
+    const queue = values.reviewStatus?.queue ?? null
+    return {
+        trace,
+        clusters: values.clusters,
+        evals: values.evaluationResults
+            ? { summary: values.evaluationResults.summary, onClick: actions.showFailingEvals }
+            : null,
+        feedback: values.traceFeedback
+            ? { summary: values.traceFeedback.summary, onClick: () => actions.showFeedback(null, 'chip') }
+            : null,
+        git: trace.git ? { ...trace.git, pullRequest: values.pullRequest } : null,
+        review: values.reviewStatus
+            ? {
+                  status: values.reviewStatus,
+                  queueHref: values.queueHref,
+                  onRemoveFromQueue:
+                      values.canEditReviews && queue && !values.removeFromQueueLoading
+                          ? () => confirmRemoveFromQueue(queue.name, actions.removeFromQueue)
+                          : null,
+              }
+            : null,
+    }
+}
+
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
     const { trace } = values
     if (!trace) {
         return null
     }
-    const queue = values.reviewStatus?.queue ?? null
     return {
         header: {
             name: trace.name,
@@ -121,27 +147,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                 />
             ),
         },
-        summary: {
-            trace,
-            clusters: values.clusters,
-            evals: values.evaluationResults
-                ? { summary: values.evaluationResults.summary, onClick: actions.showFailingEvals }
-                : null,
-            feedback: values.traceFeedback
-                ? { summary: values.traceFeedback.summary, onClick: () => actions.showFeedback(null, 'chip') }
-                : null,
-            git: trace.git ? { ...trace.git, pullRequest: values.pullRequest } : null,
-            review: values.reviewStatus
-                ? {
-                      status: values.reviewStatus,
-                      queueHref: values.queueHref,
-                      onRemoveFromQueue:
-                          values.canEditReviews && queue && !values.removeFromQueueLoading
-                              ? () => confirmRemoveFromQueue(queue.name, actions.removeFromQueue)
-                              : null,
-                  }
-                : null,
-        },
+        summary: toSummaryProps(trace, values, actions),
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
