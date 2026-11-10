@@ -918,20 +918,36 @@ class TestTasksCard:
         assert "<https://github.com/posthog/posthog/pull/123|View PR>" in detail
         assert "Updated 5m ago" in detail
 
-    def test_failed_task_keeps_error_before_navigation(self):
+    @pytest.mark.parametrize(
+        "error_message,expected",
+        [
+            (None, None),
+            ("", None),
+            (" \n\t ", None),
+            ("boom: timed out\nstack trace omitted", "boom: timed out stack trace omitted"),
+        ],
+    )
+    def test_failed_task_keeps_nonempty_error_before_navigation(self, error_message, expected):
         state = TasksState(
-            items=(
-                self._item(status="failed", error_message="boom: timed out waiting for runner\nstack trace omitted"),
-            ),
+            items=(self._item(status="failed", error_message=error_message),),
             has_any_tasks=True,
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
         title, detail = self._task_items(view, expected_count=1)[0]
         assert title == "*Fix flaky retention test*"
         assert "Failed" in detail
-        assert "boom: timed out waiting for runner stack trace omitted" in detail
-        assert detail.index("boom:") < detail.index("Open task")
+        errors = [
+            element["text"]
+            for block in view["blocks"]
+            if block["type"] == "context"
+            for element in block["elements"]
+            if element["type"] == "plain_text"
+        ]
+        assert errors == ([expected] if expected else [])
+        if expected:
+            assert detail.index(expected) < detail.index("Open task")
         assert "<https://github.com/posthog/posthog/pull/123|View PR>" in detail
+        assert "<https://app/project/1/tasks/abc|Open task>" in detail
 
     def test_desktop_link_is_removed_without_losing_web_navigation(self):
         state = TasksState(items=(self._item(desktop_url="https://example.com/desktop/task/abc"),), has_any_tasks=True)

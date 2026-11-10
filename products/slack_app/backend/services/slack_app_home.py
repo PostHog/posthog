@@ -1186,13 +1186,11 @@ def _task_item_block(item: TaskItem) -> list[dict]:
         )
         elements.append({"type": "mrkdwn", "text": " · ".join(status_parts)})
         blocks.append({"type": "context", "elements": elements})
-    if item.error_message:
+    if error_message := " ".join((item.error_message or "").split()):
         blocks.append(
             {
                 "type": "context",
-                "elements": [
-                    {"type": "plain_text", "text": " ".join(item.error_message.split())[:2000], "emoji": False}
-                ],
+                "elements": [{"type": "plain_text", "text": error_message[:2000], "emoji": False}],
             }
         )
     links: list[dict] = []
