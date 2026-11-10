@@ -1,9 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
+from django.db import close_old_connections, transaction
+
 from parameterized import parameterized
+from rest_framework.test import APIClient
 
 from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
@@ -417,3 +422,60 @@ class TestWorkflowFolders(APIBaseTest):
         reloaded = self.client.get(f"{files_url}{entry['id']}/")
         self.assertEqual(reloaded.json()["path"], "Campaigns/Welcome back")
         self.assertEqual(reloaded.json()["ref"], workflow_id)
+
+
+class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch("posthoganalytics.feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+        self.client = APIClient()
+        self.client.force_login(self.user)
+
+    def test_tree_delete_refuses_while_a_save_holds_the_workflow(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Welcome",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        workflow_id = created.json()["id"]
+        HogFlow.objects.filter(id=workflow_id).update(status=HogFlow.State.ARCHIVED)
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file_id = self.client.get(files_url, {"type": "hog_flow", "ref": workflow_id}).json()["results"][0]["id"]
+        locked = Event()
+        release = Event()
+
+        def hold_workflow_like_a_save() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    HogFlow.objects.select_for_update().get(pk=workflow_id)
+                    locked.set()
+                    release.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            holder = executor.submit(hold_workflow_like_a_save)
+            self.assertTrue(locked.wait(timeout=5))
+            try:
+                refused = self.client.delete(f"{files_url}{file_id}/")
+            finally:
+                release.set()
+            holder.result(timeout=15)
+
+        self.assertEqual(refused.status_code, 409, refused.content)
+        self.assertEqual(refused.json()["detail"], "This workflow is being saved. Try again in a moment.")
+        self.assertEqual(self.client.get(f"{files_url}{file_id}/").status_code, 200)
+
+        deleted = self.client.delete(f"{files_url}{file_id}/")
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/").status_code, 404)
