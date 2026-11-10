@@ -309,10 +309,6 @@ interface FunnelStepResult {
     compare_label?: 'current' | 'previous'
 }
 
-function breakdownLabel(steps: FunnelStepResult[], index: number): string {
-    return funnelBreakdownLabel(steps[0]?.breakdown_value) || `breakdown value ${index + 1}`
-}
-
 function funnelChart(query: StoryFunnelsQuery, results: unknown[], seriesIndex: number): ShownChart {
     // A funnel with a breakdown returns one list of steps per breakdown value.
     // A comparison adds the previous period's steps to the same result, and the explanation follows the current period.
@@ -331,7 +327,7 @@ function funnelChart(query: StoryFunnelsQuery, results: unknown[], seriesIndex: 
         name: step.custom_name || step.name || `Step ${index + 1}`,
         count: step.count ?? 0,
     }))
-    const breakdowns = groups.length > 1 ? groups.map(breakdownLabel) : []
+    const breakdowns = groups.length > 1 ? groups.map((group) => funnelBreakdownLabel(group[0]?.breakdown_value)) : []
     return {
         body: { shape: 'funnel_steps', query, steps, breakdowns },
         seriesLabel: breakdowns[seriesIndex],

@@ -206,6 +206,13 @@ describe('explain-chart', () => {
             [40, 4, 1],
         ],
         [
+            'following a breakdown value with no text',
+            [FUNNEL_STEPS, FUNNEL_STEPS_MOBILE.map((step) => ({ ...step, breakdown_value: [''] }))],
+            1,
+            ['Desktop', 'None'],
+            [40, 4, 1],
+        ],
+        [
             'compared with the previous period',
             [...inPeriod(FUNNEL_STEPS, 'current'), ...inPeriod(FUNNEL_STEPS, 'previous')],
             0,

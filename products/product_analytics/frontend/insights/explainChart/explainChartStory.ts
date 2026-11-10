@@ -96,14 +96,15 @@ export function followedFunnelBarIndex(story: FunnelStepsExplainChartData, steps
         return steps.length ? 0 : null
     }
     const label = storySeriesLabel(story.breakdowns[story.seriesIndex])
-    const index = bars.findIndex(
-        (bar) =>
-            bar.compare_label !== 'previous' &&
-            (label === undefined ||
-                (hasBreakdown(bar.breakdown_value) &&
-                    storySeriesLabel(funnelBreakdownLabel(bar.breakdown_value)) === label))
+    const matches = bars.flatMap((bar, index) =>
+        bar.compare_label !== 'previous' &&
+        (label === undefined ||
+            (hasBreakdown(bar.breakdown_value) &&
+                storySeriesLabel(funnelBreakdownLabel(bar.breakdown_value)) === label))
+            ? [index]
+            : []
     )
-    return index === -1 ? null : index
+    return matches.length === 1 ? matches[0] : null
 }
 
 export function funnelStoryOnChart(

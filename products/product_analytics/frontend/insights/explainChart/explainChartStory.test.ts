@@ -123,10 +123,22 @@ describe('explainChartStory', () => {
     })
 
     test.each([
-        ['the chart draws a baseline before the breakdown values', ['Baseline', ['Desktop'], ['Mobile']], 2, [50, 5]],
-        ['the chart hides the followed breakdown value', ['Baseline', ['Desktop']], null, [40, 4]],
-    ])('follows a funnel breakdown value by its name when %s', (_, drawn, expectedBar, expectedCounts) => {
-        const counts: Record<string, number[]> = { Baseline: [150, 25], Desktop: [100, 20], Mobile: [50, 5] }
+        [
+            'the chart draws a baseline before the breakdown values',
+            ['Baseline', ['Desktop'], ['Mobile']],
+            'Mobile',
+            2,
+            [50, 5],
+        ],
+        ['the chart hides the followed breakdown value', ['Baseline', ['Desktop']], 'Mobile', null, [40, 4]],
+        ['the followed breakdown value has no text', ['Baseline', [''], ['Mobile']], 'None', 1, [30, 3]],
+    ])('follows a funnel breakdown value by its name when %s', (_, drawn, followed, expectedBar, expectedCounts) => {
+        const counts: Record<string, number[]> = {
+            Baseline: [150, 25],
+            Desktop: [100, 20],
+            Mobile: [50, 5],
+            '': [30, 3],
+        }
         const chart = [0, 1].map((step) => ({
             count: counts.Baseline[step],
             nested_breakdown: drawn.map((value) => ({ breakdown_value: value, count: counts[String(value)][step] })),
@@ -137,7 +149,7 @@ describe('explainChartStory', () => {
                 { name: 'Pageview', count: 40 },
                 { name: 'Signed up', count: 4 },
             ],
-            breakdowns: ['Desktop', 'Mobile'],
+            breakdowns: ['Another value', followed],
             seriesIndex: 1,
             chapters: [{ title: 'The drop to signing up', range: [0, 1] }],
         } as unknown as FunnelStepsExplainChartData
