@@ -10,88 +10,101 @@ import { initKeaTests } from '~/test/init'
 
 import { broadcastPerformanceLogic, sendActivityParams } from './broadcastPerformanceLogic'
 
-interface AppMetricRow {
-    app_source_id: string
-    metric_name: string
-    instance_id: string
-    count: number
+type Row = Record<string, string | number>
+
+function wherePredicate(term: string, columns: string[], dateFrom: string | undefined): ((row: Row) => boolean) | null {
+    const timestampOf = (row: Row): number => Date.parse(String(row.timestamp))
+    const equals = term.match(/^(lower\()?(\w+)\)? = '([^']*)'$/)
+    if (equals && columns.includes(equals[2]) && !!equals[1] === term.startsWith('lower(')) {
+        const [, lower, column, value] = equals
+        return (row) => (lower ? String(row[column]).toLowerCase() : row[column]) === value
+    }
+    const within = term.match(/^(\w+) IN \[(.*)\]$/)
+    if (within && columns.includes(within[1])) {
+        const values = [...within[2].matchAll(/'([^']*)'/g)].map(([, value]) => value)
+        return (row) => values.includes(String(row[within[1]]))
+    }
+    const window = term.match(/^toTimeZone\(timestamp, 'UTC'\) (>=|<) toDateTime\('([^']*)', 'UTC'\)$/)
+    if (window) {
+        const bound = Date.parse(window[2])
+        return window[1] === '>=' ? (row) => timestampOf(row) >= bound : (row) => timestampOf(row) < bound
+    }
+    if (term === 'timestamp > {filters.dateRange.from}' && dateFrom) {
+        return (row) => timestampOf(row) > Date.parse(dateFrom)
+    }
+    return null
 }
 
-interface LogEntryRow {
-    log_source_id: string
-    level: string
-    timestamp: string
-    message: string
-}
-
-// Answers HogQL queries from in-memory app_metrics and log_entries rows, applying the clauses the query states.
-// A clause it can't evaluate fails the request, so a query it doesn't understand can't pass silently.
-function hogQLFake(appMetrics: AppMetricRow[], logEntries: LogEntryRow[]): MockSignature {
+// Answers HogQL queries from in-memory tables. It evaluates the SELECT, WHERE, GROUP BY, ORDER BY and LIMIT forms
+// the broadcast queries use and answers 400 to any other form, so a changed query can't pass on rows it never asked for.
+function hogQLFake(tables: Record<string, Row[]>): MockSignature {
     return async ({ request }) => {
-        const sql = ((await request.json()) as { query: { query: string } }).query.query
-        const matches = (column: string, value: string): boolean => {
-            const wanted = sql.match(new RegExp(`\\b${column} = '([^']*)'`))?.[1]
-            return wanted === undefined || wanted === value
+        const body = (await request.json()) as { query: { query: string }; filters_override?: { date_from?: string } }
+        const sql = body.query.query.replace(/\s+/g, ' ').trim()
+        const unsupported = (what: string): [number, { detail: string }] => [400, { detail: `Unsupported ${what}` }]
+        const parts = sql.match(
+            /^SELECT (.+?) FROM (\w+)(?: WHERE (.+?))?(?: GROUP BY (.+?))?(?: ORDER BY (.+?))?(?: LIMIT (\d+))?$/
+        )
+        if (!parts || !tables[parts[2]]) {
+            return unsupported(`query ${sql}`)
         }
-        const select = (sql.match(/SELECT\s+(.*?)\s+FROM/s)?.[1] ?? '').split(/,\s*/)
-        if (/FROM app_metrics/.test(sql)) {
-            const metricNames = sql.match(/metric_name IN \[([^\]]*)\]/)?.[1].match(/'[^']*'/g)
-            const groupBy =
-                sql
-                    .match(/GROUP BY ([\w, ]+)/)?.[1]
-                    .trim()
-                    .split(/,\s*/) ?? []
-            if (groupBy.some((column) => column !== 'metric_name' && column !== 'instance_id')) {
-                return [400, { detail: `Unexpected GROUP BY ${groupBy.join(', ')}` }]
+        const [, select, table, where, groupBy, orderBy, limit] = parts
+        const list = (text: string | undefined): string[] => (text ? text.split(/, (?![^(]*\))/) : [])
+        const tableColumns = Object.keys(tables[table][0] ?? {})
+        let rows = tables[table]
+        for (const term of where ? where.split(' AND ') : []) {
+            const predicate = wherePredicate(term, tableColumns, body.filters_override?.date_from)
+            if (!predicate) {
+                return unsupported(`WHERE term ${term}`)
             }
-            if (select.some((term) => term !== 'sum(count) AS total' && !groupBy.includes(term))) {
-                return [400, { detail: `Unexpected SELECT ${select.join(', ')}` }]
-            }
-            const totals = new Map<string, Record<string, string | number>>()
-            for (const row of appMetrics) {
-                if (!matches('app_source_id', row.app_source_id)) {
-                    continue
-                }
-                if (metricNames && !metricNames.includes(`'${row.metric_name}'`)) {
-                    continue
-                }
-                const key = groupBy.map((column) => row[column as 'metric_name' | 'instance_id']).join('\0')
-                const total = Number(totals.get(key)?.total ?? 0) + row.count
-                totals.set(key, { ...row, total })
-            }
-            const columns = select.map((term) => (term === 'sum(count) AS total' ? 'total' : term))
-            return [200, { results: [...totals.values()].map((group) => columns.map((column) => group[column])) }]
+            rows = rows.filter(predicate)
         }
-        if (/FROM log_entries/.test(sql)) {
-            if (select.some((term) => !['message', 'level', 'timestamp', 'log_source_id'].includes(term))) {
-                return [400, { detail: `Unexpected SELECT ${select.join(', ')}` }]
-            }
-            const order = sql.match(/ORDER BY (.*?)\s+LIMIT (\d+)/s)
-            const keys = (order?.[1].split(/,\s*(?![^(]*\))/) ?? []).map((term) => {
-                const prefix = term.match(/^startsWith\(message, '([^']*)'\) DESC$/)?.[1]
-                if (prefix !== undefined) {
-                    return (row: LogEntryRow): number => (row.message.startsWith(prefix) ? 1 : 0)
-                }
-                if (term === 'timestamp DESC') {
-                    return (row: LogEntryRow): number => Date.parse(row.timestamp)
-                }
-                throw new Error(`Unexpected ORDER BY term ${term}`)
-            })
-            const rows = logEntries
-                .filter((row) => matches('log_source_id', row.log_source_id))
-                .filter((row) => !/lower\(level\) = 'error'/.test(sql) || row.level.toLowerCase() === 'error')
-                .sort((a, b) => {
-                    for (const key of keys) {
-                        if (key(a) !== key(b)) {
-                            return key(b) - key(a)
-                        }
-                    }
-                    return 0
-                })
-                .slice(0, order ? Number(order[2]) : undefined)
-            return [200, { results: rows.map((row) => select.map((column) => row[column as keyof LogEntryRow])) }]
+        const groupColumns = list(groupBy)
+        const columns = groupBy ? [...groupColumns, 'total'] : tableColumns
+        const selected = list(select).map((term) => (groupBy && term === 'sum(count) AS total' ? 'total' : term))
+        if (groupColumns.some((column) => !tableColumns.includes(column))) {
+            return unsupported(`GROUP BY ${groupBy}`)
         }
-        return [400, { detail: 'Unexpected table' }]
+        if (groupBy) {
+            const groups = new Map<string, Row>()
+            for (const row of rows) {
+                const key = groupColumns.map((column) => row[column]).join('\0')
+                const group = groups.get(key) ?? {
+                    ...Object.fromEntries(groupColumns.map((c) => [c, row[c]])),
+                    total: 0,
+                }
+                groups.set(key, { ...group, total: Number(group.total) + Number(row.count) })
+            }
+            rows = [...groups.values()]
+        }
+        if (selected.some((column) => !columns.includes(column))) {
+            return unsupported(`SELECT ${select}`)
+        }
+        const sortKeys = list(orderBy).map((term) => {
+            const prefix = term.match(/^startsWith\(message, '([^']*)'\) DESC$/)?.[1]
+            if (prefix !== undefined && columns.includes('message')) {
+                return (row: Row): number => (String(row.message).startsWith(prefix) ? 1 : 0)
+            }
+            const column = term.match(/^(\w+) DESC$/)?.[1]
+            if (column && columns.includes(column)) {
+                return (row: Row): number =>
+                    column === 'timestamp' ? Date.parse(String(row[column])) : Number(row[column])
+            }
+            return null
+        })
+        if (sortKeys.includes(null)) {
+            return unsupported(`ORDER BY ${orderBy}`)
+        }
+        const sorted = [...rows].sort((a, b) => {
+            for (const key of sortKeys as ((row: Row) => number)[]) {
+                if (key(a) !== key(b)) {
+                    return key(b) - key(a)
+                }
+            }
+            return 0
+        })
+        const results = sorted.slice(0, limit ? Number(limit) : undefined).map((row) => selected.map((c) => row[c]))
+        return [200, { results }]
     }
 }
 
@@ -119,6 +132,23 @@ describe('sendActivityParams', () => {
             dateFrom,
         })
     })
+})
+
+const failedMetric = (appSourceId: string, instanceId: string, count: number): Row => ({
+    app_source: 'hog_flow',
+    app_source_id: appSourceId,
+    metric_name: 'failed',
+    instance_id: instanceId,
+    count,
+    timestamp: '2026-10-19T22:29:00Z',
+})
+
+const logEntry = (logSourceId: string, level: string, timestamp: string, message: string): Row => ({
+    log_source: 'hog_flow',
+    log_source_id: logSourceId,
+    level,
+    timestamp,
+    message,
 })
 
 describe('broadcastPerformanceLogic', () => {
@@ -160,41 +190,35 @@ describe('broadcastPerformanceLogic', () => {
             const runId = `run-errored-${channel}`
             useMocks({
                 post: {
-                    '/api/environments/:team_id/query/:kind/': hogQLFake(
-                        [
+                    '/api/environments/:team_id/query/:kind/': hogQLFake({
+                        app_metrics: [
                             // An aborting step records `failed` at step and run level, so the run-level row must not count twice.
-                            { app_source_id: runId, metric_name: 'failed', instance_id: 'step_1', count: 245 },
-                            { app_source_id: runId, metric_name: 'failed', instance_id: '', count: 245 },
-                            { app_source_id: 'another-run', metric_name: 'failed', instance_id: 'step_1', count: 7 },
+                            failedMetric(runId, 'step_1', 245),
+                            failedMetric(runId, '', 245),
+                            failedMetric('another-run', 'step_1', 7),
                         ],
-                        [
-                            {
-                                log_source_id: runId,
-                                level: 'ERROR',
-                                timestamp: '2026-10-19T22:29:00Z',
-                                message:
-                                    '[Action:step_1] Errored: Error: invalid value expression: "person.name |", line:3, col:1',
-                            },
-                            {
-                                log_source_id: runId,
-                                level: 'ERROR',
-                                timestamp: '2026-10-19T22:29:01Z',
-                                message: 'Workflow run aborted: socket hang up',
-                            },
-                            {
-                                log_source_id: runId,
-                                level: 'INFO',
-                                timestamp: '2026-10-19T22:29:02Z',
-                                message: '[Action:step_1] Errored: Error: Failed to send email via SES',
-                            },
-                            {
-                                log_source_id: 'another-run',
-                                level: 'ERROR',
-                                timestamp: '2026-10-19T22:29:03Z',
-                                message: '[Action:step_1] Errored: Error: Email integration not found',
-                            },
-                        ]
-                    ),
+                        log_entries: [
+                            logEntry(runId, 'ERROR', '2026-10-19T22:29:01Z', 'Workflow run aborted: socket hang up'),
+                            logEntry(
+                                runId,
+                                'INFO',
+                                '2026-10-19T22:29:02Z',
+                                '[Action:step_1] Errored: Error: Failed to send email via SES'
+                            ),
+                            logEntry(
+                                'another-run',
+                                'ERROR',
+                                '2026-10-19T22:29:03Z',
+                                '[Action:step_1] Errored: Error: Email integration not found'
+                            ),
+                            logEntry(
+                                runId,
+                                'ERROR',
+                                '2026-10-19T22:29:00Z',
+                                '[Action:step_1] Errored: Error: invalid value expression: "person.name |", line:3, col:1'
+                            ),
+                        ],
+                    }),
                 },
             })
             const logic = broadcastPerformanceLogic({ runId, runStartedAt: '2026-10-19T22:28:56Z', channel })
