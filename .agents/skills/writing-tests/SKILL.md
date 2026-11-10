@@ -3,7 +3,7 @@ name: writing-tests
 description: >
   Gates whether a new test should exist and keeps it cheap and honest, protecting CI from tests that guard nothing.
   Use before any change to what a pytest, Jest, or Playwright test asserts or sets up, down to one fixture or one assertion added to an existing block.
-  Carries the value bar (every test catches a realistic regression no existing test catches; extend the nearest test with your case, not its mocks; drive input through the public interface and assert an outcome a caller observes; parameterize near-duplicates; break the guarded line and watch the test go red) and the cost bar (the lowest rung of the cost ladder where the behavior exists; a real dependency only when the behavior uses it; stubs only at true boundaries; Django TestCase over TransactionTestCase; no sleeps; no time bombs from unpinned dates).
+  Carries the value bar (every test catches a realistic regression no existing test catches; extend the nearest test with your case, not its mocks; drive input through the public interface and assert an outcome a caller observes; parameterize near-duplicates; break the guarded line and watch the test go red) and the cost bar (the lowest level of the cost ladder where the behavior exists; a real dependency only when the behavior uses it; stubs only at true boundaries; Django TestCase over TransactionTestCase; no sleeps; no time bombs from unpinned dates).
   For an existing flaky test use `/fixing-flaky-tests`; once this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
@@ -68,7 +68,7 @@ For a bug fix, the pre-fix code is the broken line.
 
 A test that stays green guards nothing.
 Rewrite it to assert an outcome, or delete it.
-This check catches tautologies and mock plumbing on every rung, so run it on each test you add or change.
+This check catches tautologies and mock plumbing on every level, so run it on each test you add or change.
 
 ## Tests that guard nothing
 
@@ -117,7 +117,7 @@ A call to your own helper, its call count, or its arguments is not an outcome.
 
 ## If you write it, weight it down the cost ladder
 
-Each rung of the cost ladder is slower and flakier than the one below:
+Each level of the cost ladder is slower and flakier than the one below:
 
 ```text
 pure function → kea logic → Django TestCase / Node service test → ClickHouse-backed test → Node serial lane / Playwright e2e
@@ -127,12 +127,12 @@ pure function → kea logic → Django TestCase / Node service test → ClickHou
 Aim for a ratio, not a cap: many tests at the bottom, very few at the top.
 Add more coverage at the bottom.
 
-Pick the lowest rung where the behavior exists and its outcome is visible.
-A lower rung that sees only an internal call, or a mock standing in for the code under test, is not a cheaper test of the same behavior.
+Pick the lowest level where the behavior exists and its outcome is visible.
+A lower level that sees only an internal call, or a mock standing in for the code under test, is not a cheaper test of the same behavior.
 It tests something else.
 
 Take a real dependency only when the behavior reads or writes it.
-Logic that never touches Postgres, ClickHouse, or Redis belongs on a rung without them.
+Logic that never touches Postgres, ClickHouse, or Redis belongs on a level without them.
 Logic that does belongs on the real one, because a mock of it agrees with whatever the code assumes.
 
 **When something is hard to test cheaply, that's a design signal: extract, don't escalate.**
@@ -140,7 +140,7 @@ When the only way to run your logic is a database, a request, and a render, the 
 Pull it into a pure function or a kea logic and test it through that unit's own interface, its signature or its actions and values.
 You get a faster test and better-factored code at once.
 Mocking the tangled code's internal helpers also makes the test cheap, but then the test observes the mocks.
-When the behavior can't be pulled out, because it lives in a query, a transaction, or the wiring, test it at the rung where a caller observes it.
+When the behavior can't be pulled out, because it lives in a query, a transaction, or the wiring, test it at the level where a caller observes it.
 
 When you extract a decision this way, such as the dedupe, routing, or eligibility rule that [.agents/architecture.md](../../architecture.md) keeps pure, put the case matrix on the pure function and keep one database-backed test as a wiring guard.
 Without that guard, a refactor that stops calling the decision passes every pure case.
@@ -213,8 +213,8 @@ Reach for ClickHouse, the Node serial lane, or a browser only when the regressio
   A spy on an executor or a service method is a change detector.
 - **Keep case matrices out of the serial lane.**
   A `*.serial.test.ts` file runs with `--runInBand`, so every case in it adds straight to CI time.
-  A test belongs there when it shares infrastructure it can't isolate (see [.agents/code-style.md](../../code-style.md)) or covers a flow across services that no lower rung can see.
-  Its case matrix still goes on a lower rung.
+  A test belongs there when it shares infrastructure it can't isolate (see [.agents/code-style.md](../../code-style.md)) or covers a flow across services that no lower level can see.
+  Its case matrix still goes on a lower level.
 
 ### Frontend (Jest)
 

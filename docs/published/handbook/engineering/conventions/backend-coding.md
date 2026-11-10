@@ -129,7 +129,7 @@ Add your case, not the neighbor's mocks: if the nearest test asserts on mock cal
 
 #### Weight tests down the pyramid
 
-Each rung is slower and flakier than the one below:
+Each level is slower and flakier than the one below:
 
 ```text
 pure function  →  kea logic test  →  Django TestCase / Node service test  →  ClickHouse-backed test  →  Node serial lane / Playwright e2e
@@ -137,11 +137,11 @@ pure function  →  kea logic test  →  Django TestCase / Node service test  �
 ```
 
 Aim for a ratio, not a cap: many tests at the bottom, very few at the top — if you want more coverage, add it at the bottom.
-Pick the lowest rung where the behavior exists and its outcome is visible: a lower rung that sees only an internal call or a mock is not a cheaper test of the same behavior.
+Pick the lowest level where the behavior exists and its outcome is visible: a lower level that sees only an internal call or a mock is not a cheaper test of the same behavior.
 An outcome is what a caller can observe: a return value, a response, a stored row, a kea logic's values, or the request, message, or email a boundary fake recorded. A call to your own helper is not an outcome.
 Break the line each test guards and watch the test fail. A test that stays green guards nothing, so rewrite it or delete it.
 When logic is hard to test cheaply, that's a design signal: extract it into a pure function (or a kea logic) and test it through its own interface rather than standing up a database, a request, and a render.
-Don't mock the tangled code's internal helpers to make it cheap instead, and when the behavior lives in a query, a transaction, or the wiring, test it at the rung where a caller observes it.
+Don't mock the tangled code's internal helpers to make it cheap instead, and when the behavior lives in a query, a transaction, or the wiring, test it at the level where a caller observes it.
 
 - **Use `TestCase`, not `TransactionTestCase`, unless you truly need it.** `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference. For `transaction.on_commit` side effects use `self.captureOnCommitCallbacks(execute=True)`; reaching ClickHouse is not a reason to switch (`ClickhouseTestMixin` runs on a plain `TestCase`).
 - Take a real dependency (Postgres, ClickHouse, Redis) only when the behavior reads or writes it, and then use the real one, not a mock. For services CI can't reach, use a fake that answers like the real service, or a stub at that boundary when the test needs one specific answer, such as a canned success or a 500. Either way, assert the outcome, not that the stub was called. Don't mock your own internal helpers; that's how change-detector tests are born.
