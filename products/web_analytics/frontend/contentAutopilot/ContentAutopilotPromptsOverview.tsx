@@ -13,6 +13,7 @@ import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTi
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
+import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
 import { POSITION_DESCRIPTION } from './promptReport'
@@ -22,7 +23,9 @@ import { engineLabel } from './utils'
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const { overview, overviewLoading, overviewError, overviewKpis, hasChecks, citationQuery, sourcesQuery } =
         useValues(contentAutopilotPromptsOverviewLogic)
-    const { loadPromptSetOverview, selectOverviewTopic } = useActions(contentAutopilotPromptsOverviewLogic)
+    const { loadPromptSetOverview, selectOverviewTopic, openOverviewSearchPrompt } = useActions(
+        contentAutopilotPromptsOverviewLogic
+    )
     const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
     const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
 
@@ -161,6 +164,16 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     data-attr="content-autopilot-prompts-overview-sources-tile"
                 />
             </div>
+
+            <PagePerformanceCard className="min-w-0">
+                <PagePerformanceCardHeader title="What the engines searched for" />
+                <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
+                    <ContentAutopilotPromptsSearchTable
+                        rows={overview.top_searches}
+                        onOpenPrompt={openOverviewSearchPrompt}
+                    />
+                </div>
+            </PagePerformanceCard>
         </section>
     )
 }

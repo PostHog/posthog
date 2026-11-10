@@ -78,6 +78,10 @@ const OPUS_PRICE: ModelPrice = {
 
 export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
   {
+    match: /(fable|mythos)-5-2/i,
+    price: { input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 },
+  },
+  {
     match: /fable|mythos/i,
     price: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
   },
