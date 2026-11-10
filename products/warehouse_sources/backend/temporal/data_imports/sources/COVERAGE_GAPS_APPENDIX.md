@@ -11465,12 +11465,12 @@ Diffed against: <https://sonarcloud.io/api/webservices/list>
 - [x] `measures/search_history` — historical metric values over time; required for any coverage/debt trend chart (high) → `measures_history` (full refresh, fan-out over `projects`)
 - [x] `rules/search` — lookup table resolving the rule keys carried on every issue we already sync (severity, type, language, remediation effort) (high) → `rules` (full refresh)
 - [x] `issues/changelog` — issue state/assignee/severity transition history - lets you measure time-to-fix and false-positive rates (high) → `issue_changelog` (full refresh, fan-out over `issues`, off by default)
-- [ ] `hotspots/search` — security hotspots are a separate finding class from issues and are entirely absent (high)
+- [ ] `hotspots/search` — security hotspots are a separate finding class from issues and are entirely absent (high) — skipped: deprecated on SonarQube Cloud since 16 June 2026 and replaced by security issues, which `issues` already syncs
 - [ ] `project_analyses/search` — per-analysis records with version and event markers; the join key for measures history and release-over-release comparison (medium)
 - [ ] `project_branches/list` — branch-level quality gate status and analysis dates (medium)
-- [ ] `project_pull_requests/list` — PR-level findings and gate status, the main dev-workflow surface (medium)
-- [ ] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping projects to the quality profile that produced their issues (medium)
-- [ ] `components/search (and components/tree)` — component/file inventory that measures and issues are keyed on (medium)
+- [x] `project_pull_requests/list` — PR-level findings and gate status, the main dev-workflow surface (medium) → `pull_requests` (full refresh, fan-out over `projects`)
+- [x] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping projects to the quality profile that produced their issues (medium) → `quality_profiles` (full refresh) and `project_quality_profiles` (full refresh, fan-out over `projects` via `qualityprofiles/search?project=`; `qualityprofiles/projects` omits projects on a default profile)
+- [x] `components/search (and components/tree)` — component/file inventory that measures and issues are keyed on (medium) → `components` (full refresh, fan-out over `projects` via `components/tree`; `components/search` lists only projects, which `projects` already syncs)
 - [ ] `user_groups/search + user_groups/users` — group membership table for attributing findings to teams (low)
 - [ ] `languages/list` — small lookup resolving language keys on rules and measures (low)
 
@@ -11486,10 +11486,10 @@ Diffed against: <https://next.sonarqube.com/sonarqube/api/webservices/list>
 - [x] `measures/search_history` — metric history over time; needed for coverage, duplication and tech-debt trends (high)
 - [x] `qualitygates/list + qualitygates/project_status` — quality gate status per project is the headline pass/fail metric and is missing entirely (the SonarCloud source already has it) (high)
 - [x] `hotspots/search` — security hotspots are a distinct finding class not covered by issues (high)
-- [ ] `issues/changelog` — issue transition history for time-to-remediate and reopen analysis (high)
-- [ ] `project_analyses/search` — analysis records with version/event markers; join key for measures history and release comparison (medium)
-- [ ] `project_branches/list` — branch-level gate status and last analysis date (medium)
-- [ ] `project_pull_requests/list` — PR-level findings and gate status (medium)
+- [x] `issues/changelog` — issue transition history for time-to-remediate and reopen analysis (high)
+- [x] `project_analyses/search` — analysis records with version/event markers; join key for measures history and release comparison (medium)
+- [x] `project_branches/list` — branch-level gate status and last analysis date (medium)
+- [x] `project_pull_requests/list` — PR-level findings and gate status (medium)
 - [ ] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping each project to the profile that generated its issues (medium)
 - [ ] `components/search + components/tree` — component/file inventory that measures and issues key on (medium)
 - [ ] `user_groups/search + user_groups/users` — group membership table for team-level attribution of findings (medium)
@@ -11554,16 +11554,16 @@ Note: Spacelift does not publish its GraphQL schema (docs only tell you to copy 
 
 ## SparkPost — gaps
 
-Today (7): `events`, `recipient_lists`, `sending_domains`, `subaccounts`, `suppression_list`, `templates`, `webhooks`
+Today (15): `bounce_reasons`, `bounce_reasons_by_domain`, `delay_reasons`, `delay_reasons_by_domain`, `deliverability_by_template`, `deliverability_time_series`, `events`, `recipient_lists`, `rejection_reasons`, `rejection_reasons_by_domain`, `sending_domains`, `subaccounts`, `suppression_list`, `templates`, `webhooks`
 
 Diffed against: <https://developers.sparkpost.com/api/metrics/>
 
-- [ ] `metrics/deliverability/time-series` — SparkPost's headline deliverability aggregate over time; the single most-queried table for an ESP and completely absent (high)
+- [x] `metrics/deliverability/time-series` — SparkPost's headline deliverability aggregate over time; the single most-queried table for an ESP and completely absent (high)
 - [ ] `metrics/deliverability/domain and /sending-domain` — deliverability broken down by recipient and sending domain - the primary reputation dimension (high)
 - [ ] `metrics/deliverability/campaign and /subject-campaign` — per-campaign send/open/click/bounce rollups; core marketing reporting dimension (high)
-- [ ] `metrics/deliverability/template` — per-template performance, joining directly to the templates table already synced (high)
-- [ ] `metrics/deliverability/bounce-reason, /rejection-reason, /delay-reason (+ their /domain variants)` — failure-reason breakdowns; the standard deliverability troubleshooting cut (high)
-- [ ] `transmissions` — the send jobs themselves with status and recipient counts; today only the resulting events are synced (high)
+- [x] `metrics/deliverability/template` — per-template performance, joining directly to the templates table already synced (high)
+- [x] `metrics/deliverability/bounce-reason, /rejection-reason, /delay-reason (+ their /domain variants)` — failure-reason breakdowns; the standard deliverability troubleshooting cut (high)
+- [ ] `transmissions` — the send jobs themselves with status and recipient counts; today only the resulting events are synced (high); skipped, the current API has no list call, and `GET /transmissions/{id}` is deprecated and returns only scheduled transmissions
 - [ ] `metrics/deliverability/subaccount` — per-subaccount deliverability, joining to the subaccounts table already synced (medium)
 - [ ] `metrics/deliverability/mailbox-provider and /mailbox-provider-region` — inbox performance by Gmail/Outlook/Yahoo etc, a headline deliverability cut (medium)
 - [ ] `metrics/deliverability/sending-ip and /ip-pool` — IP-level reputation and warmup tracking (medium)
@@ -11587,20 +11587,20 @@ Note: Used the official index and parsed OpenAPI blocks on its linked V1 and V2 
 
 ## SplitIo — gaps
 
-Today (10): `change_requests`, `environments`, `feature_flags`, `flag_sets`, `groups`, `rollout_statuses`, `segments`, `traffic_types`, `users`, `workspaces`
+Today (13): `attributes`, `change_requests`, `environments`, `feature_flag_definitions`, `feature_flags`, `flag_sets`, `groups`, `rollout_statuses`, `segment_keys`, `segments`, `traffic_types`, `users`, `workspaces`
 
 Diffed against: <https://docs.split.io/reference>
 
-- [ ] `feature flag definitions in environment (list-feature-flag-definitions-in-environment)` — the per-environment targeting rules, treatments, default rule and rollout percentages - the actual flag configuration; today only workspace-level flag metadata is synced (high)
-- [ ] `segment keys in environment (get-segment-keys-in-environment)` — segment membership rows; the membership table that turns segments into something joinable to your own users (high)
-- [ ] `attributes (get-attributes)` — traffic type attribute definitions; the lookup that resolves attribute keys used in targeting rules and identities (high)
+- [x] `feature flag definitions in environment (list-feature-flag-definitions-in-environment)` — the per-environment targeting rules, treatments, default rule and rollout percentages - the actual flag configuration; today only workspace-level flag metadata is synced (high) — added as `feature_flag_definitions`
+- [x] `segment keys in environment (get-segment-keys-in-environment)` — segment membership rows; the membership table that turns segments into something joinable to your own users (high) — added as `segment_keys`
+- [x] `attributes (get-attributes)` — traffic type attribute definitions; the lookup that resolves attribute keys used in targeting rules and identities (high) — added as `attributes`
 - [ ] `segments in environment (list-segments-in-environment)` — which segments are enabled per environment, plus their per-environment state (medium)
 - [ ] `large segments (listlargesegments, listlargesegmentsinenvironment)` — the large-segment variant is a separate resource entirely absent from the current tables (medium)
 - [ ] `rule-based segments` — rule-based segment definitions, a distinct segment class from the standard segments already synced (medium)
 - [ ] `identities (save/get identity)` — per-key attribute values used for targeting; lets flag exposure be joined to customer records (medium)
 - [ ] `restrictions (list-restrictions)` — governance restrictions applied to flags and environments; useful for change-control reporting (low)
 
-Note: Resource list taken from the ReadMe-generated reference index at docs.split.io/reference (119 pages), filtered to GET operations. Split's public Admin API has no impressions or metrics export, so experimentation result data is genuinely unavailable rather than missing from the connector. API keys, events ingestion (write-only) and tag association were excluded as config/plumbing.
+Note: Resource list taken from the ReadMe-generated reference index at docs.split.io/reference (119 pages), filtered to GET operations. Split's public Admin API has no impressions or metrics export, so experimentation result data is genuinely unavailable rather than missing from the connector. API keys, events ingestion (write-only) and tag association were excluded as config/plumbing. Identities cannot be synced: the Admin API only saves, updates and deletes them, and has no endpoint that reads an identity back. Segment keys walk the segments active in each environment (`GET /segments/ws/{ws}/environments/{env}`), because keys exist only where a segment is active.
 
 ## SplunkObservabilityCloud — gaps
 
@@ -11609,14 +11609,14 @@ Today (12): `alert_muting_rules`, `charts`, `dashboard_groups`, `dashboards`, `d
 Diffed against: <https://dev.splunk.com/observability/reference/>
 
 - [x] `slo (GET /slo/{id}, POST /slo/search)` — SLO definitions and status are the headline reliability metric; nothing SLO-related is synced today (high)
-- [ ] `tests (Synthetics GET /tests)` — the whole Synthetics product is unexposed; tests is its root object (high)
+- [x] `tests (Synthetics GET /tests)` — the whole Synthetics product is unexposed; tests is its root object (high)
 - [x] `tests/{id}/runs and runs/{id} (Synthetics runs)` — actual synthetic check results over time - the analytical fact table for uptime/latency (high)
 - [x] `locations (Synthetics GET /locations)` — lookup table resolving the location IDs stamped on every synthetic run (high)
 - [x] `event / event/find (GET /event, GET /event/find)` — org-wide custom and alert event stream; today only detector_events is synced (high)
 - [ ] `tag (GET /tag, GET /tag/{name})` — metric tag lookup that resolves the breakdown labels on metrics and MTS (medium)
-- [ ] `role (GET /role, GET /role/{roleId})` — role definitions and assignments complement organization_members for access analysis (medium)
-- [ ] `audit events (GET /v2/audit/events)` — who changed which detector/dashboard and when (medium)
-- [ ] `clients (GET /clients, /clients/metadata/values)` — agent/client inventory for fleet coverage reporting (medium)
+- [x] `role (GET /role, GET /role/{roleId})` — role definitions and assignments complement organization_members for access analysis (medium)
+- [x] `audit events (GET /v2/audit/events)` — who changed which detector/dashboard and when (medium)
+- [x] `clients (GET /clients, /clients/metadata/values)` — agent/client inventory for fleet coverage reporting (medium)
 - [ ] `navigator (GET /navigator, /navigator/{id}/dashboards)` — navigator definitions tie infrastructure categories to dashboards (low)
 - [ ] `devices (Synthetics GET /devices)` — lookup resolving device profiles referenced by browser tests (low)
 - [ ] `crosslink (GET /crosslink)` — data link definitions that map dimensions to external targets (low)
@@ -11625,16 +11625,16 @@ Note: The dev.splunk.com reference is a client-rendered SPA; the full API index 
 
 ## SpotIo — gaps
 
-Today (4): `elastigroup_costs`, `elastigroups`, `ocean_clusters`, `stateful_nodes`
+Today (7): `accounts`, `elastigroup_costs`, `elastigroup_events`, `elastigroups`, `ocean_cluster_nodes`, `ocean_clusters`, `stateful_nodes`
 
 Diffed against: <https://docs.spot.io/api/?version=v3>
 
-- [ ] `GET /setup/account (List Accounts)` — lookup table resolving the accountId carried by every elastigroup, ocean cluster and cost row (high)
-- [ ] `GET /ocean/aws/k8s/cluster/{oceanClusterId}/nodes (also gcp/k8s and azure/np variants)` — the per-node fact table under the ocean_clusters we already sync (high)
+- [x] `GET /setup/account (List Accounts)` — lookup table resolving the accountId carried by every elastigroup, ocean cluster and cost row (high). Added as `accounts` (full refresh; listing every account needs an Organization Admin token).
+- [x] `GET /ocean/aws/k8s/cluster/{oceanClusterId}/nodes (also gcp/k8s and azure/np variants)` — the per-node fact table under the ocean_clusters we already sync (high). Added as `ocean_cluster_nodes` (fan-out over `ocean_clusters`; full refresh). The GKE and AKS variants are left out: the source syncs only Ocean AWS clusters, so it has no parent for them.
 - [ ] `GET /ocean/aws/k8s/launchSpec (Virtual Node Groups)` — lookup resolving the launchSpec/VNG id attached to Ocean nodes (high)
-- [ ] `GET /aws/ec2/group/{groupId}/events (Activity Events)` — scale-up/down and spot-interruption state transition history for groups we already sync (high)
+- [x] `GET /aws/ec2/group/{groupId}/events (Activity Events)` — scale-up/down and spot-interruption state transition history for groups we already sync (high). Added as `elastigroup_events` (fan-out over `elastigroups`; incremental on `createdAt` through `fromDate`).
 - [ ] `GET /ocean/insights/k8s/cluster (Ocean Insights)` — Spot's headline cluster efficiency/waste metric (high)
-- [ ] `GET /ocean/{oceanId}/rightSizing/namespaces/{ns}/{type}/{name}/recommendation-history` — rightsizing recommendations over time - the savings number customers report on (high)
+- [ ] `GET /ocean/{oceanId}/rightSizing/namespaces/{ns}/{type}/{name}/recommendation-history` — rightsizing recommendations over time - the savings number customers report on (high). Skipped: it takes one request per workload, and only a `POST /rightSizing/recommendations` call lists the workloads. It also requires a `containerNames` list, and its items carry no container name, so a row has no stable key.
 - [ ] `GET /aws/ec2/managedInstance/{MI_ID}/costs` — stateful_nodes are synced but their cost series is not, unlike elastigroups (medium)
 - [ ] `GET /aws/ec2/group/{groupId}/roll and /roll/{rollId}/status` — deployment (roll) history per elastigroup (medium)
 - [ ] `GET /mcs/ecs/cluster/{clusterName}/costs` — Ocean ECS cluster cost breakdown, the ECS analogue of elastigroup_costs (medium)
@@ -11755,12 +11755,12 @@ Today (10): `component_groups`, `components`, `incident_templates`, `incidents`,
 
 Diffed against: <https://developer.statuspage.io/>
 
-- [ ] `pages/{page_id}/components/{component_id}/uptime` — per-component uptime percentage and outage duration over a range - Statuspage's headline reliability metric, not derivable from the component object (high)
-- [ ] `pages/{page_id}/component-groups/{id}/uptime` — same uptime metric rolled up to the group we already sync (high)
-- [ ] `pages/{page_id}/incidents/{incident_id}/postmortem` — postmortem body and publish state per incident, the write-up attached to incidents we already sync (medium)
+- [x] `pages/{page_id}/components/{component_id}/uptime` — per-component uptime percentage and outage duration over a range - Statuspage's headline reliability metric, not derivable from the component object (high)
+- [x] `pages/{page_id}/component-groups/{id}/uptime` — same uptime metric rolled up to the group we already sync (high)
+- [ ] `pages/{page_id}/incidents/{incident_id}/postmortem` — postmortem body and publish state per incident, the write-up attached to incidents we already sync (medium) — skipped: the incidents table already carries postmortem_body, postmortem_published_at, postmortem_body_last_updated_at and the notify flags; the endpoint adds only the draft body and preview key, for one request per incident
 - [ ] `organizations/{organization_id}/users` — org user roster; the only way to resolve the user IDs returned by the permissions endpoint (medium)
 - [ ] `organizations/{organization_id}/permissions/{user_id}` — which pages each org user can administer - a membership table joining users to pages (medium)
-- [ ] `pages/{page_id}/page_access_users/{page_access_user_id}/components` — membership table mapping restricted-audience users to the components they can see (medium)
+- [x] `pages/{page_id}/page_access_users/{page_access_user_id}/components` — membership table mapping restricted-audience users to the components they can see (medium)
 - [ ] `pages/{page_id}/page_access_groups/{page_access_group_id}/components` — membership table mapping access groups to components; page_access_groups is synced without its contents (medium)
 - [ ] `pages/{page_id}/incidents/{incident_id}/subscribers` — per-incident subscriber list, distinct from the page-level subscribers already synced (medium)
 - [ ] `pages/{page_id}/subscribers/unsubscribed` — churned subscribers, excluded from the main subscribers list (low)
@@ -11770,16 +11770,16 @@ Note: There is NO GET on pages/{page_id}/metrics/{metric_id}/data - only POST (s
 
 ## Steam — gaps
 
-Today (3): `owned_games`, `players`, `playtime_snapshots`
+Today (7): `current_players`, `friends`, `global_achievement_percentages`, `owned_games`, `player_achievements`, `players`, `playtime_snapshots`
 
 Diffed against: <https://partner.steamgames.com/doc/webapi/ISteamUserStats>
 
-- [ ] `GetPlayerAchievements (GET /ISteamUserStats/GetPlayerAchievements/v1/)` — measure achievement completion and unlock times for each player and game (high)
-- [ ] `GetNumberOfCurrentPlayers (GET /ISteamUserStats/GetNumberOfCurrentPlayers/v1/)` — track concurrent players for owned games, a key measure of game popularity (high)
+- [x] `GetPlayerAchievements (GET /ISteamUserStats/GetPlayerAchievements/v1/)` — measure achievement completion and unlock times for each player and game (high) → `player_achievements` (full refresh, fan-out over each player's played games with stats)
+- [x] `GetNumberOfCurrentPlayers (GET /ISteamUserStats/GetNumberOfCurrentPlayers/v1/)` — track concurrent players for owned games, a key measure of game popularity (high) → `current_players` (incremental snapshot on `captured_at`, one row per owned game per sync)
 - [ ] `GetUserStatsForGame (GET /ISteamUserStats/GetUserStatsForGame/v2/)` — analyze game-specific player statistics alongside playtime (medium)
 - [ ] `GetSchemaForGame (GET /ISteamUserStats/GetSchemaForGame/v2/)` — describe available game statistics and achievements for progression analysis (medium)
-- [ ] `GetGlobalAchievementPercentagesForApp (GET /ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/)` — compare player achievement completion with global completion rates (medium)
-- [ ] `GetFriendList (GET /ISteamUser/GetFriendList/v1/)` — analyze friendship connections and their relationship with game ownership and playtime (medium)
+- [x] `GetGlobalAchievementPercentagesForApp (GET /ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/)` — compare player achievement completion with global completion rates (medium) → `global_achievement_percentages` (full refresh, fan-out over owned games with stats)
+- [x] `GetFriendList (GET /ISteamUser/GetFriendList/v1/)` — analyze friendship connections and their relationship with game ownership and playtime (medium) → `friends` (full refresh, friends keyed by the same opaque player key)
 
 Note: The official ISteamUserStats, ISteamUser, and IPlayerService references supplied the method lists and authentication requirements. The public supported-method catalog also confirmed concurrent player counts. Playtime snapshots already call GetRecentlyPlayedGames; publisher-only methods and account plumbing are excluded. Player and game queries need repeated requests and must preserve the existing opaque player keys.
 
@@ -11792,10 +11792,10 @@ Diffed against: <https://app.stainless.com/api/spec/documented/stigg/openapi.doc
 - [ ] `/api/v1/usage` — feature usage measurements - the metering data Stigg exists to record; nothing usage-related is synced today (high)
 - [ ] `/api/v1/events` — raw metering events behind usage-based billing (high)
 - [ ] `/api/v1/credits/ledger` — credit transaction ledger - grants, consumption and expiry as a time series (high)
-- [ ] `/api/v1/plans/{planId}/entitlements` — lookup resolving which features each synced plan grants and at what limits (high)
-- [ ] `/api/v1/customers/{id}/entitlements` — effective per-customer entitlements, the join between synced customers, plans and features (high)
-- [ ] `/api/v1/plans/{id}/charges (and /overage-charges)` — price line items per plan; the plans table carries no pricing breakdown (high)
-- [ ] `/api/v1/credits/grants` — credit grants per customer, the balance side of the ledger (high)
+- [x] `/api/v1/plans/{planId}/entitlements` — lookup resolving which features each synced plan grants and at what limits (high)
+- [x] `/api/v1/customers/{id}/entitlements` — effective per-customer entitlements, the join between synced customers, plans and features (high)
+- [x] `/api/v1/plans/{id}/charges (and /overage-charges)` — price line items per plan; the plans table carries no pricing breakdown (high)
+- [x] `/api/v1/credits/grants` — credit grants per customer, the balance side of the ledger (high)
 - [ ] `/api/v1/addons/{addonId}/entitlements` — feature grants attached to the addons already synced (medium)
 - [ ] `/api/v1/addons/{id}/charges` — addon pricing line items (medium)
 - [ ] `/api/v1/usage/{customerId}/history/{featureId}` — per-customer feature usage over time for consumption trend analysis (medium)
@@ -11827,10 +11827,10 @@ Today (14): `BlockStorages`, `FirewallPolicies`, `Images`, `LoadBalancers`, `Mon
 
 Diffed against: <https://scp-api.strato.de/documentation/v1/en/api/documentation.html>
 
-- [ ] `Fixed instance sizes (GET /v1/servers/fixed_instance_sizes)` — resolve fixed_instance_size_id values in server hardware to named size specifications (high)
-- [ ] `Baremetal models (GET /v1/servers/baremetal_models)` — resolve baremetal_model_id values in server hardware to model specifications (high)
-- [ ] `Usages (GET /v1/usages)` — analyze resource consumption over time for servers, storage, images, and public IPs (high)
-- [ ] `Server monitoring (GET /v1/monitoring_center/{server_id})` — analyze historical resource utilization and network traffic for each server (high)
+- [x] `Fixed instance sizes (GET /v1/servers/fixed_instance_sizes)` — resolve fixed_instance_size_id values in server hardware to named size specifications (high)
+- [x] `Baremetal models (GET /v1/servers/baremetal_models)` — resolve baremetal_model_id values in server hardware to model specifications (high)
+- [x] `Usages (GET /v1/usages)` — analyze resource consumption over time for servers, storage, images, and public IPs (high)
+- [x] `Server monitoring (GET /v1/monitoring_center/{server_id})` — analyze historical resource utilization and network traffic for each server (high)
 - [ ] `Logs (GET /v1/logs)` — track resource changes, action durations, failures, and the users responsible (medium)
 - [ ] `Monitoring center (GET /v1/monitoring_center)` — track resource alerts and current utilization across monitored servers (medium)
 
@@ -11838,16 +11838,16 @@ Note: The reference embeds a complete OpenAPI specification in its Redoc state, 
 
 ## StreamElements — gaps
 
-Today (9): `activities`, `bot_commands`, `bot_timers`, `channel`, `points_alltime_leaderboard`, `points_leaderboard`, `store_items`, `store_redemptions`, `tips`
+Today (12): `activities`, `bot_commands`, `bot_timers`, `channel`, `points_alltime_leaderboard`, `points_leaderboard`, `session`, `song_request_history`, `store_items`, `store_redemptions`, `tips`, `watchtime_leaderboard`
 
 Diffed against: <https://dev.streamelements.com/api/v1/projects/cHJqOjM1MTI2/table-of-contents>
 
-- [ ] `GET /sessions/{channel}` — live session totals (followers, subs, tips, cheers, hosts, raids for the current stream) - the headline StreamElements dashboard metric (high)
-- [ ] `GET /points/{channel}/watchtime` — watchtime leaderboard; the two synced points tables cover loyalty points only, not the watchtime that earns them (high)
-- [ ] `GET /stats/{channel}` — channel-level aggregate statistics, no equivalent in any synced table (high)
+- [x] `GET /sessions/{channel}` — live session totals (followers, subs, tips, cheers, hosts, raids for the current stream) - the headline StreamElements dashboard metric (high)
+- [x] `GET /points/{channel}/watchtime` — watchtime leaderboard; the two synced points tables cover loyalty points only, not the watchtime that earns them (high)
+- [ ] `GET /stats/{channel}` — channel-level aggregate statistics, no equivalent in any synced table (high). Skipped: it needs `interval`, `date` and `tz` for each request, and the reference documents no response schema or row key.
 - [ ] `GET /contests/{channel}/history` — completed contests with entries and payouts - a transactional record of channel engagement (medium)
 - [ ] `GET /giveaways/{channel}/history` — completed giveaways with winners, the same for the giveaway feature (medium)
-- [ ] `GET /songrequests/{channel}/history` — song request history, an event stream of viewer-driven media requests (medium)
+- [x] `GET /songrequests/{channel}/history` — song request history, an event stream of viewer-driven media requests (medium). The live path is `/songrequest/{channel}/history` (singular); the plural path returns 404.
 - [ ] `GET /chatstats/{username}/stats` — chat message and emote statistics per user, the chat-side counterpart to the activity feed (medium)
 - [ ] `GET /tips/{channel}/leaderboard` — vendor-computed tip leaderboard alongside the raw tips already synced (medium)
 - [ ] `GET /sessions/{channel}/top` — top contributors for the current session (top tipper, top cheerer) (medium)
@@ -11911,15 +11911,15 @@ Note: Diffed against the vendor's own OpenAPI 3.0 spec (294 paths). The synced c
 
 ## SurveyMonkey — gaps
 
-Today (5): `collectors`, `survey_pages`, `survey_questions`, `survey_responses`, `surveys`
+Today (9): `collector_message_stats`, `collector_messages`, `collector_recipients`, `collectors`, `survey_pages`, `survey_questions`, `survey_responses`, `survey_trends`, `surveys`
 
 Diffed against: <https://api.surveymonkey.com/v3/docs?shell>
 
 - [ ] `GET /v3/surveys/{id}/rollups (also /pages/{id}/rollups and /questions/{id}/rollups)` — vendor-computed answer counts per question and choice - the aggregate every survey analysis starts from, without reprocessing raw responses (high)
-- [ ] `GET /v3/surveys/{id}/trends (also page- and question-level)` — response and answer trends bucketed over time, the standard breakdown dimension (high)
-- [ ] `GET /v3/collectors/{id}/messages` — email invite and reminder messages sent per collector; the send side of the funnel is entirely missing today (high)
-- [ ] `GET /v3/collectors/{collector_id}/messages/{message_id}/stats` — per-message delivery, open, click, bounce and response counts - the email performance metric (high)
-- [ ] `GET /v3/collectors/{id}/recipients (and /messages/{id}/recipients)` — recipient-level delivery and response state, the join between contacts and responses (high)
+- [x] `GET /v3/surveys/{id}/trends (also page- and question-level)` — response and answer trends bucketed over time, the standard breakdown dimension (high) → `survey_trends` (full refresh, fan-out over `surveys`, daily buckets; page- and question-level trends are subsets of it and get no table)
+- [x] `GET /v3/collectors/{id}/messages` — email invite and reminder messages sent per collector; the send side of the funnel is entirely missing today (high) → `collector_messages` (full refresh, fan-out over email and SMS `collectors`)
+- [x] `GET /v3/collectors/{collector_id}/messages/{message_id}/stats` — per-message delivery, open, click, bounce and response counts - the email performance metric (high) → `collector_message_stats` (full refresh, fan-out over `collector_messages`)
+- [x] `GET /v3/collectors/{id}/recipients (and /messages/{id}/recipients)` — recipient-level delivery and response state, the join between contacts and responses (high) → `collector_recipients` (full refresh, fan-out over email and SMS `collectors`; the per-message recipient list is a subset of it and gets no table)
 - [ ] `GET /v3/contact_lists (and /v3/contact_lists/{id}/contacts)` — contact lists and membership, the audience definition behind each collector (medium)
 - [ ] `GET /v3/contacts` — lookup resolving the contact IDs on recipients and responses (medium)
 - [ ] `GET /v3/collectors/{id}/stats` — collector-level response and completion counts (medium)
@@ -11932,14 +11932,14 @@ Note: Enumerated from the vendor's full single-page reference; GET availability 
 
 ## SurveySparrow — **thin**
 
-Today (5): `contact_lists`, `contacts`, `questions`, `responses`, `surveys`
+Today (8): `channels`, `contact_lists`, `contacts`, `questions`, `responses`, `surveys`, `tickets`, `users`
 
 Diffed against: <https://developers.surveysparrow.com/rest-apis>
 
-- [ ] `GET /v3/tickets` — Support tickets raised from survey responses - a core analytical object with status, assignee and SLA fields (high)
-- [ ] `GET /v3/metrics and /v3/metrics/responses` — NPS/CSAT/CES score metrics - the vendor's headline number, currently only derivable by re-aggregating raw responses (high)
-- [ ] `GET /v3/users` — Lookup table resolving the user IDs already carried on surveys, tickets and responses (high)
-- [ ] `GET /v3/channels` — Lookup table for the distribution channel ID on every response (email/link/SMS/embed), needed for per-channel response-rate analysis (high)
+- [x] `GET /v3/tickets` — Support tickets raised from survey responses - a core analytical object with status, assignee and SLA fields (high). Added as `tickets`, incremental on `updated_at` via `updated_date.gte`.
+- ~~`GET /v3/metrics and /v3/metrics/responses` — NPS/CSAT/CES score metrics - the vendor's headline number, currently only derivable by re-aggregating raw responses (high)~~ — skipped: `/v3/metrics` returns one computed score per type and date range with an undocumented response schema, not a list of records, and `/v3/metrics/responses` returns the rows of the `responses` table filtered by one NPS/CES/CSAT category per survey
+- [x] `GET /v3/users` — Lookup table resolving the user IDs already carried on surveys, tickets and responses (high). Added as `users`.
+- [x] `GET /v3/channels` — Lookup table for the distribution channel ID on every response (email/link/SMS/embed), needed for per-channel response-rate analysis (high). Added as `channels` (fan-out over `surveys`, because the call requires `survey_id`).
 - [ ] `GET /v3/reputation_reviews` — Online review records from the Reputation Management product - a whole analytical dataset with no coverage (high)
 - [ ] `GET /v3/tickets/{id}/comments` — Ticket conversation history for resolution-time and agent-activity analysis (medium)
 - [ ] `GET /v3/contact_properties` — Lookup table defining the custom contact fields whose values appear on synced contacts (medium)

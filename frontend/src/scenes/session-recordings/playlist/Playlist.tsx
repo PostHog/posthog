@@ -119,8 +119,7 @@ export function Playlist({
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
     const watchListHeader = newLayout && !notebookNode
-    // The feed layout hosts the filter bar above both columns, so the list only keeps its header.
-    const watchFilterBar = watchListHeader && type !== 'collection' && !feedLayout
+    const watchFilterBar = watchListHeader && type !== 'collection'
 
     // bound outside here
     const {

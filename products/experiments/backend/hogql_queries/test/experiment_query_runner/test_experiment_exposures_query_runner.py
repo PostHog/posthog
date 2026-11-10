@@ -33,7 +33,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.test.persons import create_group_type_mapping
@@ -1574,10 +1574,16 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_criteria=self.experiment.exposure_criteria,
         )
 
-    @parameterized.expand([("reader_of_the_flag", True, "split_changed"), ("userless_run", False, None)])
+    @parameterized.expand(
+        [
+            ("reader_of_the_flag", True, None, "split_changed"),
+            ("userless_run", False, None, None),
+            ("reader_after_the_end", True, datetime(2024, 1, 6, 12, tzinfo=UTC), "split_changed"),
+        ]
+    )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_names_a_split_change_for_a_reader_of_the_flag_history(
-        self, _name: str, as_user: bool, subcode: str | None
+        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None
     ) -> None:
         ff_property = f"$feature/{self.feature_flag.key}"
         # 90/10 before the change on 2024-01-03, and the current 50/50 split after it.
@@ -1605,9 +1611,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         flush_persons_and_events()
         self._log_split_change_from_90_10_on_2024_01_03()
+        query = self._running_exposure_query()
+        if end_date is not None:
+            self.experiment.end_date = end_date
+            self.experiment.save()
+            query = query.model_copy(update={"end_date": end_date.isoformat()})
 
         response = ExperimentExposuresQueryRunner(
-            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
+            team=self.team, query=query, user=self.user if as_user else None
         ).calculate()
 
         self.assertEqual(
@@ -1822,7 +1833,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
-    def test_srm_library_segments_add_up_to_the_total_exposures(
+    def test_library_counts_add_up_to_the_total_exposures(
         self, _name: str, by_group: bool, multiple_variant_handling: str, use_precomputation: bool
     ) -> None:
         self._setup_precomputation_test(use_precomputation)
@@ -1840,11 +1851,13 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.experiment.exposure_criteria = {"multiple_variant_handling": multiple_variant_handling}
         self._save_experiment_with_precomputation(self.experiment, use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
-        libraries = ["web", "posthog-node", "posthog-python", "posthog-ios", "posthog-android", "posthog-go", None]
+        libraries = ["web", "posthog-node", "posthog-python", "posthog-ios", "posthog-android", "custom-sdk", None]
 
         def exposure(unit: int, variant: str, timestamp: str, library: str | None) -> dict[str, Any]:
             return {
-                "event": "$feature_flag_called",
+                # An experiment on $feature_flag_called also counts $experiment_exposure, which carries the `$lib` of
+                # the SDK that sent it.
+                "event": "$experiment_exposure" if unit % 5 == 0 else "$feature_flag_called",
                 "timestamp": timestamp,
                 "properties": {
                     "$feature_flag_response": variant,
@@ -1891,7 +1904,27 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             elif (match := re.fullmatch(r"library_\d+_exposed_(.+)", key)) and isinstance(value, int | float):
                 exposed_by_variant[match.group(1)] = exposed_by_variant.get(match.group(1), 0) + value
         self.assertEqual(
-            (exposed_by_variant, BREAKDOWN_OTHER_STRING_LABEL in segments), (response.total_exposures, True)
+            (
+                exposed_by_variant,
+                BREAKDOWN_OTHER_STRING_LABEL in segments,
+                response.exposed_by_library,
+            ),
+            (
+                response.total_exposures,
+                True,
+                # The precomputed exposures carry no library. A library outside PostHog's own SDKs counts as other.
+                None
+                if use_precomputation
+                else {
+                    "web": 15,
+                    "posthog-node": 15,
+                    "posthog-python": 15,
+                    "posthog-ios": 15,
+                    "posthog-android": 15,
+                    BREAKDOWN_OTHER_STRING_LABEL: 15,
+                    BREAKDOWN_NULL_STRING_LABEL: 15,
+                },
+            ),
         )
 
     @parameterized.expand([("timeout", ClickHouseQueryTimeOut(), True), ("other_error", RuntimeError("boom"), False)])

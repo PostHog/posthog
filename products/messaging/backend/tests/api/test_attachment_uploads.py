@@ -203,6 +203,7 @@ class TestAttachmentUploads(APIBaseTest):
                 "files",
                 11,
                 11,
+                "at most 10 files",
             ),
             (
                 "an_unknown_field",
@@ -211,6 +212,7 @@ class TestAttachmentUploads(APIBaseTest):
                 "files__0__name",
                 1,
                 1,
+                "Send each file as `{sha256, size}`.",
             ),
             (
                 "one_hash_with_two_sizes",
@@ -219,19 +221,28 @@ class TestAttachmentUploads(APIBaseTest):
                 "files__1__size",
                 2,
                 3,
+                "list the file once",
             ),
-            ("a_list_instead_of_an_object", [{"sha256": INVOICE, "size": 1}], "invalid_request", None, None, None),
+            (
+                "a_list_instead_of_an_object",
+                [{"sha256": INVOICE, "size": 1}],
+                "invalid_request",
+                None,
+                None,
+                None,
+                '`{"files": ',
+            ),
         ]
     )
     def test_refuses_a_malformed_request_before_asking_the_pipeline(
-        self, mock_post, _flag, capture, _name, body, code, attr, file_count, requested_bytes
+        self, mock_post, _flag, capture, _name, body, code, attr, file_count, requested_bytes, fix
     ):
         response = self._upload(body)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         refusal = response.json()
         assert (refusal["type"], refusal["code"], refusal["attr"]) == ("invalid_request", code, attr)
-        assert refusal["why"] and refusal["fix"]
+        assert refusal["why"] and fix in refusal["fix"]
         mock_post.assert_not_called()
         assert [
             (properties["outcome"], properties["error_code"], properties["file_count"], properties["requested_bytes"])
