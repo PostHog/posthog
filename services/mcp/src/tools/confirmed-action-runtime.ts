@@ -229,6 +229,8 @@ export interface ExecuteConfirmedActionOptions {
     /** Same `purpose` value used at prepare time. */
     purpose: string
     inputSchema: z.ZodType
+    /** Args the prepare step filled from the active project or organization, which `inputSchema` may not type. */
+    resolvedArgs?: readonly string[]
     codec: SignedStateCodec
     stash: PayloadStash
     /**
@@ -337,7 +339,10 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
         )
     }
 
-    if (!options.inputSchema.safeParse(args).success) {
+    const declaredArgs = Object.fromEntries(
+        Object.entries(args).filter(([key]) => !options.resolvedArgs?.includes(key))
+    )
+    if (!options.inputSchema.safeParse(declaredArgs).success) {
         return refuse(
             options.purpose,
             'purpose_mismatch',

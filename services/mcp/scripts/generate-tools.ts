@@ -1574,6 +1574,8 @@ function buildConfirmedActionFactories(args: {
     }
     const prepareArgsExpr =
         resolvedFallbackNames.length > 0 ? `{ ...params, ${resolvedFallbackNames.join(', ')} }` : 'params'
+    const executeResolvedArgsField =
+        resolvedFallbackNames.length > 0 ? `            resolvedArgs: ${JSON.stringify(resolvedFallbackNames)},\n` : ''
 
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
@@ -1599,7 +1601,7 @@ ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer
             incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
             inputSchema: ${schemaName}(),
-            codec: __runtime.codec,
+${executeResolvedArgsField}            codec: __runtime.codec,
             stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {

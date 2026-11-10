@@ -776,6 +776,7 @@ const organizationEnforce2faExecute = (): ToolBase<
                 incomingArgs: confirmationParams,
                 purpose: 'organization-enforce-2fa',
                 inputSchema: OrganizationEnforce2faSchema(),
+                resolvedArgs: ['id'],
                 codec: __runtime.codec,
                 stash: __runtime.stash,
             }

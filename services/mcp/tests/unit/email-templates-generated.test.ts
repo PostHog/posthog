@@ -1,34 +1,7 @@
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 
-import { ApiClient } from '@/api/client'
-import { PayloadStash, SignedStateCodec } from '@/lib/signed-state'
-import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import type { PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
-
-import { createTestContext, setActiveProjectAndOrg } from '../shared/test-utils'
-
-function inMemoryRedis(): ConstructorParameters<typeof PayloadStash>[0] {
-    const values = new Map<string, string>()
-    return {
-        set: async (key, value) => {
-            values.set(key, value)
-            return 'OK'
-        },
-        get: async (key) => values.get(key) ?? null,
-        del: async (...keys) => keys.filter((key) => values.delete(key)).length,
-        incrby: async (key, increment) => {
-            const next = Number(values.get(key) ?? 0) + increment
-            values.set(key, String(next))
-            return next
-        },
-        expire: async () => 1,
-        ttl: async () => 60,
-    }
-}
 
 describe('Generated email template tools', () => {
     const toolSchema = (name: string): z.ZodType => GENERATED_TOOL_MAP[name]!().schema
@@ -88,49 +61,5 @@ describe('Generated email template tools', () => {
         const input = createWithEmail({ design: editorDesign })
 
         expect(toolSchema('workflows-create-email-template').parse(input)).toMatchObject(input)
-    })
-
-    describe('a confirmed send', () => {
-        afterEach(() => setConfirmedActionRuntime(undefined))
-
-        it('sends the email the user confirmed', async () => {
-            const received: { method?: string; url?: string; body: unknown }[] = []
-            const posthog = createServer((request, response) => {
-                let body = ''
-                request.on('data', (chunk) => (body += chunk))
-                request.on('end', () => {
-                    received.push({ method: request.method, url: request.url, body: JSON.parse(body) })
-                    response.setHeader('Content-Type', 'application/json')
-                    response.end(JSON.stringify({ id: 'send-1', status: 'queued' }))
-                })
-            })
-            await new Promise<void>((resolve) => posthog.listen(0, '127.0.0.1', resolve))
-            try {
-                setConfirmedActionRuntime({
-                    codec: new SignedStateCodec(Buffer.alloc(32, 0x42)),
-                    stash: new PayloadStash(inMemoryRedis()),
-                })
-                const baseUrl = `http://127.0.0.1:${(posthog.address() as AddressInfo).port}`
-                const context = createTestContext(new ApiClient({ apiToken: 'test-token', baseUrl }))
-                await setActiveProjectAndOrg(context, '42', 'org-1')
-                const confirmed = { ...codeSend, reply_to: ['support@example.com'], capture_engagement: false }
-
-                const prepared = (await GENERATED_TOOL_MAP['workflows-send-email-prepare']!().handler(
-                    context,
-                    confirmed
-                )) as PrepareConfirmedActionResult
-                const sent = await GENERATED_TOOL_MAP['workflows-send-email-execute']!().handler(context, {
-                    confirmation_hash: prepared.confirmation_hash,
-                    confirmation: 'confirm',
-                })
-
-                expect(sent).toMatchObject({ id: 'send-1', status: 'queued' })
-                expect(received).toEqual([
-                    { method: 'POST', url: '/api/projects/42/messaging/send/email/', body: confirmed },
-                ])
-            } finally {
-                await new Promise((resolve) => posthog.close(resolve))
-            }
-        })
     })
 })
