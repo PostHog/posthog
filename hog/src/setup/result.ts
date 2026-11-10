@@ -12,7 +12,6 @@ export interface SetupInput {
     products?: ProductId[]
     region?: RegionId
     reviewed?: boolean
-    productsAck?: boolean
 }
 
 // What has to happen before `hog setup next` can go on. Every instruction is for the agent, and says
@@ -21,8 +20,6 @@ export type NextAction =
     | { kind: 'run'; command: string; instructions: string }
     // A question for the person. The agent turns the answer into the options of `command`.
     | { kind: 'ask_user'; ask: string; command: string; instructions: string }
-    // Something the agent tells the person before it runs `command`.
-    | { kind: 'tell_user'; command: string; instructions: string }
     | { kind: 'read'; read: string[]; command: string; instructions: string }
     | { kind: 'wait'; command: string; url: string; code: string | null; expiresAt: string; instructions: string }
     | { kind: 'done'; instructions: string }

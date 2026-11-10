@@ -13,7 +13,7 @@ import { agentsMd } from './steps/4-agents-md'
 import { install } from './steps/5-install'
 import { review } from './steps/6-review'
 import { countEvents, eventsContext, verify } from './steps/7-verify'
-import { products } from './steps/8-products'
+import { ADD_SKILLS, products } from './steps/8-products'
 import { connected } from './steps/9-connected'
 
 // README.md in this folder draws how the steps run, stop and resume.
@@ -57,6 +57,19 @@ async function recentEvents(run: SetupRun): Promise<EventsContext | undefined> {
     )
 }
 
+const CONNECTED = 'PostHog is set up in this folder. The note in AGENTS.md lists the commands for later PostHog work.'
+const NO_EVENTS = "PostHog hasn't received any events yet. Run the app and use it, then run `hog setup` to check again."
+const TELL_USER = `At the end of your turn, tell the user what else PostHog can do, from \`context.products\`, and which skills in \`context.skills\` they can add with \`${ADD_SKILLS}\`.`
+
+// Only the call that finishes setup has the lists, and a person at a terminal sees them printed.
+function doneInstructions(run: SetupRun, events: EventsContext | undefined): string {
+    const finishedForAgent = run.ctx.prompts === undefined && run.done.some(({ step }) => step === 'connected')
+
+    return [CONNECTED, events?.count === 0 ? NO_EVENTS : '', finishedForAgent ? TELL_USER : '']
+        .filter(Boolean)
+        .join(' ')
+}
+
 // Once connected, `hog setup` reports the folder instead of a step.
 async function connectedResult(run: SetupRun): Promise<SetupResult> {
     await run.fillLoginContext()
@@ -75,8 +88,7 @@ async function connectedResult(run: SetupRun): Promise<SetupResult> {
         next: context.loggedIn
             ? {
                   kind: 'done',
-                  instructions:
-                      'PostHog is set up in this folder. The note in AGENTS.md lists the commands for later PostHog work.',
+                  instructions: doneInstructions(run, events),
               }
             : {
                   kind: 'run',

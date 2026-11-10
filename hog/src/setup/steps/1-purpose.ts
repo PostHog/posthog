@@ -12,20 +12,12 @@ const COMMAND = `${SETUP_NEXT} --reason "<their answer>" --products <id,id>`
 const SENT_NOTICE = 'Your answer goes to PostHog, to improve setup.'
 const KEPT_NOTICE = 'Your answer stays on this machine.'
 
-// The agent asks in our place, so it passes on the same notice the terminal shows.
-function instructions(telemetry: boolean): string {
-    const notice = telemetry
-        ? `Tell them: "${SENT_NOTICE} To keep it on this machine, set HOG_NO_TELEMETRY=1."`
-        : `Tell them: "${KEPT_NOTICE}"`
-
-    return [
-        `Ask the person: "${QUESTION}"`,
-        notice,
-        `Then pick the products in context.products that match their answer, and run \`${COMMAND}\` yourself.`,
-        'When nothing matches, pass --products product-analytics.',
-        'Add --region eu only when they mention the EU or data residency.',
-    ].join(' ')
-}
+const INSTRUCTIONS = [
+    `If you already know what the user wants PostHog for, from the conversation or the code, don't ask. Run \`${COMMAND}\` with that reason and the matching products in \`context.products\`.`,
+    `Otherwise ask the user: "${QUESTION}", then pick the products that match the answer and run the same command.`,
+    'When nothing matches, pass --products product-analytics.',
+    'Add --region eu only when they mention the EU or data residency.',
+].join(' ')
 
 type Answers = Pick<SetupInput, 'reason' | 'products' | 'region'>
 
@@ -97,7 +89,7 @@ export const purpose: Step = {
                     kind: 'ask_user',
                     ask: QUESTION,
                     command: COMMAND,
-                    instructions: instructions(ctx.telemetry.isEnabled),
+                    instructions: INSTRUCTIONS,
                 },
             }
         }

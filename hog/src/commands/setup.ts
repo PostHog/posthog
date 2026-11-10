@@ -43,10 +43,6 @@ const OPTIONS = {
         type: 'boolean',
         description: 'You checked your changes against the install rules and fixed any that broke one',
     },
-    productsAck: {
-        type: 'boolean',
-        description: 'You told the person what else PostHog can do, and the setup can finish',
-    },
 } as const satisfies Record<string, OptionSpec>
 
 function printBlocks(out: Output, blocks: readonly (readonly string[])[]): void {
@@ -76,13 +72,17 @@ function printDone(out: Output, result: SetupResult): void {
 
 function printContext(out: Output, result: SetupResult): void {
     const { warnings, token, apiHost, events, products = [], skills = [], agentsMd = [] } = result.context
-    const atProducts = result.step === 'products' && result.status === 'in_progress'
+    const finished = result.status === 'connected' && products.length > 0
 
     printBlocks(out, [
         warnings.map((warning) => out.style(escapeControls(warning), 'yellow')),
         token && apiHost ? [`Project token: ${escapeControls(token)}`, `Host for the SDK: ${apiHost}`] : [],
-        events?.count != null ? [`${plural(events.count, 'event')} since ${events.since}`] : [],
-        atProducts
+        events?.count === 0
+            ? [out.style(`No events since ${events.since}`, 'yellow')]
+            : events?.count != null
+              ? [`${plural(events.count, 'event')} since ${events.since}`]
+              : [],
+        finished
             ? [
                   out.style('What else PostHog can do:', 'bold'),
                   ...products.map(
@@ -91,7 +91,7 @@ function printContext(out: Output, result: SetupResult): void {
                   ),
               ]
             : [],
-        atProducts && skills.length > 0
+        finished && skills.length > 0
             ? [
                   out.style('Skills you can add later with hog skills add <id...>:', 'bold'),
                   ...skills.map((skill) => `  ${escapeControls(skill.id)}: ${escapeControls(skill.description)}`),
@@ -109,8 +109,6 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
     switch (next.kind) {
         case 'ask_user':
             return [`Run ${setupNext} to answer this question at the terminal.`, `  ${escapeControls(next.ask)}`]
-        case 'tell_user':
-            return [`Look through the lists above, then run ${out.style(next.command, 'bold')}.`]
         case 'wait':
             return [
                 `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. New users can sign up on the same page. Then run ${setupNext}.`,
@@ -150,7 +148,7 @@ export default defineCommand({
         '`hog setup` shows the current step and what `hog setup next` will do, and changes nothing.',
         '`hog setup next` does the current step and keeps going until a step needs you or your agent. Its output names that step.',
         'The setup belongs to the folder of the closest posthog.json, or to this folder when there is none, so each app in a monorepo has its own.',
-        'An agent asks the person one question, passes the answer as options, and runs `hog setup next` again after each step.',
+        'An agent passes the answers as options, and asks the person only what it does not know. It runs `hog setup next` again only when a step stops.',
     ].join('\n'),
     examples: [
         'hog setup',
@@ -158,7 +156,6 @@ export default defineCommand({
         'hog setup next --reason "See where users drop off" --products product-analytics,session-replay',
         'hog setup next --reason "Track errors in our EU app" --products error-tracking --region eu',
         'hog setup next --reviewed',
-        'hog setup next --products-ack',
     ],
 
     async run({ args, options, ctx }): Promise<SetupResult> {
@@ -195,10 +192,6 @@ export default defineCommand({
     agent({ result, out }) {
         out.json(result)
     },
-
-    // `hog setup next` checked for events and found none. At the verify step, `hog setup` only
-    // describes the check, so its count stays null and it exits 0.
-    exitCode: (result) => (result.code === 'setup_no_events_yet' && result.context.events?.count === 0 ? 1 : 0),
 
     telemetry: ({ args, result }) => ({
         setup_action: args.action ?? 'status',

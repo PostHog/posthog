@@ -195,18 +195,12 @@ describe('hog setup', () => {
                 kind: 'ask_user',
                 ask: 'What do you want to use PostHog for?',
                 command: 'hog setup next --reason "<their answer>" --products <id,id>',
-                instructions: expect.stringContaining('yourself'),
+                instructions: expect.stringContaining('If you already know what the user wants PostHog for'),
             },
             context: { folder: '/work', configPath: null },
         })
         expect((fresh.json() as any).context.products.map((product: { id: string }) => product.id)).toContain(
             'mcp-analytics'
-        )
-        expect((fresh.json() as any).next.instructions).toContain('Your answer stays on this machine.')
-
-        const askedWithTelemetry = await machine.run(['setup'], { telemetry: true })
-        expect((askedWithTelemetry.json() as any).next.instructions).toContain(
-            'Your answer goes to PostHog, to improve setup. To keep it on this machine, set HOG_NO_TELEMETRY=1.'
         )
 
         const started = await machine.run(['setup', 'next', ...ANSWERS], { telemetry: true })
@@ -273,36 +267,29 @@ describe('hog setup', () => {
             next: { kind: 'read', command: 'hog setup next --reviewed' },
         })
 
-        // An event PostHog received before the setup started doesn't count.
+        // An event PostHog received before the setup started doesn't count, and setup finishes
+        // without events after waiting for them.
         machine.events.push(START - 60_000)
         const reviewed = await machine.run(['setup', 'next', '--reviewed'])
-        expect(reviewed.exitCode).toBe(1)
+        expect(reviewed.exitCode).toBe(0)
         expect(reviewed.json()).toMatchObject({
-            step: 'verify',
-            code: 'setup_no_events_yet',
-            next: { kind: 'run', command: 'hog setup next' },
-            context: { events: { since: '2026-01-01T00:00:00.000Z', count: 0 } },
-        })
-
-        machine.events.push(START + 60_000)
-        const verified = await machine.run(['setup', 'next'])
-        expect(verified.exitCode).toBe(0)
-        expect(verified.json()).toMatchObject({
-            step: 'products',
-            next: {
-                kind: 'tell_user',
-                command: 'hog setup next --products-ack',
-                instructions: expect.stringContaining('hog skills add <id...>'),
+            step: 'connected',
+            status: 'connected',
+            next: { kind: 'done' },
+            context: {
+                events: { since: '2026-01-01T00:00:00.000Z', count: 0 },
+                skills: [{ id: 'querying-posthog-data' }],
             },
-            context: { skills: [{ id: 'querying-posthog-data' }] },
         })
-        expect((verified.json() as any).context.products.slice(0, 2)).toMatchObject([
+        const instructions = (reviewed.json() as any).next.instructions
+        expect(instructions).toContain("PostHog hasn't received any events yet.")
+        expect(instructions).toContain('At the end of your turn, tell the user')
+        expect(reviewed.requests.filter((request) => request.url.endsWith('/query')).length).toBeGreaterThan(1)
+        expect((reviewed.json() as any).context.products.slice(0, 2)).toMatchObject([
             { id: 'session-replay', chosen: true, command: 'hog learn -s "session replay"' },
             { id: 'feature-flags', chosen: true, command: 'hog learn posthog:instrument-feature-flags' },
         ])
 
-        const finished = await machine.run(['setup', 'next', '--products-ack'])
-        expect(finished.json()).toMatchObject({ step: 'connected', status: 'connected', next: { kind: 'done' } })
         const agentsMd = machine.files['/work/AGENTS.md'] ?? ''
         expect(agentsMd).toStartWith('# My app\n\nUse pnpm.\n\n<!-- posthog:setup:start -->')
         expect(agentsMd).not.toContain('in progress')
@@ -312,7 +299,9 @@ describe('hog setup', () => {
         )
         expect(agentsMd.indexOf('Session replay')).toBeLessThan(agentsMd.indexOf('Debugging errors'))
 
+        machine.events.push(START + 60_000)
         const summary = await machine.run(['setup'])
+        expect((summary.json() as any).next.instructions).not.toContain('tell the user')
         expect(summary.json()).toMatchObject({
             status: 'connected',
             context: { loggedIn: true, events: { count: 1 } },
