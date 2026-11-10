@@ -83,15 +83,16 @@ const PER_SEND_METADATA_KEYS = [
     'teamBudgetClaimed',
 ] as const
 
-function withoutPerSendMetadata(
-    metadata: CyclotronJobInvocationHogFlow['queueMetadata']
+const SEND_WITH_FILES_METADATA_KEYS = ['attachmentDueAt', 'attachmentDeferrals'] as const
+
+function withoutMetadata(
+    metadata: CyclotronJobInvocationHogFlow['queueMetadata'],
+    keys: readonly string[]
 ): CyclotronJobInvocationHogFlow['queueMetadata'] {
-    if (!metadata || !PER_SEND_METADATA_KEYS.some((key) => key in metadata)) {
+    if (!metadata || !keys.some((key) => key in metadata)) {
         return metadata
     }
-    return Object.fromEntries(
-        Object.entries(metadata).filter(([key]) => !(PER_SEND_METADATA_KEYS as readonly string[]).includes(key))
-    )
+    return Object.fromEntries(Object.entries(metadata).filter(([key]) => !keys.includes(key)))
 }
 
 export function createHogFlowInvocation(
@@ -704,7 +705,10 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
-            queueMetadata: invocation.queue === 'email' ? withoutPerSendMetadata(invocation.queueMetadata) : undefined,
+            queueMetadata:
+                invocation.queue === 'email'
+                    ? withoutMetadata(invocation.queueMetadata, PER_SEND_METADATA_KEYS)
+                    : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 
@@ -916,6 +920,12 @@ export class HogFlowExecutorService {
         result.finished = false
 
         result.invocation.state.actionStepCount++
+        if (currentAction.type === 'function_email') {
+            result.invocation.queueMetadata = withoutMetadata(
+                result.invocation.queueMetadata,
+                SEND_WITH_FILES_METADATA_KEYS
+            )
+        }
         // Update the state to be going to the next action
         result.invocation.state.currentAction = {
             id: nextAction.id,
