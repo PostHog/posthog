@@ -13,9 +13,9 @@ SCHEDULE_TYPE = "surfacing-scoring-sweep"
 
 MODEL_S3_KEY = "surfacing-scoring/surfacing_score_xgb_v1.ubj"
 
-# A true value makes every tick finish with no work. Each deploy recreates the schedule, so a pause
+# Unless this is true, every tick finishes with no work. Each deploy recreates the schedule, so a pause
 # in Temporal does not hold, and an unset model URI fails every tick instead of skipping it.
-SCORING_DISABLED_ENV_VAR = "SESSION_SURFACING_SCORING_DISABLED"
+SCORING_ENABLED_ENV_VAR = "SESSION_SURFACING_SCORING_ENABLED"
 
 # Pipeline cadence. Must align with the consumer's freshness expectation —
 # 5m gives the model 5 minutes of headroom between fetch and re-tick, which

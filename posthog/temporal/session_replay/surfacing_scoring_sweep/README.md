@@ -274,8 +274,8 @@ The schedule fires every 5 min with `ScheduleOverlapPolicy.SKIP` — if a tick
 is still running when the next is due, the new one is dropped (the next
 tick's CH `IS NULL` filter naturally picks up whatever the slow tick missed).
 
-To turn scoring off in a region, set `SESSION_SURFACING_SCORING_DISABLED=true` on the worker.
-Each tick then completes with no chunks, without a ClickHouse query or a backlog gauge, so the scoring alerts stay quiet.
+Scoring runs only where the worker sets `SESSION_SURFACING_SCORING_ENABLED=true`.
+Elsewhere each tick completes with no chunks, without a ClickHouse query or a backlog gauge, so the scoring alerts stay quiet.
 Pausing the schedule in Temporal does not hold, because every deploy upserts it again.
 
 ## Metrics
