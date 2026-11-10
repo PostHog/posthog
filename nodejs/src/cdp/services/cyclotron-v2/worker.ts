@@ -3,9 +3,10 @@ import { Pool, PoolClient } from 'pg'
 import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
+import { ValueMatcher, buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 
-import { assignEmailDequeueSeq } from './manager'
+import { assignEmailDequeueSeq, assignFastEmailDequeueSeq, usesFastEmailCounter } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -234,6 +235,7 @@ export class CyclotronV2Worker {
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
+    private readonly fastEmailCounterTeams: ValueMatcher<number>
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = createCyclotronPool('worker', {
@@ -251,6 +253,7 @@ export class CyclotronV2Worker {
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
         this.fairDequeue = config.queueName === 'email'
+        this.fastEmailCounterTeams = buildIntegerMatcher(config.fastEmailCounterTeams, true)
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -428,6 +431,7 @@ export class CyclotronV2Worker {
 
     protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
+        const fastEmailCounterTeams = this.fastEmailCounterTeams
         const lockId = row.lock_id
         let released = false
 
@@ -542,7 +546,13 @@ export class CyclotronV2Worker {
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
                 if (options?.queueName === 'email' && row.queue_name !== 'email') {
-                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
+                    const dequeueSeq = usesFastEmailCounter(
+                        fastEmailCounterTeams,
+                        row.team_id,
+                        options.priority ?? row.priority
+                    )
+                        ? await assignFastEmailDequeueSeq(pool, row.team_id)
+                        : await assignEmailDequeueSeq(pool, row.team_id)
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
                 }

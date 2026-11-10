@@ -1,4 +1,4 @@
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -2315,6 +2315,124 @@ describe('Cyclotron V2', () => {
                 // and the per-team counter should have been bumped to 1.
                 expect(await readDequeueSeq(hogJobId)).toBe(BigInt(16_777_216) + BigInt(teamId))
                 expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+
+            describe('fast email counter', () => {
+                const FAST = 0
+                const BULK = 1
+                const teamId = 77
+
+                const createFastCounterManager = (): CyclotronV2Manager =>
+                    createManager({ fastEmailCounterTeams: String(teamId) })
+
+                const holdBulkCounterRow = async (): Promise<PoolClient> => {
+                    await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: BULK }])
+                    const holder = await assertPool.connect()
+                    await holder.query('BEGIN')
+                    await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [
+                        teamId,
+                    ])
+                    return holder
+                }
+
+                const finishesWithin = async (work: Promise<unknown>, ms: number): Promise<boolean> => {
+                    let timer: NodeJS.Timeout | undefined
+                    const deadline = new Promise<false>((resolve) => {
+                        timer = setTimeout(() => resolve(false), ms)
+                    })
+                    try {
+                        return await Promise.race([work.then(() => true), deadline])
+                    } finally {
+                        clearTimeout(timer)
+                    }
+                }
+
+                beforeEach(async () => {
+                    await assertPool.query('DELETE FROM cyclotron_email_team_seq_fast')
+                })
+
+                it.each([
+                    [
+                        'sent straight to the email queue',
+                        async (): Promise<() => Promise<unknown>> => {
+                            const fastManager = createFastCounterManager()
+                            await fastManager.connect()
+                            return async () => {
+                                try {
+                                    await fastManager.bulkCreateJobs([
+                                        { teamId, queueName: EMAIL_QUEUE, priority: FAST },
+                                    ])
+                                } finally {
+                                    await fastManager.disconnect()
+                                }
+                            }
+                        },
+                    ],
+                    [
+                        'rerouted from a workflow into the email queue',
+                        async (): Promise<() => Promise<unknown>> => {
+                            await manager.createJob({ teamId, queueName: 'hogflow', priority: BULK })
+                            const [hogflowJob] = await dequeueOneBatch(
+                                createWorker('hogflow', { fastEmailCounterTeams: String(teamId) })
+                            )
+                            return () => hogflowJob.reschedule({ queueName: EMAIL_QUEUE, priority: FAST })
+                        },
+                    ],
+                ])(
+                    "makes a fast email %s claimable while the team's bulk counter row is locked",
+                    async (_path, prepareFastSend) => {
+                        const sendFast = await prepareFastSend()
+                        const holder = await holdBulkCounterRow()
+                        let sent: Promise<unknown> = Promise.resolve()
+                        try {
+                            sent = sendFast()
+                            expect(await finishesWithin(sent, 1000)).toBe(true)
+
+                            const [claimed] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                            expect(claimed).toMatchObject({ teamId, priority: FAST })
+                        } finally {
+                            await holder.query('ROLLBACK')
+                            holder.release()
+                            await sent.catch(() => undefined)
+                        }
+                    }
+                )
+
+                it('keeps fast email of a team outside the switch on the bulk counter row', async () => {
+                    const holder = await holdBulkCounterRow()
+                    let sent: Promise<unknown> = Promise.resolve()
+                    try {
+                        sent = manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: FAST }])
+                        expect(await finishesWithin(sent, 200)).toBe(false)
+                    } finally {
+                        await holder.query('ROLLBACK')
+                        holder.release()
+                        await sent
+                    }
+                })
+
+                it("queues a team's first fast email on its own counter behind the fast email it already has waiting", async () => {
+                    await manager.bulkCreateJobs(
+                        Array.from({ length: 5 }, () => ({ teamId, queueName: EMAIL_QUEUE, priority: BULK }))
+                    )
+                    const [waitingId] = await manager.bulkCreateJobs([
+                        { teamId, queueName: EMAIL_QUEUE, priority: FAST },
+                    ])
+                    const fastManager = createFastCounterManager()
+                    const [laterId] = await fastManager.bulkCreateJobs([
+                        { teamId, queueName: EMAIL_QUEUE, priority: FAST },
+                    ])
+                    await fastManager.disconnect()
+
+                    const drained: string[] = []
+                    for (let i = 0; i < 2; i++) {
+                        const [job] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                        drained.push(job.id)
+                        await job.ack()
+                    }
+
+                    expect(drained).toEqual([waitingId, laterId])
+                })
             })
 
             it('does not bump dequeue_seq when an email job is rescheduled within the email queue', async () => {

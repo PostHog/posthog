@@ -2,12 +2,14 @@ import { Pool } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
+import { ValueMatcher, buildIntegerMatcher } from '~/common/config/matchers'
 import { isTransientPgError } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
+import { EMAIL_QUEUE_PRIORITY } from '../messaging/email-priority'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -77,9 +79,66 @@ export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise
             [teamId]
         )
     }
-    const counter = BigInt(result.rows[0].counter)
-    // pg accepts BIGINT as string to avoid JS number precision loss
+    return emailDequeueSeq(BigInt(result.rows[0].counter), teamId)
+}
+
+export function usesFastEmailCounter(
+    fastEmailCounterTeams: ValueMatcher<number>,
+    teamId: number,
+    priority: number
+): boolean {
+    return priority === EMAIL_QUEUE_PRIORITY.fast && fastEmailCounterTeams(teamId)
+}
+
+export async function assignFastEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
+    const counters = await bumpFastEmailCounters(pool, new Map([[teamId, 1]]))
+    return emailDequeueSeq(counters.get(teamId)!, teamId)
+}
+
+function emailDequeueSeq(counter: bigint, teamId: number): string {
     return (counter * EMAIL_DEQUEUE_BLOCK_SIZE + BigInt(teamId)).toString()
+}
+
+async function bumpFastEmailCounters(pool: Pool, incrementsByTeam: Map<number, number>): Promise<Map<number, bigint>> {
+    const counters = await incrementFastEmailCounters(pool, incrementsByTeam)
+    const unseeded = new Map([...incrementsByTeam].filter(([teamId]) => !counters.has(teamId)))
+    if (unseeded.size > 0) {
+        await seedFastEmailCountersFromSharedHighWater(pool, [...unseeded.keys()])
+        for (const [teamId, counter] of await incrementFastEmailCounters(pool, unseeded)) {
+            counters.set(teamId, counter)
+        }
+    }
+    return counters
+}
+
+async function incrementFastEmailCounters(
+    pool: Pool,
+    incrementsByTeam: Map<number, number>
+): Promise<Map<number, bigint>> {
+    const result = await pool.query<{ team_id: number; counter: string }>(
+        `UPDATE cyclotron_email_team_seq_fast AS seq
+         SET counter = seq.counter + t.increment
+         FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
+         WHERE seq.team_id = t.team_id
+         RETURNING seq.team_id, seq.counter`,
+        [[...incrementsByTeam.keys()], [...incrementsByTeam.values()]]
+    )
+    return new Map(result.rows.map((row) => [row.team_id, BigInt(row.counter)]))
+}
+
+async function seedFastEmailCountersFromSharedHighWater(pool: Pool, teamIds: number[]): Promise<void> {
+    await pool.query(
+        `INSERT INTO cyclotron_email_team_seq_fast (team_id, counter)
+         SELECT t.team_id,
+                GREATEST(
+                    (SELECT COALESCE(MAX(counter), 0) FROM cyclotron_email_team_seq_fast),
+                    COALESCE(shared.counter, 0)
+                )
+         FROM unnest($1::int[]) AS t(team_id)
+         LEFT JOIN cyclotron_email_team_seq AS shared ON shared.team_id = t.team_id
+         ON CONFLICT (team_id) DO NOTHING`,
+        [teamIds]
+    )
 }
 
 // Counts Postgres write failures from createJob / bulkCreateJobs *after* input
@@ -137,8 +196,27 @@ export class CyclotronJobConflictError extends Error {
     }
 }
 
+function fillEmailDequeueSeqs(
+    dequeueSeqs: (string | null)[],
+    indicesByTeam: Map<number, number[]>,
+    counters: Map<number, bigint>
+): void {
+    for (const [teamId, indices] of indicesByTeam) {
+        const newCounter = counters.get(teamId)
+        if (newCounter === undefined) {
+            logger.error('Missing email counter after bumping it', { teamId })
+            continue
+        }
+        const startCounter = newCounter - BigInt(indices.length) + 1n
+        indices.forEach((jobIndex, k) => {
+            dequeueSeqs[jobIndex] = emailDequeueSeq(startCounter + BigInt(k), teamId)
+        })
+    }
+}
+
 export class CyclotronV2Manager {
     private pool: Pool
+    private readonly fastEmailCounterTeams: ValueMatcher<number>
     private readonly depthLimit: number
     private readonly depthCheckIntervalMs: number
     private depthCheckPromise: Promise<boolean> | null = null
@@ -159,6 +237,7 @@ export class CyclotronV2Manager {
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
         })
+        this.fastEmailCounterTeams = buildIntegerMatcher(config.fastEmailCounterTeams, true)
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
         this.reschedule = {
@@ -400,27 +479,40 @@ export class CyclotronV2Manager {
      * by team_id from there. Continuing teams just keep incrementing.
      */
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
-        const indicesByTeam = new Map<number, number[]>()
+        const sharedIndicesByTeam = new Map<number, number[]>()
+        const fastIndicesByTeam = new Map<number, number[]>()
         for (let i = 0; i < jobs.length; i++) {
-            if (jobs[i].queueName !== 'email') {
+            const { queueName, teamId, priority } = jobs[i]
+            if (queueName !== 'email') {
                 continue
             }
-            const indices = indicesByTeam.get(jobs[i].teamId)
+            const indicesByTeam = usesFastEmailCounter(this.fastEmailCounterTeams, teamId, priority ?? 0)
+                ? fastIndicesByTeam
+                : sharedIndicesByTeam
+            const indices = indicesByTeam.get(teamId)
             if (indices) {
                 indices.push(i)
             } else {
-                indicesByTeam.set(jobs[i].teamId, [i])
+                indicesByTeam.set(teamId, [i])
             }
         }
 
         const dequeueSeqs: (string | null)[] = new Array(jobs.length).fill(null)
-        if (indicesByTeam.size === 0) {
-            return dequeueSeqs
+        if (sharedIndicesByTeam.size > 0) {
+            const counters = await this.bumpSharedEmailCounters(sharedIndicesByTeam)
+            fillEmailDequeueSeqs(dequeueSeqs, sharedIndicesByTeam, counters)
         }
+        if (fastIndicesByTeam.size > 0) {
+            const increments = new Map([...fastIndicesByTeam].map(([teamId, indices]) => [teamId, indices.length]))
+            const counters = await bumpFastEmailCounters(this.pool, increments)
+            fillEmailDequeueSeqs(dequeueSeqs, fastIndicesByTeam, counters)
+        }
+        return dequeueSeqs
+    }
 
+    private async bumpSharedEmailCounters(indicesByTeam: Map<number, number[]>): Promise<Map<number, bigint>> {
         const teamIds = [...indicesByTeam.keys()]
         const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
-
         // Atomic per-team UPSERT. Concurrent inserts for different teams don't
         // contend; same-team inserts serialize briefly on the row. Returns the
         // new counter value per team — we then derive individual job counters
@@ -444,25 +536,7 @@ export class CyclotronV2Manager {
             [teamIds, increments]
         )
 
-        const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
-
-        for (const [teamId, indices] of indicesByTeam) {
-            const newCounter = newCounters.get(teamId)
-            if (newCounter === undefined) {
-                // Should never happen — every team in indicesByTeam was UPSERTed.
-                logger.error('Missing counter after UPSERT in computeEmailDequeueSeqs', { teamId })
-                continue
-            }
-            const startCounter = newCounter - BigInt(indices.length) + 1n
-            const teamIdBigInt = BigInt(teamId)
-            for (let k = 0; k < indices.length; k++) {
-                const counterForThisJob = startCounter + BigInt(k)
-                // pg accepts BIGINT as string to avoid JS number precision loss
-                dequeueSeqs[indices[k]] = (counterForThisJob * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
-            }
-        }
-
-        return dequeueSeqs
+        return new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
     }
 
     // "In flight" = jobs still owned by the queue: parked waits/delays ('available' with a future

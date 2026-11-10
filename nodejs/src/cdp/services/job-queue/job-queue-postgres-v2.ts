@@ -60,6 +60,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
+            | 'CDP_EMAIL_FAST_COUNTER_TEAMS'
         >
     ) {
         this.sanitizer = createInvocationSanitizer(config)
@@ -76,6 +77,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         this.manager = new CyclotronV2Manager({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             depthLimit: this.config.CYCLOTRON_SHARD_DEPTH_LIMIT,
+            fastEmailCounterTeams: this.config.CDP_EMAIL_FAST_COUNTER_TEAMS,
         })
         await this.manager.connect()
     }
@@ -102,6 +104,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         this.worker = this.createWorker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: queue,
+            fastEmailCounterTeams: this.config.CDP_EMAIL_FAST_COUNTER_TEAMS,
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,

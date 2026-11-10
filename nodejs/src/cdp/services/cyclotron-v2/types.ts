@@ -116,6 +116,7 @@ export interface CyclotronV2DequeuedJob {
 
 export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
+    fastEmailCounterTeams?: string
     depthLimit?: number
     depthCheckIntervalMs?: number
     // Knobs for rescheduleParkedJobs — see that method for semantics.
@@ -218,6 +219,7 @@ export type CyclotronV2BatchLimit = { limit: number; sleepMs?: number }
 export type CyclotronV2WorkerConfig = {
     pool: CyclotronV2PoolConfig
     queueName: string
+    fastEmailCounterTeams?: string
     batchMaxSize?: number
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
