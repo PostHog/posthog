@@ -47,6 +47,9 @@ class Unquoted:
 
     text: str
 
+    def __str__(self) -> str:
+        return self.text
+
 
 class StrictLoader(YAML_LOADER):  # type: ignore[misc,valid-type]
     """Reads YAML without converting a scalar, and refuses repeated keys and aliases.
@@ -54,9 +57,9 @@ class StrictLoader(YAML_LOADER):  # type: ignore[misc,valid-type]
     The replay and the head lockfile are compared as the structures this loader builds, so it must
     not read two different texts as one structure. Type coercion would, because `1.10` and `1.1` are
     one float. Reading every scalar as a string would too, because pnpm reads `true` as a boolean and
-    `"true"` as a string. So a string stays a `str`, and any other scalar becomes an `Unquoted` that
-    holds its text. A repeated key is refused, because this parser keeps the last value and pnpm's
-    may not.
+    `"true"` as a string. So a string stays a `str`, a null stays `None`, and any other scalar becomes
+    an `Unquoted` that holds its text. A repeated key is refused, because this parser keeps the last
+    value and pnpm's may not.
     """
 
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
@@ -66,11 +69,14 @@ class StrictLoader(YAML_LOADER):  # type: ignore[misc,valid-type]
         return super().construct_mapping(node, deep=deep)
 
 
-for _tag in ("bool", "int", "float", "null", "timestamp"):
+for _tag in ("bool", "int", "float", "timestamp"):
     StrictLoader.add_constructor(f"tag:yaml.org,2002:{_tag}", lambda _loader, node: Unquoted(node.value))
-# PyYAML resolves YAML 1.1 and pnpm reads YAML 1.2, which adds these two number forms.
+# PyYAML resolves YAML 1.1. pnpm reads YAML 1.2, where a number needs neither a dot nor a sign on
+# its exponent, and where `0o` starts an octal. This pattern also takes the `_` that js-yaml allows.
 StrictLoader.add_implicit_resolver(
-    "tag:yaml.org,2002:float", re.compile(r"^(?:[-+]?[0-9]+[eE][-+]?[0-9]+|0o[0-7]+)$"), list("-+0123456789")
+    "tag:yaml.org,2002:float",
+    re.compile(r"^[-+]?(?:(?:[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9_]+)(?:[eE][-+]?[0-9]+)?|0o[0-7_]+)$"),
+    list("-+.0123456789"),
 )
 
 
