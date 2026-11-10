@@ -19,23 +19,18 @@ export function stoppedEventPayload(issue: HealthIssue): StoppedEventPayload {
     return issue.payload as StoppedEventPayload
 }
 
-export function stoppedEventLastSeen(payload: StoppedEventPayload, now: dayjs.Dayjs = dayjs()): string {
+export function stoppedEventStoppedAgo(payload: StoppedEventPayload, now: dayjs.Dayjs = dayjs()): string {
     const days = Math.max(1, now.diff(dayjs(payload.last_seen_at), 'day'))
-    const lastSeen = `Last seen ${pluralize(days, 'day')} ago`
-    return payload.daily_average_before
-        ? `${lastSeen}, down from about ${humanFriendlyLargeNumber(payload.daily_average_before)} a day`
-        : lastSeen
+    return `${pluralize(days, 'day')} ago`
+}
+
+export function stoppedEventDailyVolume(payload: StoppedEventPayload): string | null {
+    return payload.daily_average_before ? `~${humanFriendlyLargeNumber(payload.daily_average_before)}` : null
 }
 
 /** Where the last events came from, to help find the code that stopped sending it. */
 export function stoppedEventLastCapture(payload: StoppedEventPayload): string | null {
-    if (payload.last_lib && payload.last_path) {
-        return `Last sent by ${payload.last_lib} on ${payload.last_path}`
-    }
-    if (payload.last_lib) {
-        return `Last sent by ${payload.last_lib}`
-    }
-    return null
+    return [payload.last_lib, payload.last_path].filter(Boolean).join(' · ') || null
 }
 
 export function stoppedEventAnnotationText(payload: StoppedEventPayload): string | null {

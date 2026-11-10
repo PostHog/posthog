@@ -3,9 +3,10 @@ import { dayjs } from 'lib/dayjs'
 import {
     StoppedEventPayload,
     stoppedEventAnnotationText,
+    stoppedEventDailyVolume,
     stoppedEventLastCapture,
-    stoppedEventLastSeen,
     stoppedEventPrompt,
+    stoppedEventStoppedAgo,
 } from './stoppedEventText'
 
 const NOW = dayjs('2026-11-10T12:00:00Z')
@@ -19,24 +20,26 @@ const basePayload: StoppedEventPayload = {
 
 describe('stoppedEventText', () => {
     test.each([
-        ['several days ago', basePayload, 'Last seen 5\u00a0days ago'],
-        [
-            'with the volume before',
-            { ...basePayload, daily_average_before: 1240 },
-            'Last seen 5\u00a0days ago, down from about 1.24K a day',
-        ],
-        ['under a day ago', { ...basePayload, last_seen_at: '2026-11-10T06:00:00Z' }, 'Last seen 1\u00a0day ago'],
-    ])('last seen %s', (_name, payload, expected) => {
-        expect(stoppedEventLastSeen(payload, NOW)).toEqual(expected)
+        ['several days ago', basePayload, '5\u00a0days ago'],
+        ['under a day ago', { ...basePayload, last_seen_at: '2026-11-10T06:00:00Z' }, '1\u00a0day ago'],
+    ])('stopped %s', (_name, payload, expected) => {
+        expect(stoppedEventStoppedAgo(payload, NOW)).toEqual(expected)
+    })
+
+    test.each([
+        ['an unknown volume', basePayload, null],
+        ['a known volume', { ...basePayload, daily_average_before: 1240 }, '~1.24K'],
+    ])('daily volume with %s', (_name, payload, expected) => {
+        expect(stoppedEventDailyVolume(payload)).toEqual(expected)
     })
 
     test.each([
         ['nothing known', basePayload, null],
-        ['only the SDK', { ...basePayload, last_lib: 'posthog-node' }, 'Last sent by posthog-node'],
+        ['only the SDK', { ...basePayload, last_lib: 'posthog-node' }, 'posthog-node'],
         [
             'the SDK and page',
             { ...basePayload, last_lib: 'web', last_path: '/checkout/confirm' },
-            'Last sent by web on /checkout/confirm',
+            'web · /checkout/confirm',
         ],
     ])('last capture with %s', (_name, payload, expected) => {
         expect(stoppedEventLastCapture(payload)).toEqual(expected)
