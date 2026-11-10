@@ -354,6 +354,11 @@ class SurfacesAllFindingsWhenListed(SurfacesAllFindings):
     The parent scores such a case 1.0, which would lift this suite's average with cases it never graded.
     """
 
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # The parent pins its own suite's baseline model. This suite grades every judge with one model.
+        self.model = judge_model()
+
     def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
         if not isinstance(expected, dict) or self._name() not in expected:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})

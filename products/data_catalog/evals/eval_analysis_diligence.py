@@ -18,6 +18,7 @@ from products.data_catalog.evals.scenario_seeder import (
     seed_org_grain_metric,
     seed_preview_adoption,
     seed_revenue_rep_outlier,
+    seed_share_dau,
     seed_share_drop_flag,
     seed_slack_pretax_note,
     seed_upload_double_count,
@@ -36,6 +37,7 @@ from products.data_catalog.evals.scenario_synthesizer import (
     POST_TAX_MULTIPLIER,
     PREVIEW_EVENT,
     PREVIEW_FIRST_SEEN_DAYS_AGO,
+    SHARE_DAU_DAILY_SHARERS,
     SHARE_FLAG_KEY,
     UPLOAD_DUPLICATE_LIB_VERSION,
     WAU_BOT_BROWSER,
@@ -237,10 +239,12 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
                     "expected_behavior": (
                         "Check the metrics catalog and find no governed definition. State the definition used "
                         "(for example, distinct users with at least one shared_file_link event per day, averaged "
-                        "over a stated date range) and give the number for that definition."
+                        "over a stated date range) and give the number for that definition. For that definition "
+                        f"over any range in the last 90 days, the number is about {SHARE_DAU_DAILY_SHARERS}."
                     )
                 },
             },
+            setup=seed_share_dau,
         ),
         SandboxedEvalCase(
             name="adoption_with_first_seen",

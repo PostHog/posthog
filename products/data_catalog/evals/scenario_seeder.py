@@ -43,6 +43,8 @@ from products.data_catalog.evals.scenario_synthesizer import (
     PREVIEW_ADOPTION,
     SHARE_BLOCK_FROM_DAYS_AGO,
     SHARE_BLOCK_TO_DAYS_AGO,
+    SHARE_DAU_DAILY_SHARERS,
+    SHARE_DAU_WINDOW_DAYS,
     SHARE_FLAG_BLOCKED_VARIANT,
     SHARE_FLAG_CONTROL_VARIANT,
     SLACK_PRETAX_TEXT,
@@ -55,6 +57,7 @@ from products.data_catalog.evals.scenario_synthesizer import (
     build_account_health,
     build_mcp_tool_shipped,
     build_revenue_rep_outlier,
+    build_share_dau,
     build_share_drop_flag,
     build_slack_export,
     build_wau_bot_spike,
@@ -75,6 +78,7 @@ __all__ = [
     "seed_org_grain_metric",
     "seed_preview_adoption",
     "seed_revenue_rep_outlier",
+    "seed_share_dau",
     "seed_share_drop_flag",
     "seed_slack_pretax_note",
     "seed_upload_double_count",
@@ -301,6 +305,12 @@ def seed_wau_bot_spike(context: CustomPromptSandboxContext) -> dict[str, Any]:
 def seed_upload_double_count(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team, user = _team_and_user(context)
     return {"upload_double_count": _plant_upload_double_count(team, user, timezone.now())}
+
+
+def seed_share_dau(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, _ = _team_and_user(context)
+    events = _plant_needle(team, build_share_dau(), timezone.now())
+    return {"share_dau": {"daily_sharers": SHARE_DAU_DAILY_SHARERS, "days": SHARE_DAU_WINDOW_DAYS, "events": events}}
 
 
 def seed_share_drop_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
