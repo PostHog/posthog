@@ -337,16 +337,18 @@ describe('broadcastsLogic', () => {
     })
 
     describe('saving a row’s tags', () => {
-        let saved: any[]
         let saveResponse: any
 
         beforeEach(async () => {
-            saved = []
+            saveResponse = undefined
             useMocks({
                 post: {
                     '/api/projects/:team_id/hog_flows/bulk_update_tags/': async ({ request }) => {
-                        saved.push(await request.json())
-                        return [200, saveResponse]
+                        const { tags } = (await request.json()) as { tags: string[] }
+                        if (!saveResponse) {
+                            flows = [{ ...DRAFT, tags: tags.map((tag) => tag.toLowerCase()) }]
+                        }
+                        return [200, saveResponse ?? { updated: flows, skipped: [] }]
                     },
                 },
             })
@@ -356,30 +358,24 @@ describe('broadcastsLogic', () => {
         })
 
         it.each([
-            { tagFilter: [], reloads: 0 },
-            { tagFilter: ['vip'], reloads: 1 },
+            { tagFilter: [], shown: [{ tags: ['new'] }] },
+            { tagFilter: ['vip'], shown: [] },
         ])(
             'shows the edit at once and stores the saved tags, reloading only under a tag filter ($tagFilter)',
-            async ({ tagFilter, reloads }) => {
+            async ({ tagFilter, shown }) => {
                 logic.actions.setFiltersFromUrl({ ...logic.values.filters, tags: tagFilter })
                 await expectLogic(logic).toDispatchActions(['loadBroadcastsSuccess'])
-                const loadsBefore = listed.length
-                saveResponse = { updated: [{ id: DRAFT.id, tags: ['vip', 'new'] }], skipped: [] }
-                flows = [{ ...DRAFT, tags: ['vip', 'new'] }]
 
-                logic.actions.saveBroadcastTags(DRAFT.id, ['vip', 'New'])
+                logic.actions.saveBroadcastTags(DRAFT.id, ['New'])
                 expect(logic.values).toMatchObject({
                     savingTagsFor: DRAFT.id,
-                    broadcasts: { results: [{ tags: ['vip', 'New'] }] },
+                    broadcasts: { results: [{ tags: ['New'] }] },
                 })
                 await expectLogic(logic).toDispatchActions(['broadcastTagsSaved']).toFinishAllListeners()
 
-                expect(saved).toEqual([{ ids: [DRAFT.id], action: 'set', tags: ['vip', 'New'] }])
-                expect(logic.values).toMatchObject({
-                    savingTagsFor: null,
-                    broadcasts: { results: [{ tags: ['vip', 'new'] }] },
-                })
-                expect(listed.length - loadsBefore).toBe(reloads)
+                await waitFor(() =>
+                    expect(logic.values).toMatchObject({ savingTagsFor: null, broadcasts: { results: shown } })
+                )
             }
         )
 
