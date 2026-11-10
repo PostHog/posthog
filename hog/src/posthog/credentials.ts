@@ -52,6 +52,7 @@ function fromLookup(
     if (!apiKey || !projectId) {
         return undefined
     }
+
     return { apiKey, projectId, host: lookup('HOG_HOST') || undefined }
 }
 
@@ -232,9 +233,11 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
             }
             throw error
         })
+
         const query = loginQuery(runtime, options)
         const { choice, record } = chooseLogin(settings, query)
         const login = record && (await readLogin(runtime, settings, record))
+
         if (login) {
             // Before a renewal, so hog never renews a key it then refuses to send.
             checkConfigHost(login.key.host)
@@ -247,14 +250,18 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
                     EXIT_USAGE
                 )
             }
+
             const storage = loginStorage(runtime, login)
             const key = await login.key.fresh(runtime, storage)
             const { store } = login
+
             return { key, source: 'store', store: store.kind, path: store.path, storage, choice }
         }
+
         if (!record && choice.host !== null && choice.projectId !== null && settings.logins.length > 0) {
             throw new ProjectMismatch(query, { host: choice.host, projectId: choice.projectId }, settings)
         }
+
         // posthog.json names a host hog has no login to, and the last login is to another host.
         const lastHost = fallbackHost(settings)
         if (!record && lastHost) {

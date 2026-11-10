@@ -38,10 +38,12 @@ export default defineCommand({
     async run({ options, ctx }): Promise<LogoutResult> {
         const { runtime } = ctx
         const stillSet = runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : []
+
         if (options.all) {
             const logins = await logoutAll(runtime)
             await clearPendingLogins(runtime)
             const status = logins.length > 0 ? 'logged_out' : 'not_logged_in'
+
             return {
                 status,
                 host: null,
@@ -53,11 +55,13 @@ export default defineCommand({
                 stillSet,
             }
         }
+
         const settings = await readSettings(runtime)
         // The same choice commands make, so logout removes the login they would send.
         const { choice, record } = chooseLogin(settings, await ctx.loginQuery())
         const outcome = record ? await logout(runtime, record) : undefined
         await clearPendingLogins(runtime)
+
         return {
             status: outcome ? 'logged_out' : 'not_logged_in',
             host: record?.host ?? choice.host,
@@ -79,9 +83,11 @@ export default defineCommand({
                     : ''
             out.line(`hog had no stored login${which} to remove.`)
         }
+
         for (const { host, projectId, revoked, revokeUrl, keychainLeftover } of loggedOut) {
             const project = projectId ? `project ${projectId} on ` : ''
             out.line(`${out.style('Logged out', 'green', 'bold')} of ${project}${escapeControls(host ?? '')}.`)
+
             if (revoked === false) {
                 out.line(
                     out.style(
@@ -90,6 +96,7 @@ export default defineCommand({
                     )
                 )
             }
+
             if (keychainLeftover) {
                 out.line(
                     out.style(
@@ -98,10 +105,12 @@ export default defineCommand({
                     )
                 )
             }
+
             if (revokeUrl) {
                 out.line(out.style(`The key still works until you delete it at ${revokeUrl}`, 'dim'))
             }
         }
+
         if (result.stillSet.length > 0) {
             out.line(
                 `${out.style('Still logged in', 'yellow', 'bold')} through ${result.stillSet.join(' and ')}. Unset it to log out fully.`

@@ -35,11 +35,13 @@ export default defineCommand({
         }
         // The scope list is large, so commands that never step up don't load it.
         const { finishStepUp, stepUp } = await import('@/posthog/login/step-up')
+
         if (options.wait) {
             const { pending, value } = await resumeApproval(ctx, loginWait(ctx.runtime, ADD_COMMAND))
             // A request an older hog started doesn't name its project, so the approved one counts.
             return finishStepUp(ctx, value, { host: pending.host, projectId: pending.projectId ?? value.projectId })
         }
+
         if (args.scopes.length === 0) {
             throw new HogError(
                 'scopes_required',
@@ -48,6 +50,7 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
+
         const { parseScope } = await import('@/posthog/scopes')
         return stepUp(ctx, args.scopes.map(parseScope))
     },

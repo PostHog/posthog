@@ -12,8 +12,8 @@ import {
     type LoginRecord,
 } from '@/posthog/settings'
 
-// What names the login a command uses. `host` is --host or HOG_HOST, and `projectId` is
-// HOG_PROJECT_ID. Both replace what the closest posthog.json says.
+// The host and project that pick a command's login. `host` comes from --host or HOG_HOST, and
+// `projectId` from HOG_PROJECT_ID. Both override the closest posthog.json.
 export interface LoginQuery {
     host?: Host
     projectId?: ProjectId
@@ -60,13 +60,16 @@ function sourcesFor(query: LoginQuery, host: Host | undefined): Sources {
             : query.configHost !== undefined
               ? 'posthog.json'
               : 'the latest login'
+
     if (query.projectId !== undefined) {
         return { host: hostSource, project: 'HOG_PROJECT_ID', projectId: query.projectId }
     }
+
     const { configHost, configProjectId } = query
     if (host === undefined || configProjectId === undefined) {
         return { host: hostSource, project: 'nothing', projectId: undefined }
     }
+
     return configHost === undefined || sameHost(configHost, host)
         ? { host: hostSource, project: 'posthog.json', projectId: configProjectId }
         : { host: hostSource, project: 'posthog.json on another host', projectId: undefined }
@@ -79,13 +82,16 @@ function reasonFor(sources: Sources, host: Host): string {
         case 'posthog.json on another host':
             return `the project in posthog.json is on another host, so hog uses your latest login to ${host}`
     }
+
     if (sources.host === sources.project) {
         return `${sources.project} sets the host and the project`
     }
+
     const hostPart =
         sources.host === 'the latest login'
             ? 'the host is the one you last logged in to'
             : `${sources.host} sets the host`
+
     return `${sources.project} sets the project, and ${hostPart}`
 }
 
@@ -93,6 +99,7 @@ export function chooseLogin(settings: HogSettings, query: LoginQuery): ChosenLog
     const host = query.host ?? query.configHost ?? fallbackHost(settings)
     const sources = sourcesFor(query, host)
     const { projectId } = sources
+
     const overridden = sources.host === '--host or HOG_HOST' || sources.project === 'HOG_PROJECT_ID'
     const choice: LoginChoice = {
         host: host ?? null,
@@ -100,9 +107,11 @@ export function chooseLogin(settings: HogSettings, query: LoginQuery): ChosenLog
         match: projectId === undefined ? 'fallback' : overridden ? 'override' : 'exact',
         reason: host === undefined ? 'hog has no login' : reasonFor(sources, host),
     }
+
     if (host === undefined) {
         return { choice, record: undefined }
     }
+
     const record = projectId === undefined ? latestLoginFor(settings, host) : loginFor(settings, { host, projectId })
     return { choice, record }
 }
@@ -126,6 +135,7 @@ export class ProjectMismatch extends HogError {
             .sort()
         const loggedIn = others.length > 0 ? ` You're logged in to ${projectList(others)} there.` : ''
         const command = `hog auth login${hostFlag(target.host)}`
+
         super(
             'project_mismatch',
             `${namedBy} names project ${target.projectId}, and hog has no login for it on ${target.host}.${loggedIn}`,
@@ -133,6 +143,7 @@ export class ProjectMismatch extends HogError {
             EXIT_USAGE,
             { configPath: query.configPath ?? null, host: target.host, projectId: target.projectId, command }
         )
+
         this.command = command
     }
 }

@@ -46,6 +46,7 @@ export type AuthStatus = (
 export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
     const config = (await ctx.config())?.path ?? null
     let credentials
+
     try {
         credentials = await ctx.credentials()
     } catch (error) {
@@ -62,16 +63,19 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         }
         throw error
     }
+
     const { key, source } = credentials
     const login = credentials.source === 'store' ? credentials.choice : null
     const { host, projectId } = key
     const { kind, scopes, expiresAt, rejected, fix, provider } = key.status()
+
     const api = (await ctx.posthog()).withoutStepUp()
     const UserSchema = z.looseObject({ email: z.string(), first_name: z.string().nullish() })
     const [user, project] = await Promise.allSettled([
         key.identifiesPerson ? api.get('/api/users/@me/', UserSchema) : Promise.resolve(null),
         api.get('', z.looseObject({ name: z.string().nullish() })),
     ])
+
     const failures = [user, project].flatMap((outcome) => (outcome.status === 'rejected' ? [outcome.reason] : []))
     if (failures.some((failure) => failure instanceof ApiError && failure.status === 401)) {
         return {
@@ -85,11 +89,13 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
             login,
         }
     }
+
     // A 403 means the key lacks the scope for that detail, not that it doesn't work.
     const fatal = failures.find((failure) => !(failure instanceof ApiError && failure.status === 403))
     if (fatal !== undefined) {
         throw fatal
     }
+
     return {
         authenticated: true,
         host,

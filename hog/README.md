@@ -269,7 +269,7 @@ In the job:
 ### Logging in and out
 
 - At a terminal, `hog auth login` asks where your PostHog account is hosted, opens the browser, and waits for you to approve. The address PostHog opens at, us.posthog.com or eu.posthog.com, tells you which to pick.
-- On the approval page you check the code, pick a project and see what hog will be able to do. The token only works in that project. hog renews the token by itself.
+- On the approval page you check the code, pick a project and see what hog will be able to do. The token only works in that project, and it renews automatically.
 - Each project keeps its own login, and logging in to another project keeps the others. `hog auth login` writes the host and project to `posthog.json` in the current folder, or to the closest one above it, and says which file it changed.
 - `hog auth login --read-only` asks only for read access. To change something later, run `hog auth add` with the write scopes you need.
 - `hog auth add insight:write dashboard:write` adds scopes to your login. hog asks for the scopes you already have plus the new ones, and the approval page keeps the new ones ticked. In the same project, commands that are still running keep working with the new token. Agents finish with `hog auth add --wait`.

@@ -54,6 +54,7 @@ export async function readSettings(runtime: Runtime): Promise<HogSettings> {
     if (moveTried.has(runtime) || !settings.logins.some((record) => record.storedUnderHost)) {
         return settings
     }
+
     moveTried.add(runtime)
     return withFileLock(runtime, LOGINS_LOCK, () => moveHostSecrets(runtime))
 }
@@ -65,6 +66,7 @@ async function moveHostSecrets(runtime: Runtime): Promise<HogSettings> {
     if (!settings.logins.some((record) => record.storedUnderHost)) {
         return settings
     }
+
     const logins: LoginRecord[] = []
     const movedFrom: StoredItem[] = []
     for (const record of settings.logins) {
@@ -74,11 +76,13 @@ async function moveHostSecrets(runtime: Runtime): Promise<HogSettings> {
         }
         logins.push(moved)
     }
+
     const written = await writeSettings(runtime, {
         ...settings,
         logins,
         pendingRemovals: [...settings.pendingRemovals, ...movedFrom],
     })
+
     // Removing a file entry never waits, and a keychain item only goes when a keychain secret just moved.
     const stores = new Set<StoreChoice>(['file', ...movedFrom.map((item) => item.store)])
     return (await removePending(runtime, written, [...stores])).settings
@@ -94,6 +98,7 @@ async function moveHostSecret(runtime: Runtime, record: LoginRecord): Promise<Lo
     } catch {
         return record
     }
+
     const { storedUnderHost: _, ...moved } = record
     return moved
 }
@@ -106,11 +111,13 @@ async function removePending(
 ): Promise<{ settings: HogSettings; failures: { item: StoredItem; error: string }[] }> {
     const kept: StoredItem[] = []
     const failures: { item: StoredItem; error: string }[] = []
+
     for (const item of settings.pendingRemovals) {
         if (!stores.includes(item.store)) {
             kept.push(item)
             continue
         }
+
         try {
             await openStore(runtime, item.store).remove(itemName(item.host, item.projectId))
         } catch (error) {
@@ -118,6 +125,7 @@ async function removePending(
             failures.push({ item, error: errorMessage(error) })
         }
     }
+
     if (kept.length === settings.pendingRemovals.length) {
         return { settings, failures }
     }
@@ -133,9 +141,11 @@ export async function readLogin(
     if (!record) {
         return undefined
     }
+
     const store = openStore(runtime, record.store)
     const { host, projectId } = itemOf(record)
     const secret = await store.read(itemName(host, projectId))
+
     const key = secret && accessKeyFromStorage(record, secret)
     return key ? { key, store } : undefined
 }
@@ -143,6 +153,7 @@ export async function readLogin(
 export function loginStorage(runtime: Runtime, login: StoredLogin): AccessKeyStorage {
     const { host, projectId } = login.key
     const target = { host, projectId }
+
     return {
         reread: async () => (await readLogin(runtime, await readSettings(runtime), target))?.key,
         // A step-up can move the login to another store while this command runs, so a renewal saves
@@ -167,10 +178,12 @@ export async function writeLogin(
 ): Promise<void> {
     await withFileLock(runtime, LOGINS_LOCK, async () => {
         await store.write(itemName(key.host, key.projectId), key.secret(), { removeIfLate: newLogin !== undefined })
+
         const current = await readSettingsFile(runtime)
         const previous = loginFor(current, key)
         const loggedInAt = newLogin ? runtime.now() : previous?.loggedInAt
         const record: LoginRecord = { ...key.record(store.kind), ...(loggedInAt === undefined ? {} : { loggedInAt }) }
+
         const settings = await writeSettings(runtime, {
             ...withLogin(current, key, record),
             pendingRemovals: [
@@ -179,6 +192,7 @@ export async function writeLogin(
                 ...(newLogin?.leftBehind ?? []),
             ],
         })
+
         if (newLogin) {
             // A login saved to the file found the keychain unusable, so the keychain items wait.
             await removePending(runtime, settings, store.kind === 'file' ? ['file'] : STORES)
@@ -203,6 +217,7 @@ async function removeLogin(runtime: Runtime, target: LoginTarget): Promise<Remov
         if (!record) {
             return undefined
         }
+
         const login = await readLogin(runtime, settings, target)
         const { host, projectId } = itemOf(record)
         const removed = await withFileLock(runtime, LOGINS_LOCK, async () => {
@@ -210,6 +225,7 @@ async function removeLogin(runtime: Runtime, target: LoginTarget): Promise<Remov
             await writeSettings(runtime, withLogin(await readSettingsFile(runtime), record, undefined))
             return removed
         })
+
         return { record, key: login?.key, removed }
     })
 }
@@ -227,14 +243,17 @@ export async function logout(runtime: Runtime, target: LoginTarget): Promise<Log
     if (!removed) {
         return undefined
     }
+
     const { hadPending, failures } = await withFileLock(runtime, LOGINS_LOCK, async () => {
         const settings = await readSettingsFile(runtime)
         const hadPending = settings.pendingRemovals.some((item) => sameHost(item.host, target.host))
         return { hadPending, ...(await removePending(runtime, settings, STORES)) }
     })
+
     if (!removed.removed && !hadPending) {
         return undefined
     }
+
     const leftover = failures.find(({ item }) => item.store === 'keychain' && sameHost(item.host, target.host))
     return { ...(await revoke(runtime, removed)), keychainLeftover: leftover?.error ?? null }
 }
@@ -264,6 +283,7 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
     const settings = await readSettings(runtime)
     const file = new FileStore(runtime)
     const known = [...settings.logins, ...settings.pendingRemovals, ...(await file.owners())]
+
     // A login whose secret didn't move from its host's item reads it from there, so host items go last.
     const owners = new Map<ItemName, LoginTarget<ProjectId | null>>()
     for (const { host, projectId } of [
@@ -275,6 +295,7 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
             owners.set(name, { host, projectId })
         }
     }
+
     const steps: {
         name: ItemName
         owner: LoginTarget<ProjectId | null>
@@ -289,12 +310,15 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
                 : undefined
         const swept =
             removed?.record.store === 'keychain' ? { removed: false, error: null } : await sweepKeychain(runtime, name)
+
         steps.push({ name, owner, removed, swept })
     }
+
     const names = new Set<string>(owners.keys())
     const fromFile = await withFileLock(runtime, LOGINS_LOCK, async () => {
         const removed = await file.removeWhere((name) => names.has(name) || parseItemName(name) === undefined)
         const failed = new Set<string>(steps.flatMap((step) => (step.swept.error ? [step.name] : [])))
+
         const current = await readSettingsFile(runtime)
         await writeSettings(runtime, {
             ...current,
@@ -302,16 +326,21 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
                 (item) => item.store === 'keychain' && failed.has(itemName(item.host, item.projectId))
             ),
         })
+
         return new Set(removed)
     })
+
     const outcomes = await Promise.all(
         steps.map(({ removed }) => (removed?.removed ? revoke(runtime, removed) : undefined))
     )
+
     return steps.flatMap(({ name, owner, swept }, index) => {
         const outcome = outcomes[index]
+
         if (!outcome && !fromFile.has(name) && !swept.removed && !swept.error) {
             return []
         }
+
         return [{ ...(outcome ?? { revoked: null, revokeUrl: null }), keychainLeftover: swept.error, ...owner }]
     })
 }

@@ -2,7 +2,7 @@ import { dirname } from 'node:path'
 
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import { configPathFor, updateConfig } from '@/core/config'
+import { configPathFor, updateConfig, type PostHogConfig } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
@@ -17,7 +17,8 @@ import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
 import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
-interface NamedIn {
+// The posthog.json that login writes the host and project to.
+interface ConfigWrite {
     path: string
     status: 'created' | 'updated' | 'unchanged' | 'failed'
     // Why hog couldn't write the file. Null unless `status` is failed.
@@ -37,7 +38,7 @@ type LoginResult =
           scopes: string[] | null
           // ISO 8601, for an OAuth login. hog renews the token before then.
           expiresAt: string | null
-          config: NamedIn
+          config: ConfigWrite
           next: string
       }
 
@@ -46,26 +47,29 @@ function nextCommand(scopes: readonly string[] | null): string {
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
-// Commands pick a login from the closest posthog.json, so the login names itself there. The file in
-// this folder or above it keeps its other settings, and a new one goes in this folder.
-// The login is already saved, so a file hog can't write only warns.
-async function nameInConfig(ctx: Context, { host, projectId }: LoggedIn): Promise<NamedIn> {
+function hasLogin(config: PostHogConfig, { host, projectId }: LoggedIn): boolean {
+    return (
+        config.host !== undefined &&
+        sameHost(config.host, host) &&
+        config.projectId !== undefined &&
+        parseProjectId(config.projectId) === projectId
+    )
+}
+
+// Commands pick their login from the closest posthog.json, so login writes its host and project
+// there. A new file goes in this folder. The login is already saved, so a failed write only warns.
+async function writeLoginToConfig(ctx: Context, login: LoggedIn): Promise<ConfigWrite> {
     const loaded = await ctx.config()
-    const { host: namedHost, projectId: named } = loaded?.config ?? {}
-    if (
-        loaded &&
-        namedHost &&
-        sameHost(namedHost, host) &&
-        named !== undefined &&
-        parseProjectId(named) === projectId
-    ) {
+    if (loaded && hasLogin(loaded.config, login)) {
         return { path: loaded.path, status: 'unchanged', error: null }
     }
+
     try {
         const path = await updateConfig(ctx.runtime, loaded, (raw) => {
-            raw.host = host
-            raw.projectId = Number(projectId)
+            raw.host = login.host
+            raw.projectId = Number(login.projectId)
         })
+
         return { path, status: loaded ? 'updated' : 'created', error: null }
     } catch (error) {
         const path = configPathFor(ctx.runtime, loaded)
@@ -75,9 +79,10 @@ async function nameInConfig(ctx: Context, { host, projectId }: LoggedIn): Promis
 
 async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
     const loggedIn = await saveLogin(ctx.runtime, key)
-    const config = await nameInConfig(ctx, loggedIn)
+    const config = await writeLoginToConfig(ctx, loggedIn)
     const { host, projectId, store, credentialsPath, keychainError, status } = loggedIn
     const { scopes, expiresAt } = status
+
     return {
         status: 'logged_in',
         host,
@@ -135,8 +140,8 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'The person picks one project, and the token only works there. hog renews the token by itself.',
-        'Each project keeps its own login, and the closest posthog.json picks which one a command uses. hog writes the host and project to posthog.json in this folder, or to the closest one above it.',
+        'You pick one project when you approve the login, and the token only works in that project. The token renews automatically.',
+        'Each project has its own login, and the closest posthog.json picks the one a command uses. Login writes the host and project to posthog.json in this folder, or to the closest one above it.',
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
         'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY and HOG_HOST, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.',
     ].join('\n'),
@@ -223,6 +228,7 @@ export default defineCommand({
                 out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
                 break
         }
+
         const { path, status, error } = result.config
         const file = escapeControls(path)
         if (status === 'failed') {
@@ -235,6 +241,7 @@ export default defineCommand({
             out.line(`Try it: ${result.next}`)
             return
         }
+
         const saved = {
             created: `Created ${file} with this host and project.`,
             updated: `Set this host and project in ${file}.`,

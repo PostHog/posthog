@@ -55,12 +55,14 @@ export class FileStore implements CredentialStore {
         if (removed.length === 0) {
             return []
         }
+
         const kept = Object.fromEntries(Object.entries(all).filter(([name]) => !matches(name)))
         if (Object.keys(kept).length === 0) {
             await this.runtime.removeFile(this.path)
         } else {
             await this.runtime.writePrivateFile(this.path, JSON.stringify(kept, null, 2))
         }
+
         return removed
     }
 }

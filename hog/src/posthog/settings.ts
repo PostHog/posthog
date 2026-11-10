@@ -96,6 +96,7 @@ function oneLoginPerHostLeftovers(record: LoginRecord, value: unknown): StoredIt
     if (record.store === 'keychain') {
         return [{ store: 'file', host, projectId: null }]
     }
+
     return OneLoginPerHostSchema.safeParse(value).data?.keychainLeftover
         ? [{ store: 'keychain', host, projectId: null }]
         : []
@@ -111,16 +112,19 @@ function parseOrigin(origin: string, value: unknown): Pick<HogSettings, 'logins'
     if (key === undefined || (single && !sameHost(single.host, key))) {
         return { logins: [], pendingRemovals: [] }
     }
+
     if (single) {
         return {
             logins: [{ ...single, storedUnderHost: true }],
             pendingRemovals: oneLoginPerHostLeftovers(single, value),
         }
     }
+
     const logins = Object.entries(ProjectLoginsSchema.safeParse(value).data ?? {}).flatMap(([projectId, entry]) => {
         const record = LoginRecordSchema.safeParse(entry).data
         return record?.projectId === projectId && sameHost(record.host, key) ? [record] : []
     })
+
     return { logins, pendingRemovals: [] }
 }
 
@@ -138,17 +142,20 @@ export async function readSettingsFile(runtime: Runtime): Promise<HogSettings> {
         }
         throw error
     }
+
     const raw = parseJsonOrUndefined(text, SettingsFileSchema) ?? {}
     const settings: HogSettings = {
         logins: [],
         pendingRemovals: (raw.pendingRemovals ?? []).flatMap((item) => StoredItemSchema.safeParse(item).data ?? []),
         host: raw.host,
     }
+
     for (const [origin, value] of Object.entries(raw.logins ?? {})) {
         const parsed = parseOrigin(origin, value)
         settings.logins.push(...parsed.logins.filter((record) => !loginFor(settings, record)))
         settings.pendingRemovals.push(...parsed.pendingRemovals)
     }
+
     return settings
 }
 
@@ -181,6 +188,7 @@ export function fallbackHost(settings: HogSettings): Host | undefined {
     if (last?.loggedInAt !== undefined) {
         return last.host
     }
+
     const { host } = settings
     return host !== undefined && loginsFor(settings, host).length > 0 ? host : undefined
 }
@@ -200,13 +208,16 @@ export async function writeSettings(runtime: Runtime, settings: HogSettings): Pr
             !inUse.some((used) => sameItem(used, item)) && all.findIndex((other) => sameItem(other, item)) === index
     )
     const host = settings.logins.some((record) => record.loggedInAt !== undefined) ? undefined : fallbackHost(settings)
+
     const logins: Record<string, Record<string, LoginRecord>> = {}
     for (const record of settings.logins) {
         const origin = hostKey(record.host)
         logins[origin] = { ...logins[origin], [record.projectId]: record }
     }
+
     const written: HogSettings = { logins: settings.logins, pendingRemovals, ...(host === undefined ? {} : { host }) }
     const file = { logins, ...(pendingRemovals.length > 0 ? { pendingRemovals } : {}), ...(host ? { host } : {}) }
     await runtime.writePrivateFile(settingsPath(runtime), JSON.stringify(file, null, 2))
+
     return written
 }

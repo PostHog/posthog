@@ -35,7 +35,9 @@ export async function finishStepUp(ctx: Context, approved: OAuthLogin, expected:
             `Run the same \`hog auth add\` command again, and pick project ${expected.projectId} on the approval page.`
         )
     }
+
     const saved = await saveLogin(ctx.runtime, approved, { replace: (stored) => approved.continuing(stored) })
+
     return {
         status: 'added',
         host: saved.host,
@@ -99,6 +101,7 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
     if (!login) {
         throw personalKeyCantGainScopes(wanted)
     }
+
     const { key, held, missing: added } = login
     if (added.length === 0) {
         return {
@@ -109,6 +112,7 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
             replacedRevoked: null,
         }
     }
+
     refuseInCi(ctx, ADD_COMMAND, `${CI_CREDENTIALS_HINT} Either way, ask for the scopes the job needs.`)
     const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], {
         command: ADD_COMMAND,
@@ -116,6 +120,7 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
         projectId: key.projectId,
     })
     const result = await runApproval(ctx, flow)
+
     return result.status === 'pending'
         ? { ...result, host: key.host }
         : finishStepUp(ctx, result.value, { host: key.host, projectId: key.projectId })

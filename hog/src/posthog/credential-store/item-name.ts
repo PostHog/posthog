@@ -23,5 +23,6 @@ export function parseItemName(name: string): LoginTarget<ProjectId | null> | und
     const separator = name.lastIndexOf('#')
     const host = HostSchema.safeParse(separator === -1 ? name : name.slice(0, separator)).data
     const projectId = separator === -1 ? null : ProjectIdSchema.safeParse(name.slice(separator + 1)).data
+
     return host && projectId !== undefined && itemName(host, projectId) === name ? { host, projectId } : undefined
 }

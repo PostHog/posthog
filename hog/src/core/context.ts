@@ -110,6 +110,7 @@ export class Context {
     private async credentialOptions(): Promise<CredentialOptions> {
         const loaded = await this.config()
         const projectId = loaded?.config.projectId
+
         return {
             ...this.globals,
             configPath: loaded?.path,
