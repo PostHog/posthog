@@ -660,11 +660,9 @@ def _assign_one(
     )
 
 
-# pinned: change rows store this as their actor. Automatic assignment has no automation row, and the column
-# is a plain id, so nothing resolves it.
+# pinned: change rows store this id as their actor. No automation row exists, so nothing resolves it.
 AUTO_ASSIGNMENT_AUTOMATION_ID = UUID("7856c219-ea58-46af-8282-30192405d266")
 
-# pinned: activity rows carry this job type, so a reader can find why an issue was assigned automatically
 AUTO_ASSIGNMENT_TRIGGER_JOB_TYPE = "error_tracking_auto_assignment"
 
 

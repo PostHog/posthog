@@ -97,8 +97,7 @@ class TestAssignIssueAutomatically(BaseTest):
             ("unassigned", "nobody", True, "member", AutoAssignmentOutcome.ASSIGNED, True),
             ("assigned_by_a_person", "other_member", True, "member", AutoAssignmentOutcome.KEPT_EXISTING, False),
             ("assigned_to_a_role", "role", True, "member", AutoAssignmentOutcome.KEPT_EXISTING, False),
-            # Cymbal's rule assignment insert leaves team_id empty.
-            ("assigned_by_a_rule", "other_member", False, "member", AutoAssignmentOutcome.KEPT_EXISTING, False),
+            ("assigned_by_rule_no_team", "other_member", False, "member", AutoAssignmentOutcome.KEPT_EXISTING, False),
             ("assigned_on_an_earlier_attempt", "member", True, "member", AutoAssignmentOutcome.KEPT_EXISTING, True),
             ("role_candidate", "nobody", True, "role", AutoAssignmentOutcome.ROLE_SKIPPED, False),
             ("former_member_candidate", "nobody", True, "former_member", AutoAssignmentOutcome.NOT_MEMBER, False),
