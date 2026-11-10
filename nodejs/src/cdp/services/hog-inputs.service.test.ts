@@ -1,6 +1,8 @@
 import '~/tests/helpers/mocks/date.mock'
 
 import { DateTime } from 'luxon'
+import { randomUUID } from 'node:crypto'
+import { register } from 'prom-client'
 import { inspect } from 'util'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -293,11 +295,17 @@ describe('Hog Inputs', () => {
         ])(
             'runs no hog input whose deadline passes while it waits for its turn on the event loop because %s',
             async (_how, deadlineFor) => {
+                const matchesARegex = await compileHog(`return match('x', event.properties.pattern)`)
                 const onlyHog = createHogFunction({
                     ...hogFunction,
-                    inputs: { only: { value: 'x', templating: 'hog', bytecode: ['_H', 1, 32, 'x'] } },
+                    inputs: { only: { value: 'x', templating: 'hog', bytecode: matchesARegex } },
                     inputs_schema: [],
                 })
+                const hogRegexesBuilt = async (): Promise<number> => {
+                    const metric = await register.getSingleMetric('re2_objects_created_total')?.get()
+                    return metric?.values.find((v) => v.labels.source === 'hog-exec:regex.match')?.value ?? 0
+                }
+                const builtBefore = await hogRegexesBuilt()
                 const threshold = getEventLoopYieldThresholdMs()
                 await new Promise((resolve) => setTimeout(resolve, 5))
                 configureEventLoopYield(0)
@@ -317,10 +325,19 @@ describe('Hog Inputs', () => {
                 try {
                     const deadline = deadlineFor()
                     let outcome: unknown
-                    void hogInputsService.buildInputs(onlyHog, globals, undefined, undefined, deadline.signal).then(
-                        () => (outcome = 'rendered'),
-                        (error: unknown) => (outcome = error)
-                    )
+                    const withAPatternOfItsOwn = {
+                        ...globals,
+                        event: {
+                            ...globals.event,
+                            properties: { ...globals.event.properties, pattern: `never-built-${randomUUID()}` },
+                        },
+                    }
+                    void hogInputsService
+                        .buildInputs(onlyHog, withAPatternOfItsOwn, undefined, undefined, deadline.signal)
+                        .then(
+                            () => (outcome = 'rendered'),
+                            (error: unknown) => (outcome = error)
+                        )
                     for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
                         await nextTurn()
                     }
@@ -333,6 +350,7 @@ describe('Hog Inputs', () => {
                     }
 
                     expect(outcome).toMatchObject({ name: 'TimeoutError' })
+                    expect(await hogRegexesBuilt()).toBe(builtBefore)
                 } finally {
                     jest.useRealTimers()
                     configureEventLoopYield(threshold)

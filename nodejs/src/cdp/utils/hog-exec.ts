@@ -23,9 +23,13 @@ export async function execHog(
     return await semaphore.run(async () => {
         return await instrumentFn(`hog-exec`, async () => {
             return await yieldEventLoopIfNeeded('hog-exec', () => {
+                const passedBefore = deadlineError(signal)
+                if (passedBefore !== undefined) {
+                    return { error: passedBefore, durationMs: 0 }
+                }
                 const result = execHogImmediate(bytecode, withinDeadline(options, signal))
-                const passed = deadlineError(signal)
-                return passed !== undefined ? { error: passed, durationMs: result.durationMs } : result
+                const passedDuring = deadlineError(signal)
+                return passedDuring !== undefined ? { error: passedDuring, durationMs: result.durationMs } : result
             })
         })
     })
