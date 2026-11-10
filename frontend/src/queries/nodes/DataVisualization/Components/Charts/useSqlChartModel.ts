@@ -100,7 +100,9 @@ export function useSqlChartModel<
             legendRenderItem,
             embedded,
         })
-        const rawValuesByLabel = new Map(xData.data.map((value) => [String(value ?? '[No value]'), value]))
+        const rawValuesByLabel = new Map(
+            xData.data.map((value) => [String(labelFormatter?.(value) ?? value ?? '[No value]'), value])
+        )
         const formatLabel = labelFormatter
             ? (value: string): string => {
                   const raw =
@@ -173,8 +175,8 @@ export function useSqlChartModel<
         () =>
             visualizationType === ChartDisplayType.ActionsBarValue
                 ? (xData?.data.map((_, index) => String(index)) ?? [])
-                : (xData?.data.map((value) => String(value ?? '[No value]')) ?? []),
-        [visualizationType, xData]
+                : (xData?.data.map((value) => String(labelFormatter?.(value) ?? value ?? '[No value]')) ?? []),
+        [visualizationType, xData, labelFormatter]
     )
 
     if (!xData || !ySeriesData || series.length === 0 || !config) {

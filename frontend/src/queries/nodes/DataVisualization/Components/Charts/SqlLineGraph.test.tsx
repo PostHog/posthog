@@ -101,7 +101,15 @@ it('preserves a null BI member alias in axis ticks and tooltip headers', async (
         source: region.source,
         chartType: ChartDisplayType.ActionsLineGraph,
         rows: [region],
-        memberAliases: [{ field: region, aliases: [{ value: null, label: 'Unassigned' }] }],
+        memberAliases: [
+            {
+                field: region,
+                aliases: [
+                    { value: null, label: 'Unassigned' },
+                    { value: '[No value]', label: 'Literal placeholder' },
+                ],
+            },
+        ],
     }
     renderDataVisualization({
         query: {
@@ -119,6 +127,7 @@ it('preserves a null BI member alias in axis ticks and tooltip headers', async (
             results: [
                 ['west', 1],
                 [null, 2],
+                ['[No value]', 3],
             ],
         },
     })
@@ -126,6 +135,7 @@ it('preserves a null BI member alias in axis ticks and tooltip headers', async (
     await screen.findByLabelText(/chart with/i)
     expect(getChart().xTicks()).toContain('Unassigned')
     expect((await sqlChart.hoverTooltip(1)).label()).toBe('Unassigned')
+    expect((await sqlChart.hoverTooltip(2)).label()).toBe('Literal placeholder')
 })
 
 it.each([
