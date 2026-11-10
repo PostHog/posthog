@@ -6,7 +6,8 @@ import os from 'os'
 import path from 'path'
 
 import { CdpRole } from '../cards'
-import { ProcEntry, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
+import { createEnvironment } from './environment'
+import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { roleSpecs, secretsOf } from './roles'
 import { eventsConsumerGroup, membersOf, pingRedis } from './stack'
 
@@ -101,9 +102,14 @@ describe('scenario environment', () => {
                 { groups: [], pids: [], strangers: [] },
             ],
             [
-                "another user's process on a CDP entry point, whose cwd and environ are unreadable, is a stranger",
-                [proc(320, 320, 'node src/index.ts', null, null)],
+                "another user's process on this checkout's entry point, whose cwd and environ are unreadable, is a stranger",
+                [proc(320, 320, `node ${NODEJS}/src/index.ts`, null, null)],
                 { groups: [], pids: [], strangers: [320] },
+            ],
+            [
+                "another user's process on a relative entry point, whose cwd and environ are unreadable, is ignored",
+                [proc(321, 321, 'node dist/index.js', null, null)],
+                { groups: [], pids: [], strangers: [] },
             ],
             [
                 'an unreadable environ on anything else is ignored',
@@ -276,6 +282,30 @@ describe('scenario environment', () => {
             expect(runners.filter(({ said }) => said === 'held')).toHaveLength(1)
         }, 30_000)
 
+        it('keeps holding the state dir when a peer hangs up before the answer', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+            const other = await lockFromAnotherRunner(stateDir)
+            const address = lockAddress(stateDir)
+            await Promise.all(
+                Array.from({ length: 50 }, async () => {
+                    const socket = net.connect(address)
+                    socket.on('error', () => undefined)
+                    await once(socket, 'connect')
+                    socket.destroy()
+                })
+            )
+
+            await expect(holdRunLock(stateDir)).rejects.toThrow(`Scenario runner ${other.child.pid} is already running`)
+        }, 20_000)
+
+        it('refuses a state dir a frozen runner holds without naming a pid it cannot read', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+            const other = await lockFromAnotherRunner(stateDir)
+            other.child.kill('SIGSTOP')
+
+            await expect(holdRunLock(stateDir)).rejects.toThrow(`Another scenario runner holds ${stateDir}`)
+        }, 20_000)
+
         it('frees the state dir for the next runner when released', async () => {
             const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
             await (
@@ -332,5 +362,30 @@ describe('scenario environment', () => {
             expect(unmarked.exitCode).toBeNull()
             expect(() => process.kill(-unmarked.pid!, 0)).not.toThrow()
         }, 10_000)
+    })
+
+    describe('up', () => {
+        const cacheHome = process.env.XDG_CACHE_HOME
+        let stranger: ChildProcess | undefined
+
+        afterEach(() => {
+            stranger?.kill('SIGKILL')
+            process.env.XDG_CACHE_HOME = cacheHome
+        })
+
+        it('refuses a stranger again when retried after a refused up, instead of reporting itself as the holder', async () => {
+            process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
+            const { SCENARIO_RUNNER: _marker, PLUGIN_SERVER_MODE: _mode, ...plainEnv } = process.env
+            stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'src/index.ts'], {
+                cwd: NODEJS_DIR,
+                env: plainEnv,
+                stdio: 'ignore',
+            })
+            await once(stranger, 'spawn')
+            const environment = createEnvironment()
+
+            await expect(environment.up()).rejects.toThrow(`kill ${stranger.pid}`)
+            await expect(environment.up()).rejects.toThrow(`kill ${stranger.pid}`)
+        }, 20_000)
     })
 })
