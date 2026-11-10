@@ -25,6 +25,27 @@ def _check_metadata(kind: str, cls: type, key: str, title: str) -> None:
         raise ValueError(f"Console {kind} {cls.__name__} needs a title")
 
 
+def _qualified_name(declared: object) -> str | None:
+    if declared is None:
+        return None
+    return f"{getattr(declared, '__module__', '')}.{getattr(declared, '__qualname__', '')}"
+
+
+def _same_declaration(existing: object, new: object) -> bool:
+    # A contribution module that raised during discover() runs again on the next call, which registers new class and
+    # function objects for the same declarations. Comparing names instead of identity lets that retry raise the
+    # module's real error, not a duplicate-key error.
+    if isinstance(existing, MovedAction) and isinstance(new, MovedAction):
+        return (existing.record, existing.target, _qualified_name(existing.resolver)) == (
+            new.record,
+            new.target,
+            _qualified_name(new.resolver),
+        )
+    if isinstance(existing, MovedPage) and isinstance(new, MovedPage):
+        return existing == new
+    return _qualified_name(existing) == _qualified_name(new)
+
+
 class ConsoleRegistry:
     def __init__(self) -> None:
         self._panels: dict[str, dict[str, type[Panel]]] = {record: {} for record in RECORD_TYPES}
@@ -38,7 +59,7 @@ class ConsoleRegistry:
             raise ValueError(f"Unknown console record type {panel_class.record!r} on {panel_class.__name__}")
         panels = self._panels[panel_class.record]
         existing = panels.get(panel_class.key)
-        if existing is not None and existing is not panel_class:
+        if existing is not None and not _same_declaration(existing, panel_class):
             raise ValueError(f"Console panel key {panel_class.key!r} is already used by {existing.__name__}")
         panels[panel_class.key] = panel_class
         return panel_class
@@ -64,7 +85,7 @@ class ConsoleRegistry:
                 f"Console tool {tool_class.__name__} uses group {tool_class.group!r}, not one of {sorted(TOOL_GROUPS)}"
             )
         existing = self._tools.get(tool_class.key)
-        if existing is not None and existing is not tool_class:
+        if existing is not None and not _same_declaration(existing, tool_class):
             raise ValueError(f"Console tool key {tool_class.key!r} is already used by {existing.__name__}")
         self._tools[tool_class.key] = tool_class
         return tool_class
@@ -83,7 +104,7 @@ class ConsoleRegistry:
         if not moved.old_path.startswith("admin/") or moved.old_path.startswith("admin/console/"):
             raise ValueError(f"Moved URL {moved.old_path!r} must be an old Django admin path under admin/")
         existing = self._moved.get(moved.old_path)
-        if existing is not None and existing != moved:
+        if existing is not None and not _same_declaration(existing, moved):
             raise ValueError(f"Moved URL {moved.old_path!r} is already registered")
         self._moved[moved.old_path] = moved
 

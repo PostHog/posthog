@@ -107,6 +107,14 @@ def _register_twice() -> None:
     registry.register_panel(type("SecondPanel", (_DuplicatePanel,), {}))
 
 
+def _fresh_resolver() -> Callable[..., None]:
+    # A new function object each call, as when a module that failed to import runs again.
+    def find_team(key_id: str) -> None:
+        return None
+
+    return find_team
+
+
 def _move_twice() -> None:
     registry = ConsoleRegistry()
     registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")
@@ -258,6 +266,21 @@ class TestAdminConsoleAssets(SimpleTestCase):
     ) -> None:
         with self.assertRaisesRegex(ValueError, message):
             contribute()
+
+    def test_a_contribution_module_that_runs_again_registers_the_same_declarations_again(self) -> None:
+        registry = ConsoleRegistry()
+
+        for _ in range(2):
+            registry.register_panel(type("RetriedPanel", (_DuplicatePanel,), {}))
+            registry.register_moved_action(
+                old_path="admin/posthog/apikey/<str:key_id>/roll/",
+                record="team",
+                target="#panel-overview",
+                resolver=_fresh_resolver(),
+            )
+
+        assert type(registry.get_panel("team", "overview")).__name__ == "RetriedPanel"
+        assert [moved.old_path for moved in registry.moved()] == ["admin/posthog/apikey/<str:key_id>/roll/"]
 
     @parameterized.expand(
         [
