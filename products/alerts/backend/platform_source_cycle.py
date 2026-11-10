@@ -25,7 +25,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 from django.conf import settings
-from django.db.models import prefetch_related_objects
 
 import structlog
 from temporalio import activity
@@ -69,10 +68,17 @@ from products.alerts.backend.judge.contract import (
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.logic.destinations import configured_destination_template_ids
-from products.alerts.backend.models.alert import AlertConfiguration, Threshold
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts.backend.platform_firing_signal import with_firing_signal
+from products.alerts.backend.platform_insight_alert import (
+    RECURRENCE,
+    evaluation_alert,
+    insight_of,
+    insight_row_settings,
+    interval_of,
+)
 from products.alerts.backend.platform_investigation import with_investigation
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
@@ -89,10 +95,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import (
-    PlatformAlertConfigurationRecurrenceUnit as RecurrenceUnit,
-    PlatformAlertOwner,
-)
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
@@ -123,13 +126,8 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts_platform.backend.facade.scheduling import (
-    REAL_TIME_CADENCE_MINUTES,
-    validate_and_normalize_schedule_start_time,
-)
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
-from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
-from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -218,18 +216,6 @@ def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
     return alert.calculation_interval in EVALUATED_INTERVALS
 
 
-# Minutes for the real-time, 15-minute and hourly cadences, a calendar unit for the rest. A calendar
-# unit reads its cadence from the unit, so its minutes only feed the shard offset, which an anchored
-# unit ignores.
-_RECURRENCE: dict[str, tuple[int, str | None]] = {
-    AlertCalculationInterval.REAL_TIME: (REAL_TIME_CADENCE_MINUTES, None),
-    AlertCalculationInterval.EVERY_15_MINUTES: (15, None),
-    AlertCalculationInterval.HOURLY: (60, None),
-    AlertCalculationInterval.DAILY: (60 * 24, RecurrenceUnit.DAY),
-    AlertCalculationInterval.WEEKLY: (60 * 24 * 7, RecurrenceUnit.WEEK),
-    AlertCalculationInterval.MONTHLY: (60 * 24 * 30, RecurrenceUnit.MONTH),
-}
-
 # What an edit to an insight alert can change on its copy. The check refreshes these, and the due
 # time follows from them, so it is left to the next advance. `take_ownership` changes the creator.
 SETTINGS_FIELDS: Final = (
@@ -243,14 +229,9 @@ SETTINGS_FIELDS: Final = (
 )
 
 
-def interval_of(check_interval_minutes: int) -> str | None:
-    """The insight cadence a platform alert's `check_interval_minutes` stands for, or None for one insight has not."""
-    return next((interval for interval, (minutes, _) in _RECURRENCE.items() if minutes == check_interval_minutes), None)
-
-
 def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
     """The copy of one alert, or None when the platform does not evaluate it in parallel."""
-    recurrence = _RECURRENCE.get(alert.calculation_interval or "")
+    recurrence = RECURRENCE.get(alert.calculation_interval or "")
     if recurrence is None or not is_evaluated_on_the_platform(alert):
         return None
     check_interval_minutes, recurrence_unit = recurrence
@@ -267,9 +248,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
                 "comparison": alert.condition,
                 "detector": alert.detector_config,
             },
-            "config": alert.config,
-            "skip_weekend": bool(alert.skip_weekend),
-            "evaluation_delay_intervals": alert.evaluation_delay_intervals,
+            **insight_row_settings(alert),
         },
         check_interval_minutes=check_interval_minutes,
         recurrence_unit=recurrence_unit,
@@ -576,7 +555,7 @@ def fail_insight_check(
     checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
     if not checks:
         return None
-    alert = _evaluation_alert(checks[0])
+    alert = evaluation_alert(checks[0])
     # As production: switching an alert off mid-check is not a failure of the alert.
     if alert is None or not alert.enabled:
         return None
@@ -673,72 +652,8 @@ def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutc
 
 def _alert_url(check: PlatformAlertCheckInput, alert_id: str) -> str | None:
     """The alert's page on its insight, so a native message links where the insight stack's does."""
-    insight = _insight_of(check)
+    insight = insight_of(check.team_id, check.source_config)
     return insight_alert_url(check.team_id, insight.short_id, alert_id) if insight is not None else None
-
-
-def _insight_of(check: PlatformAlertCheckInput) -> Insight | None:
-    """The insight a check reads, or None when it is gone or deleted."""
-    insight_id = check.source_config.get("insight_id")
-    if not isinstance(insight_id, int):
-        return None
-    found = insights_including_soft_deleted_for_team(team_id=check.team_id, insight_ids=[insight_id])
-    return found[0] if found and not found[0].deleted else None
-
-
-def _evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
-    """The alert a check evaluates: a copy's insight row, or, for an alert insight keeps no row for,
-    one built from the platform alert. None when either is gone."""
-    if check.legacy_configuration_id is None:
-        return _alert_from_platform(check)
-    return _legacy_alert(check)
-
-
-def _alert_from_platform(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
-    """An unsaved insight alert with the platform alert's settings, so the insight evaluation runs it
-    unchanged. None when its insight is gone."""
-    source_config = check.source_config
-    insight = _insight_of(check)
-    if insight is None:
-        return None
-    # Prefetched for the same reason as `_legacy_alert`'s.
-    prefetch_related_objects([insight], "team__organization", "tagged_items__tag")
-    condition = source_config.get(SOURCE_CONDITION_KEY) or {}
-    threshold_config = condition.get("threshold")
-    return AlertConfiguration(
-        id=check.id,
-        team=insight.team,
-        insight=insight,
-        name=check.name,
-        enabled=True,
-        config=source_config.get("config") or {},
-        condition=condition.get("comparison") or {},
-        detector_config=condition.get("detector"),
-        threshold=Threshold(team=insight.team, insight=insight, configuration=threshold_config)
-        if threshold_config
-        else None,
-        calculation_interval=interval_of(check.check_interval_minutes),
-        skip_weekend=source_config.get("skip_weekend", False),
-        evaluation_delay_intervals=source_config.get("evaluation_delay_intervals", 0),
-        schedule_restriction=check.schedule_restriction,
-        snoozed_until=check.snooze_until,
-        owner=PlatformAlertOwner.PLATFORM,
-        created_by=User.objects.filter(id=check.created_by_id).first() if check.created_by_id is not None else None,
-    )
-
-
-def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
-    if check.legacy_configuration_id is None:
-        return None
-    return (
-        AlertConfiguration.objects.select_related("insight", "team", "threshold", "created_by")
-        # A firing's card names the insight's tags. Prefetched with the alert, because a reverse
-        # many-to-many cannot be selected, and the read would otherwise be its own round trip
-        # inside the window the check holds its admission slot.
-        .prefetch_related("insight__tagged_items__tag")
-        .filter(team_id=check.team_id, id=check.legacy_configuration_id)
-        .first()
-    )
 
 
 def _snapshot(
@@ -791,7 +706,7 @@ def _decide(
     uses_llm_detector: bool,
 ) -> PlatformAlertOutcome | None:
     snapshot = _snapshot(check)
-    alert = _evaluation_alert(check)
+    alert = evaluation_alert(check)
     if alert is None:
         # The production alert or the insight is gone, so this alert can never be checked again.
         return _skipped(check, snapshot, now=now, disable=True)
@@ -1228,7 +1143,7 @@ class _DetailBudget:
 
 
 def _insight_tags(alert: AlertConfiguration) -> list[str]:
-    # Sorted and sliced in Python so the prefetch on `_legacy_alert` is used. A `filter()` here
+    # Sorted and sliced in Python so the prefetch on `legacy_alert` is used. A `filter()` here
     # would build a new queryset and go back to the database for every firing.
     names = sorted(item.tag.name for item in alert.insight.tagged_items.all() if item.tag.team_id == alert.team_id)
     return [_clipped(name, MAX_TAG_CHARS) for name in names[:MAX_TAGS]]

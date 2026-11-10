@@ -655,7 +655,7 @@ export function VisualImageDiffViewer({
 
                         {/* Flicker overlay — full image swap inside image area */}
                         {flicker && mode === 'split' && activeOverlayUrl && (
-                            <div className="absolute top-0 left-0 w-full h-full overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-full overflow-hidden bg-bg-light">
                                 <img
                                     src={activeOverlayUrl}
                                     alt="Flicker frame"
@@ -672,7 +672,7 @@ export function VisualImageDiffViewer({
                         {/* Blend overlay — inside image area only */}
                         {mode === 'blend' && activeOverlayUrl && (
                             <div
-                                className="absolute top-0 left-0 w-full h-full overflow-hidden"
+                                className="absolute top-0 left-0 w-full h-full overflow-hidden bg-bg-light"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     opacity: !flicker ? Math.max(0, Math.min(1, blendPercentage / 100)) : 1,
@@ -761,7 +761,7 @@ export function VisualImageDiffViewer({
                                 <span>After</span>
                             </div>
                             <div
-                                className="relative overflow-hidden"
+                                className="relative overflow-hidden bg-bg-light"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={stageAspectRatio ? { aspectRatio: stageAspectRatio } : undefined}
                             >
