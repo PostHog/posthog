@@ -8,6 +8,8 @@ on:
     pull_request:
         paths:
             - 'nodejs/**'
+            - 'ingestion/node/packages/common/**'
+            - 'ingestion/rust/**'
             - 'common/hogvm/typescript/**'
             - 'common/plugin_transpiler/**'
             - 'common/esbuilder/**'
@@ -69,6 +71,8 @@ jobs:
                   filters: |
                       rasterizer_files:
                         - 'nodejs/**'
+                        - 'ingestion/node/packages/common/**'
+                        - 'ingestion/rust/**'
                         - 'common/hogvm/typescript/**'
                         - 'common/plugin_transpiler/**'
                         - 'common/esbuilder/**'
@@ -133,6 +137,8 @@ jobs:
                       common/replay-headless
                       common/replay-shared
                       nodejs
+                      ingestion/node/packages/common
+                      ingestion/rust
                       patches
                       rust
                       turbo.json

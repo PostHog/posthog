@@ -100,6 +100,8 @@ jobs:
         name: build ${{ matrix.image }}
         needs: load-matrix
         strategy:
+            # The images are independent, so one failure does not cancel the others.
+            fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.load-matrix.outputs.matrix) }}
         runs-on: depot-ubuntu-22.04
