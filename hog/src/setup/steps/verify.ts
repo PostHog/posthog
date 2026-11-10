@@ -25,11 +25,11 @@ export async function countEvents(run: SetupRun, events: EventsContext): Promise
 }
 
 export const verify: Step = {
-    summary: () => 'Events arrived in PostHog',
+    summary: () => 'PostHog received events',
 
     async advance(run) {
         const events = eventsContext(run.state?.startedAt ?? 0, null)
-        const ask = `Run the app, or ask the person to, and do something in it that sends an event. Then run \`${SETUP_NEXT}\` yourself. It looks for events PostHog received since ${events.since}.`
+        const ask = `Run the app and trigger an event, or ask the user to. Then run \`${SETUP_NEXT}\` to check for events received since ${events.since}.`
 
         if (!run.input.next) {
             run.context.events = events
@@ -43,6 +43,6 @@ export const verify: Step = {
             return undefined
         }
 
-        return runNext('setup_no_events_yet', `PostHog has no events from this setup yet. ${ask}`)
+        return runNext('setup_no_events_yet', `PostHog hasn't received any events since setup started. ${ask}`)
     },
 }

@@ -9,21 +9,21 @@ import { SETUP_NEXT } from '../state'
 const QUESTION = 'What do you want to use PostHog for?'
 const COMMAND = `${SETUP_NEXT} --reason "<their answer>" --products <id,id>`
 
-const SENT_NOTICE = 'Your answer goes to PostHog, to improve setup.'
+const SENT_NOTICE = 'hog sends your answer to PostHog to improve setup.'
 const KEPT_NOTICE = 'Your answer stays on this machine.'
 
 // The agent asks in our place, so it passes on the same notice the terminal shows.
 function instructions(telemetry: boolean): string {
     const notice = telemetry
-        ? `Tell them: "${SENT_NOTICE} To keep it on this machine, set HOG_NO_TELEMETRY=1."`
+        ? `Tell them: "${SENT_NOTICE} To keep it on this machine, set \`HOG_NO_TELEMETRY=1\`."`
         : `Tell them: "${KEPT_NOTICE}"`
 
     return [
-        `Ask the person: "${QUESTION}"`,
+        `Ask the user: "${QUESTION}"`,
         notice,
-        `Then pick the products in context.products that match their answer, and run \`${COMMAND}\` yourself.`,
-        'When nothing matches, pass --products product-analytics.',
-        'Add --region eu only when they mention the EU or data residency.',
+        `Pick the products in \`context.products\` that match the answer, then run \`${COMMAND}\`.`,
+        'If none match, pass `--products product-analytics`.',
+        'Add `--region eu` only if the user mentions the EU or data residency.',
     ].join(' ')
 }
 
@@ -51,14 +51,14 @@ async function askAtTerminal(run: SetupRun, given: Answers, needsRegion: boolean
         (await prompts.multiselect<ProductId>(
             'Which PostHog products do you want to start with?',
             products.map(({ id, label, description }) => ({ value: id, label, hint: description })),
-            { help: 'Space picks a product, Enter goes on.' }
+            { help: 'Press Space to select a product and Enter to continue.' }
         ))
 
     const region =
         given.region ??
         (needsRegion
             ? await prompts.select<RegionId>('Where should your PostHog data be hosted?', REGION_CHOICES, {
-                  help: 'With an account already, pick where it is hosted. EU Cloud keeps the data in the EU.',
+                  help: "If you already have an account, pick where it's hosted. EU Cloud keeps your data in the EU.",
               })
             : undefined)
 
@@ -70,7 +70,7 @@ export const purpose: Step = {
 
     summary: (run) => {
         const picked = (run.state?.products ?? []).map(productLabel)
-        return picked.length > 0 ? `Wants to use ${picked.join(', ')}` : 'Said what PostHog is for'
+        return picked.length > 0 ? `Picked ${picked.join(', ')}` : 'Said what PostHog is for'
     },
 
     async advance(run) {
@@ -85,7 +85,7 @@ export const purpose: Step = {
                 throw new HogError(
                     'setup_needs_answers',
                     `Pass ${missing} too.`,
-                    `Run \`${COMMAND}\` with both. The product ids are ${PRODUCT_IDS.join(', ')}.`,
+                    `Run \`${COMMAND}\` with both. Product IDs: ${PRODUCT_IDS.join(', ')}.`,
                     EXIT_USAGE
                 )
             }

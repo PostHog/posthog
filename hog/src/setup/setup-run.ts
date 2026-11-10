@@ -82,7 +82,11 @@ export class SetupRun {
     async requireLogin(): Promise<LoginRecord> {
         const login = await this.login()
         if (!login) {
-            throw new HogError('not_authenticated', 'This folder has no login yet.', `Run \`${SETUP_NEXT}\`.`)
+            throw new HogError(
+                'not_authenticated',
+                "You aren't logged in to this folder's project.",
+                `Run \`${SETUP_NEXT}\` to log in.`
+            )
         }
 
         return login
@@ -98,8 +102,8 @@ export class SetupRun {
         if (key.projectId !== login.projectId || !sameHost(key.host, login.host)) {
             throw new HogError(
                 'setup_project_mismatch',
-                `Your key is for project ${key.projectId} on ${key.host}, and this folder uses project ${login.projectId} on ${login.host}.`,
-                'Unset HOG_PERSONAL_API_KEY and drop --dotenv-file, so setup uses the login for this folder.',
+                `Your credentials are for project ${key.projectId} on ${key.host}, but this folder uses project ${login.projectId} on ${login.host}.`,
+                "Unset `HOG_PERSONAL_API_KEY` and remove `--dotenv-file` so setup uses this folder's login.",
                 EXIT_USAGE
             )
         }

@@ -9,15 +9,15 @@ export const agentsMd: Step = {
     summary: (run) => {
         const changed = run.context.agentsMd?.filter((file) => file.status !== 'unchanged')
         return changed?.length
-            ? `Added the PostHog setup note to ${changed.map((file) => file.path).join(' and ')}`
-            : 'AGENTS.md has the PostHog setup note'
+            ? `Added the PostHog section to ${changed.map((file) => file.path).join(' and ')}`
+            : '`AGENTS.md` has the PostHog section'
     },
 
     async advance(run) {
         if (!run.input.next) {
             return runNext(
                 'setup_agents_md_pending',
-                `Run \`${SETUP_NEXT}\` yourself. It adds a note to AGENTS.md, so later sessions continue this setup.`
+                `Run \`${SETUP_NEXT}\` to add the PostHog section to \`AGENTS.md\`.`
             )
         }
 

@@ -33,7 +33,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
         initialValue: REGIONS.us,
         validate: (value) => validationError(HostSchema, value),
     })
-    const projectId = await prompts.text('Project ID, the number in your project URL', {
+    const projectId = await prompts.text('Project ID (the number in your project URL)', {
         validate: (value) => validationError(ProjectIdSchema, value),
     })
     const apiKey = await prompts.password('Personal API key', {
@@ -56,11 +56,11 @@ export default defineCommand({
             choices: REGION_IDS,
             placeholder: 'region',
             description:
-                'Where your PostHog account is hosted, as in the us.posthog.com or eu.posthog.com address. Use --host for self-hosted PostHog',
+                'Where your PostHog account is hosted: `us` for us.posthog.com, `eu` for eu.posthog.com. Use `--host` for self-hosted PostHog',
         },
         wait: {
             type: 'boolean',
-            description: 'Wait for the login an agent or script started, and save the token once a person approves it',
+            description: 'Wait for approval of the login an agent or script started, then save the token',
         },
         readOnly: {
             type: 'boolean',
@@ -71,10 +71,10 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'You pick one project when you approve the login, and the token only works in that project. The token renews automatically.',
-        'Each project has its own login, and the closest posthog.json picks the one a command uses. Login writes the host and project to posthog.json in this folder, or to the closest one above it.',
+        'You pick one project when you approve the login. The token only works in that project and renews automatically.',
+        'Each project has its own login. The closest `posthog.json` decides which login a command uses. Login writes the host and project to the closest `posthog.json`, or creates one in this folder.',
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
-        'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY and HOG_HOST, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.',
+        'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token. Or set `HOG_PERSONAL_API_KEY` and `HOG_HOST`, and put the project ID in `posthog.json` as `"projectId"` or in `HOG_PROJECT_ID`.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --read-only', 'hog auth login --wait'],
 
@@ -84,7 +84,7 @@ export default defineCommand({
         if (options.wait && options.readOnly) {
             throw new HogError(
                 'read_only_with_wait',
-                '--read-only sets what a new login asks for, and --wait finishes the login that already started.',
+                "`--read-only` and `--wait` don't go together. `--read-only` applies to a new login, and `--wait` finishes one that already started.",
                 'Run `hog auth login --read-only` to start a read-only login, then `hog auth login --wait`.',
                 EXIT_USAGE
             )
@@ -103,8 +103,8 @@ export default defineCommand({
             if (!prompts) {
                 throw new HogError(
                     'region_required',
-                    'hog auth login needs to know where your PostHog account is hosted.',
-                    'Ask the user where their PostHog account is hosted. When they open PostHog in a browser, the address starts with us.posthog.com or eu.posthog.com. Then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass --host.',
+                    "hog doesn't know where your PostHog account is hosted.",
+                    'Ask the user whether their PostHog address starts with us.posthog.com or eu.posthog.com. Then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass `--host`.',
                     EXIT_USAGE
                 )
             }
@@ -119,15 +119,15 @@ export default defineCommand({
                     },
                 ],
                 {
-                    help: 'Open PostHog in your browser and check the address: it starts with us.posthog.com or eu.posthog.com.',
+                    help: 'Check the PostHog address in your browser. It starts with us.posthog.com or eu.posthog.com.',
                 }
             )
             if (choice === 'key') {
                 if (options.readOnly) {
                     throw new HogError(
                         'read_only_with_key',
-                        "--read-only can't limit a personal API key: the key keeps the scopes it has in PostHog.",
-                        'Approve a read-only login in the browser instead, or create a key with read scopes only.',
+                        "`--read-only` doesn't apply to a personal API key. The key keeps the scopes set in PostHog.",
+                        'Log in through the browser instead, or create a key with read scopes only.',
                         EXIT_USAGE
                     )
                 }
@@ -175,12 +175,12 @@ export default defineCommand({
         const saved = {
             created: `Created ${file} with this host and project.`,
             updated: `Set this host and project in ${file}.`,
-            unchanged: `${file} already names this host and project.`,
+            unchanged: `${file} already has this host and project.`,
         }[status]
         out.line(saved)
         out.line(
             out.style(
-                `Commands under ${escapeControls(dirname(path))} use this login, unless a closer posthog.json names another project.`,
+                `Commands under ${escapeControls(dirname(path))} use this login, unless a closer \`posthog.json\` sets another project.`,
                 'dim'
             )
         )

@@ -8,7 +8,9 @@ import { escapeControls, type Output } from '@/core/output'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
 import { plural } from '@/core/text'
 
-const LineRange = z.string().regex(/^[1-9]\d*:[1-9]\d*$/, { error: 'Give the lines as <start>:<end>, such as 10:40.' })
+const LineRange = z
+    .string()
+    .regex(/^[1-9]\d*:[1-9]\d*$/, { error: 'Pass the lines as `<start>:<end>`, such as `10:40`.' })
 
 const ASSET_NAMES: Record<SkillAssetStatus['name'], string> = {
     'product-skills': 'the PostHog product skills',
@@ -26,7 +28,7 @@ function learnRequest(
     if (modeCount > 1) {
         throw new HogError(
             'invalid_learn_command',
-            'Pass only one of --search, --describe and --lines.',
+            'Pass only one of `--search`, `--describe`, or `--lines`.',
             'Run `hog learn` to see how each one works.',
             EXIT_USAGE
         )
@@ -52,7 +54,7 @@ const LIST_HINT = 'Run `hog learn skills` to list every skill.'
 const ERRORS: Partial<Record<SkillsError['code'], { code?: string; hint?: string; exitCode?: number }>> = {
     unknown_skill: { hint: LIST_HINT },
     unknown_topic: { hint: LIST_HINT },
-    unknown_file: { hint: 'Give the path from the skill folder, such as references/COMMANDMENTS.md.' },
+    unknown_file: { hint: 'Pass the path relative to the skill folder, such as `references/COMMANDMENTS.md`.' },
     unavailable: { code: 'skills_unavailable', hint: 'Run `hog learn skills` to list the skills hog serves.' },
     usage: { code: 'invalid_learn_command', exitCode: EXIT_USAGE },
 }
@@ -84,20 +86,20 @@ export function printDownloadWarnings(out: Output, assets: readonly SkillAssetSt
     for (const asset of assets) {
         const outcome =
             asset.origin === 'cache' && asset.fetchedAt
-                ? `so these come from the copy saved on ${asset.fetchedAt.slice(0, 16).replace('T', ' ')} UTC`
+                ? `. Using the copy saved on ${asset.fetchedAt.slice(0, 16).replace('T', ' ')} UTC`
                 : asset.origin === 'unavailable'
-                  ? 'and has no saved copy, so they are missing'
+                  ? ", and there's no saved copy"
                   : undefined
 
         if (outcome) {
             const failure = escapeControls(asset.failure ?? '')
-            out.line(out.style(`hog couldn't download ${ASSET_NAMES[asset.name]} (${failure}), ${outcome}.`, 'yellow'))
+            out.line(out.style(`hog couldn't download ${ASSET_NAMES[asset.name]} (${failure})${outcome}.`, 'yellow'))
         }
     }
 }
 
 export default defineCommand({
-    description: 'Read the PostHog agent skills, the step-by-step guides for PostHog tasks',
+    description: 'Read PostHog agent skills: step-by-step guides for PostHog tasks',
     args: {
         skill: {
             description: 'A skill such as posthog:instrument-integration. `skills` lists every skill',
@@ -114,9 +116,9 @@ export default defineCommand({
             type: 'string',
             short: 's',
             placeholder: 'keywords',
-            description: 'Find skills by keywords, or search one file when a skill and its path come first',
+            description: 'Find skills by keyword. With a skill and a path first, search that file instead',
         },
-        describe: { type: 'boolean', short: 'd', description: 'Show what each skill named is for, without reading it' },
+        describe: { type: 'boolean', short: 'd', description: 'Show what each named skill is for, without reading it' },
         lines: {
             type: 'string',
             placeholder: 'start:end',
@@ -124,7 +126,7 @@ export default defineCommand({
             description: 'Read only these lines of a file',
         },
     },
-    notes: 'Skills are public, so `hog learn` needs no login. hog downloads the latest skills every time, and uses the copy it saved in ~/.posthog/skills only when the download fails.',
+    notes: 'Skills are public, so `hog learn` needs no login. hog downloads the latest skills on every run, and uses the copy saved in `~/.posthog/skills` only when the download fails.',
     examples: [
         'hog learn skills',
         'hog learn -s "session replay"',

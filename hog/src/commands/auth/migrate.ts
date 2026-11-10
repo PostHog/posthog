@@ -33,8 +33,8 @@ export default defineCommand({
     description: 'Move the personal API key posthog-cli saved into hog',
     writes: true,
     notes: [
-        'Reads ~/.posthog/credentials.json, the file `posthog-cli login` writes, and saves its key the way `hog auth login` saves one.',
-        'hog never reads that file otherwise, and leaves it as it is.',
+        'Reads `~/.posthog/credentials.json`, which `posthog-cli login` writes, and saves its key as `hog auth login` does.',
+        "hog doesn't change that file or read it anywhere else.",
     ].join('\n'),
     examples: ['hog auth migrate'],
 
@@ -67,7 +67,7 @@ export default defineCommand({
 
     human({ result, out }) {
         if (result.status === 'nothing_to_migrate') {
-            out.line(`There is nothing to move: ${result.legacyFile} doesn't exist.`)
+            out.line(`Nothing to move: ${result.legacyFile} doesn't exist.`)
             out.line(`Run ${out.style(result.next, 'bold')} to log in.`)
             return
         }
@@ -78,8 +78,6 @@ export default defineCommand({
         if (result.keychainError) {
             out.line(out.style(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`, 'yellow'))
         }
-        out.line(
-            out.style(`hog no longer reads ${result.legacyFile}. Delete it once posthog-cli doesn't need it.`, 'dim')
-        )
+        out.line(out.style(`hog doesn't read ${result.legacyFile}. Delete it when you stop using posthog-cli.`, 'dim'))
     },
 })

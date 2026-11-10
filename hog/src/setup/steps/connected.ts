@@ -3,14 +3,14 @@ import { runNext, type Step } from '../setup-run'
 import { SETUP_NEXT } from '../state'
 
 export const connected: Step = {
-    summary: () => 'Wrote the final PostHog note to AGENTS.md',
+    summary: () => 'Wrote the final PostHog section to `AGENTS.md`',
 
     async advance(run) {
         const { ctx, state } = run
         if (!run.input.next) {
             return runNext(
                 'setup_connect_pending',
-                `Run \`${SETUP_NEXT}\` yourself. It rewrites the note in AGENTS.md with the commands for later PostHog work.`
+                `Run \`${SETUP_NEXT}\` to finish setup and list the PostHog commands in \`AGENTS.md\`.`
             )
         }
 

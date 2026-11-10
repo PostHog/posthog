@@ -195,7 +195,7 @@ describe('hog setup', () => {
                 kind: 'ask_user',
                 ask: 'What do you want to use PostHog for?',
                 command: 'hog setup next --reason "<their answer>" --products <id,id>',
-                instructions: expect.stringContaining('yourself'),
+                instructions: expect.stringContaining('then run `hog setup next --reason'),
             },
             context: { folder: '/work', configPath: null },
         })
@@ -206,7 +206,7 @@ describe('hog setup', () => {
 
         const askedWithTelemetry = await machine.run(['setup'], { telemetry: true })
         expect((askedWithTelemetry.json() as any).next.instructions).toContain(
-            'Your answer goes to PostHog, to improve setup. To keep it on this machine, set HOG_NO_TELEMETRY=1.'
+            'hog sends your answer to PostHog to improve setup. To keep it on this machine, set `HOG_NO_TELEMETRY=1`.'
         )
 
         const started = await machine.run(['setup', 'next', ...ANSWERS], { telemetry: true })
@@ -218,7 +218,7 @@ describe('hog setup', () => {
                 command: 'hog setup next',
                 url: `${EU}/device?code=BCDF-GHJK`,
                 code: 'BCDF-GHJK',
-                instructions: expect.stringContaining('run `hog setup next` yourself'),
+                instructions: expect.stringContaining('Then run `hog setup next`.'),
             },
         })
         expect(started.stdout).not.toContain('device-secret')
@@ -308,7 +308,7 @@ describe('hog setup', () => {
         expect(agentsMd).not.toContain('in progress')
         expect(agentsMd).toContain(`project 42 on ${EU}`)
         expect(agentsMd).toContain(
-            '- Logs, metrics and tracing (APM): `hog learn -s "logs"`, `hog learn posthog:instrument-metrics`'
+            '- Logs, metrics, and tracing (APM): `hog learn -s "logs"`, `hog learn posthog:instrument-metrics`'
         )
         expect(agentsMd.indexOf('Session replay')).toBeLessThan(agentsMd.indexOf('Debugging errors'))
 
@@ -349,7 +349,7 @@ describe('hog setup', () => {
         })
 
         expect(result.exitCode).toBe(0)
-        expect(result.stdout).toContain('Done  Wants to use Product analytics')
+        expect(result.stdout).toContain('Done  Picked Product analytics')
         expect(result.stdout).toContain('Done  Logged in to https://us.posthog.com, project 42')
         expect(result.stdout).toContain(`Project token: ${escapeControls(machine.token)}`)
         expect(result.stdout).not.toContain('\u001b')

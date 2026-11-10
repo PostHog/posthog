@@ -7,9 +7,9 @@ import { SETUP_NEXT } from '../state'
 const ADD_SKILLS = 'hog skills add <id...>'
 
 const INSTRUCTIONS = [
-    'Tell the person what else PostHog can do, from context.products.',
-    `Name the skills in context.skills that could help them later, and say they can add them with \`${ADD_SKILLS}\`.`,
-    `Then run \`${SETUP_NEXT} --products-ack\` yourself.`,
+    'Tell the user what else PostHog can do, from `context.products`.',
+    `Name the skills in \`context.skills\` that fit their app, and tell them to add them with \`${ADD_SKILLS}\`.`,
+    `Then run \`${SETUP_NEXT} --products-ack\`.`,
 ].join(' ')
 
 // A list that fails to load only leaves the skills out of this step.
@@ -26,12 +26,12 @@ async function skillList(run: SetupRun): Promise<SkillInfo[]> {
         failure = error instanceof Error ? error.message : String(error)
     }
 
-    run.context.warnings.push(`The PostHog skills didn't load: ${failure}`)
+    run.context.warnings.push(`Couldn't load the PostHog skills: ${failure}`)
     return []
 }
 
 export const products: Step = {
-    summary: () => 'Went through what else PostHog can do',
+    summary: () => 'Showed what else PostHog can do',
 
     async advance(run) {
         const { ctx, input } = run

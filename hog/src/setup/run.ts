@@ -76,12 +76,12 @@ async function connectedResult(run: SetupRun): Promise<SetupResult> {
             ? {
                   kind: 'done',
                   instructions:
-                      'PostHog is set up in this folder. The note in AGENTS.md lists the commands for later PostHog work.',
+                      'PostHog is set up in this folder. The PostHog section in `AGENTS.md` lists the commands for later PostHog work.',
               }
             : {
                   kind: 'run',
                   command: 'hog auth login',
-                  instructions: 'PostHog is set up in this folder. Run `hog auth login` to use hog here.',
+                  instructions: "PostHog is set up in this folder, but you aren't logged in. Run `hog auth login`.",
               },
     }
 }

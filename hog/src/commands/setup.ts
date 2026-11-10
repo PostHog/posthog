@@ -12,10 +12,10 @@ import type { NextAction, SetupResult } from '@/setup/result'
 const Reason = z
     .string()
     .trim()
-    .min(1, { error: 'Write what the person wants to use PostHog for, in a few words.' })
+    .min(1, { error: 'Pass a few words on what the user wants to use PostHog for.' })
     .max(1000, { error: 'Keep the reason under 1000 characters.' })
 
-const PRODUCTS_HINT = `Pass product ids separated by commas, from this list: ${PRODUCT_IDS.join(', ')}.`
+const PRODUCTS_HINT = `Pass product IDs separated by commas: ${PRODUCT_IDS.join(', ')}.`
 
 const OPTIONS = {
     reason: {
@@ -23,29 +23,29 @@ const OPTIONS = {
         placeholder: 'text',
         parse: (raw: string, failure: ParseFailure) => parseOrThrow(Reason, raw, failure),
         description:
-            'What the person wants to use PostHog for, in their words. It goes to PostHog unless telemetry is off',
+            'What the user wants to use PostHog for, in their words. hog sends it to PostHog unless telemetry is off',
     },
     products: {
         type: 'string',
         placeholder: 'ids',
         parse: (raw: string, failure: ParseFailure) =>
             parseOrThrow(ProductListSchema, raw, { ...failure, hint: PRODUCTS_HINT }),
-        description: `The products that match the reason, separated by commas: ${PRODUCT_IDS.join(', ')}`,
+        description: `Product IDs that match the reason, separated by commas: ${PRODUCT_IDS.join(', ')}`,
     },
     region: {
         type: 'string',
         choices: REGION_IDS,
         placeholder: 'region',
         description:
-            'Where to host the PostHog data when posthog.json names no host. Defaults to us. Pass eu when the person mentions the EU or data residency',
+            'Where PostHog hosts your data, when `posthog.json` has no host. Defaults to `us`. Pass `eu` when the user mentions the EU or data residency',
     },
     reviewed: {
         type: 'boolean',
-        description: 'You checked your changes against the install rules and fixed any that broke one',
+        description: 'You checked your changes against the install rules and fixed any that break one',
     },
     productsAck: {
         type: 'boolean',
-        description: 'You told the person what else PostHog can do, and the setup can finish',
+        description: 'You told the user what else PostHog can do',
     },
 } as const satisfies Record<string, OptionSpec>
 
@@ -98,7 +98,7 @@ function printContext(out: Output, result: SetupResult): void {
               ]
             : [],
         result.status === 'connected'
-            ? agentsMd.map((file) => out.style(`The PostHog note is in ${escapeControls(file.path)}`, 'dim'))
+            ? agentsMd.map((file) => out.style(`The PostHog section is in ${escapeControls(file.path)}`, 'dim'))
             : [],
     ])
 }
@@ -108,12 +108,12 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
 
     switch (next.kind) {
         case 'ask_user':
-            return [`Run ${setupNext} to answer this question at the terminal.`, `  ${escapeControls(next.ask)}`]
+            return [`Run ${setupNext} to answer this question:`, `  ${escapeControls(next.ask)}`]
         case 'tell_user':
-            return [`Look through the lists above, then run ${out.style(next.command, 'bold')}.`]
+            return [`Read the lists above, then run ${out.style(next.command, 'bold')}.`]
         case 'wait':
             return [
-                `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. New users can sign up on the same page. Then run ${setupNext}.`,
+                `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. If you don't have an account, sign up on the same page. Then run ${setupNext}.`,
                 `  ${escapeControls(next.url)}`,
             ]
         case 'read':
@@ -139,7 +139,7 @@ export default defineCommand({
     description: 'Set up PostHog in this folder, one step at a time',
     args: {
         action: {
-            description: '`next` does the current step and every step after it that needs nobody',
+            description: '`next` runs the current step and every later step that needs no input',
             optional: true,
         },
     },
@@ -147,10 +147,10 @@ export default defineCommand({
     writes: true,
     scopes: ['project:read', 'query:read'],
     notes: [
-        '`hog setup` shows the current step and what `hog setup next` will do, and changes nothing.',
-        '`hog setup next` does the current step and keeps going until a step needs you or your agent. Its output names that step.',
-        'The setup belongs to the folder of the closest posthog.json, or to this folder when there is none, so each app in a monorepo has its own.',
-        'An agent asks the person one question, passes the answer as options, and runs `hog setup next` again after each step.',
+        '`hog setup` shows the current step and what `hog setup next` does. It changes nothing.',
+        '`hog setup next` runs the current step and continues until a step needs you or your agent. The output names that step.',
+        'Setup applies to the folder of the closest `posthog.json`, or to this folder if there is none. Each app in a monorepo has its own setup.',
+        'An agent asks the user each question, passes the answers as options, and runs `hog setup next` after each step.',
     ].join('\n'),
     examples: [
         'hog setup',
@@ -166,7 +166,7 @@ export default defineCommand({
             throw new HogError(
                 'invalid_setup_command',
                 `There is no \`hog setup ${escapeControls(args.action)}\`.`,
-                'Run `hog setup` to see the current step, or `hog setup next` to do it.',
+                'Run `hog setup` to see the current step, or `hog setup next` to run it.',
                 EXIT_USAGE
             )
         }
@@ -176,8 +176,8 @@ export default defineCommand({
         if (!next && given) {
             throw new HogError(
                 'setup_options_need_next',
-                'These options go with `hog setup next`.',
-                'Run `hog setup next` with them instead of `hog setup`.',
+                'These options only work with `hog setup next`.',
+                'Run `hog setup next` with the same options.',
                 EXIT_USAGE
             )
         }

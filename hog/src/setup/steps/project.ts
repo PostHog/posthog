@@ -42,14 +42,14 @@ export const project: Step = {
 
     summary: async (run) => {
         const { host, projectId } = await run.requireLogin()
-        return `posthog.json names project ${projectId} on ${host}`
+        return `Saved project ${projectId} on ${host} in \`posthog.json\``
     },
 
     async advance(run) {
         if (!run.input.next) {
             return runNext(
                 'setup_project_pending',
-                `Run \`${SETUP_NEXT}\` yourself. It names the project in posthog.json and tells PostHog which products the person picked.`
+                `Run \`${SETUP_NEXT}\` to save the project in \`posthog.json\` and send the products the user picked to PostHog.`
             )
         }
 
@@ -58,7 +58,7 @@ export const project: Step = {
         if (written.status === 'failed') {
             throw new HogError(
                 'setup_config_unwritable',
-                `Writing ${written.path} failed: ${written.error ?? 'unknown error'}`,
+                `Couldn't write ${written.path}: ${written.error ?? 'unknown error'}`,
                 `Check that you can write to ${run.scope.folder}, then run \`${SETUP_NEXT}\` again.`
             )
         }

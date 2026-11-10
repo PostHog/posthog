@@ -24,8 +24,7 @@ import { SETUP_NEXT } from '../state'
 
 function waitingStop(pending: PendingResult, projectId: ProjectId | undefined): Stop {
     const { url, code, expiresAt, next, instructions } = pending
-    const project =
-        projectId === undefined ? '' : ` On that page, they pick project ${projectId}, the one this folder uses.`
+    const project = projectId === undefined ? '' : ` Tell them to pick project ${projectId} on that page.`
 
     return {
         code: 'setup_login_pending',
@@ -58,8 +57,8 @@ async function checkProject(run: SetupRun, key: AccessKey, expected: ProjectId |
     await saveLogin(run.ctx.runtime, key)
     throw new HogError(
         'setup_project_mismatch',
-        `You approved project ${key.projectId}, and this folder uses project ${expected}.`,
-        `Run \`${SETUP_NEXT}\` and pick project ${expected} on the approval page. To set up project ${key.projectId} instead, change "projectId" in posthog.json, or HOG_PROJECT_ID, first.`,
+        `You approved project ${key.projectId}, but this folder uses project ${expected}.`,
+        `Run \`${SETUP_NEXT}\` and pick project ${expected} on the approval page. To set up project ${key.projectId} instead, first change \`"projectId"\` in \`posthog.json\` or \`HOG_PROJECT_ID\`.`,
         EXIT_USAGE
     )
 }
@@ -84,7 +83,7 @@ export const login: Step = {
                 ? waitingStop(pendingResult(flow, pending), projectId)
                 : runNext(
                       'setup_login_needed',
-                      `Run \`${SETUP_NEXT}\` yourself. It starts a login to ${host}, and new users can sign up on the same page.`
+                      `Run \`${SETUP_NEXT}\` to log in to ${host}. Users without an account can sign up on the same page.`
                   )
         }
 
@@ -100,8 +99,8 @@ export const login: Step = {
             // Commands here pick the login from posthog.json, so setup can't go on without it.
             throw new HogError(
                 'setup_config_unwritable',
-                `You're logged in, but writing ${config.path} failed: ${config.error ?? 'unknown error'}`,
-                `Make ${run.scope.folder} writable, or add "host": "${host}" and "projectId": ${approval.value.projectId} to posthog.json yourself. Then run \`${SETUP_NEXT}\`.`
+                `You're logged in, but hog couldn't write ${config.path}: ${config.error ?? 'unknown error'}`,
+                `Make ${run.scope.folder} writable, or add \`"host": "${host}"\` and \`"projectId": ${approval.value.projectId}\` to \`posthog.json\`. Then run \`${SETUP_NEXT}\`.`
             )
         }
 
