@@ -845,6 +845,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            bounceTimestamp?: string
         }[]
         // Hard (Permanent) bounces — recorded in the suppression list so future sends to the address
         // are blocked. Suppression enforcement replaces the legacy opt-out-on-bounce write.
@@ -910,6 +911,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            bounceTimestamp?: string
         }[] = []
         const hardBounceRecipients: {
             teamId?: string
@@ -1133,6 +1135,7 @@ export class SesWebhookHandler {
                         teamId,
                         emailAddresses: bounced.map((r) => r.emailAddress),
                         diagnostic,
+                        bounceTimestamp: rec.bounce.timestamp,
                     })
                 }
             }
