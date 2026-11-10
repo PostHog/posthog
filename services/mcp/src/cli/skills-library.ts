@@ -384,19 +384,21 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         return { release: loaded.parsed, assets: [loaded.status] }
     })
 
-    const loadCatalog = memoizeWhileFresh(async () => {
-        const [product, contextMill] = await Promise.all([
-            loadAsset(settings, 'product-skills', (bytes) => SkillCatalog.fromZip(bytes)),
-            loadContextMill(),
-        ])
+    const loadProductSkills = memoizeWhileFresh(async () => {
+        const loaded = await loadAsset(settings, 'product-skills', (bytes) => SkillCatalog.fromZip(bytes))
+        return { catalog: loaded.parsed, assets: [loaded.status] }
+    })
 
+    // Each asset keeps its own network copy, so an outage of one doesn't download the other again.
+    const loadCatalog = memoizeWhileFresh(async () => {
+        const [product, contextMill] = await Promise.all([loadProductSkills(), loadContextMill()])
         const omnibus = contextMill.release?.omnibus()
-        const catalog = product.parsed && omnibus ? product.parsed.withOverlay(omnibus) : (product.parsed ?? omnibus)
+        const catalog = product.catalog && omnibus ? product.catalog.withOverlay(omnibus) : (product.catalog ?? omnibus)
 
         return {
             // A CLI has no exec tool, so the commands in the skills are rewritten once, when they load.
             catalog: catalog?.mapText((text) => rewriteLearnCommands(text, learnCommand)),
-            assets: [product.status, ...contextMill.assets],
+            assets: [...product.assets, ...contextMill.assets],
         }
     })
 
