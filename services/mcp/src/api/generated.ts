@@ -72035,6 +72035,7 @@ export namespace Schemas {
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
      * * `connector` - Signed up through an OAuth connector
+     * * `device_login` - Signed up through an OAuth device login
      */
     export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
 
@@ -72045,6 +72046,7 @@ export namespace Schemas {
       Other: 'other',
       Provisioned: 'provisioned',
       Connector: 'connector',
+      DeviceLogin: 'device_login',
     } as const;
 
     export interface OnlinePerformanceRow {
