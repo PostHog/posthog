@@ -4,7 +4,7 @@ import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { VOLUME_LOOKBACK_DAYS, filtersOnContent, runRate } from '../evaluationVolume'
+import { VOLUME_LOOKBACK_DAYS, filtersOnContent, matchesNoUnits, runRate } from '../evaluationVolume'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
@@ -44,7 +44,7 @@ export function EvaluationVolumeEstimate(): JSX.Element | null {
             </div>
         )
     }
-    if (volume.target !== 'generation' && volume.matchingUnits === 0) {
+    if (matchesNoUnits(volume)) {
         const ids =
             volume.target === 'trace'
                 ? 'a trace ID ($ai_trace_id)'

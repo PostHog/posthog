@@ -4,7 +4,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { EvaluationSampleTrafficItemApi, TestHogResultItemApi } from '../generated/api.schemas'
-import { evaluationPreviewLogic, resultPasses } from './evaluationPreviewLogic'
+import { evaluationsTestOnSampleCreateBodySampleIdsMax } from '../generated/api.zod'
+import { JUDGE_TEST_LIMIT, evaluationPreviewLogic, resultOutcome } from './evaluationPreviewLogic'
 import { llmEvaluationLogic } from './llmEvaluationLogic'
 import type { EvaluationConfig } from './types'
 
@@ -50,24 +51,30 @@ const testResult = {
     result: true,
     reasoning: '',
     error: null,
+    outcome: 'pass',
 }
 
 describe('evaluationPreviewLogic', () => {
     let logic: ReturnType<typeof evaluationPreviewLogic.build>
     let testCalls: string[]
+    let testedIds: string[][]
     let saved: EvaluationConfig
     let pending: Promise<void> | null
-    let responseStatus: number
+    let failure: [number, Record<string, string>] | null
 
     beforeEach(() => {
         testCalls = []
+        testedIds = []
         pending = null
-        responseStatus = 200
-        const respond = (endpoint: string) => async () => {
-            testCalls.push(endpoint)
-            await pending
-            return responseStatus === 200 ? [200, { results: [testResult] }] : [responseStatus, { detail: 'Failed' }]
-        }
+        failure = null
+        const respond =
+            (endpoint: string) =>
+            async ({ request }: { request: Request }) => {
+                testCalls.push(endpoint)
+                testedIds.push(((await request.json()) as { sample_ids: string[] }).sample_ids)
+                await pending
+                return failure ?? [200, { results: [testResult] }]
+            }
         useMocks({
             get: { '/api/projects/:teamId/evaluations/:id/': () => [200, saved] },
             post: {
@@ -88,21 +95,36 @@ describe('evaluationPreviewLogic', () => {
     }
 
     it.each([
-        ['a plain evaluation passes on true', {}, true],
-        ['a detector fails on true, matching the polarity switch', { true_is_failure: true }, false],
-    ])('%s', (_name, outputConfig, passes) => {
+        ['a judge result passes on true', 'llm_judge', {}, 'pass'],
+        [
+            'a judge detector fails on true, matching the polarity switch',
+            'llm_judge',
+            { true_is_failure: true },
+            'fail',
+        ],
+        ['a Hog result keeps the outcome the server gave it', 'hog', { true_is_failure: true }, 'pass'],
+    ])('%s', (_name, evaluationType, outputConfig, outcome) => {
         expect(
-            resultPasses({ ...testResult, result: true } as TestHogResultItemApi, {
-                ...evaluation,
-                output_config: outputConfig,
-            })
-        ).toBe(passes)
+            resultOutcome(
+                testResult as TestHogResultItemApi,
+                {
+                    ...evaluation,
+                    evaluation_type: evaluationType,
+                    output_config: outputConfig,
+                } as EvaluationConfig
+            )
+        ).toBe(outcome)
+    })
+
+    it('tests no more runs with a judge than the server accepts', () => {
+        expect(JUDGE_TEST_LIMIT).toBe(evaluationsTestOnSampleCreateBodySampleIdsMax)
     })
 
     it('tests hog code on the traffic without a click, and again after each edit', async () => {
         mount(evaluation)
         await expectLogic(logic).toFinishAllListeners()
         expect(testCalls).toEqual(['hog'])
+        expect(testedIds).toEqual([['a', 'b', 'c', 'd']])
         expect(Object.keys(logic.values.testResults ?? {})).toEqual(['a'])
 
         llmEvaluationLogic(props).actions.setHogSource('return false')
@@ -123,6 +145,8 @@ describe('evaluationPreviewLogic', () => {
 
         await expectLogic(logic, () => logic.actions.testRows({ auto: false })).toFinishAllListeners()
         expect(Object.keys(logic.values.testResults ?? {})).toEqual(['a'])
+        // Each run is a paid call, and the server rejects a fourth id.
+        expect(testedIds).toEqual([['a', 'b', 'c']])
 
         llmEvaluationLogic(props).actions.setEvaluationPrompt('Is it accurate?')
 
@@ -131,31 +155,55 @@ describe('evaluationPreviewLogic', () => {
     })
 
     it.each([
-        ['result', 200],
-        ['failure', 500],
-    ])('drops a judge %s that arrives after the prompt changed', async (_outcome, status) => {
-        responseStatus = status
-        mount({
-            ...evaluation,
-            evaluation_type: 'llm_judge',
-            evaluation_config: { prompt: 'Is it helpful?' },
-            model_configuration: { provider: 'openai', model: 'gpt-4.1-mini', provider_key_id: 'key-1' },
-        } as EvaluationConfig)
-        await expectLogic(logic).toFinishAllListeners()
-        let release = (): void => {}
-        pending = new Promise((resolve) => {
-            release = resolve
-        })
+        [
+            'code that does not compile',
+            [400, { error: 'Compilation error on line 2: unexpected token', code: 'hog_compile_error' }],
+            'Compilation error on line 2: unexpected token',
+            'Compilation error on line 2: unexpected token',
+        ],
+        ['a busy server', [500, { detail: 'Too many queries' }], 'Too many queries', null],
+    ] as [string, [number, Record<string, string>], string, string | null][])(
+        'reports %s',
+        async (_name, response, testError, codeError) => {
+            failure = response
+            mount(evaluation)
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.testRows({ auto: false })
-        llmEvaluationLogic(props).actions.setEvaluationPrompt('Is it accurate?')
-        // The paid call is still running, so the button must not offer a second one yet.
-        expect(logic.values.testResultsLoading).toBe(true)
-        release()
-        await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.testError).toBe(testError)
+            expect(logic.values.codeError).toBe(codeError)
+        }
+    )
 
-        expect(testCalls).toEqual(['judge'])
-        expect(logic.values.testResults).toBeNull()
-        expect(logic.values.testError).toBeNull()
-    })
+    it.each([
+        ['result', null, true],
+        ['failure', [500, { detail: 'Failed' }], false],
+    ] as [string, [number, Record<string, string>] | null, boolean][])(
+        'drops a judge %s that arrives after the prompt changed',
+        async (_outcome, response, saysDiscarded) => {
+            failure = response
+            mount({
+                ...evaluation,
+                evaluation_type: 'llm_judge',
+                evaluation_config: { prompt: 'Is it helpful?' },
+                model_configuration: { provider: 'openai', model: 'gpt-4.1-mini', provider_key_id: 'key-1' },
+            } as EvaluationConfig)
+            await expectLogic(logic).toFinishAllListeners()
+            let release = (): void => {}
+            pending = new Promise((resolve) => {
+                release = resolve
+            })
+
+            logic.actions.testRows({ auto: false })
+            llmEvaluationLogic(props).actions.setEvaluationPrompt('Is it accurate?')
+            // The paid call is still running, so the button must not offer a second one yet.
+            expect(logic.values.testResultsLoading).toBe(true)
+            release()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(testCalls).toEqual(['judge'])
+            expect(logic.values.testResults).toBeNull()
+            expect(logic.values.testError).toBeNull()
+            expect(logic.values.testDiscarded).toBe(saysDiscarded)
+        }
+    )
 })

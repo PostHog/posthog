@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -13,9 +14,11 @@ import {
 import type {
     EvaluationSampleTrafficItemApi,
     EvaluationTestOnSampleRequestApi,
+    PreviewOutcomeEnumApi,
     TestHogRequestApi,
     TestHogResultItemApi,
 } from '../generated/api.schemas'
+import { evaluationErrorMessage } from './apiErrors'
 import {
     categoricalOutputConfigError,
     categoricalResultPasses,
@@ -23,23 +26,17 @@ import {
     numericOutputConfigError,
     numericScorePasses,
 } from './constants'
-import {
-    DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
-    DEFAULT_SESSION_WINDOW_SECONDS,
-    DEFAULT_TRACE_WINDOW_SECONDS,
-    type LLMEvaluationLogicProps,
-    llmEvaluationLogic,
-    llmEvaluationLogicKey,
-} from './llmEvaluationLogic'
-import type { EvaluationConfig } from './types'
+import { type LLMEvaluationLogicProps, llmEvaluationLogic, llmEvaluationLogicKey } from './llmEvaluationLogic'
+import type { EvaluationConfig, EvaluationTarget } from './types'
 
 /** Waits for typing in a filter to settle before asking for matching traffic. */
 const SAMPLE_DEBOUNCE_MS = 600
-const SAMPLE_COUNT = 5
 /** Each judge test is one call on the team's own provider key, so a click tests at most this many runs. */
 export const JUDGE_TEST_LIMIT = 3
-/** Hog runs re-test as the code changes, once typing pauses. */
-const HOG_RETEST_DEBOUNCE_MS = 500
+/** Hog runs re-test as the code changes, once typing pauses. A trace or a session test reads more, so it waits longer. */
+const HOG_RETEST_DEBOUNCE_MS: Record<EvaluationTarget, number> = { generation: 500, trace: 1500, session: 1500 }
+/** The server marks a test that failed because the Hog code does not compile, so the page can ask for a fix. */
+const HOG_COMPILE_ERROR_CODE = 'hog_compile_error'
 
 /** What a test can run on: Hog code, or an LLM judge or decision model with a model picked. */
 export function testableKind(evaluation: EvaluationConfig | null): 'hog' | 'judge' | null {
@@ -66,45 +63,36 @@ export function outputConfigError(evaluation: EvaluationConfig): string | null {
     return null
 }
 
-/** Pass or fail under the evaluation's rule, or null for an error or a result with no verdict, such as a score with no rule. */
-export function resultPasses(result: TestHogResultItemApi, evaluation: EvaluationConfig): boolean | null {
+/**
+ * The server grades Hog results, because it re-runs them for free on every edit. A judge result is graded here,
+ * so a changed pass rule regrades the results on screen without new model calls on the team's key.
+ */
+export function resultOutcome(
+    result: TestHogResultItemApi,
+    evaluation: EvaluationConfig
+): PreviewOutcomeEnumApi | null {
+    if (evaluation.evaluation_type === 'hog') {
+        return result.outcome
+    }
     if (result.error) {
-        return null
+        return 'error'
     }
     const rule = evaluation.output_config.passing_rule
+    let passes: boolean | null
     switch (evaluation.output_type) {
         case 'categorical':
-            return categoricalResultPasses(result.categories, rule)
+            passes = categoricalResultPasses(result.categories, rule)
+            break
         case 'numeric':
-            return numericScorePasses(result.score, rule)
+            passes = numericScorePasses(result.score, rule)
+            break
         default:
-            return result.result === null || result.result === undefined
-                ? null
-                : result.result !== evaluationIsDetector(evaluation)
+            passes =
+                result.result === null || result.result === undefined
+                    ? null
+                    : result.result !== evaluationIsDetector(evaluation)
     }
-}
-
-/** The longest quiet period the sampling endpoints accept, the server's cap for session previews. */
-const MAX_PREVIEW_QUIET_PERIOD_SECONDS = 24 * 60 * 60
-
-/**
- * The sampling settings a preview request takes. A trace samples on its window. A session samples sessions that
- * have gone quiet for as long as it would wait: its quiet period, or for a fixed window that same duration of
- * inactivity, so every sampled session has certainly settled.
- */
-function previewTargetConfig(evaluation: EvaluationConfig): TestHogRequestApi['target_config'] {
-    const config = evaluation.target_config
-    if (evaluation.target === 'trace') {
-        return { window_seconds: config.window_seconds ?? DEFAULT_TRACE_WINDOW_SECONDS }
-    }
-    if (evaluation.target === 'session') {
-        const quiet =
-            config.strategy === 'fixed_window'
-                ? (config.window_seconds ?? DEFAULT_SESSION_WINDOW_SECONDS)
-                : (config.quiet_period_seconds ?? DEFAULT_SESSION_QUIET_PERIOD_SECONDS)
-        return { quiet_period_seconds: Math.min(quiet, MAX_PREVIEW_QUIET_PERIOD_SECONDS) }
-    }
-    return undefined
+    return passes === null ? null : passes ? 'pass' : 'fail'
 }
 
 function scope(evaluation: EvaluationConfig): Pick<TestHogRequestApi, 'conditions' | 'target' | 'target_config'> {
@@ -114,19 +102,29 @@ function scope(evaluation: EvaluationConfig): Pick<TestHogRequestApi, 'condition
             properties: conditionSet.properties?.map((property) => ({ ...property })),
         })),
         target: evaluation.target,
-        target_config: previewTargetConfig(evaluation),
+        target_config: evaluation.target_config,
     }
+}
+
+/** Starting the next request of a kind aborts this one. A hidden tab keeps its request, because a judge test is paid for. */
+function requestSignal(cache: Record<string, any>, kind: 'samples' | 'test'): AbortSignal {
+    const controller = new AbortController()
+    cache.disposables.add(() => () => controller.abort(), `${kind}Request`, { pauseOnPageHidden: false })
+    return controller.signal
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface evaluationPreviewLogicValues {
     evaluation: EvaluationConfig | null // llmEvaluationLogic
     currentTeamId: number | null // teamLogic
+    codeError: string | null
+    everyTestErrored: boolean
     rows: EvaluationSampleTrafficItemApi[]
     samples: EvaluationSampleTrafficItemApi[] | null
     samplesError: boolean
     samplesKey: string
     samplesLoading: boolean
+    testDiscarded: boolean
     testError: string | null
     testKey: string
     testResults: Record<string, TestHogResultItemApi> | null
@@ -136,6 +134,9 @@ export interface evaluationPreviewLogicValues {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface evaluationPreviewLogicActions {
     clearTestResults: () => {
+        value: true
+    }
+    markTestDiscarded: () => {
         value: true
     }
     loadSamples: (_: void) => void
@@ -180,6 +181,7 @@ export interface evaluationPreviewLogicActions {
 export interface evaluationPreviewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        everyTestErrored: (testResults: Record<string, TestHogResultItemApi> | null) => boolean
         rows: (samples: EvaluationSampleTrafficItemApi[] | null) => EvaluationSampleTrafficItemApi[]
         samplesKey: (evaluation: EvaluationConfig | null) => string
         testKey: (evaluation: EvaluationConfig | null) => string
@@ -208,8 +210,9 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
     actions({
         // Clears the results without touching the loader, so a judge test still running keeps its loading state.
         clearTestResults: true,
+        markTestDiscarded: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache, actions }) => ({
         samples: [
             null as EvaluationSampleTrafficItemApi[] | null,
             {
@@ -219,12 +222,20 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                     if (!evaluation || !currentTeamId) {
                         return null
                     }
-                    const response = await evaluationsSampleTrafficCreate(currentTeamId.toString(), {
-                        ...scope(evaluation),
-                        count: SAMPLE_COUNT,
-                    })
-                    breakpoint()
-                    return response.results
+                    try {
+                        // No count: the server lists as many units as one test of the target covers.
+                        const response = await evaluationsSampleTrafficCreate(
+                            currentTeamId.toString(),
+                            scope(evaluation),
+                            { signal: requestSignal(cache, 'samples') }
+                        )
+                        breakpoint()
+                        return response.results
+                    } catch (error) {
+                        // The next request aborted this one, so its failure says nothing about the current filters.
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
@@ -233,7 +244,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
             {
                 testRows: async ({ auto }: { auto: boolean }, breakpoint) => {
                     if (auto) {
-                        await breakpoint(HOG_RETEST_DEBOUNCE_MS)
+                        await breakpoint(HOG_RETEST_DEBOUNCE_MS[values.evaluation?.target ?? 'generation'])
                     }
                     const { evaluation, currentTeamId, rows, testKey } = values
                     const kind = testableKind(evaluation)
@@ -242,30 +253,40 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                     }
                     const teamId = currentTeamId.toString()
                     const outputConfig = evaluation.output_config as TestHogRequestApi['output_config']
+                    const options = { signal: requestSignal(cache, 'test') }
                     let response: Awaited<ReturnType<typeof evaluationsTestHogCreate>>
                     try {
                         response =
                             kind === 'hog' && evaluation.evaluation_type === 'hog'
-                                ? await evaluationsTestHogCreate(teamId, {
-                                      ...scope(evaluation),
-                                      source: evaluation.evaluation_config.source,
-                                      output_type: evaluation.output_type as TestHogRequestApi['output_type'],
-                                      output_config: outputConfig,
-                                      allows_na: evaluation.output_config.allows_na ?? false,
-                                      sample_ids: rows.map((row) => row.sample_id),
-                                  })
-                                : await evaluationsTestOnSampleCreate(teamId, {
-                                      ...scope(evaluation),
-                                      evaluation_type: 'llm_judge',
-                                      evaluation_config:
-                                          evaluation.evaluation_config as EvaluationTestOnSampleRequestApi['evaluation_config'],
-                                      model_configuration:
-                                          evaluation.model_configuration as EvaluationTestOnSampleRequestApi['model_configuration'],
-                                      output_type:
-                                          evaluation.output_type as EvaluationTestOnSampleRequestApi['output_type'],
-                                      output_config: outputConfig as EvaluationTestOnSampleRequestApi['output_config'],
-                                      sample_ids: rows.slice(0, JUDGE_TEST_LIMIT).map((row) => row.sample_id),
-                                  })
+                                ? await evaluationsTestHogCreate(
+                                      teamId,
+                                      {
+                                          ...scope(evaluation),
+                                          source: evaluation.evaluation_config.source,
+                                          output_type: evaluation.output_type as TestHogRequestApi['output_type'],
+                                          output_config: outputConfig,
+                                          allows_na: evaluation.output_config.allows_na ?? false,
+                                          sample_ids: rows.map((row) => row.sample_id),
+                                      },
+                                      options
+                                  )
+                                : await evaluationsTestOnSampleCreate(
+                                      teamId,
+                                      {
+                                          ...scope(evaluation),
+                                          evaluation_type: 'llm_judge',
+                                          evaluation_config:
+                                              evaluation.evaluation_config as EvaluationTestOnSampleRequestApi['evaluation_config'],
+                                          model_configuration:
+                                              evaluation.model_configuration as EvaluationTestOnSampleRequestApi['model_configuration'],
+                                          output_type:
+                                              evaluation.output_type as EvaluationTestOnSampleRequestApi['output_type'],
+                                          output_config:
+                                              outputConfig as EvaluationTestOnSampleRequestApi['output_config'],
+                                          sample_ids: rows.slice(0, JUDGE_TEST_LIMIT).map((row) => row.sample_id),
+                                      },
+                                      options
+                                  )
                     } catch (error) {
                         // A newer test or an edit replaced this one, so its failure would hide the current results.
                         breakpoint()
@@ -278,6 +299,9 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                     // A judge edit clears the results without starting a test, so nothing cancels this call. Its
                     // results belong to the settings it ran with, and those have changed.
                     if (values.testKey !== testKey) {
+                        if (!auto) {
+                            actions.markTestDiscarded()
+                        }
                         return null
                     }
                     if (!auto) {
@@ -308,7 +332,27 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
             {
                 testRows: () => null,
                 testRowsSuccess: () => null,
-                testRowsFailure: (_, { error }) => error,
+                testRowsFailure: (_, { errorObject }) => evaluationErrorMessage(errorObject, "Couldn't run the test."),
+                clearTestResults: () => null,
+            },
+        ],
+        testDiscarded: [
+            false,
+            {
+                markTestDiscarded: () => true,
+                testRows: () => false,
+            },
+        ],
+        // Why the Hog code does not compile. Other failures, such as a busy server, say nothing about the code.
+        codeError: [
+            null as string | null,
+            {
+                testRows: () => null,
+                testRowsSuccess: () => null,
+                testRowsFailure: (_, { errorObject }) =>
+                    errorObject instanceof ApiError && errorObject.code === HOG_COMPILE_ERROR_CODE
+                        ? evaluationErrorMessage(errorObject, 'The code does not compile.')
+                        : null,
                 clearTestResults: () => null,
             },
         ],
@@ -320,6 +364,13 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
         rows: [
             (s) => [s.samples],
             (samples: EvaluationSampleTrafficItemApi[] | null): EvaluationSampleTrafficItemApi[] => samples ?? [],
+        ],
+        everyTestErrored: [
+            (s) => [s.testResults],
+            (testResults: Record<string, TestHogResultItemApi> | null): boolean => {
+                const results = Object.values(testResults ?? {})
+                return results.length > 0 && results.every((result) => !!result.error)
+            },
         ],
         // The traffic changes with what it runs on, not with the check, so editing a prompt queries nothing.
         samplesKey: [
@@ -341,8 +392,14 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                     evaluation && {
                         type: evaluation.evaluation_type,
                         config: evaluation.evaluation_config,
-                        // The pass rule only grades results, which `resultPasses` redoes, so changing it keeps them.
-                        output: [evaluation.output_type, { ...evaluation.output_config, passing_rule: undefined }],
+                        // A judge's pass rule only regrades the results on screen, see `resultOutcome`, so
+                        // changing it keeps them. The server grades Hog results, so a new rule tests again.
+                        output: [
+                            evaluation.output_type,
+                            evaluation.evaluation_type === 'hog'
+                                ? evaluation.output_config
+                                : { ...evaluation.output_config, passing_rule: undefined },
+                        ],
                         model: evaluation.model_configuration,
                         target: evaluation.target,
                     }

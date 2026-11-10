@@ -23,6 +23,8 @@ export interface TraceDrawerListConfig {
     detailTab?: NodeDetailTab
     rowClick: boolean
     showNavigation?: boolean
+    /** For a list on a form: the full page opens in a new tab, so leaving does not drop unsaved edits. */
+    fullPageInNewTab?: boolean
 }
 
 export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig> = {
@@ -71,6 +73,7 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backTo: 'evaluation',
         backLabel: 'Back to evaluation',
         rowClick: true,
+        fullPageInNewTab: true,
     },
     'dataset-items': {
         pathMatcher: /^\/ai-evals\/evaluations\/offline\/datasets\/[^/]+$/,

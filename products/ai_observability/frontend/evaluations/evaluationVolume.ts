@@ -99,6 +99,11 @@ export function summarizeVolume(conditions: ConditionVolume[], target: Evaluatio
     }
 }
 
+/** True when the filters match generations with no trace or session ID, which the target can never run on. */
+export function matchesNoUnits(volume: VolumeEstimate | null): boolean {
+    return !!volume && volume.target !== 'generation' && volume.matchingGenerations > 0 && volume.matchingUnits === 0
+}
+
 /** How often the evaluation runs, from its runs over the lookback, such as "about 14 times a day". */
 export function runRate(runs: number): string {
     const perDay = Math.round(runs / VOLUME_LOOKBACK_DAYS)

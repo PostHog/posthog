@@ -7,7 +7,7 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 import * as officeWorkerPng from '@posthog/brand/hoggies/png/office-worker'
 import * as organizedPng from '@posthog/brand/hoggies/png/organized'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -27,12 +27,11 @@ import { EvaluationMethodPanel } from './EvaluationMethodPanel'
 import { EvaluationModelPanel } from './EvaluationModelPanel'
 import { EvaluationNameFields } from './EvaluationNameFields'
 import { EvaluationOutputFields } from './EvaluationOutputFields'
-import { EvaluationPastTrafficOption } from './EvaluationPastTrafficOption'
 import { EvaluationReportsPanel } from './EvaluationReportsPanel'
 import { EvaluationReportsSwitch } from './EvaluationReportsSwitch'
 import { EvaluationTargetPanel } from './EvaluationTargetPanel'
-import { PREVIEW_DRAWER_LIST_ID } from './EvaluationTrafficPreview'
 import { EvaluationVolumeEstimate } from './EvaluationVolumeEstimate'
+import { PREVIEW_DRAWER_LIST_ID } from './previewRuns'
 
 interface Step {
     // pinned: analytics property value, because the creation funnel reads it
@@ -100,7 +99,7 @@ const STEPS: Step[] = [
 ]
 
 function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
-    const { evaluation, isNewEvaluation } = useValues(llmEvaluationLogic)
+    const { evaluation } = useValues(llmEvaluationLogic)
 
     if (!evaluation) {
         return null
@@ -122,9 +121,8 @@ function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
                     <div className="flex flex-col gap-3">
                         <EvaluationTriggersPanel />
                         {/* What the filters match, right under them, so changing a filter shows its effect in place. */}
-                        <div className="flex flex-col gap-2 rounded bg-fill-highlight-50 px-3 py-2">
+                        <div className="rounded bg-fill-highlight-50 px-3 py-2">
                             <EvaluationVolumeEstimate />
-                            {isNewEvaluation && <EvaluationPastTrafficOption />}
                         </div>
                     </div>
                 </>
@@ -181,6 +179,8 @@ export function EvaluationFormSteps({
     const todo = checklist.filter((item) => !item.done)
     const stepDone = (candidate: Step): boolean =>
         candidate.checks.every((key) => checklist.find((item) => item.key === key)?.done ?? true)
+    const stepWarned = (candidate: Step): boolean =>
+        candidate.checks.some((key) => !!checklist.find((item) => item.key === key && item.done)?.warning)
     const goTo = (next: number, via: 'next' | 'back' | 'sentence' | 'stepper'): void => {
         if (next === index) {
             return
@@ -196,8 +196,10 @@ export function EvaluationFormSteps({
             <nav className="flex flex-wrap items-center justify-center gap-2" aria-label="Steps">
                 {steps.map((candidate, candidateIndex) => {
                     const current = candidateIndex === index
-                    // A step counts as done once you have moved past it and nothing in it is missing.
-                    const done = !current && candidateIndex < index && stepDone(candidate)
+                    // A step counts as done once you have moved past it and nothing in it is missing. A warning
+                    // shows from any step, because the traffic it is about can change while you are elsewhere.
+                    const warned = !current && stepWarned(candidate)
+                    const done = !current && !warned && candidateIndex < index && stepDone(candidate)
                     return (
                         <Fragment key={candidate.key}>
                             {candidateIndex > 0 && (
@@ -218,12 +220,14 @@ export function EvaluationFormSteps({
                                         'flex size-6 items-center justify-center rounded-full text-xs font-semibold',
                                         current
                                             ? 'bg-accent text-primary-inverse'
-                                            : done
-                                              ? 'text-success border border-success'
-                                              : 'border text-secondary'
+                                            : warned
+                                              ? 'text-warning border border-warning'
+                                              : done
+                                                ? 'text-success border border-success'
+                                                : 'border text-secondary'
                                     )}
                                 >
-                                    {done ? <IconCheck /> : candidateIndex + 1}
+                                    {warned ? <IconWarning /> : done ? <IconCheck /> : candidateIndex + 1}
                                 </span>
                                 <span className={cn('text-sm', current ? 'font-semibold' : 'text-secondary')}>
                                     {candidate.title}
@@ -234,7 +238,9 @@ export function EvaluationFormSteps({
                     )
                 })}
             </nav>
-            <div className="grid grid-cols-1 items-start gap-4 @min-[60rem]/evaluation:grid-cols-[minmax(0,1fr)_22rem]">
+            {/* Two columns from the width a 1024px window leaves beside the navigation, so the preview stays next
+                to what is being edited. The panel is narrower there, to leave the editor room. */}
+            <div className="grid grid-cols-1 items-start gap-4 @min-[44rem]/evaluation:grid-cols-[minmax(0,1fr)_17rem] @min-[60rem]/evaluation:grid-cols-[minmax(0,1fr)_22rem]">
                 <section
                     className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 flex flex-col gap-6 min-w-0"
                     data-attr={`llma-evaluation-create-step-body-${step.key}`}
@@ -293,6 +299,7 @@ export function EvaluationFormSteps({
                     currentIndex={index}
                     checklist={checklist}
                     onGo={(target) => goTo(target, 'sentence')}
+                    onCreate={onCreate}
                 />
             </div>
             <TraceDrawerHost listId={PREVIEW_DRAWER_LIST_ID} />

@@ -597,7 +597,8 @@ export interface llmEvaluationLogicMeta {
         modelSelectionRequired: (
             evaluation: EvaluationConfig | null,
             originalEvaluation: EvaluationConfig | null,
-            evaluationId: string
+            evaluationId: string,
+            judgeModelGroups: ProviderModelGroup[]
         ) => boolean
         selectedModelOption: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => ModelOption | null
         judgeMethod: (evaluation: EvaluationConfig | null, selectedModelOption: ModelOption | null) => JudgeMethod
@@ -1696,17 +1697,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         modelSelectionRequired: [
-            (s, props) => [s.evaluation, s.originalEvaluation, props.evaluationId],
+            (s, props) => [s.evaluation, s.originalEvaluation, props.evaluationId, s.judgeModelGroups],
             (
                 evaluation: EvaluationConfig | null,
                 originalEvaluation: EvaluationConfig | null,
-                evaluationId: string
+                evaluationId: string,
+                judgeModelGroups: ProviderModelGroup[]
             ): boolean => {
                 if (!isLLMJudgeEvaluation(evaluation)) {
                     return false
                 }
+                if (evaluationId === 'new') {
+                    // A team with no provider key has no model to pick. Its judge starts paused, so it is
+                    // created without a model, and gets one once a key is added.
+                    return evaluation.enabled || judgeModelGroups.some((group) => group.models.length > 0)
+                }
                 if (
-                    evaluationId === 'new' ||
                     originalEvaluation?.evaluation_type !== 'llm_judge' ||
                     evaluation.evaluation_config?.judge_method != null
                 ) {
