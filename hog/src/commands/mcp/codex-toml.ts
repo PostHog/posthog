@@ -17,8 +17,18 @@ interface ScanState {
     depth: number
 }
 
-// The fields of a stdio server. Codex refuses a server that has any of them next to a `url`.
-const STDIO_FIELDS = new Set(['command', 'args', 'env', 'env_vars', 'cwd'])
+// Fields a replaced entry loses. Codex refuses a `url` next to the stdio fields, and the auth
+// fields would send another server's credentials to PostHog, which logs in with OAuth instead.
+const REPLACED_FIELDS = new Set([
+    'command',
+    'args',
+    'env',
+    'env_vars',
+    'cwd',
+    'bearer_token_env_var',
+    'http_headers',
+    'env_http_headers',
+])
 
 const BARE_KEY = /[A-Za-z0-9_-]+/y
 
@@ -246,10 +256,10 @@ export function withCodexServer(text: string, name: string, fields: Record<strin
 
         if (statement.kind === 'header' || statement.kind === 'array-header') {
             inServer = statement.kind === 'header' && sameKey(statement.table, server)
-            dropping = startsWith(statement.table, server) && STDIO_FIELDS.has(statement.table[2] ?? '')
+            dropping = startsWith(statement.table, server) && REPLACED_FIELDS.has(statement.table[2] ?? '')
         }
 
-        if (dropping || (inServer && statement.kind === 'pair' && STDIO_FIELDS.has(statement.key[0] ?? ''))) {
+        if (dropping || (inServer && statement.kind === 'pair' && REPLACED_FIELDS.has(statement.key[0] ?? ''))) {
             continue
         }
 

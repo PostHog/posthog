@@ -209,6 +209,20 @@ describe('hog mcp add', () => {
                 '',
             ].join('\n'),
         ],
+        [
+            'drops the auth of a server that pointed elsewhere',
+            [
+                '[mcp_servers.posthog]',
+                'url = "https://mcp.example.com/mcp"',
+                'bearer_token_env_var = "EXAMPLE_TOKEN"',
+                'env_http_headers = { "X-Team" = "TEAM_ID" }',
+                '',
+                '[mcp_servers.posthog.http_headers]',
+                'Authorization = "Bearer example-not-a-secret"',
+                '',
+            ].join('\n'),
+            ['[mcp_servers.posthog]', 'startup_timeout_sec = 30', `url = "${URL}"`, '', ''].join('\n'),
+        ],
     ])('codex --force %s', async (_name, before, after) => {
         const path = `${HOME}/.codex/config.toml`
 
