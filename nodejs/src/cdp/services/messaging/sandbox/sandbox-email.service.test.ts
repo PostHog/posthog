@@ -8,6 +8,7 @@ import { AUTHORIZATION_TIMEOUT_MS, SandboxAuthorization } from './sandbox-author
 import {
     SandboxEmailService,
     SandboxEmailServiceDeps,
+    SandboxSendOutcome,
     SandboxSendRequest,
     hasSandboxSenderRow,
 } from './sandbox-email.service'
@@ -210,31 +211,30 @@ describe('SandboxEmailService', () => {
         expect(deps.claimCaps).not.toHaveBeenCalled()
     })
 
-    it.each([
-        ['the trimmed address', 'member@example.com'],
-        ['the padded address its unsubscribe link carried', ' member@example.com '],
-        ['the stored member spelling', 'Member@Example.com'],
-    ])('refuses a padded recipient who opted out under %s', async (_name, optedOutIdentifier) => {
+    const withRecipientChecks = (preferencesByIdentifier: Record<string, Record<string, string>> = {}) => {
         const recipients = new RecipientsManagerService({} as PostgresRouter)
         jest.spyOn(recipients, 'get').mockImplementation(({ identifier }) => {
-            const recipient: RecipientManagerRecipient = {
-                id: 'recipient',
-                team_id: 2,
-                identifier,
-                preferences: identifier === optedOutIdentifier ? { news: 'OPTED_OUT' } : {},
-                created_at: '',
-                updated_at: '',
-            }
+            const preferences = preferencesByIdentifier[identifier]
+            const recipient: RecipientManagerRecipient | null = preferences
+                ? { id: 'recipient', team_id: 2, identifier, preferences, created_at: '', updated_at: '' }
+                : null
             return Promise.resolve(recipient)
         })
-        const frequencyCap = jest.fn().mockResolvedValue({ capped: false })
-        const deps = fakeDeps({
+        return fakeDeps({
             checkRecipient: (check) =>
                 checkSandboxRecipient(
                     { suppression: { isSuppressed: () => Promise.resolve(false) }, recipients },
                     check
                 ),
         })
+    }
+
+    it.each([
+        ['the trimmed address', 'member@example.com'],
+        ['the padded address its unsubscribe link carried', ' member@example.com '],
+        ['the stored member spelling', 'Member@Example.com'],
+    ])('refuses a padded recipient who opted out under %s', async (_name, optedOutIdentifier) => {
+        const deps = withRecipientChecks({ [optedOutIdentifier]: { news: 'OPTED_OUT' } })
 
         await expect(
             new SandboxEmailService(deps).send(
@@ -242,7 +242,7 @@ describe('SandboxEmailService', () => {
                     email: { to: { email: ' member@example.com ' }, subject: 'Hi', text: 'Hello' },
                     categoryId: 'news',
                     categoryType: 'marketing',
-                    frequencyCap,
+                    frequencyCap: () => Promise.resolve({ capped: false }),
                 })
             )
         ).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
@@ -270,27 +270,35 @@ describe('SandboxEmailService', () => {
         expect(deps.claimCaps).toHaveBeenCalledTimes(2)
     })
 
-    it('hands the run opt-outs, category, and frequency cap to the recipient check', async () => {
-        const deps = fakeDeps({
-            authorize: jest.fn().mockResolvedValue({ ...member, storedAddress: 'member@example.com' }),
-        })
-        const frequencyCap = jest.fn()
-        const optOuts = [{ identifier: 'member@example.com', categoryId: 'news' }]
+    const capped = () => Promise.resolve({ capped: true })
+    const accepted: SandboxSendOutcome = { status: 'accepted', messageId: 'ses-1' }
+    const optedOut: SandboxSendOutcome = { status: 'skipped', reason: 'opted_out' }
 
-        await new SandboxEmailService(deps).send(
-            request({ categoryId: 'news', categoryType: 'marketing', optOuts, frequencyCap, isTest: true })
-        )
+    it.each<[string, Partial<SandboxSendRequest>, SandboxSendOutcome]>([
+        [
+            'a run opt-out from its category',
+            { optOuts: [{ identifier: 'member@example.com', categoryId: 'news' }] },
+            optedOut,
+        ],
+        [
+            'a run opt-out from all marketing',
+            { optOuts: [{ identifier: 'member@example.com', categoryId: '$all' }] },
+            optedOut,
+        ],
+        [
+            'a run opt-out from another category',
+            { optOuts: [{ identifier: 'member@example.com', categoryId: 'other' }] },
+            accepted,
+        ],
+        ['a reached frequency cap', { frequencyCap: capped }, { status: 'skipped', reason: 'frequency_capped' }],
+        ['a reached frequency cap on a test send', { frequencyCap: capped, isTest: true }, accepted],
+    ])('applies %s to a marketing send', async (_case, overrides, outcome) => {
+        const deps = withRecipientChecks()
 
-        expect(deps.checkRecipient).toHaveBeenCalledTimes(1)
-        expect(deps.checkRecipient).toHaveBeenCalledWith({
-            teamId: 2,
-            address: 'member@example.com',
-            categoryId: 'news',
-            categoryType: 'marketing',
-            optOuts,
-            isTest: true,
-            frequencyCap,
-        })
+        await expect(
+            new SandboxEmailService(deps).send(request({ categoryId: 'news', categoryType: 'marketing', ...overrides }))
+        ).resolves.toEqual(outcome)
+        expect(deps.ses.send).toHaveBeenCalledTimes(outcome.status === 'accepted' ? 1 : 0)
     })
 
     it('gives up on a provisioning read the database never answers, and destroys that connection', async () => {
