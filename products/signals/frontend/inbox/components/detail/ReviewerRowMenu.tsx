@@ -52,6 +52,7 @@ export function ReviewerRowMenu({
                 type="tertiary"
                 size="xsmall"
                 fullWidth
+                className="-ml-1.5"
                 // No dropdown arrow: the row shows nothing extra until someone opens it.
                 sideIcon={null}
                 aria-label={`Actions for ${displayName}`}
