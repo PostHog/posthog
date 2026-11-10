@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { HomeTabDashboard, HomeTabPage } from './HomeTabDashboard'
 import { HomeTabDefault } from './HomeTabDefault'
+import { StoppedEventsNotice } from './stoppedEvents/StoppedEventsNotice'
 
 export function HomeTab({
     dashboardActions,
@@ -39,6 +40,7 @@ export function HomeTab({
     if (currentTeam?.home_tab_dashboard && !dashboardCreationLoading) {
         return (
             <div className="@container/home-tab pb-4 @min-[48rem]/saved-insights:py-3">
+                <StoppedEventsNotice />
                 <HomeTabDashboard
                     dashboardId={currentTeam.home_tab_dashboard}
                     dashboardActions={dashboardActions}
@@ -52,6 +54,7 @@ export function HomeTab({
         <>
             {page?.title}
             <div className="@container/home-tab pb-4 @min-[48rem]/saved-insights:py-3">
+                <StoppedEventsNotice />
                 {dashboardCreationLoading ? (
                     <div
                         className="flex min-h-80 flex-col gap-3 py-3"

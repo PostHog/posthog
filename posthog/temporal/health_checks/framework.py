@@ -315,6 +315,16 @@ class HealthCheck:
         return team_ids
 
     @classmethod
+    def on_issues_fired(cls, issues: list[HealthIssue]) -> None:
+        """Act on the issues that became active in one batch. The default does nothing.
+
+        Runs after the batch's writes, and never in a dry run. It receives every newly active
+        issue of the batch at once, so a check can send one grouped message per team instead
+        of one per issue. The framework catches and reports an exception raised here, so the
+        batch's results stand.
+        """
+
+    @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         """Build the alert content surfaced to HogFunction destinations.
 
