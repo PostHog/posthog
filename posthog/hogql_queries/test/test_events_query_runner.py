@@ -43,7 +43,7 @@ from posthog.hogql.ast import CompareOperationOp
 from posthog.clickhouse.client import sync_execute
 from posthog.date_util import start_of_day
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import Element, Organization, OrganizationMembership, Team
 from posthog.models.event.util import events_only_in_active_schema
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS
 from posthog.models.group.util import create_group
@@ -53,6 +53,7 @@ from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -1740,10 +1741,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_restricted_person_properties_stripped_from_person_column(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 
@@ -1827,10 +1827,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_restricted_display_property_does_not_break_person_display_name(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 
@@ -1980,10 +1979,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_cached_results_not_served_across_restriction_boundaries(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 

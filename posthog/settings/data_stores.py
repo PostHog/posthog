@@ -32,6 +32,8 @@ PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+POSTGRES_ENGINE = "posthog.db_backends.postgresql"
+
 
 def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
@@ -46,7 +48,7 @@ def postgres_config(host: str) -> dict:
     """
 
     return {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "ENGINE": POSTGRES_ENGINE,
         "NAME": get_from_env("POSTHOG_DB_NAME"),
         "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
         "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
@@ -85,7 +87,7 @@ else:
 
 if DATABASE_URL:
     DATABASES: dict[str, dict[str, Any]] = {
-        "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
+        "default": dict(dj_database_url.config(default=DATABASE_URL, engine=POSTGRES_ENGINE, conn_max_age=0))
     }
 
     if DISABLE_SERVER_SIDE_CURSORS:
@@ -384,6 +386,7 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+CLICKHOUSE_METRICS_CLUSTER: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER", "metrics")
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
 # The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
 # table and the Distributed front that writes into it. Cloud names it the same from both sides, so it
@@ -398,6 +401,20 @@ CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = (
 )
 CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
+)
+# The metrics cluster serves Workload.METRICS reads. Every setting falls back to the logs cluster's, which holds the
+# same metrics4 tables, so reads stay on the logs cluster until a deployment sets CLICKHOUSE_METRICS_CLUSTER_HOST.
+CLICKHOUSE_METRICS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_HOST", CLICKHOUSE_LOGS_CLUSTER_HOST)
+CLICKHOUSE_METRICS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_PORT", CLICKHOUSE_LOGS_CLUSTER_PORT)
+CLICKHOUSE_METRICS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
+CLICKHOUSE_METRICS_CLUSTER_PASSWORD: str = os.getenv(
+    "CLICKHOUSE_METRICS_CLUSTER_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD
+)
+CLICKHOUSE_METRICS_CLUSTER_DATABASE: str = (
+    CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_METRICS_DATABASE", CLICKHOUSE_LOGS_CLUSTER_DATABASE)
+)
+CLICKHOUSE_METRICS_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_METRICS_CLUSTER_SECURE", CLICKHOUSE_LOGS_CLUSTER_SECURE, type_cast=str_to_bool
 )
 CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
     "CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool
@@ -792,6 +809,13 @@ CACHES["warehouse_destination_connect"] = {
     "LOCATION": REDIS_URL,
 }
 
+# AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
+# job as unknown, and the client treats that as expired, so read from the writer.
+CACHES["aeo_prompt_suggestions"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -860,6 +884,7 @@ if TEST:
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
+    CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)

@@ -15,11 +15,11 @@ Every environment runs one main cluster plus the same satellites and ingestion n
 - Main cluster (`posthog`) — sharded, several shards, multiple replicas per shard. Holds the
   sharded tables and the `Distributed` read tables the app queries, including those in front of
   satellite tables.
-- Satellites — `ai_events`, `aux`, `batch_exports`, `endpoints`, `logs`, `sessions`, `ops`. Each is
+- Satellites — `ai_events`, `aux`, `batch_exports`, `endpoints`, `logs`, `metrics`, `sessions`, `ops`. Each is
   a single shard with multiple replicas, and owns the tables for one product area, including rollups
   of that data. `aux` holds general product pre-aggregates (see "Satellite storage with a main-cluster
   read table" below).
-- Ingestion nodes — `ingestion-events`, `ingestion-medium`, `ingestion-small`, `ingestion-apm`.
+- Ingestion nodes — `ingestion-events`, `ingestion-medium`, `ingestion-small`, `ingestion-apm`, `ingestion-metrics`.
   Stateless, one shard per node, no replicas. See Ingestion nodes below.
 
 Shard and replica counts differ per environment and change over time, so nothing in a migration may
@@ -53,6 +53,10 @@ If a destination table is non-sharded, we pick only one node as data for the Dis
 The `ingestion-apm` nodes (`NodeRole.APM`) run the same pattern for metrics: a Kafka table feeds a
 `Null` input table, materialized views fan it out to writable `Distributed` tables, and those write
 into the storage tables on the `logs` cluster (`NodeRole.LOGS`).
+
+The `ingestion-metrics` nodes (`NodeRole.INGESTION_METRICS`) run the same chain into the `metrics` cluster
+(`NodeRole.METRICS`) under their own consumer group, so every row reaches both clusters. Until reads
+cut over, a metrics4 change has to target both pairs of roles.
 
 # Local setup parity
 

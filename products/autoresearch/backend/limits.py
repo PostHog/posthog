@@ -7,8 +7,8 @@ fleet-wide `default_team_config`, then the code constant here. Edit the flag pay
 limit without a deploy:
 
     {
-        "default_team_config": {"max_training_runs_per_day": 3, "max_iterations_per_run": 10},
-        "team_configs": {"2": {"max_training_runs_per_day": 20}}
+        "default_team_config": {"max_training_runs_per_day": 3, "max_iterations_per_run": 10, "max_live_pipelines": 3},
+        "team_configs": {"2": {"max_training_runs_per_day": 20, "max_live_pipelines": 10}}
     }
 """
 
@@ -18,7 +18,7 @@ import json
 from datetime import datetime, timedelta
 
 from django.db import connection
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -28,7 +28,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from .access import AUTORESEARCH_FLAG
-from .models import AutoresearchTrainingRun
+from .models import AutoresearchPipeline, AutoresearchTrainingRun
 
 logger = structlog.get_logger(__name__)
 
@@ -37,9 +37,19 @@ _PAYLOAD_DISTINCT_ID = "internal_autoresearch_team_limits"
 
 DEFAULT_MAX_TRAINING_RUNS_PER_DAY = 3
 DEFAULT_MAX_ITERATIONS_PER_RUN = 10
+DEFAULT_MAX_LIVE_PIPELINES = 3
 
 TEAM_CONFIG_MAX_TRAINING_RUNS_PER_DAY = "max_training_runs_per_day"
 TEAM_CONFIG_MAX_ITERATIONS_PER_RUN = "max_iterations_per_run"
+TEAM_CONFIG_MAX_LIVE_PIPELINES = "max_live_pipelines"
+
+# Each of these adds scoring, shadow scoring and validation to the daily sweep, and competes for
+# the project's training runs. Paused, draft and archived pipelines do none of that.
+LIVE_PIPELINE_STATUSES = (
+    AutoresearchPipeline.Status.BOOTSTRAPPING,
+    AutoresearchPipeline.Status.RUNNING,
+    AutoresearchPipeline.Status.CONVERGED,
+)
 
 # The daily cap counts runs over a rolling window, so a burst just after midnight UTC cannot
 # spend two days of runs in one sitting.
@@ -47,6 +57,7 @@ TRAINING_RUN_WINDOW = timedelta(hours=24)
 
 # Namespace for the per-team advisory lock, so it cannot collide with another product's key.
 _TRAINING_CAP_LOCK_NAMESPACE = 0x41525452  # "ARTR"
+_LIVE_PIPELINE_CAP_LOCK_NAMESPACE = 0x41524C50  # "ARLP"
 
 
 @frozen
@@ -54,6 +65,8 @@ class TeamLimits:
     # 0 stops every sandbox training run for the project.
     max_training_runs_per_day: int
     max_iterations_per_run: int
+    # 0 stops every pipeline from going live.
+    max_live_pipelines: int
 
 
 @frozen
@@ -62,6 +75,21 @@ class TrainingCapReached:
     limit: int
     # When the oldest counted run leaves the window. None when the limit is 0.
     next_slot_at: datetime | None
+
+
+@frozen
+class TrainingRunUsage:
+    used: int
+    limit: int
+    # When the next run can start while the project is at its limit. None while a slot is free,
+    # and when the limit is 0.
+    next_slot_at: datetime | None
+
+
+@frozen
+class LiveCapReached:
+    used: int
+    limit: int
 
 
 def limits_for_team(team_id: int) -> TeamLimits:
@@ -74,6 +102,9 @@ def limits_for_team(team_id: int) -> TeamLimits:
         max_iterations_per_run=_resolve_int(
             payload, team_id, TEAM_CONFIG_MAX_ITERATIONS_PER_RUN, DEFAULT_MAX_ITERATIONS_PER_RUN, minimum=1
         ),
+        max_live_pipelines=_resolve_int(
+            payload, team_id, TEAM_CONFIG_MAX_LIVE_PIPELINES, DEFAULT_MAX_LIVE_PIPELINES, minimum=0
+        ),
     )
 
 
@@ -85,6 +116,15 @@ def check_training_run_cap(team_id: int, limits: TeamLimits) -> TrainingCapReach
     """
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_TRAINING_CAP_LOCK_NAMESPACE, team_id])
+    usage = training_run_usage(team_id, limits)
+    if usage.used < usage.limit:
+        return None
+    logger.info("autoresearch_training_cap_reached", team_id=team_id, used=usage.used, limit=usage.limit)
+    return TrainingCapReached(used=usage.used, limit=usage.limit, next_slot_at=usage.next_slot_at)
+
+
+def training_run_usage(team_id: int, limits: TeamLimits) -> TrainingRunUsage:
+    """The project's sandbox training runs in the window, and when the next one can start if it is at its limit."""
     limit = limits.max_training_runs_per_day
     window_start = timezone.now() - TRAINING_RUN_WINDOW
     created = list(
@@ -93,11 +133,44 @@ def check_training_run_cap(team_id: int, limits: TeamLimits) -> TrainingCapReach
         .order_by("created_at")
         .values_list("created_at", flat=True)
     )
-    if len(created) < limit:
+    at_limit = limit > 0 and len(created) >= limit
+    next_slot_at = created[len(created) - limit] + TRAINING_RUN_WINDOW if at_limit else None
+    return TrainingRunUsage(used=len(created), limit=limit, next_slot_at=next_slot_at)
+
+
+def check_live_pipeline_cap(team_id: int, limits: TeamLimits) -> LiveCapReached | None:
+    """Whether the project already has its limit of live pipelines, or None when another can go live.
+
+    Call inside the ``transaction.atomic()`` that makes a pipeline live, before the pipeline being
+    changed counts as live. The advisory lock is held until that transaction ends, so two
+    pipelines of one team cannot both take the last slot. Pipelines already over the limit keep
+    running: the cap only stops another one from going live.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_LIVE_PIPELINE_CAP_LOCK_NAMESPACE, team_id])
+    used = live_pipeline_count(team_id)
+    if used < limits.max_live_pipelines:
         return None
-    next_slot_at = created[len(created) - limit] + TRAINING_RUN_WINDOW if limit > 0 else None
-    logger.info("autoresearch_training_cap_reached", team_id=team_id, used=len(created), limit=limit)
-    return TrainingCapReached(used=len(created), limit=limit, next_slot_at=next_slot_at)
+    logger.info("autoresearch_live_pipeline_cap_reached", team_id=team_id, used=used, limit=limits.max_live_pipelines)
+    return LiveCapReached(used=used, limit=limits.max_live_pipelines)
+
+
+def live_pipeline_count(team_id: int) -> int:
+    """Live pipelines, plus drafts with an open training run.
+
+    A draft stays a draft while an external agent's run is open, and its promotion makes it live
+    with no check, so the open run holds its slot from the start.
+    """
+    open_run = AutoresearchTrainingRun.objects.for_team(team_id).filter(
+        pipeline=OuterRef("pk"),
+        status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING],
+    )
+    return (
+        AutoresearchPipeline.objects.for_team(team_id)
+        .annotate(has_open_run=Exists(open_run))
+        .filter(Q(status__in=LIVE_PIPELINE_STATUSES) | Q(status=AutoresearchPipeline.Status.DRAFT, has_open_run=True))
+        .count()
+    )
 
 
 def counted_training_runs(team_id: int) -> QuerySet[AutoresearchTrainingRun]:

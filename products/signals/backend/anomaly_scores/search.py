@@ -31,6 +31,7 @@ from products.signals.backend.anomaly_scores.config import (
 from products.signals.backend.anomaly_scores.queue import active_insights, turned_off_in_settings
 from products.signals.backend.anomaly_scores.read import (
     MAX_BUCKETS,
+    SCORED_HISTORY_READY_DAYS,
     FlaggedPoint,
     InsightRollup,
     ScoredBucket,
@@ -41,6 +42,7 @@ from products.signals.backend.anomaly_scores.read import (
     prior_rate,
     rank_series,
     rollup,
+    scored_days,
     series_summaries,
 )
 from products.signals.backend.anomaly_scores.scoring import bucket_end
@@ -59,7 +61,7 @@ SCORING_SOURCE_OFF_MESSAGE = (
     "Scores written before it was turned off stay readable."
 )
 SCORING_TURNED_OFF_MESSAGE = (
-    "Anomaly scoring is turned off in this project's self-driving settings, so no insight is scored. "
+    "Anomaly scoring is turned off in this project's Product analytics source, so no insight is scored. "
     "Scores written before it was turned off stay readable."
 )
 
@@ -119,11 +121,17 @@ class AnomalySearchResult:
     scoring_enabled: bool
     watched_insights: int
     insights_scored_in_range: int
+    # Over a fixed window before now, not the requested range, so it says whether scores are ready to rely on.
+    scored_days: int
     series: list[SeriesRow]
     insights: list[InsightRow]
     truncated: bool
     # Says why the result is empty. None when it is not.
     message: str | None
+
+    @property
+    def scored_history_ready(self) -> bool:
+        return self.scored_days >= SCORED_HISTORY_READY_DAYS
 
 
 @frozen
@@ -306,6 +314,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         scoring_enabled=off_message is None,
         watched_insights=watched_count,
         insights_scored_in_range=scored_in_range,
+        scored_days=scored_days(team, now=now),
         series=series_rows,
         insights=insight_rows,
         truncated=truncated or summaries.truncated,

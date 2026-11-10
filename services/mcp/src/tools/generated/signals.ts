@@ -888,6 +888,9 @@ const inboxReportsList = (): ToolBase<
                     'ranking.status',
                     'ranking.scored_at',
                     'ranking.predictions',
+                    'inbox_merge_key',
+                    'personal_tier',
+                    'personal_reason',
                     'created_at',
                     'updated_at',
                 ])
@@ -904,7 +907,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -964,7 +967,45 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+        )
+    },
+})
+
+const InboxReportsSearchSchema = () => {
+    const SignalsReportsSearchQueryParams = orvalSchemas.SignalsReportsSearchQueryParams()
+    return SignalsReportsSearchQueryParams
+}
+
+const inboxReportsSearch = (): ToolBase<
+    ReturnType<typeof InboxReportsSearchSchema>,
+    WithPostHogUrl<Schemas.SignalReportSearchResponse>
+> => ({
+    name: 'inbox-reports-search',
+    schema: InboxReportsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportSearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/search/`,
+            query: {
+                created_after: params.created_after,
+                include_unlisted: params.include_unlisted,
+                limit: params.limit,
+                query: params.query,
+                search_mode: params.search_mode,
+                status: params.status,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                ),
+            },
+            '/inbox'
         )
     },
 })
@@ -1384,6 +1425,7 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         autostart_enabled: true,
         default_autostart_priority: true,
         default_slack_notification_channel: true,
+        default_slack_notification_min_priority: true,
         default_slack_notification_integration: true,
         autostart_base_branches: true,
         issue_tracking_integration: true,
@@ -3821,6 +3863,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
     'inbox-reports-retrieve': inboxReportsRetrieve,
+    'inbox-reports-search': inboxReportsSearch,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,
     'inbox-reviewer-exclusions-create': inboxReviewerExclusionsCreate,

@@ -51,7 +51,7 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 		if err != nil {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
-		if _, err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+		if _, err := auth.CheckAccess(c.Request().Context(), c.Request()); err != nil {
 			return err
 		}
 
@@ -99,7 +99,7 @@ var subID uint64 = 1
 // An error from apply ends the stream the same way a denied check does.
 func periodicAccessChecks(
 	ctx context.Context,
-	header http.Header,
+	request *http.Request,
 	interval time.Duration,
 	apply func(*auth.PropertyRestrictions) error,
 ) <-chan error {
@@ -112,7 +112,7 @@ func periodicAccessChecks(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				restrictions, err := auth.CheckAccess(ctx, header)
+				restrictions, err := auth.CheckAccess(ctx, request)
 				if err == nil && apply != nil {
 					err = apply(restrictions)
 				}
@@ -148,7 +148,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		if err != nil || token == "" || teamID == 0 {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
 		}
-		restrictions, err := auth.CheckAccess(c.Request().Context(), c.Request().Header)
+		restrictions, err := auth.CheckAccess(c.Request().Context(), c.Request())
 		if err != nil {
 			return err
 		}
@@ -216,7 +216,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		timeout := time.After(30 * time.Minute)
 		accessContext, cancelAccessCheck := context.WithCancel(c.Request().Context())
 		defer cancelAccessCheck()
-		accessErrors := periodicAccessChecks(accessContext, c.Request().Header.Clone(), 30*time.Second,
+		accessErrors := periodicAccessChecks(accessContext, c.Request().Clone(c.Request().Context()), 30*time.Second,
 			func(fresh *auth.PropertyRestrictions) error {
 				currentRestrictions.Store(fresh)
 				if key := events.RestrictedFilterKey(propertyFilters, fresh); key != "" {
@@ -354,7 +354,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 			// Old tokens without organization_id/user_id — no-op until all tokens refresh
 			return c.NoContent(http.StatusNoContent)
 		}
-		if _, err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+		if _, err := auth.CheckAccess(c.Request().Context(), c.Request()); err != nil {
 			return err
 		}
 		ctx, cancel := context.WithCancel(c.Request().Context())
@@ -390,7 +390,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		heartbeat := time.NewTicker(15 * time.Second)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
-		accessErrors := periodicAccessChecks(ctx, c.Request().Header.Clone(), 15*time.Second, nil)
+		accessErrors := periodicAccessChecks(ctx, c.Request().Clone(c.Request().Context()), 15*time.Second, nil)
 
 		for {
 			select {

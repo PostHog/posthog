@@ -32,10 +32,13 @@ from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
 
+from .kafka_metrics import KAFKA_METRICS_COLUMNS, KAFKA_METRICS_TABLE_NAME
 from .metrics2 import kafka_metrics_avro_mv_select, kafka_metrics_avro_table_sql, metrics_input_table_sql
 
 KAFKA_METRICS4_TABLE_NAME = "kafka_metrics_avro4"
 KAFKA_METRICS4_GROUP = "clickhouse-metrics-avro4"
+# The ingestion-metrics nodes need their own group: apm's would split the topic between the clusters.
+KAFKA_METRICS4_METRICS_CLUSTER_GROUP = "clickhouse-metrics-avro4-metrics"
 KAFKA_METRICS4_FLUSH_INTERVAL_MS = 30_000
 KAFKA_METRICS4_MAX_BLOCK_SIZE = 1_000_000
 METRICS4_INPUT_TABLE_NAME = "metrics4_input"
@@ -47,6 +50,7 @@ WRITABLE_METRICS4_SAMPLES_TABLE_NAME = "writable_metrics4_samples"
 WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
+WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME = f"writable_{KAFKA_METRICS_TABLE_NAME}"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 METRICS4_VIEW_NAME = "metrics4_view"
 # The first hour that metrics4_samples serves. The view skips earlier rows, which overlap the old metrics2 data.
@@ -67,8 +71,10 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
 # ClickHouse applies each codec to the continuous stream of array elements.
 # Each array keeps its insert order. The delta codecs compress adjacent values.
 # T64 and Gorilla can process values without a sort.
+# A merge appends point arrays in part order, so a merged timestamp array is not always in time order.
+# Delta encodes each out-of-order step as one large value. DoubleDelta encodes it as two.
 _ARRAY_CODECS: dict[str, str] = {
-    "timestamp": " CODEC(DoubleDelta, Default)",
+    "timestamp": " CODEC(Delta, Default)",
     "observed_timestamp": " CODEC(DoubleDelta, Default)",
     "value": " CODEC(Gorilla, Default)",
     "count": " CODEC(T64, Default)",
@@ -84,38 +90,46 @@ def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
 
-def KAFKA_METRICS_AVRO4_TABLE_SQL() -> str:
+def KAFKA_METRICS_AVRO4_TABLE_SQL(
+    group: str = KAFKA_METRICS4_GROUP,
+    flush_interval_ms: int = KAFKA_METRICS4_FLUSH_INTERVAL_MS,
+    max_block_size: int = KAFKA_METRICS4_MAX_BLOCK_SIZE,
+    num_consumers: int = 8,
+    poll_max_batch_size: int = 1000,
+) -> str:
     return kafka_metrics_avro_table_sql(
         KAFKA_METRICS4_TABLE_NAME,
-        KAFKA_METRICS4_GROUP,
-        flush_interval_ms=KAFKA_METRICS4_FLUSH_INTERVAL_MS,
-        max_block_size=KAFKA_METRICS4_MAX_BLOCK_SIZE,
+        group,
+        flush_interval_ms=flush_interval_ms,
+        max_block_size=max_block_size,
+        num_consumers=num_consumers,
+        poll_max_batch_size=poll_max_batch_size,
     )
 
 
 def METRICS4_INPUT_TABLE_SQL() -> str:
-    return metrics_input_table_sql(METRICS4_INPUT_TABLE_NAME)
+    return metrics_input_table_sql(METRICS4_INPUT_TABLE_NAME, source_partition=True)
 
 
 def KAFKA_METRICS_AVRO4_MV() -> str:
     db = _db()
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_METRICS4_TABLE_NAME}_mv TO {db}.{METRICS4_INPUT_TABLE_NAME}
-AS {kafka_metrics_avro_mv_select(KAFKA_METRICS4_TABLE_NAME)}
+AS {kafka_metrics_avro_mv_select(KAFKA_METRICS4_TABLE_NAME, source_partition=True)}
 """
 
 
-def _writable_table_sql(table_name: str, data_table_name: str, columns: str) -> str:
+def _writable_table_sql(table_name: str, data_table_name: str, columns: str, cluster: str | None = None) -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
 (
 {columns}
 )
-ENGINE = {Distributed(data_table=data_table_name, cluster=settings.CLICKHOUSE_LOGS_CLUSTER)}
+ENGINE = {Distributed(data_table=data_table_name, cluster=cluster or settings.CLICKHOUSE_LOGS_CLUSTER)}
 """
 
 
-def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
+def WRITABLE_METRICS4_SAMPLES_TABLE_SQL(cluster: str | None = None) -> str:
     arrays = ",\n".join(
         f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR}), Array({element_type}))"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
@@ -137,12 +151,14 @@ def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
     `has_labels` SimpleAggregateFunction(max, UInt8),
     `instrumentation_scope` SimpleAggregateFunction(any, String),
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+    `histogram_bounds_hash` UInt64,
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
 {arrays}""",
+        cluster=cluster,
     )
 
 
-def WRITABLE_METRICS4_SERIES_TABLE_SQL() -> str:
+def WRITABLE_METRICS4_SERIES_TABLE_SQL(cluster: str | None = None) -> str:
     return _writable_table_sql(
         WRITABLE_METRICS4_SERIES_TABLE_NAME,
         METRICS4_SERIES_TABLE_NAME,
@@ -161,10 +177,11 @@ def WRITABLE_METRICS4_SERIES_TABLE_SQL() -> str:
     `timestamp` DateTime64(6),
     `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
     `original_expiry_timestamp` DateTime64(6)""",
+        cluster=cluster,
     )
 
 
-def WRITABLE_METRICS4_NAMES_TABLE_SQL() -> str:
+def WRITABLE_METRICS4_NAMES_TABLE_SQL(cluster: str | None = None) -> str:
     return _writable_table_sql(
         WRITABLE_METRICS4_NAMES_TABLE_NAME,
         METRICS4_NAMES_TABLE_NAME,
@@ -175,10 +192,11 @@ def WRITABLE_METRICS4_NAMES_TABLE_SQL() -> str:
     `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
     `service_name` LowCardinality(String),
     `metric_types` SimpleAggregateFunction(groupUniqArrayArray, Array(String))""",
+        cluster=cluster,
     )
 
 
-def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
+def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL(cluster: str | None = None) -> str:
     return _writable_table_sql(
         WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME,
         METRICS4_ATTRIBUTES_TABLE_NAME,
@@ -191,10 +209,18 @@ def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
     `attribute_value` String,
     `attribute_type` LowCardinality(String),
     `attribute_count` SimpleAggregateFunction(sum, UInt64)""",
+        cluster=cluster,
     )
 
 
-def METRICS4_SAMPLES_TABLE_SQL() -> str:
+def WRITABLE_METRICS_KAFKA_METRICS_TABLE_SQL(cluster: str | None = None) -> str:
+    return _writable_table_sql(
+        WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME, KAFKA_METRICS_TABLE_NAME, KAFKA_METRICS_COLUMNS, cluster
+    )
+
+
+def METRICS4_SAMPLES_TABLE_SQL(storage_policy: str | None = None) -> str:
+    storage_setting = f",\n    storage_policy = '{storage_policy}'" if storage_policy else ""
     arrays = ",\n".join(
         f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR}), Array({element_type})){_ARRAY_CODECS.get(name, '')}"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
@@ -224,6 +250,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `has_labels` SimpleAggregateFunction(max, UInt8),
     `instrumentation_scope` SimpleAggregateFunction(any, String),
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+    `histogram_bounds_hash` UInt64,
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
 {arrays},
     `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
@@ -245,12 +272,13 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY original_expiry_date
-ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
+PRIMARY KEY (team_id, metric_name, time_bucket, series_fingerprint)
+ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash)
 TTL original_expiry_date
 SETTINGS
     index_granularity = 128,
     ttl_only_drop_parts = 1,
-    deduplicate_merge_projection_mode = 'rebuild'
+    deduplicate_merge_projection_mode = 'rebuild'{storage_setting}
 """
 
 
@@ -352,20 +380,22 @@ SETTINGS
 """
 
 
-def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
-    db = _db()
+def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT() -> str:
     group_arrays = ",\n".join(
         f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
         for name, _ in METRICS4_POINT_ARRAY_COLUMNS
         if name not in METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS
     )
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
-AS SELECT
+    # A series can change its histogram bucket layout inside one hour. Each layout gets its own row,
+    # so the row's histogram_bounds are correct for every point in it. Points without bounds use hash 0,
+    # so their rows merge with the rows that were written before the hash column existed.
+    # The input. prefix reads the point column, not the series-hour aggregate of the same name.
+    return f"""SELECT
     team_id,
     metric_name,
     toDateTime(toStartOfHour(timestamp)) AS time_bucket,
     series_fingerprint,
+    if(empty(input.histogram_bounds), 0, cityHash64(input.histogram_bounds)) AS histogram_bounds_hash,
     toDate32(original_expiry_timestamp) AS original_expiry_date,
     any(resource_fingerprint) AS resource_fingerprint,
     any(service_name) AS service_name,
@@ -378,13 +408,60 @@ AS SELECT
     anyLast(histogram_bounds) AS histogram_bounds,
     any(_topic) AS _topic,
 {group_arrays}
-FROM {db}.{METRICS4_INPUT_TABLE_NAME}
+FROM {_db()}.{METRICS4_INPUT_TABLE_NAME} AS input
 GROUP BY
     team_id,
     metric_name,
     time_bucket,
     series_fingerprint,
-    original_expiry_date
+    histogram_bounds_hash,
+    original_expiry_date"""
+
+
+def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
+AS {METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT()}
+"""
+
+
+def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV_SELECT() -> str:
+    # Each row counts toward its clickhouse_metrics partition and the ingestion-metrics partition
+    # the Node consumer read it from. Both topics partition at random, so lag on either hop would
+    # hide behind the other. A row without the source header has an empty source topic, and the
+    # WHERE skips it, so it cannot add a partition that never moves. The source offset is unknown.
+    return f"""SELECT
+    kafka_partition AS _partition,
+    kafka_topic AS _topic,
+    maxSimpleState(kafka_offset) AS max_offset,
+    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+    maxSimpleState(now()) AS max_created_at
+FROM
+(
+    SELECT
+        kafka_source.1 AS kafka_topic,
+        kafka_source.2 AS kafka_partition,
+        kafka_source.3 AS kafka_offset,
+        observed_timestamp
+    FROM {_db()}.{METRICS4_INPUT_TABLE_NAME}
+    ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+)
+GROUP BY kafka_partition, kafka_topic"""
+
+
+def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV() -> str:
+    """The newest capture time and offset each Kafka partition has delivered, one row per insert block.
+
+    The floor across partitions is how far every partition has reached, which metrics alerts read.
+    `max_timestamp` and `max_lag` stay unset because no reader uses them, and a sender that dates
+    points ahead would pin `max_timestamp`.
+    """
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{KAFKA_METRICS_TABLE_NAME} TO {db}.{WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME}
+AS {METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV_SELECT()}
 """
 
 

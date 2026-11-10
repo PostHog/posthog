@@ -70,6 +70,7 @@ Point-in-time caveats, per source:
 import io
 import json
 import datetime
+import resource
 from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
 from uuid import UUID
@@ -168,6 +169,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_STREAMS,
     LABELED_REPORT_IDS_SQL,
     LABELS_TEAM_ID,
+    REPORT_EMBEDDINGS_PAGES,
     REPORT_EMBEDDINGS_QUERY_SETTINGS,
     REPORT_EMBEDDINGS_SQL,
     SERVER_ACTIONS_COLUMNS,
@@ -238,6 +240,20 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
     # backfill keys; this only names the pool it targets.
     "pool": "inbox_ranking_etl",
 }
+
+# The steps of inbox_ranking_dataset_job share one run pod, so its peak memory is the sum of the steps
+# that run at the same time. A step that holds report vectors or a fleet-wide report spine carries
+# this op tag, and the job's executor runs those steps one at a time. A tag and not a `deps` edge,
+# because an edge makes a step's failure skip the next step.
+MEMORY_HEAVY_OP_TAG = "inbox_ranking/memory"
+HEAVY_ASSET_KWARGS: dict[str, Any] = {**COMMON_ASSET_KWARGS, "op_tags": {MEMORY_HEAVY_OP_TAG: "heavy"}}
+
+
+def peak_rss_metadata() -> dict[str, dagster.MetadataValue]:
+    """The step's peak memory, so a heavy step that grows toward the run pod's limit shows on its
+    materializations before it gets the pod OOMKilled. The multiprocess executor runs each step in its
+    own process, so the process peak is the step's peak. Linux reports `ru_maxrss` in KiB."""
+    return {"peak_rss_mib": dagster.MetadataValue.int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024)}
 
 
 def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
@@ -858,7 +874,7 @@ def assemble_user_interaction_rows(
     )
 
 
-@dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
+@dagster.asset(name=STATE_TABLE, **HEAVY_ASSET_KWARGS)
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
@@ -978,6 +994,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     write_parquet(s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=STATE_SCHEMA))
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(len(rows)),
             "labeled_report_ids": dagster.MetadataValue.int(len(labeled_ids)),
             "excluded_no_training_consent_reports": dagster.MetadataValue.int(
@@ -1141,65 +1158,57 @@ def report_embeddings_table(partition_key: str, rendering: str, consent_team_ids
     """Point-in-time snapshot of one embedding rendering as of the end of dt=D, for the teams in
     `consent_team_ids`. Every region's ClickHouse holds only its own reports, so a dag in each region
     reads its own vectors through this function."""
-    _, snapshot_end = snapshot_bounds(partition_key)
-    snapshot_date = datetime.date.fromisoformat(partition_key)
-
     # With no consenting team there is no row to read, so the query is not sent.
-    results = (
-        cast(
-            list[tuple[Any, ...]],
-            sync_execute(
-                REPORT_EMBEDDINGS_SQL,
-                {
-                    "product": EMBEDDING_PRODUCT,
-                    "document_type": EMBEDDING_DOCUMENT_TYPE,
-                    "rendering": rendering,
-                    "snapshot_end": snapshot_end.replace(tzinfo=None),
-                    "team_ids": sorted(consent_team_ids),
-                },
-                settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
-                workload=etl_workload(),
-                ch_user=ClickHouseUser.SIGNALS,
-            )
-            or [],
-        )
-        if consent_team_ids
-        else []
-    )
+    if not consent_team_ids:
+        return EMBEDDINGS_SCHEMA.empty_table()
 
-    # Consumed column-wise straight into Arrow, and each source row is released as it is converted.
-    # This is the widest thing the dag holds — a 1536-float vector per live report, fleet-wide — so
-    # the intermediate list of row dicts that from_pylist would need is a whole extra copy of it.
-    row_count = len(results)
-    report_ids: list[str] = []
-    team_ids: list[int] = []
-    embeddings: list[list[float] | None] = []
-    inserted_ats: list[datetime.datetime | None] = []
-    tombstone_flags: list[bool] = []
-    for index in range(row_count):
-        team_id, document_id, embedding, is_tombstone, inserted_at = results[index]
-        results[index] = ()
-        report_ids.append(str(document_id))
-        team_ids.append(int(team_id))
+    _, snapshot_end = snapshot_bounds(partition_key)
+    params = {
+        "product": EMBEDDING_PRODUCT,
+        "document_type": EMBEDDING_DOCUMENT_TYPE,
+        "rendering": rendering,
+        "snapshot_end": snapshot_end.replace(tzinfo=None),
+        "team_ids": sorted(consent_team_ids),
+        "page_count": REPORT_EMBEDDINGS_PAGES,
+    }
+    snapshot_date = datetime.date.fromisoformat(partition_key)
+    # This is the widest thing the dag holds: a 1536-float vector per live report, fleet-wide. As
+    # Python floats a vector takes about 8 times its float32 size, so only one page is held as Python
+    # objects at a time, and the snapshot accumulates as float32 Arrow batches.
+    batches = [
+        _report_embeddings_page(params, page, snapshot_date, rendering) for page in range(REPORT_EMBEDDINGS_PAGES)
+    ]
+    return pa.Table.from_batches(batches, schema=EMBEDDINGS_SCHEMA)
+
+
+def _report_embeddings_page(
+    params: dict[str, Any], page: int, snapshot_date: datetime.date, rendering: str
+) -> pa.RecordBatch:
+    rows = cast(
+        list[tuple[Any, ...]],
+        sync_execute(
+            REPORT_EMBEDDINGS_SQL,
+            {**params, "page": page},
+            settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
+            workload=etl_workload(),
+            ch_user=ClickHouseUser.SIGNALS,
+        )
+        or [],
+    )
+    row_count = len(rows)
+    columns: dict[str, list[Any]] = {
+        "snapshot_date": [snapshot_date] * row_count,
+        "report_id": [str(document_id) for _, document_id, _, _, _ in rows],
+        "report_team_id": [int(team_id) for team_id, _, _, _, _ in rows],
         # Tombstoned vectors embed the fixed retraction text, not report content, so they are
         # useless as features; keep the row for lineage but null the vector.
-        embeddings.append(None if is_tombstone else list(embedding))
-        inserted_ats.append(ensure_utc(inserted_at))
-        tombstone_flags.append(bool(is_tombstone))
-    del results
-
-    return pa.Table.from_pydict(
-        {
-            "snapshot_date": [snapshot_date] * row_count,
-            "report_id": report_ids,
-            "report_team_id": team_ids,
-            "embedding_small": embeddings,
-            "embedding_inserted_at": inserted_ats,
-            "embedding_rendering": [rendering] * row_count,
-            "is_tombstone": tombstone_flags,
-        },
-        schema=EMBEDDINGS_SCHEMA,
-    )
+        "embedding_small": [None if is_tombstone else embedding for _, _, embedding, is_tombstone, _ in rows],
+        "embedding_inserted_at": [ensure_utc(inserted_at) for _, _, _, _, inserted_at in rows],
+        "embedding_rendering": [rendering] * row_count,
+        "is_tombstone": [bool(is_tombstone) for _, _, _, is_tombstone, _ in rows],
+    }
+    del rows
+    return pa.RecordBatch.from_pydict(columns, schema=EMBEDDINGS_SCHEMA)
 
 
 def _snapshot_report_embeddings(
@@ -1220,6 +1229,7 @@ def _snapshot_report_embeddings(
     write_parquet(s3_client(), bucket, key, arrow_table)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(arrow_table.num_rows),
             "tombstones": dagster.MetadataValue.int(pc.sum(arrow_table.column("is_tombstone")).as_py() or 0),
             "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
@@ -1228,7 +1238,7 @@ def _snapshot_report_embeddings(
     )
 
 
-@dagster.asset(name=EMBEDDINGS_TABLE, **COMMON_ASSET_KWARGS)
+@dagster.asset(name=EMBEDDINGS_TABLE, **HEAVY_ASSET_KWARGS)
 def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     _snapshot_report_embeddings(
         context,
@@ -1247,7 +1257,7 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     # asset for the day, and the schedule never revisits a day. A single-asset backfill inside the
     # source TTL repairs the gap.
     deps=[MODEL_DATA_TABLE],
-    **COMMON_ASSET_KWARGS,
+    **HEAVY_ASSET_KWARGS,
 )
 def inbox_report_title_embeddings(context: dagster.AssetExecutionContext) -> None:
     """The title-only rendering of the same reports, so a later family can measure the title
@@ -1400,7 +1410,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-@dagster.asset(name=LABELS_TABLE, **COMMON_ASSET_KWARGS)
+@dagster.asset(name=LABELS_TABLE, **HEAVY_ASSET_KWARGS)
 def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
@@ -1440,6 +1450,7 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     )
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(len(rows)),
             **{
                 f"{stream_name}_reports": dagster.MetadataValue.int(len(stream))
@@ -1450,7 +1461,7 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-@dagster.asset(name=USER_INTERACTIONS_TABLE, **COMMON_ASSET_KWARGS)
+@dagster.asset(name=USER_INTERACTIONS_TABLE, **HEAVY_ASSET_KWARGS)
 def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> None:
     """Cumulative interactions at (report, person) grain, for user-report affinity models.
 
@@ -1514,6 +1525,7 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     )
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(len(rows)),
             "reports": dagster.MetadataValue.int(len({row["report_id"] for row in rows})),
             "users": dagster.MetadataValue.int(len({row["user_distinct_id"] for row in rows})),
@@ -1535,7 +1547,7 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     # not share the run pod's memory. Nothing joins this asset, so its failure does not fail the
     # training table.
     deps=[EMBEDDINGS_TABLE, LABELS_TABLE],
-    **COMMON_ASSET_KWARGS,
+    **HEAVY_ASSET_KWARGS,
 )
 def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
     """Per-team context vectors as of the partition end, for a report born on the next day."""
@@ -1566,6 +1578,7 @@ def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
     write_parquet(client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(table.num_rows),
             "teams": dagster.MetadataValue.int(len(set(table.column("team_id").to_pylist()))),
             **{
@@ -1590,7 +1603,7 @@ def team_organizations(team_ids: frozenset[int]) -> dict[int, str]:
     # After the project vectors, so the two reads of the embeddings snapshot do not share the run
     # pod's memory. Nothing joins this asset, so its failure does not fail the training table.
     deps=[PROJECT_VECTORS_TABLE, USER_INTERACTIONS_TABLE],
-    **COMMON_ASSET_KWARGS,
+    **HEAVY_ASSET_KWARGS,
 )
 def inbox_user_vectors(context: dagster.AssetExecutionContext) -> None:
     """Per-user context vectors as of the partition end, for a report scored on the next day.
@@ -1634,6 +1647,7 @@ def inbox_user_vectors(context: dagster.AssetExecutionContext) -> None:
     )
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(table.num_rows),
             "users": dagster.MetadataValue.int(len(users)),
             "organizations": dagster.MetadataValue.int(len({organization_id for organization_id, _ in users})),
@@ -2041,7 +2055,7 @@ def assemble_model_rows(
 @dagster.asset(
     name=MODEL_DATA_TABLE,
     deps=[STATE_TABLE, EMBEDDINGS_TABLE, LABELS_TABLE],
-    **COMMON_ASSET_KWARGS,
+    **HEAVY_ASSET_KWARGS,
 )
 def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
@@ -2079,6 +2093,7 @@ def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
     with_state = sum(1 for row in rows if row["status"] is not None)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(len(rows)),
             "rows_with_state": dagster.MetadataValue.int(with_state),
             "rows_with_embedding": dagster.MetadataValue.int(sum(1 for row in rows if row["has_embedding"])),
@@ -2106,6 +2121,10 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         ACTIVITY_SUMMARY_VECTORS_TABLE,
         ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
     ],
+    # The light steps still run in parallel, beside the one heavy step that is running.
+    executor_def=dagster.multiprocess_executor.configured(
+        {"tag_concurrency_limits": [{"key": MEMORY_HEAVY_OP_TAG, "value": "heavy", "limit": 1}]}
+    ),
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
     # the label windows only grow, since they accumulate from LABELS_EPOCH. The cap must end before
@@ -2113,12 +2132,12 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     tags={
         **owner_tags,
         "dagster/max_runtime": str(2 * 60 * 60),
-        # The state, embeddings, signal-embeddings and labels assets execute as parallel subprocesses
-        # in one run pod, and the embeddings snapshot holds a 1536-float vector per live report, so
-        # the pod's peak memory grows with the inventory. The default 8Gi limit is what a run gets
-        # without this tag, and the peak crossed it (OOMKilled) once the inventory grew enough.
-        # 32Gi is a stopgap: the peak keeps growing with the inventory until the heavy steps stop
-        # running at the same time (#130394). Lower it again once the per-asset peaks show headroom.
+        # Every step executes as a subprocess of one run pod, and a vector-heavy step holds a
+        # 1536-float vector per live report, so the pod's peak memory grows with the inventory. The
+        # default 8Gi limit is what a run gets without this tag. The heavy steps run one at a time
+        # (MEMORY_HEAVY_OP_TAG), so the limit has to fit the largest of them plus the light steps,
+        # not their sum. 32Gi is a stopgap from before that change (#130394): lower it once each heavy
+        # step's `peak_rss_mib` metadata shows headroom.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {

@@ -831,17 +831,22 @@ def queue_person_event_deletion(
     *,
     actor: User | None,
 ) -> None:
-    if not persons:
+    queue_event_deletion_by_uuid(team_id, [str(person.uuid) for person in persons], actor=actor)
+
+
+def queue_event_deletion_by_uuid(team_id: int, person_uuids: builtins.list[str], *, actor: User | None) -> None:
+    """Queue event deletion for persons that may have no persons-DB row, because the rows only need the uuid."""
+    if not person_uuids:
         return
     AsyncDeletion.objects.bulk_create(
         [
             AsyncDeletion(
                 deletion_type=DeletionType.Person,
                 team_id=team_id,
-                key=str(person.uuid),
+                key=person_uuid,
                 created_by=actor,
             )
-            for person in persons
+            for person_uuid in person_uuids
         ],
         ignore_conflicts=True,
     )
@@ -864,10 +869,37 @@ def queue_person_recording_deletion(
     _start_recording_workflows(team_id, persons, actor, reason)
 
 
+def queue_recording_deletion_by_distinct_id(
+    team_id: int,
+    distinct_ids: builtins.list[str],
+    *,
+    deleted_by: str,
+    reason: str,
+) -> builtins.list[str]:
+    """Delete recordings and training data for distinct ids that have no ``Person`` to carry them.
+
+    Returns the ids of the started workflows. Each workflow can still fail after it starts.
+    """
+    if not distinct_ids:
+        return []
+    queue_person_training_deletion(team_id, distinct_ids)
+    return _start_recording_workflow_batches(
+        team_id,
+        [
+            distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW]
+            for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
+        ],
+        deleted_by,
+        reason,
+    )
+
+
 # Batch persons per workflow (not one each) to bound concurrent ClickHouse load queries; cap distinct IDs per chunk to stay under Temporal's payload limit.
 _RECORDING_DELETION_PERSONS_PER_WORKFLOW = 100
 _MAX_CONCURRENT_WORKFLOW_STARTS = 20
 _MAX_DISTINCT_IDS_PER_WORKFLOW = 2000
+# Recorded as the deleter when no user started the deletion, such as a Dagster job.
+_SYSTEM_DELETED_BY = "system"
 
 
 def _chunk_persons(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
@@ -895,18 +927,40 @@ def _start_recording_workflows(
     actor: User | None,
     reason: str,
 ) -> None:
-    """Kick off ``delete-recordings-with-person`` workflows, batching persons per run.
+    """Kick off ``delete-recordings-with-person`` workflows, batching persons per run."""
+    # A single person can carry more distinct IDs than the per-workflow cap, so the batch's
+    # distinct IDs are split again here rather than trusting the person-level chunking alone.
+    batches = [
+        distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW]
+        for batch in _chunk_persons(persons)
+        for distinct_ids in [sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})]
+        for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
+    ]
+    deleted_by = getattr(actor, "email", None) or _SYSTEM_DELETED_BY
+    _start_recording_workflow_batches(team_id, batches, deleted_by, reason)
+
+
+def _start_recording_workflow_batches(
+    team_id: int,
+    batches: builtins.list[builtins.list[str]],
+    deleted_by: str,
+    reason: str,
+) -> builtins.list[str]:
+    """Start one ``delete-recordings-with-person`` workflow per batch of distinct ids, and return the workflow ids.
 
     The Temporal connection is established here (rather than in the caller) so
     that tests patching this seam don't need to mock ``sync_connect`` separately.
     """
+    # Checked here and not on DeletionConfig, because workflows already started hold an empty value in their input.
+    if not deleted_by:
+        raise ValueError("deleted_by is empty, and the recording API rejects that after the workflow starts")
     temporal = sync_connect()
-    config = DeletionConfig(deleted_by=getattr(actor, "email", None) or "", reason=reason)
+    config = DeletionConfig(deleted_by=deleted_by, reason=reason)
 
-    async def start_all_workflows():
+    async def start_all_workflows() -> builtins.list[str]:
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WORKFLOW_STARTS)
 
-        async def start_workflow(distinct_ids: builtins.list[str]) -> None:
+        async def start_workflow(distinct_ids: builtins.list[str]) -> str:
             workflow_input = RecordingsWithPersonInput(distinct_ids=distinct_ids, team_id=team_id, config=config)
             workflow_id = f"delete-recordings-{team_id}-persons-{uuid_lib.uuid4()}"
             async with semaphore:
@@ -920,15 +974,21 @@ def _start_recording_workflows(
                         initial_interval=timedelta(minutes=1),
                     ),
                 )
+            return workflow_id
 
-        # A single person can carry more distinct IDs than the per-workflow cap, so the batch's
-        # distinct IDs are split again here rather than trusting the person-level chunking alone.
-        starts = [
-            start_workflow(distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW])
-            for batch in _chunk_persons(persons)
-            for distinct_ids in [sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})]
-            for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
-        ]
-        await asyncio.gather(*starts)
+        # return_exceptions lets every start finish, so a failed batch neither cancels the others nor loses the ids
+        # of workflows that already run.
+        results = await asyncio.gather(*(start_workflow(batch) for batch in batches), return_exceptions=True)
+        started = [result for result in results if isinstance(result, str)]
+        failures = [result for result in results if isinstance(result, BaseException)]
+        if failures:
+            logger.warning(
+                "recording_deletion.workflow_starts_failed",
+                team_id=team_id,
+                failed_batches=len(failures),
+                started_workflow_ids=started,
+            )
+            raise failures[0]
+        return started
 
-    asyncio.run(start_all_workflows())
+    return asyncio.run(start_all_workflows())

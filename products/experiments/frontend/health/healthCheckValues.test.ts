@@ -62,6 +62,11 @@ describe('healthCheckValues', () => {
             ],
         },
         {
+            name: "the new users in variants the flag doesn't serve go with their share",
+            values: { unserved_exposed_count: 2960, unserved_exposed_percentage: 100 },
+            expected: [{ label: "New users in variants the flag doesn't serve", text: '2,960 · 100%' }],
+        },
+        {
             name: 'a metric count reads as n of m',
             values: { metric_count: 3, completed_metric_count: 2, failed_metric_count: 1, calculated_at: null },
             expected: [
@@ -124,6 +129,24 @@ describe('healthCheckValues', () => {
         expect(healthRuleReadings({ status: 'passed', values: {} }, rule, 'groups')).toEqual([
             { label: 'Warns when', text: 'No groups are exposed' },
             { label: 'Warns from', text: '24 hours after launch' },
+        ])
+    })
+
+    it('healthRuleReadings: the unserved check names the users it counts', () => {
+        const rule: HealthCheckRule = {
+            value: 'unserved_exposed_percentage',
+            threshold: 1,
+            warns: 'above',
+            test: null,
+            minimum: { value: 'unserved_exposed_count', threshold: 5 },
+        }
+
+        expect(healthRuleReadings({ status: 'passed', values: {} }, rule, 'users')).toEqual([
+            {
+                label: 'Warns when',
+                text: "More than 1% of the users first exposed after the flag's last save are in variants that it doesn't serve",
+            },
+            { label: 'Warns from', text: "5 users in variants that the flag doesn't serve" },
         ])
     })
 

@@ -111,7 +111,7 @@ def query_delivery_pipeline(
     }
     date_to_merged_clause = date_to_filter_clause(date_to, placeholders, column="pr.merged_at")
     sql = (
-        _PIPELINE_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        _PIPELINE_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=gate_from))
         .replace("__PR_SOURCE__", curated.pr_source())
         .replace("__DATE_TO_MERGED__", date_to_merged_clause)
     )

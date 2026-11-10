@@ -7,7 +7,7 @@ from ..facade.enums import DocsRequestSource
 class RepoMergeAdapter:
     source: ClassVar[DocsRequestSource] = DocsRequestSource.REPO_MERGE
     instructions: ClassVar[str] = (
-        "A merge to PostHog/posthog master changed something the docs describe, as judged by the merge check. "
+        "A merge to a repository's default branch changed something the docs describe, as judged by the merge check. "
         "Read the merged commit to learn what shipped, then change the docs pages it affects."
     )
 

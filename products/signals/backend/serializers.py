@@ -25,6 +25,7 @@ from posthog.models import Team, User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
+from products.error_tracking.backend.facade import alerts as error_tracking_alerts
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.anomaly_scores.config import enrolls_team, parse_config, read_payload
@@ -37,6 +38,8 @@ from products.signals.backend.contracts import (
     ALERT_SCOPE_KEY,
     ALERT_SCOPE_SOURCE,
     DEFAULT_NOT_ACTIONABLE_KEY,
+    ISSUE_FILTER_SOURCES,
+    ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
@@ -54,6 +57,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.hybrid_search import SearchMode
 from products.signals.backend.report_check_monitoring_timing import (
     MonitoringCheckTiming,
     MonitoringCheckTimingState as MonitoringCheckTimingPhase,
@@ -76,6 +80,11 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
+from products.signals.backend.report_search import (
+    DEFAULT_LIMIT as REPORT_SEARCH_DEFAULT_LIMIT,
+    MAX_LIMIT as REPORT_SEARCH_MAX_LIMIT,
+    ReportMatchKind,
+)
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.signals.backend.source_issues import source_issues_by_report
@@ -224,6 +233,14 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
     "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
+    "The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object "
+    "with a `properties` list of event property filters, the same shape error tracking alert "
+    "filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, "
+    "`assignee`) and the properties of one exception: the first one for a new issue, the "
+    "reopening one, or an example for a spike. Only issues that match become signals. The server "
+    "compiles the filter and ignores any bytecode sent with it. Save the same filter on all three "
+    "error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to "
+    "future signals only, and they decide which issues are eligible. They are not a spend cap. "
     "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
     "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
     "investigation agent confirmed into signals, `all_firing_alerts` also includes alerts "
@@ -403,6 +420,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 # Stored stripped: emission matches these ids exactly, so a pasted id with a
                 # stray space would select a scope and then read nothing.
                 config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
+        if config is not None and ISSUE_FILTERS_KEY in config:
+            config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
+                source_product, source_type, config[ISSUE_FILTERS_KEY]
+            )
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -425,6 +446,22 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 )
         return attrs
 
+    def _compiled_issue_filters(self, source_product: str | None, source_type: str | None, filters: object) -> dict:
+        if (source_product, source_type) not in ISSUE_FILTER_SOURCES:
+            raise serializers.ValidationError(
+                {"config": f"{ISSUE_FILTERS_KEY} is only supported on error tracking sources"}
+            )
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is None:
+            raise serializers.ValidationError({"config": f"{ISSUE_FILTERS_KEY} needs a project to compile against"})
+        if not isinstance(filters, dict):
+            raise serializers.ValidationError({"config": f"{ISSUE_FILTERS_KEY} must be a JSON object"})
+        try:
+            return error_tracking_alerts.compile_signal_source_filters(team.id, filters)
+        except error_tracking_alerts.AlertValidationError as error:
+            raise serializers.ValidationError({"config": str(error)})
+
     def create(self, validated_data: dict) -> SignalSourceConfig:
         if (
             validated_data.get("source_product") == SignalSourceConfig.SourceProduct.SESSION_REPLAY
@@ -434,6 +471,69 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
             validated_data["config"] = config
         return super().create(validated_data)
+
+
+# Wider than the stored limits, so a list over them still reads back as a field error instead of a 400.
+_ALERT_PATTERN_PREVIEW_MAX_COUNT = 100
+_ALERT_PATTERN_PREVIEW_MAX_LENGTH = 1000
+
+
+class AlertPatternPreviewOutcome(TextChoices):
+    PASSED = "passed", "passed"
+    BLOCKED = "blocked", "blocked"
+    NOT_ALLOWED = "not_allowed", "not_allowed"
+
+
+class AlertPatternPreviewRequestSerializer(serializers.Serializer):
+    alert_allow_patterns = serializers.ListField(
+        child=serializers.CharField(max_length=_ALERT_PATTERN_PREVIEW_MAX_LENGTH, trim_whitespace=False),
+        max_length=_ALERT_PATTERN_PREVIEW_MAX_COUNT,
+        required=False,
+        default=list,
+        help_text="Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.",
+    )
+    alert_block_patterns = serializers.ListField(
+        child=serializers.CharField(max_length=_ALERT_PATTERN_PREVIEW_MAX_LENGTH, trim_whitespace=False),
+        max_length=_ALERT_PATTERN_PREVIEW_MAX_COUNT,
+        required=False,
+        default=list,
+        help_text="Block patterns to try, as they would be saved in `config.alert_block_patterns`.",
+    )
+
+
+class AlertPatternPreviewAlertSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The alert's id.")
+    name = serializers.CharField(help_text="The alert's name. Empty when the alert has no name.")
+    insight_name = serializers.CharField(
+        allow_null=True, help_text="The insight's name, or its derived name when it has none."
+    )
+    insight_short_id = serializers.CharField(help_text="Short id of the insight the alert watches.")
+    outcome = serializers.ChoiceField(
+        choices=AlertPatternPreviewOutcome.choices,
+        help_text=(
+            "`passed` when the patterns let the alert through, `blocked` when it matches a block pattern, and "
+            "`not_allowed` when allow patterns are set and it matches none of them."
+        ),
+    )
+
+
+class AlertPatternPreviewResponseSerializer(serializers.Serializer):
+    alert_allow_patterns_error = serializers.CharField(
+        allow_null=True,
+        help_text="Why the allow patterns could not be saved, or null when they are valid.",
+    )
+    alert_block_patterns_error = serializers.CharField(
+        allow_null=True,
+        help_text="Why the block patterns could not be saved, or null when they are valid.",
+    )
+    alerts = AlertPatternPreviewAlertSerializer(
+        many=True,
+        help_text=(
+            "The project's enabled alerts on insights you can view, newest first, each with what the patterns do to "
+            "it. Empty while either pattern list has an error."
+        ),
+    )
+    has_more = serializers.BooleanField(help_text="True when the project has more enabled alerts than `alerts` lists.")
 
 
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
@@ -588,11 +688,12 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     anomaly_scoring_enabled = serializers.BooleanField(
         required=False,
         help_text=(
-            "Legacy off switch for anomaly scoring. The Product analytics source (analytics / "
-            "anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores "
-            "this project's active trends insights and writes the results as $anomaly_score events, which "
-            "are not billed. True by default. False still stops new scores; events written before stay. "
-            "Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+            "Whether anomaly scoring runs while the Product analytics source (analytics / anomaly_investigation) "
+            "is on. Scoring checks this project's active trends insights for anomalies and writes the results "
+            "as $anomaly_score events, which are not billed. True by default. False stops new scores and keeps "
+            "alert signals; events written before stay. Turning the source off stops scoring whatever this "
+            "value is, and turning the source on again keeps this value. Turning it on does not enroll a "
+            "project that anomaly_scoring_available reports as not covered."
         ),
     )
     anomaly_scoring_available = serializers.SerializerMethodField(
@@ -677,6 +778,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "autostart_enabled",
             "default_autostart_priority",
             "default_slack_notification_channel",
+            "default_slack_notification_min_priority",
             "default_slack_notification_integration",
             "autostart_base_branches",
             "scout_instructions",
@@ -720,7 +822,17 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                     "Null means no team-level default; per-user channels still apply."
                 )
             },
+            "default_slack_notification_min_priority": {
+                "help_text": (
+                    "Minimum report priority for the project's team Slack channel. P0 is highest. "
+                    "Null includes all reports, including reports without a priority. "
+                    "A set threshold excludes reports without a priority. Personal notification settings are separate."
+                )
+            },
         }
+
+    def validate_default_slack_notification_min_priority(self, value: str) -> str | None:
+        return value or None
 
     def validate_default_slack_notification_integration(self, value: IntegrationRecord | None) -> int | None:
         return value.id if value is not None else None
@@ -872,7 +984,8 @@ class SignalReportClaimSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "With takeover, the claim the caller expects to replace. The takeover is rejected when a different "
-            "claim is active, so a takeover based on a stale read cannot replace a newer claim."
+            "claim is active, so a takeover based on a stale read cannot replace a newer claim. Required to take "
+            "over a claim that another person holds, directly or through their agent. That person is notified."
         ),
     )
     pr_url = serializers.URLField(
@@ -1571,6 +1684,89 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
             "report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get "
             "the stored list quickly. A new report then joins the list at the next scheduled build."
         ),
+    )
+
+
+class SignalReportSearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        max_length=1000,
+        trim_whitespace=True,
+        help_text=(
+            "What to look for: natural language, such as a description of the issue, or an exact string, such as "
+            "an error message or an entity name."
+        ),
+    )
+    search_mode = serializers.ChoiceField(
+        choices=SearchMode.choices,
+        default=SearchMode.HYBRID,
+        help_text=(
+            "`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 "
+            "when the semantic search fails. `keyword` requires every query word in the title or the summary. "
+            "Words such as `a` or `is` are too short to look up, so the keyword search leaves them out."
+        ),
+    )
+    status = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, "
+            "ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included."
+        ),
+    )
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that authored it "
+            "turned off its `inbox` output destination. Defaults to false."
+        ),
+    )
+    created_after = serializers.DateTimeField(
+        required=False, help_text="ISO 8601 datetime. Keeps reports created at or after this time."
+    )
+    limit = serializers.IntegerField(
+        min_value=1,
+        max_value=REPORT_SEARCH_MAX_LIMIT,
+        default=REPORT_SEARCH_DEFAULT_LIMIT,
+        help_text="The most results to return, best match first.",
+    )
+
+
+class SignalReportSearchHitSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The report id. Pass it to inbox-reports-retrieve for the full report.")
+    title = serializers.CharField(allow_null=True, help_text="The report title.")
+    status = serializers.ChoiceField(choices=SignalReport.Status.choices, help_text="The report status.")
+    priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices, allow_null=True, help_text="The report priority, P0 to P4, or null."
+    )
+    updated_at = serializers.DateTimeField(help_text="When the report last changed.")
+    summary_snippet = serializers.CharField(
+        help_text=(
+            "A short excerpt of the summary, around the first query word it holds, or the summary's opening when "
+            "it holds none."
+        )
+    )
+    dismissal_reason = serializers.CharField(
+        allow_null=True, help_text="The reason code from the latest dismissal of the report, or null."
+    )
+    dismissal_note = serializers.CharField(
+        allow_null=True, help_text="The note a person wrote with the latest dismissal, or null."
+    )
+    match_kinds = serializers.ListField(
+        child=serializers.ChoiceField(choices=ReportMatchKind.choices),
+        help_text="How the report matched: `keyword`, `semantic`, or both.",
+    )
+    score = serializers.FloatField(
+        help_text="The reciprocal rank fusion score. Higher is a better match. Compare it only within one response."
+    )
+
+
+class SignalReportSearchResponseSerializer(serializers.Serializer):
+    results = SignalReportSearchHitSerializer(many=True, help_text="The matching reports, best match first.")
+    semantic_available = serializers.BooleanField(
+        help_text=(
+            "False when the results come from keywords only: a `keyword` search, or a `hybrid` search whose "
+            "semantic search failed."
+        )
     )
 
 
@@ -2679,8 +2875,8 @@ class SignalReportListSerializer(SignalReportSerializer):
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
-        key = inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
+        score = None if ranker == "priority" else getattr(obj, f"inbox_ranking_{ranker}_score", None)
+        key = inbox_merge_key(ranker, score, getattr(obj, "inbox_priority_sort_rank", None))
         personal_order: PersonalListOrder | None = self.context.get("personal_order")
         if personal_order is None:
             return key
@@ -3895,6 +4091,19 @@ class PullRequestChecksPermissionErrorSerializer(serializers.Serializer):
 
     code = serializers.CharField(read_only=True, help_text="Stable code for a missing GitHub Checks permission.")
     error = serializers.CharField(read_only=True, help_text="What the GitHub App permission prevents.")
+    remediation_url = serializers.CharField(
+        read_only=True,
+        help_text="Project integrations settings where a project admin can reconnect GitHub.",
+    )
+
+
+class GitHubRepositoryInaccessibleErrorSerializer(serializers.Serializer):
+    """Response when none of the team's GitHub integrations can access the repository."""
+
+    code = serializers.CharField(
+        read_only=True, help_text="Stable code for a repository no GitHub integration can access."
+    )
+    error = serializers.CharField(read_only=True, help_text="Which repository GitHub can't access, and who can fix it.")
     remediation_url = serializers.CharField(
         read_only=True,
         help_text="Project integrations settings where a project admin can reconnect GitHub.",

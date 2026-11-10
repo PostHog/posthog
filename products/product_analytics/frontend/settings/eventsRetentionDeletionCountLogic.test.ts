@@ -3,7 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { EventsRetentionLevel, eventsRetentionDeletionCountLogic } from './eventsRetentionDeletionCountLogic'
+import {
+    EventsRetentionDeletionCountKind,
+    eventsRetentionDeletionCountLogic,
+} from './eventsRetentionDeletionCountLogic'
 
 const TIMED_OUT_MONTHS = 1
 
@@ -22,6 +25,7 @@ describe('eventsRetentionDeletionCountLogic', () => {
             get: {
                 '/api/projects/:team_id/events_retention/deletion_count/': count(100),
                 '/api/organizations/:organization_id/events_retention_setting/deletion_count/': count(1000),
+                '/api/organizations/:organization_id/events_retention_setting/downgrade_deletion_count/': count(10),
             },
         })
         initKeaTests()
@@ -30,12 +34,13 @@ describe('eventsRetentionDeletionCountLogic', () => {
     it.each([
         ['project', 12, 1200],
         ['organization', 12, 12000],
+        ['downgrade', 12, 120],
         ['project', TIMED_OUT_MONTHS, null],
         ['organization', TIMED_OUT_MONTHS, null],
-    ] as [EventsRetentionLevel, number, number | null][])(
+    ] as [EventsRetentionDeletionCountKind, number, number | null][])(
         'counts the %s events %i months deletes',
-        async (level, months, eventsDeleted) => {
-            const logic = eventsRetentionDeletionCountLogic({ level, months })
+        async (count, months, eventsDeleted) => {
+            const logic = eventsRetentionDeletionCountLogic({ count, months })
             logic.mount()
 
             await expectLogic(logic).toFinishAllListeners()

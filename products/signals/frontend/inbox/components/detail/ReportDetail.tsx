@@ -360,7 +360,7 @@ export function InboxDetailFrame({
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
-    const expectedImpactEnabled = useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY')
+    const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const notesEnabled = useFeatureFlag('SIGNALS_REPORT_NOTES')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
@@ -372,7 +372,7 @@ export function InboxDetailFrame({
         (check) => check.kind === 'metric_threshold' && check.status !== 'cancelled'
     )
     const expectedImpact =
-        expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
+        monitoringEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
             <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
     const planBlock = report.plan ? <ReportPlanBlock reportId={report.id} plan={report.plan} /> : null
@@ -466,6 +466,8 @@ export function InboxDetailFrame({
         </header>
     )
 
+    const isMonitoring = (currentReport ?? report).status === SignalReportStatus.MONITORING
+
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
     // change on the mounted instance.
@@ -479,6 +481,7 @@ export function InboxDetailFrame({
                             onPriorityChange={updatePriority}
                             prioritySaving={prioritySaving}
                         />
+                        {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -532,7 +535,7 @@ export function InboxDetailFrame({
                             <ReportSpendSection reportId={report.id} />
                         </FlaggedFeature>
                         <ReportTasksSection report={report} />
-                        <ReportChecksSection report={report} />
+                        {!isMonitoring && <ReportChecksSection report={report} />}
                         <ReportActivitySection report={report} />
                         {asideFooter}
                     </aside>

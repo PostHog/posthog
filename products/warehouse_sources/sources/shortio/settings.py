@@ -1,22 +1,32 @@
-from dataclasses import dataclass, field
-
-from products.warehouse_sources.sources.sdk import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 
 
-@dataclass(frozen=False)
+@frozen
 class ShortioEndpointConfig:
     name: str
     path: str
-    # Short.io domain IDs are globally unique within an account, so `id` is a safe primary key.
-    primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    primary_keys: list[str]
 
 
-# Top-level Short.io list endpoints. Only `domains` is synced in this version: it lists directly
-# without a parent id. Links and click statistics are per-domain (fan-out) and are intentionally
-# left out of v1. All endpoints are full refresh only — the domain list exposes no server-side
-# ordered timestamp filter, so there is no incremental cursor to advance.
 SHORTIO_ENDPOINTS: dict[str, ShortioEndpointConfig] = {
-    "domains": ShortioEndpointConfig(name="domains", path="/api/domains"),
+    "domains": ShortioEndpointConfig(name="domains", path="/api/domains", primary_keys=["id"]),
+    "links": ShortioEndpointConfig(name="links", path="/api/links?domain_id={domain_id}", primary_keys=["idString"]),
+    "link_clicks": ShortioEndpointConfig(
+        name="link_clicks",
+        path="https://statistics.short.io/statistics/domain/{domain_id}/link_clicks?ids={link_id}",
+        primary_keys=["domain_id", "link_id"],
+    ),
+    "last_clicks": ShortioEndpointConfig(
+        name="last_clicks",
+        path="https://statistics.short.io/statistics/domain/{domain_id}/last_clicks",
+        # The API exposes no unique event ID. Timestamp and visitor fields can repeat.
+        primary_keys=[],
+    ),
+    "link_by_interval": ShortioEndpointConfig(
+        name="link_by_interval",
+        path="https://statistics.short.io/statistics/link/{link_id}/by_interval",
+        primary_keys=["domain_id", "link_id", "x"],
+    ),
 }
 
 ENDPOINTS = tuple(SHORTIO_ENDPOINTS.keys())

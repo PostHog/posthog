@@ -57,6 +57,19 @@ OpenedAndClicked.args = {
     ]),
 }
 
+export const SensitiveClicksNotTracked = Template.bind({})
+SensitiveClicksNotTracked.args = {
+    email: {
+        ...email('delivered', [
+            { kind: 'queued', at: '2026-06-15T09:00:00Z', reason: null },
+            { kind: 'sent', at: '2026-06-15T09:00:01Z', reason: null },
+            { kind: 'delivered', at: '2026-06-15T09:00:03Z', reason: null },
+            { kind: 'opened', at: '2026-06-15T09:12:40Z', reason: null },
+        ]),
+        sensitive: true,
+    },
+}
+
 export const Bounced = Template.bind({})
 Bounced.args = {
     email: email('bounced', [

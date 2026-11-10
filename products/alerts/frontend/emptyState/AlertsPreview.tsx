@@ -2,7 +2,7 @@ import './AlertsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored weekly series climbing toward the threshold, so lowering the
 // threshold puts the last two weeks above it.
@@ -21,7 +21,7 @@ function areaPath(line: string): string {
  * `__swap` grid cell and crossfade, so no row moves.
  */
 export function AlertsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('AlertPreview', isStatic && 'AlertPreview--static')}>
