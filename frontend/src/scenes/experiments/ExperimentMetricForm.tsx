@@ -45,6 +45,7 @@ import {
     FunnelConversionWindowTimeUnit,
 } from '~/types'
 
+import { ExperimentMetricValueFormatSelector } from 'products/experiments/frontend/components/ExperimentMetricValueFormatSelector'
 import { ExperimentQuantileMetricFields } from 'products/experiments/frontend/components/ExperimentQuantileMetricFields'
 import { WarehouseNativeMetricFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeMetricFields'
 import {
@@ -65,6 +66,7 @@ import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './Experi
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
 import { metricSourcesToSeries, seriesToMetricConfig, seriesToMetricSource, toQuantileSource } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
+import { isProportionMetric } from './MetricsView/shared/utils'
 import {
     getAllowedMathTypes,
     getDefaultExperimentMetric,
@@ -198,6 +200,9 @@ export function ExperimentMetricForm({
     const quantileMetricsEnabled = useFeatureFlag('EXPERIMENTS_QUANTILE_METRICS')
     // A percentile metric that exists already must keep its type in the picker when the team is not flagged in
     const showQuantileOption = quantileMetricsEnabled || isExperimentQuantileMetric(metric)
+    const valueFormatEnabled = useFeatureFlag('EXPERIMENTS_METRIC_VALUE_FORMAT')
+    // A metric that has a value format already must keep the setting editable when the team is not flagged in
+    const showValueFormat = !isProportionMetric(metric) && (valueFormatEnabled || metric.value_format != null)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
     // holds the custom start configuration while the exposure sentinel is selected, so switching back restores it
@@ -859,6 +864,12 @@ export function ExperimentMetricForm({
                 </div>
             </SceneSection>
             <SceneDivider />
+            {showValueFormat && (
+                <>
+                    <ExperimentMetricValueFormatSelector metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
+            )}
             {/* The backend ignores the conversion window for exposure-anchored retention: the retention window already anchors on exposure */}
             {!(isExperimentRetentionMetric(metric) && isExperimentExposureNode(metric.start_event)) && (
                 <>
