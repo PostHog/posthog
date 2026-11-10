@@ -1,10 +1,10 @@
-import time
 from threading import Event, Thread
 
 from django.db import connection
 from django.test import TransactionTestCase
 
 from posthog.models import Organization, Team
+from posthog.test.waiting import wait_until
 
 from products.workflows.backend.facade.contracts import WorkflowViewConflict
 from products.workflows.backend.models.workflow_view import WorkflowView
@@ -27,14 +27,14 @@ class TestWorkflowViewStoreConcurrency(TransactionTestCase):
                 holder_pid = cursor.fetchone()[0]
                 cursor.execute("SELECT id FROM workflows_workflowview WHERE id = %s FOR UPDATE", [self.view.id])
                 locked.set()
-                deadline = time.monotonic() + 10
-                while time.monotonic() < deadline:
+
+                def writer_waits_on_this_session() -> bool:
                     cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [holder_pid, writer_pid])
                     row = cursor.fetchone()
-                    if row and row[0]:
-                        writer_blocked.set()
-                        break
-                    time.sleep(0.01)
+                    return bool(row and row[0])
+
+                wait_until(writer_waits_on_this_session, timeout=10, message="the writer never waited on the held view")
+                writer_blocked.set()
                 cursor.execute(
                     "UPDATE workflows_workflowview SET name = 'First', version = 2 WHERE id = %s", [self.view.id]
                 )
