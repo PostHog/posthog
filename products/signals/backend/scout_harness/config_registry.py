@@ -760,7 +760,9 @@ GENERAL_SCOUT_SKILL_NAME = "signals-scout-general"
 _PERSON_TUNED_SCOUT_FIELDS = ("enabled", "emit", "run_interval_minutes", "run_cron_schedule")
 
 
-def unchosen_general_scout_configs(*, team_ids: list[int] | None = None) -> QuerySet[SignalScoutConfig]:
+def unchosen_general_scout_configs(
+    *, team_ids: list[int] | None = None, eligible_only: bool = False
+) -> QuerySet[SignalScoutConfig]:
     """Running general scouts that no person created or switched on.
 
     Opening the inbox used to seed the general scout enabled for every team, so these rows run
@@ -775,6 +777,8 @@ def unchosen_general_scout_configs(*, team_ids: list[int] | None = None) -> Quer
       `enabled_by` and `created_by` are cleared when that person's account is deleted; the log's
       `is_system` is not. Only `updated` entries on person-tuned fields count, because the seed and
       the sync's label backfills also run inside a person's request and log under their user.
+
+    `eligible_only` drops the rows any of the three marks instead of annotating them.
     """
     completed_setup = SignalTeamConfig.objects.filter(
         Q(team_id=OuterRef("team_id")) | Q(team__parent_team_id=OuterRef("team_id")),
@@ -803,11 +807,15 @@ def unchosen_general_scout_configs(*, team_ids: list[int] | None = None) -> Quer
         status__in=SignalScoutConfig.RUNNABLE_STATUSES,
         enabled_by__isnull=True,
         created_by__isnull=True,
-    ).annotate(
-        setup_completed=Exists(completed_setup),
-        team_chose_scouts=Exists(chosen_other_scout),
-        person_touched=Exists(person_log),
     )
+    if eligible_only:
+        configs = configs.filter(~Exists(completed_setup), ~Exists(chosen_other_scout), ~Exists(person_log))
+    else:
+        configs = configs.annotate(
+            setup_completed=Exists(completed_setup),
+            team_chose_scouts=Exists(chosen_other_scout),
+            person_touched=Exists(person_log),
+        )
     if team_ids is not None:
         configs = configs.filter(team_id__in=team_ids)
     return configs
@@ -823,19 +831,13 @@ def _general_scout_is_proven_canonical(team_id: int) -> bool:
 
 def unenroll_unchosen_general_scout(config: SignalScoutConfig) -> bool:
     """Switch off one unchosen general scout. Returns False without a write when the row moved
-    since the caller read it, such as a person enabling it in the meantime."""
+    since the caller read it, such as a person enabling it or the team completing setup."""
     with transaction.atomic():
         locked = (
-            unchosen_general_scout_configs()
             # Recheck every skip reason under the lock: the batch read is a snapshot, and setup
             # can complete or a person can act on the team before this row comes up.
-            .filter(
-                pk=config.pk,
-                status=config.status,
-                setup_completed=False,
-                team_chose_scouts=False,
-                person_touched=False,
-            )
+            unchosen_general_scout_configs(eligible_only=True)
+            .filter(pk=config.pk, status=config.status)
             .select_for_update(of=("self",))
             .first()
         )

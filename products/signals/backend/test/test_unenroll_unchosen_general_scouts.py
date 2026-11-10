@@ -10,6 +10,10 @@ from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.signals.backend.models import SignalScoutConfig, SignalTeamConfig
+from products.signals.backend.scout_harness.config_registry import (
+    unchosen_general_scout_configs,
+    unenroll_unchosen_general_scout,
+)
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.skills.backend.models.skills import LLMSkill
 
@@ -123,6 +127,17 @@ class TestUnenrollUnchosenGeneralScouts(APIBaseTest):
 
         assert "Changed: 0" in self._run("--apply")
         assert self._log_count(config) == logs_before + int(expect_changed)
+
+    def test_unenroll_rechecks_setup_completed_after_the_batch_read(self) -> None:
+        self._seed_general_skill()
+        SignalScoutConfig.objects.create(team=self.team, skill_name=_GENERAL)
+        stale = unchosen_general_scout_configs().get(team_id=self.team.id)
+        SignalTeamConfig.objects.create(team=self.team, onboarding=_COMPLETED)
+
+        assert unenroll_unchosen_general_scout(stale) is False
+
+        stale.refresh_from_db()
+        assert stale.enabled is True
 
     def test_team_ids_limits_the_run(self) -> None:
         self._seed_general_skill()
