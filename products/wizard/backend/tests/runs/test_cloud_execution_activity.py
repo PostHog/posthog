@@ -30,6 +30,7 @@ def test_execute_wizard_uses_persisted_program_snapshot(team, user) -> None:
                 "tags": ["audit", "web-analytics"],
                 "required_programs": ["posthog-integration"],
                 "supported_environments": ["cloud"],
+                "context_mill_version": "1.59.0",
             }
         ],
     }
@@ -78,5 +79,6 @@ def test_execute_wizard_uses_persisted_program_snapshot(team, user) -> None:
             team_id=team.id,
             wizard_version="2.60.0",
             program_command=("audit", "web-analytics"),
+            context_mill_version="1.59.0",
         )
     )

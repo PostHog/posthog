@@ -91,6 +91,7 @@ from posthog.hogql_queries.query_runner import (
     get_query_runner_or_none,
     shared_insights_execution_mode,
 )
+from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_TRACKING_FLAG
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.event.new_events_schema import get_events_route
 from posthog.models.instance_setting import override_instance_config
@@ -1693,6 +1694,42 @@ class TestQueryRunner(BaseTest):
             == failure_delta
         )
         assert SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get() > before_duration_sum
+
+    @parameterized.expand(
+        [
+            ("on", True, True, 2),
+            ("turned_off_after_caching", True, False, 1),
+            ("off", False, False, 0),
+        ]
+    )
+    @mock.patch("posthog.hogql_queries.utils.event_usage.get_producer")
+    def test_property_usage_tracking_follows_its_flag(
+        self, _name: str, fresh_flag: bool, cache_hit_flag: bool, expected_payloads: int, mock_get_producer
+    ) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+        query = {
+            "some_attr": "bla",
+            "other_attr": [{"key": "plan", "type": "person", "value": "pro", "operator": "exact"}],
+        }
+
+        def flags(enabled: bool):
+            return lambda key, *args, **kwargs: enabled and key == PROPERTY_USAGE_TRACKING_FLAG
+
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=flags(fresh_flag)):
+            TestQueryRunner(query=query, team=self.team).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=flags(cache_hit_flag)):
+            response = TestQueryRunner(query=query, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+        assert isinstance(response, TheTestCachedBasicQueryResponse)
+        self.assertTrue(response.is_cached)
+
+        property_payloads = [
+            call.kwargs["data"]
+            for call in mock_get_producer.return_value.produce.call_args_list
+            if call.kwargs["data"]["app_source"] == "property_usage"
+        ]
+        self.assertEqual(len(property_payloads), expected_payloads)
 
 
 class TestSeriesCustomNameCaching(BaseTest):

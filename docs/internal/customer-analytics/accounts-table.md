@@ -1,5 +1,35 @@
 # Accounts table
 
+## Account automations
+
+The Automations tab and view widget show retained workflow runs for an account.
+The `customer-analytics-automations-widget` feature flag controls the tab, widget picker, and saved widgets.
+Each execution has its own row, including repeated runs of one workflow.
+Account events and account-audience batch runs appear here.
+Person-triggered product events do not.
+Account events match their stable account ID, including accounts without an external ID or whose external ID has changed.
+Event discovery only considers events referenced by retained runs.
+ClickHouse filters, counts, and paginates runs before returning rows.
+Workflow step metadata is read in one batch for the page when the ClickHouse-to-Postgres proxy is configured.
+Without that proxy, the existing Workflows read facade loads each page workflow through Django's database connection.
+
+Rows link to the workflow with an inline status chip.
+Separate columns show the original trigger time, last completed step, and expected resume time for a current delay.
+The last completed step shows its date and current name when the retained logs identify a step still present in the workflow.
+A resume time describes when execution should continue. It does not guarantee an action.
+Run records expire after 30 days and step logs after 90 days.
+Only retained run records can be discovered, so older active runs may be absent too.
+Expected resume times come from retained delay logs and disappear after later execution or completion.
+Completed history can be incomplete, and a date appears as unavailable when retained evidence cannot establish it.
+Only lifecycle log messages contribute to step evidence. Failure evidence matches known runtime messages with their expected prefixes.
+Ordinary function output containing error or skip words does not invalidate step history or consume the evidence limit.
+Returned messages are capped at 256 bytes.
+Runs with more than 200 lifecycle log messages omit completed-step and resume details because their evidence exceeds the summary limit.
+
+The endpoint requires account, workflow, person, and event read scopes.
+It checks account access and returns only workflows the caller can read.
+The widget offers no controls to change a workflow run.
+
 ## Default pinned account properties
 
 Project admins choose an ordered set of default pinned properties under Customer analytics > Accounts settings.
@@ -107,6 +137,22 @@ An explicit query-string view ID takes precedence over a legacy snapshot.
 Browser storage failures do not prevent URL-based selection.
 `accountsLogic.viewState` supplies the snapshot for working state and explicit saves.
 The parent scene preserves the selected view ID when changing date or test-account filters.
+
+### Notes saved views
+
+Accounts and Notes use the same saved-view picker and management dialogs.
+The Notes toolbar starts with search. View tooltips describe the saved filters and sorting.
+Edit and Delete remain in each view's Manage menu.
+Select "All notes" to clear the selected view and restore that Notes list's default filters and sorting.
+
+A Notes tile saves search, tags, authors, sorting, and the selected view ID in its configuration.
+Switching account tabs keeps the selected Notes view with its filters.
+A view's account and assignment filters apply only on the team Notes list.
+Sorting by account also applies only there. Within one account, the table uses creation-date sorting while preserving the saved account sort.
+Changing other filters and updating that view does not replace its team-only sort.
+
+Note tag edits appear immediately and save in order for each note.
+An earlier response cannot replace a later pending edit. A failed write restores the last saved tags unless another edit is pending.
 
 ## Sorting
 

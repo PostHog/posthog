@@ -13,6 +13,7 @@ import {
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
+    hasNegativeStackValue,
     computeTopStackedKeyByAxis,
     createBarScales,
     type StackedBand,
@@ -66,7 +67,7 @@ export interface BarChartProps<Meta = unknown> {
 
 export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <BarChartInner {...rest} />
         </ChartErrorBoundary>
     )
@@ -127,17 +128,22 @@ function BarChartInner<Meta = unknown>({
         [isHorizontal, fitToHeight, resolvedMinBandSize, labels]
     )
 
+    const isDiverging = useMemo(
+        () => barLayout === 'stacked' && (divergingStack || hasNegativeStackValue(visibleSeries)),
+        [barLayout, divergingStack, visibleSeries]
+    )
+
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
             return computePercentStackData(visibleSeries, labels)
         }
         if (barLayout === 'stacked') {
-            return divergingStack
+            return isDiverging
                 ? computeDivergingStackData(visibleSeries, labels)
                 : computeStackData(visibleSeries, labels)
         }
         return undefined
-    }, [barLayout, visibleSeries, labels, divergingStack])
+    }, [barLayout, visibleSeries, labels, isDiverging])
 
     // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
     // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
@@ -167,7 +173,7 @@ function BarChartInner<Meta = unknown>({
                     if (!band) {
                         return [s]
                     }
-                    if (divergingStack) {
+                    if (isDiverging) {
                         return [
                             { ...s, data: band.top },
                             {
@@ -261,7 +267,7 @@ function BarChartInner<Meta = unknown>({
             axisOrientation,
             stackedData,
             isHorizontal,
-            divergingStack,
+            isDiverging,
             maxBandRange,
             bandPadding,
             fitToHeight,

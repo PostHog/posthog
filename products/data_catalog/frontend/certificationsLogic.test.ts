@@ -85,6 +85,17 @@ describe('certificationsLogic', () => {
         expect(logic.values.proposedCount).toEqual(1)
     })
 
+    it('flags a failed load until a reload succeeds', async () => {
+        ;(dataCatalogCertificationsList as jest.Mock).mockRejectedValueOnce(new Error('Server error'))
+        logic.actions.loadCertifications()
+        await expectLogic(logic).toDispatchActions(['loadCertificationsFailure'])
+        expect(logic.values.certificationsLoadFailed).toBe(true)
+
+        logic.actions.loadCertifications()
+        await expectLogic(logic).toDispatchActions(['loadCertificationsSuccess'])
+        expect(logic.values.certificationsLoadFailed).toBe(false)
+    })
+
     it.each<[Partial<CertificationsFilters>, string[]]>([
         [{ status: 'proposed' }, ['cert-1', 'cert-4']],
         [{ status: 'certified' }, ['cert-2']],
