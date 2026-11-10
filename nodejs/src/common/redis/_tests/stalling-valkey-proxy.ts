@@ -56,4 +56,16 @@ export class StallingValkeyProxy {
         })
         this.server?.close()
     }
+
+    // For a pool whose clients reconnect: a closed socket sends its ioredis client into a reconnect loop for the
+    // rest of the Jest worker, and RedisV2 has no close to stop it, so the client sockets stay open but silent.
+    stopLeavingClientsSilent(): void {
+        this.stopAnswering()
+        this.connections.forEach(({ client, upstream }) => {
+            upstream.destroy()
+            client.unref()
+        })
+        this.server?.close()
+        this.server?.unref()
+    }
 }

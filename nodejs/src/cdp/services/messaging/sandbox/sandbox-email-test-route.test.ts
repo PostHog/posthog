@@ -10,6 +10,7 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { FetchResponse } from '~/common/utils/request'
@@ -22,7 +23,6 @@ import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
 import { RateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
-import { StallingValkeyProxy } from './_tests/stalling-valkey-proxy'
 import { SANDBOX_TEST_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEventProperties, SandboxTerminalOutcome } from './sandbox-email-events'
 import {
@@ -279,7 +279,7 @@ describe('sandbox email test sends', () => {
             expect(answer).toEqual({ status: 'failed', reason: 'send_rate_limited' })
             expect(world.ses.delivered).toEqual([])
         } finally {
-            store.stop()
+            store.stopLeavingClientsSilent()
         }
     })
 
