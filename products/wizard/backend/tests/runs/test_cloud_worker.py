@@ -197,6 +197,7 @@ def test_clone_repository_uses_integration_token(
 ) -> None:
     request = GitRepositoryCloneRequest(
         sandbox_id="worker-id",
+        team_id=2,
         github_integration_id=17,
         repository="PostHog/PostHog",
     )
@@ -209,6 +210,7 @@ def test_clone_repository_uses_integration_token(
         root_path = async_to_sync(asyncify(clone_repository))(request)
 
     assert root_path == "/tmp/workspace/repos/posthog/posthog"
+    get_github_token.assert_called_once_with(2, 17)
     get_sandbox_class.return_value.get_by_id.assert_called_once_with(request.sandbox_id)
     sandbox.clone_repository.assert_called_once_with(
         request.repository, github_token="github-secret", shallow=True, branch=None
@@ -242,6 +244,7 @@ def test_clone_repository_rejects_clone_failure(
 ) -> None:
     request = GitRepositoryCloneRequest(
         sandbox_id="worker-id",
+        team_id=2,
         github_integration_id=17,
         repository="PostHog/PostHog",
     )
