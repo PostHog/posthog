@@ -7,6 +7,12 @@ before stay in the results, so the results mix two audiences. That is informatio
 order of conditions that serve different variants moves the people who match several of them to another variant.
 How many is unknown, so that is info too.
 
+A lower rollout stops serving some people who were already exposed. They get no variant, unless a later condition
+serves them. The rollout and the variant are two independent draws, so they leave every variant in the same
+proportion and the sample ratio holds. Their later events still count for the variant they got first, which pulls the
+difference between the variants toward zero. That can hide a difference but not create one, so it is info. Users who
+lose an override, or reach a later one, can switch variants. How many is unknown, so that is info too.
+
 A variant override that was removed moves the people its condition matches from its variant to a random one, and
 their exposures under that variant stay in the results. It is graded by the share of that variant's users the
 condition serves, as the forced-variant check grades an override in place. When fewer than MIN_EXPOSED_UNITS_TO_WARN
@@ -29,9 +35,11 @@ from products.experiments.backend.health.checks.flag_change_findings import (
     leave_out,
     not_checked_finding,
 )
+from products.experiments.backend.health.checks.flag_state import has_zero_rollout
 from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
     ConditionsNetEffect,
+    LoweredRollout,
     RemovedOverride,
     conditions_net_effect,
 )
@@ -57,6 +65,7 @@ from products.feature_flags.backend.facade.edits import ConditionsChange
 _TITLE = "The release conditions changed after launch"
 _OVERRIDE_TITLE = "A variant override was removed after launch"
 _REORDERED_TITLE = "The order of the release conditions changed after launch"
+_ROLLOUT_TITLE = "A release condition's rollout was lowered after launch"
 _REVERTED_TITLE = "The release conditions changed and were set back"
 _NOT_CHECKED_TITLE = "Release condition changes were not checked"
 
@@ -111,6 +120,11 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
                 f"Review {change} in the flag history.",
             ],
         )
+    if effect.lowered_rollouts:
+        # A flag with every rollout at 0% is the flag-state check's to report, and it says what to do.
+        if ctx.flag is not None and has_zero_rollout(ctx.flag):
+            return None
+        return _rollout_reduced(history, effect, early_exit=ctx.flag is not None and ctx.flag.early_exit)
     # Only an override changed. The forced-variant check reports one that is still in place, and the removed ones
     # were graded above.
     if effect.shape != ConditionsChangeShape.REVERTED or removed:
@@ -143,6 +157,79 @@ def _edited_overrides(effect: ConditionsNetEffect) -> list[str]:
         f"Sets {names} have variant overrides, so users who now match them or no longer match them may also have "
         "switched variants."
     ]
+
+
+def _rollout_reduced(history: FlagHistory, effect: ConditionsNetEffect, *, early_exit: bool) -> ExperimentHealthFinding:
+    lowered = effect.lowered_rollouts
+    falls_through = [rollout for rollout in lowered if rollout.later_condition and not early_exit]
+    lose_override = [rollout for rollout in falls_through if rollout.variant is not None]
+    get_override = any(rollout.later_override for rollout in falls_through if rollout.variant is None)
+    dropped = [rollout for rollout in lowered if rollout not in lose_override]
+    switched = bool(lose_override) or get_override
+    sentences = [_lowered(lowered, history.team_timezone)]
+    if dropped:
+        subject, serve = ("it", "serves") if len(lowered) == 1 else ("these conditions", "serve")
+        unless = ", unless a later condition matches them" if any(r in falls_through for r in dropped) else ""
+        sentences.append(f"Users {subject} no longer {serve} now get no variant{unless}.")
+        if get_override:
+            sentences.append(
+                "A later condition has a variant override, so some of them now get its variant and may have switched "
+                "variants."
+            )
+    if lose_override:
+        sentences.append(_override_lost(lose_override, single=len(lowered) == 1))
+    sentences.append(
+        "Their exposures stay in the results, and their later events count for the variant they got first, so the "
+        "difference between the variants can look smaller than it is."
+        if dropped
+        else "Their exposures stay in the results."
+    )
+    start_at = suggested_start(max(rollout.lowered_at for rollout in lowered), history.team_timezone)
+    sentences.append(
+        f"Reset the experiment, or move its start date to {start_at}."
+        if switched
+        else f"To count only users who still get a variant, move the start date to {start_at}."
+    )
+    return _finding(
+        history,
+        effect,
+        subcode=ConditionsChangeShape.ROLLOUT_REDUCED,
+        title=_ROLLOUT_TITLE,
+        sentences=sentences,
+        diagnostic_ref="A7" if switched else "A6",
+    )
+
+
+def _lowered(lowered: tuple[LoweredRollout, ...], team_timezone: str) -> str:
+    if len(lowered) == 1:
+        rollout = lowered[0]
+        at = format_change_time(rollout.lowered_at, team_timezone)
+        return (
+            f"The rollout of Set {rollout.condition_number} went from {rollout.before:g}% to {rollout.after:g}% on "
+            f"{at}."
+        )
+    first_at = format_change_time(min(rollout.lowered_at for rollout in lowered), team_timezone)
+    last_at = format_change_time(max(rollout.lowered_at for rollout in lowered), team_timezone)
+    when = f"on {first_at}" if first_at == last_at else f"between {first_at} and {last_at}"
+    moves = ", ".join(
+        f"Set {rollout.condition_number} from {rollout.before:g}% to {rollout.after:g}%" for rollout in lowered
+    )
+    return f"The rollouts of {len(lowered)} release conditions were lowered {when}: {moves}."
+
+
+def _override_lost(lost: list[LoweredRollout], *, single: bool) -> str:
+    if len(lost) == 1:
+        rollout = lost[0]
+        subject = "it" if single else f"Set {rollout.condition_number}"
+        return (
+            f'Set {rollout.condition_number} has the variant override "{rollout.variant}", so users {subject} no '
+            f'longer serves now get a random variant or none instead of "{rollout.variant}". Those exposed before the '
+            "change may have switched variants."
+        )
+    return (
+        "These conditions have variant overrides, so users they no longer serve now get a random variant or none "
+        "instead of the override's variant. Those exposed before the change may have switched variants."
+    )
 
 
 def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:

@@ -88,7 +88,7 @@ def flag_state_values(ctx: HealthContext) -> CheckValues:
     return {
         ExperimentHealthValueKey.FLAG_ACTIVE: flag.active,
         ExperimentHealthValueKey.FLAG_DELETED: flag.deleted,
-        ExperimentHealthValueKey.FLAG_ROLLED_OUT: not _has_zero_rollout(flag),
+        ExperimentHealthValueKey.FLAG_ROLLED_OUT: not has_zero_rollout(flag),
         ExperimentHealthValueKey.SHIPPED_VARIANT: shipped_variant_key(flag)
         if is_single_variant_shipped(flag)
         else None,
@@ -118,7 +118,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             )
         return None
 
-    zero_rollout = _has_zero_rollout(flag)
+    zero_rollout = has_zero_rollout(flag)
     single_variant_shipped = is_single_variant_shipped(flag)
 
     if ctx.is_running:
@@ -350,7 +350,7 @@ def _ended_flag_not_called(
 def needs_outside_assignment_check(ctx: HealthContext) -> bool:
     """Whether this check reads the flag's calls: a running experiment whose flag has a 0% rollout."""
     flag = ctx.flag
-    return ctx.is_running and not ctx.is_paused and flag is not None and not flag.deleted and _has_zero_rollout(flag)
+    return ctx.is_running and not ctx.is_paused and flag is not None and not flag.deleted and has_zero_rollout(flag)
 
 
 def outside_assignment_unsettled(ctx: HealthContext, traffic: ConditionSetTraffic) -> bool:
@@ -417,7 +417,7 @@ def _rollout_since(ctx: HealthContext) -> str:
     return f"It has been at 100% since {at}, and the split was {describe_split(effect.last.before)} before. "
 
 
-def _has_zero_rollout(flag: FlagState) -> bool:
+def has_zero_rollout(flag: FlagState) -> bool:
     # Only true when every release group is set to 0 explicitly. A group without a rollout
     # percentage serves everyone.
     return bool(flag.release_groups) and all(group.rollout_percentage == 0 for group in flag.release_groups)
