@@ -2,7 +2,6 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
-import { Pool } from 'pg'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -13,7 +12,6 @@ import {
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { attachmentMetadata, decodeAttachments } from '~/cdp/services/hogflows/transactional-email'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -29,7 +27,6 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { EmailAttachmentsService } from './email-attachments.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -760,6 +757,28 @@ describe('EmailService', () => {
                 expect(result.metrics ?? []).toEqual([])
             })
 
+            it('fails a send that lists files at once, without claiming a token or waiting for one', async () => {
+                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 5000, reserved: true })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    attachments: [
+                        {
+                            filename: 'report.pdf',
+                            contentType: 'application/pdf',
+                            sizeBytes: 7,
+                            sha256: 'a'.repeat(64),
+                        },
+                    ],
+                })
+
+                const result = await limitedService.executeSendEmail(invocation)
+
+                expect(claimOrReserve).not.toHaveBeenCalled()
+                expect(limitedSendSpy).not.toHaveBeenCalled()
+                expect(result).toMatchObject({ finished: true, error: expect.stringMatching(/^attachments_missing: /) })
+                expect(result.invocation.queueScheduledAt).toBeFalsy()
+            })
+
             it('parks consecutive denials on their exact reserved slots', async () => {
                 // At 30/minute the limiter hands out slots 2s apart. Each send has to wake at
                 // its own slot, exactly. If one wake moves even a little earlier, its token is
@@ -1371,122 +1390,6 @@ describe('EmailService', () => {
             })
         })
 
-        describe('attachments', () => {
-            let attachments: EmailAttachmentsService
-            let assertPool: Pool
-            const pdfBytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0x9f, 0xff])
-            const files = decodeAttachments({
-                tracking: { captureEngagement: false },
-                attachments: [
-                    {
-                        filename: 'report.pdf',
-                        content: pdfBytes.toString('base64'),
-                        contentType: 'application/pdf',
-                    },
-                    {
-                        filename: 'logo.png',
-                        content: Buffer.from('png bytes').toString('base64'),
-                        contentType: 'image/png',
-                        contentId: 'logo',
-                    },
-                ],
-            })
-
-            beforeEach(() => {
-                attachments = new EmailAttachmentsService(hub.CYCLOTRON_NODE_DATABASE_URL)
-                service['emailAttachmentsService'] = attachments
-                assertPool = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
-                invocation.id = new UUIDT().toString()
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1 },
-                    attachments: attachmentMetadata(files),
-                })
-            })
-
-            afterEach(async () => {
-                await attachments.stop()
-                await assertPool.end()
-            })
-
-            it.each([
-                ['on the first try', null],
-                [
-                    'on the retry after an SES throttle',
-                    () => sendEmailSpy.mockRejectedValueOnce(new ThrottlingException('Rate exceeded')),
-                ],
-                [
-                    'on the retry after the attachment store fails to answer',
-                    () =>
-                        jest
-                            .spyOn(attachments, 'load')
-                            .mockRejectedValueOnce(new Error('timeout exceeded when trying to connect')),
-                ],
-            ])('delivers the files to SES as Base64 attachments %s', async (_name, failFirstTry) => {
-                failFirstTry?.()
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-                await attachments.store(invocation.id, team.id, files)
-
-                let result = await service.executeSendEmail(invocation)
-                if (failFirstTry) {
-                    expect(result.finished).toBe(false)
-                    expect(result.error).toBeUndefined()
-                    expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
-                    result = await service.executeSendEmail(result.invocation)
-                }
-
-                expect(result.finished).toBe(true)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls.at(-1)![0] as { input: any }
-                expect(sentCommand.input.Content.Simple.Attachments).toEqual([
-                    {
-                        RawContent: pdfBytes,
-                        FileName: 'report.pdf',
-                        ContentType: 'application/pdf',
-                        ContentId: undefined,
-                        ContentDisposition: 'ATTACHMENT',
-                        ContentTransferEncoding: 'BASE64',
-                    },
-                    {
-                        RawContent: Buffer.from('png bytes'),
-                        FileName: 'logo.png',
-                        ContentType: 'image/png',
-                        ContentId: 'logo',
-                        ContentDisposition: 'INLINE',
-                        ContentTransferEncoding: 'BASE64',
-                    },
-                ])
-            })
-
-            it.each([
-                ['no row is stored', async () => {}],
-                [
-                    'the files under this job id belong to another team',
-                    async () => {
-                        await attachments.store(invocation.id, team.id + 1, files)
-                    },
-                ],
-                [
-                    'a stored file does not match its checksum',
-                    async () => {
-                        await attachments.store(invocation.id, team.id, files)
-                        await assertPool.query(
-                            `UPDATE cyclotron_email_attachments SET content = 'other bytes' WHERE job_id = $1 AND position = 1`,
-                            [invocation.id]
-                        )
-                    },
-                ],
-            ])('fails the send as attachments_missing and sends nothing when %s', async (_name, arrange) => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-                await arrange()
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(sendEmailSpy).not.toHaveBeenCalled()
-                expect(result.finished).toBe(true)
-                expect(result.error).toMatch(/^attachments_missing: /)
-            })
-        })
-
         const sesAccepts = (): void => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
         }
@@ -1512,6 +1415,25 @@ describe('EmailService', () => {
             sesAccepts()
             jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
         }
+        const filesListed = (): void => {
+            sesAccepts()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                attachments: [
+                    { filename: 'report.pdf', contentType: 'application/pdf', sizeBytes: 7, sha256: 'a'.repeat(64) },
+                ],
+            })
+        }
+
+        it('fails a queued email that lists files as attachments_missing and sends nothing', async () => {
+            filesListed()
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(result.finished).toBe(true)
+            expect(result.error).toMatch(/^attachments_missing: /)
+        })
 
         it.each([
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
@@ -1555,6 +1477,14 @@ describe('EmailService', () => {
                 'failed',
                 'recipient_suppressed',
             ],
+            [
+                'a transactional email that lists files',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                filesListed,
+                'failed',
+                'attachments_missing',
+            ],
             ['a test send of a transactional email', TRANSACTIONAL_EMAIL_EVENT, true, sesAccepts, null, null],
             [
                 'a skipped test send of a transactional email',
@@ -1582,7 +1512,10 @@ describe('EmailService', () => {
             await emailStatusService.flush()
 
             const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
-            const sendingDomain = status === 'sent' || reason === 'provider_error' ? 'posthog-test.com' : ''
+            const sendingDomain =
+                status === 'sent' || reason === 'provider_error' || reason === 'attachments_missing'
+                    ? 'posthog-test.com'
+                    : ''
             expect(rows).toEqual(
                 status
                     ? [
@@ -1651,6 +1584,43 @@ describe('EmailService', () => {
                     'test@example.com, cc-bounced@example.com, bcc-bounced@example.com'
                 )
             })
+
+            it.each([
+                { isTest: false, priorAttempts: undefined, attempt: 1, minDelayMs: 30_000, maxDelayMs: 60_000 },
+                { isTest: false, priorAttempts: 3, attempt: 4, minDelayMs: 240_000, maxDelayMs: 480_000 },
+                { isTest: false, priorAttempts: 20, attempt: 21, minDelayMs: 3_600_000, maxDelayMs: 3_600_000 },
+                { isTest: true, priorAttempts: undefined, attempt: undefined, minDelayMs: 0, maxDelayMs: 0 },
+            ])(
+                'holds or fails the email when the suppression list cannot be read (isTest: $isTest, prior attempts: $priorAttempts)',
+                async ({ isTest, priorAttempts, attempt, minDelayMs, maxDelayMs }) => {
+                    const query = hub.postgres.query.bind(hub.postgres)
+                    jest.spyOn(hub.postgres, 'query').mockImplementation((target, sql, values, tag) =>
+                        tag === 'loadSuppressed'
+                            ? Promise.reject(new Error('column "hard_bounced_at" does not exist'))
+                            : query(target, sql, values, tag)
+                    )
+                    sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                    const held = { ...invocation, queueMetadata: { suppressionLookupAttempts: priorAttempts } }
+
+                    const before = Date.now()
+                    const result = await service.executeSendEmail(held, isTest)
+                    const after = Date.now()
+
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result.metrics).toEqual([])
+                    if (isTest) {
+                        expect(result.finished).toBe(true)
+                        expect(result.error).toBe('Could not check the suppression list')
+                        return
+                    }
+                    expect(result.error).toBeUndefined()
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueMetadata?.suppressionLookupAttempts).toBe(attempt)
+                    expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(before + minDelayMs)
+                    expect(result.invocation.queueScheduledAt!.toMillis()).toBeLessThanOrEqual(after + maxDelayMs)
+                    expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                }
+            )
 
             it('calls SES when the recipient is not suppressed', async () => {
                 jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(false)

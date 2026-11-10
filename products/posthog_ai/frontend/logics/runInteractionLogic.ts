@@ -45,6 +45,7 @@ import {
     type ModelChoiceApi,
     type ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskExecutionModeEnumApi,
     type TaskRunDetailDTOApi,
     type TaskRuntimeEnumApi,
     type WarmTaskResumeRequestApi,
@@ -1736,6 +1737,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     const resumeRequest = {
                         resume_from_run_id: props.runId,
                         pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                        mode: TaskExecutionModeEnumApi.Interactive,
                     }
                     const codexModelAccess = pickedCodexModelAccess(
                         getRuntimeAdapterForModel(values.catalogue, values.selectedModel)

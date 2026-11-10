@@ -520,6 +520,7 @@ def _pending_grant(user_code: str, *, lock: bool = False) -> OAuthDeviceGrant | 
 class OAuthDeviceViewSet(viewsets.ViewSet):
     """The approval page's API for device grants. Session only: a token can never approve one."""
 
+    _ip_restrictions_use_view_scope = True
     include_in_api_docs = True
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]

@@ -72,10 +72,12 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.multi_query import SharingQuery, is_query_sharing_enabled
 from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.resolver import Resolver, ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
@@ -88,6 +90,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import (
@@ -192,6 +195,10 @@ class HogQLQueryExecutor:
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
+    _sharing_ast: ast.SelectQuery | ast.SelectSetQuery | None = dataclasses.field(default=None, init=False, repr=False)
+    _capture_sharing_ast: bool = dataclasses.field(default=False, init=False, repr=False)
+    _sharing_default_top_level_limit: bool = dataclasses.field(default=False, init=False, repr=False)
+    _sharing_removed_limit: int | None = dataclasses.field(default=None, init=False, repr=False)
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
@@ -409,6 +416,14 @@ class HogQLQueryExecutor:
             )
 
         with self.timings.measure("print_prepared_ast"):
+            if self._capture_sharing_ast:
+                self._sharing_ast = select_query_hogql
+                # The executor injects a safety limit for ordinary queries. It does not affect a
+                # top-level count, but must not make it look like the caller supplied LIMIT.
+                if self._sharing_default_top_level_limit and isinstance(self._sharing_ast, ast.SelectQuery):
+                    if isinstance(self._sharing_ast.limit, ast.Constant) and type(self._sharing_ast.limit.value) is int:
+                        self._sharing_removed_limit = self._sharing_ast.limit.value
+                    self._sharing_ast.limit = None
             self.hogql = print_prepared_ast(
                 select_query_hogql,
                 self.hogql_context,
@@ -825,7 +840,7 @@ class HogQLQueryExecutor:
                     settings=settings,
                 )
 
-            if self.clickhouse_context.workload == Workload.LOGS and self.query_type == "HogQLQuery":
+            if self.clickhouse_context.workload in PINNED_CLUSTER_WORKLOADS and self.query_type == "HogQLQuery":
                 if settings.max_bytes_to_read is None:
                     settings.max_bytes_to_read = get_hogql_max_bytes_to_read_for_logs_user_queries(
                         self.team.organization
@@ -954,6 +969,11 @@ class HogQLQueryExecutor:
         if embedded_select:
             _EmbeddedSelectSettingsValidator().visit(self.select_query)
         if not embedded_select:
+            self._sharing_default_top_level_limit = (
+                self._capture_sharing_ast
+                and isinstance(self.select_query, ast.SelectQuery)
+                and self.select_query.limit is None
+            )
             self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
@@ -1120,6 +1140,57 @@ class HogQLQueryExecutor:
                     printed_sql=self.clickhouse_sql,
                 )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.prepare_for_sharing")
+    def prepare_for_sharing(self, *, query_id: str, scope_key: str) -> SharingQuery:
+        """Compile without execution, scoped to one caller-validated request.
+
+        The returned logical AST owns its literals, so it can be rewritten and compiled
+        again without merging independently allocated ClickHouse parameter names.
+        """
+        if self.connection_id is not None or self.send_raw_query:
+            raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
+        self._capture_sharing_ast = True
+        self._sharing_default_top_level_limit = False
+        self._sharing_removed_limit = None
+        try:
+            prepared = self._prepare_execution()
+            sharing_ast = self._sharing_ast
+            default_limit = self._sharing_removed_limit
+        finally:
+            self._capture_sharing_ast = False
+            self._sharing_default_top_level_limit = False
+            self._sharing_removed_limit = None
+            self._sharing_ast = None
+        if prepared.engine != "clickhouse" or sharing_ast is None:
+            raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
+        context_key = repr(
+            (
+                scope_key,
+                self.team.pk,
+                self.user.pk if self.user else None,
+                id(self.context.user_access_control),
+                self.context.bypass_warehouse_access_control,
+                self.context.apply_events_retention_floor,
+                _restriction_key(prepared.context.restricted_properties),
+                self.query_modifiers,
+                self.clickhouse_settings,
+                self.workload,
+                self.ch_user,
+                self.limit_context,
+                prepared.context.timezone,
+                prepared.context.database.get_timezone() if prepared.context.database else None,
+                prepared.context.database.get_week_start_day() if prepared.context.database else None,
+            )
+        )
+        return SharingQuery(
+            query_id=query_id,
+            query=clone_expr(sharing_ast, clear_types=True, clear_locations=True),
+            context_key=context_key,
+            output_columns=tuple(self.print_columns),
+            sharing_enabled=is_query_sharing_enabled(self.team),
+            default_limit=default_limit,
+        )
+
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
         prepared_execution = self._prepare_execution()
@@ -1242,6 +1313,10 @@ class HogQLQueryExecutor:
             )
             for s in self.used_data_warehouse_sources
         ]
+
+
+def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
+    return tuple(sorted(repr(prop) for prop in restricted)) if restricted is not None else None
 
 
 _MISSING_COLUMN_MESSAGES = (UNRESOLVED_FIELD_MESSAGE, FIELD_NOT_FOUND_MESSAGE)
