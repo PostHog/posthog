@@ -12,7 +12,12 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 import posthog.celery
-from posthog.celery import _initialize_worker_metrics, freeze_objects_before_pool_forks, on_worker_process_shutdown
+from posthog.celery import (
+    _initialize_worker_metrics,
+    freeze_objects_before_pool_forks,
+    on_worker_process_shutdown,
+    write_heartbeat_when_worker_is_ready,
+)
 from posthog.celery_task_names import (
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
     VERIFY_FLAGS_CACHE_TASK_NAME,
@@ -76,6 +81,17 @@ class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
     def test_handler_never_breaks_worker_shutdown(self, _name: str, client_factory) -> None:
         with patch.object(posthoganalytics, "default_client", client_factory()):
             on_worker_process_shutdown()
+
+
+class TestWorkerReadyHeartbeat(TestCase):
+    @parameterized.expand([("hobby", True, 1), ("not_hobby", False, 0)])
+    def test_writes_heartbeat_only_on_hobby(self, _name: str, hobby: bool, expected_calls: int) -> None:
+        with (
+            patch("posthog.cloud_utils.is_hobby", return_value=hobby),
+            patch("posthog.tasks.tasks.redis_heartbeat") as heartbeat,
+        ):
+            write_heartbeat_when_worker_is_ready()
+        assert heartbeat.call_count == expected_calls
 
 
 class TestAnalyticsMetricsConfig(TestCase):
