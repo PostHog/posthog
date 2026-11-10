@@ -163,8 +163,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     which the workflow starts. An insight stack check delivers from here and returns none."""
     team, alert = await asyncio.gather(
         Team.objects.aget(id=inputs.team_id),
-        AlertConfiguration.objects.select_related("insight").aget(id=inputs.alert_id),
+        sync_to_async(alerts.investigated_alert, thread_sensitive=False)(inputs.team_id, inputs.alert_id),
     )
+    if alert is None:
+        raise AlertConfiguration.DoesNotExist(f"No insight alert {inputs.alert_id}")
     subject, evaluated = await _load_subject(inputs)
     if isinstance(subject, InsightAlertInvestigation) and subject.status == InvestigationStatus.DONE:
         # A retry after the verdict was recorded repeats only its release, not the agent.
