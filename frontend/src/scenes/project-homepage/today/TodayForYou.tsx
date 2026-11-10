@@ -11,6 +11,7 @@ import { type TodayForYouRow } from './todayForYouRows'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { todayLogic } from './todayLogic'
+import { TodayNewProjectForYou } from './TodayNewProjectForYou'
 import { TodayReportRow } from './TodayReportRow'
 
 function TodayRowsSkeleton(): JSX.Element {
@@ -38,7 +39,7 @@ function renderRow(row: TodayForYouRow): JSX.Element {
     }
 }
 
-export function TodayForYou(): JSX.Element {
+export function TodayForYou(): JSX.Element | null {
     const {
         forYouReady,
         forYouRows,
@@ -50,8 +51,13 @@ export function TodayForYou(): JSX.Element {
         shownReportIds,
         moreReportsLoading,
         listExpanded,
+        isNewProject,
     } = useValues(todayLogic)
     const { showMoreForYou, setListExpanded, retryFailedLoads } = useActions(todayLogic)
+
+    if (isNewProject && forYouReady && forYouRows.rows.length === 0 && !forYouFailedNote) {
+        return <TodayNewProjectForYou />
+    }
 
     return (
         <section className="TodayHome__list" aria-label="For you today">

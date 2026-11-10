@@ -7,6 +7,7 @@ import { Text } from '@posthog/quill'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { TodayExplore } from './TodayExplore'
+import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
@@ -30,8 +31,15 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, recentObjects, recentsHasLoaded, frequentObjectsLoading, returnFocusReportId, useSampleData } =
-        useValues(todayLogic)
+    const {
+        greeting,
+        isNewProject,
+        recentObjects,
+        recentsHasLoaded,
+        frequentObjectsLoading,
+        returnFocusReportId,
+        useSampleData,
+    } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
     const {
         currentProjectId,
@@ -104,13 +112,14 @@ export function TodayHomePage(): JSX.Element {
                 {postHogAiTasks ? <TodayHomeComposer /> : null}
             </section>
             <div className="TodayHome__body">
-                <TodayPulseSection />
+                {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
+                {isNewProject ? <TodayForYou /> : null}
                 {recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
                     <TodayExplore />
                 ) : (
                     <TodayRecents />
                 )}
-                <TodayForYou />
+                {isNewProject ? null : <TodayForYou />}
             </div>
         </div>
     )
