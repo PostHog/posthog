@@ -1415,6 +1415,10 @@ describe('EmailService', () => {
             sesAccepts()
             jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
         }
+        const marketingWithoutLink = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+        }
         const filesListed = (): void => {
             sesAccepts()
             invocation.queueParameters = createEmailParams({
@@ -1478,6 +1482,14 @@ describe('EmailService', () => {
                 'recipient_suppressed',
             ],
             [
+                'a marketing email sent through the API whose body has no unsubscribe link',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                marketingWithoutLink,
+                'failed',
+                'unsubscribe_link_required',
+            ],
+            [
                 'a transactional email that lists files',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
@@ -1506,6 +1518,7 @@ describe('EmailService', () => {
             service['emailStatusService'] = emailStatusService
             invocation.id = new UUIDT().toString()
             invocation.state.globals.event.event = triggerEvent
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             setup()
 
             await service.executeSendEmail(invocation, isTest)

@@ -684,6 +684,15 @@ export class EmailService {
                 cc: suppression.cc,
                 bcc: suppression.bcc,
             })
+            if (this.lacksMarketingUnsubscribeLink(invocation, deliverableParams)) {
+                const skipReason = 'Skipping send: this marketing email has no unsubscribe link after rendering.'
+                addLog('warn', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'unsubscribe_link_required', isTest)
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
@@ -1425,6 +1434,20 @@ export class EmailService {
             html: params.html && replaceUnsubscribePlaceholder(params.html, escapeHtml(url)),
             text: params.text && replaceUnsubscribePlaceholder(params.text, url),
         }
+    }
+
+    // The API checks the template source, which a Liquid condition can still render without the link.
+    private lacksMarketingUnsubscribeLink(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): boolean {
+        if (
+            !isTransactionalEmailSend(invocation) ||
+            invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+        ) {
+            return false
+        }
+        return !(params.html || params.text || '').includes(`${this.siteUrl}/messaging-preferences/`)
     }
 
     private generateUnsubscribeHeaders(

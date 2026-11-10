@@ -3698,7 +3698,8 @@ describe('Workflows E2E (email queue)', () => {
             }
             await deliver()
             const [email] = await emailsTo(to)
-            expect(email.text).toMatch(/^Bye: ?\S*\/messaging-preferences\/[^/]+\/(\?one_click_unsubscribe=1)?$/m)
+            const token = email.text.match(/^Bye: ?\S*\/messaging-preferences\/([^/]+)\//m)[1]
+            expect(await preferencesTokenOwner(token)).toMatchObject({ valid: true, team_id: team.id, identifier: to })
         })
 
         it('replays a marketing template send retried after its email step lost the unsubscribe link', async () => {
@@ -3779,6 +3780,34 @@ describe('Workflows E2E (email queue)', () => {
 
                 expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
                 expect(await emailsTo(copy)).toEqual([])
+            }
+        )
+
+        it.each([
+            { showFooter: true, sent: true },
+            { showFooter: false, sent: false },
+        ])(
+            'a marketing template send whose unsubscribe footer renders only when show_footer is $showFooter sends: $sent',
+            async ({ showFooter, sent }) => {
+                const flow = await insertHogFlow(
+                    hub.postgres,
+                    sendFlow('template', 'transactional', {
+                        html: '',
+                        text: 'News{% if variables.show_footer %} Bye: {{ unsubscribe_url }}{% endif %}',
+                    })
+                )
+                const to = `reader-${new UUIDT().toString()}@example.com`
+
+                const res = await post('template', flow, {
+                    to,
+                    distinct_id: 'reader',
+                    variables: { show_footer: showFooter },
+                    message_category: newsletter,
+                })
+                expect(res.status).toEqual(202)
+                await deliver()
+
+                expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
             }
         )
 
