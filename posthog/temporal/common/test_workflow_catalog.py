@@ -23,8 +23,10 @@ REGISTERED_WORKFLOWS = sorted(
 
 @pytest.mark.parametrize("workflow", REGISTERED_WORKFLOWS, ids=lambda workflow: workflow.__qualname__)
 def test_every_registered_workflow_has_a_product(workflow: type) -> None:
-    # Add the package to TEMPORAL_AREA_PRODUCTS, or move the workflow under products/<name>/.
-    assert workflow_product(workflow) in PRODUCT_DIRS
+    assert workflow_product(workflow) in PRODUCT_DIRS, (
+        f"{workflow.__module__} has no product: add its package to TEMPORAL_AREA_PRODUCTS "
+        "or move the workflow under products/<name>/"
+    )
 
 
 def test_area_products_name_real_areas_and_products() -> None:
