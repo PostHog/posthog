@@ -92,8 +92,12 @@ export function interimCheckTag(
 ): ReportCheckRowData['tag'] & { description?: string } {
     const timing = row.check.monitoring_timing
     const latest = timeline?.measurements.at(-1)
+    // Too few samples on a minimum-evidence check leads to assessment, not to a failed implementation.
+    const minimumEvidence =
+        'monitoring' in row.check.config && row.check.config.monitoring?.purpose === 'minimum_evidence'
     if (
         !timing ||
+        minimumEvidence ||
         timing.final_verification_state ||
         !INTERIM_TAG_STATES.includes(timing.state) ||
         latest?.matches == null

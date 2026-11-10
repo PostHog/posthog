@@ -28,14 +28,19 @@ describe('Monitoring chart context', () => {
         expect(query.dateRange).toEqual({ date_from: '-7d' })
     })
 
+    const days = ['2026-08-27', '2026-08-28', '2026-08-29']
     it.each([
-        ['before the first bucket', '2026-08-26T00:00:00Z', { index: 0, fraction: 0 }],
-        ['part way through a bucket', '2026-08-28T18:00:00Z', { index: 1, fraction: 0.75 }],
-        ['after the last bucket ends', '2026-09-01T00:00:00Z', { index: 2, fraction: 1 }],
-    ])('places a time %s on the chart buckets', (_, time, expected) => {
-        expect(
-            monitoringChartBucketPositioner(['2026-08-27', '2026-08-28', '2026-08-29'], 'UTC')(Date.parse(time))
-        ).toEqual(expected)
+        ['before the first bucket', days, '2026-08-26T00:00:00Z', { index: 0, fraction: 0 }],
+        ['part way through a bucket', days, '2026-08-28T18:00:00Z', { index: 1, fraction: 0.75 }],
+        ['after the last bucket ends', days, '2026-09-01T00:00:00Z', { index: 2, fraction: 1 }],
+        [
+            'in a weekday bucket followed by a filtered weekend',
+            ['2026-08-28', '2026-08-31'],
+            '2026-08-28T12:00:00Z',
+            { index: 0, fraction: 0.5 },
+        ],
+    ])('places a time %s on the chart buckets', (_, labels, time, expected) => {
+        expect(monitoringChartBucketPositioner(labels, 'UTC', 'day')(Date.parse(time))).toEqual(expected)
     })
 
     it('limits the range to the observation window when the window end is known', () => {

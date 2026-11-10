@@ -80,13 +80,13 @@ function bucketTimestamp(label: string, timezone: string): number {
 
 export function monitoringChartBucketPositioner(
     labels: string[],
-    timezone: string
+    timezone: string,
+    interval: NonNullable<TrendsQuery['interval']>
 ): (time: number) => { index: number; fraction: number } | null {
     // Parsed once: a long window places many markers, and each lookup would otherwise reparse every label.
     const starts = labels.map((label) => bucketTimestamp(label, timezone))
-    const last = starts.length - 1
-    // The last bucket has no successor, so it is assumed to last as long as the one before it.
-    const end = last > 0 ? starts[last] + (starts[last] - starts[last - 1]) : starts[last]
+    // Each bucket lasts one interval: a weekday filter can drop buckets, so the gap to the next label is not its length.
+    const ends = starts.map((start) => dayjs(start).tz(timezone).add(1, interval).valueOf())
     return (time) => {
         if (!starts.length || !Number.isFinite(time)) {
             return null
@@ -94,12 +94,8 @@ export function monitoringChartBucketPositioner(
         if (time <= starts[0]) {
             return { index: 0, fraction: 0 }
         }
-        if (time >= end) {
-            return { index: last, fraction: 1 }
-        }
         const index = starts.findLastIndex((start) => start <= time)
-        const next = index < last ? starts[index + 1] : end
-        return { index, fraction: next > starts[index] ? (time - starts[index]) / (next - starts[index]) : 0 }
+        return { index, fraction: Math.min((time - starts[index]) / (ends[index] - starts[index]), 1) }
     }
 }
 

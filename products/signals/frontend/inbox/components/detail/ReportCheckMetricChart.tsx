@@ -132,6 +132,7 @@ export function ReportCheckMetricChart({
                                   <ReportChartMonitoringTimeline
                                       timeline={timeline}
                                       type={reportMetricChartType(metric)}
+                                      interval={chartQuery.interval ?? 'day'}
                                   />
                               ),
                               height: CHART_TIMELINE_HEIGHT,

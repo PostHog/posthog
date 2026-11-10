@@ -12,10 +12,14 @@ import type { ReportCheckRowData } from './reportCheckPresentation'
 
 const STARTED_AT = '2026-10-01T00:00:00Z'
 
-function makeRow(timing: Partial<NonNullable<SignalReportCheckApi['monitoring_timing']>>): ReportCheckRowData {
+function makeRow(
+    timing: Partial<NonNullable<SignalReportCheckApi['monitoring_timing']>>,
+    config: Record<string, unknown> = {}
+): ReportCheckRowData {
     return {
         check: {
             id: 'check-1',
+            config,
             monitoring_timing: {
                 state: 'scheduled',
                 final_verification_state: null,
@@ -24,7 +28,7 @@ function makeRow(timing: Partial<NonNullable<SignalReportCheckApi['monitoring_ti
                 next_measurement_at: '2026-10-06T00:00:00Z',
                 ...timing,
             },
-        } as SignalReportCheckApi,
+        } as unknown as SignalReportCheckApi,
         reportStatus: 'monitoring',
         tag: { label: 'Scheduled', type: 'primary' },
         detail: '',
@@ -72,7 +76,15 @@ describe('reportCheckObservations', () => {
         ])
     })
 
-    it.each<[string, Partial<NonNullable<SignalReportCheckApi['monitoring_timing']>>, boolean | null, string]>([
+    it.each<
+        [
+            string,
+            Partial<NonNullable<SignalReportCheckApi['monitoring_timing']>>,
+            boolean | null,
+            string,
+            Record<string, unknown>?,
+        ]
+    >([
         ['an on-track latest measurement', {}, true, 'On track'],
         ['an off-track latest measurement', {}, false, 'Not on track'],
         [
@@ -83,8 +95,15 @@ describe('reportCheckObservations', () => {
         ],
         ['a latest measurement that errored', {}, null, 'Scheduled'],
         ['final verification', { state: 'paused', final_verification_state: 'verifying' }, false, 'Scheduled'],
-    ])('labels the check from %s', (_, timing, matches, label) => {
-        const row = makeRow(timing)
+        [
+            'a minimum-evidence check short of samples',
+            {},
+            false,
+            'Scheduled',
+            { monitoring: { purpose: 'minimum_evidence' } },
+        ],
+    ])('labels the check from %s', (_, timing, matches, label, config = {}) => {
+        const row = makeRow(timing, config)
         const timeline = monitoringTimeline(
             row,
             [observation('latest', { title: 't', measured_at: '2026-10-05T00:00:00Z', matches })],

@@ -6,6 +6,8 @@ import { useChartLayout } from '@posthog/quill-charts'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { TrendsQuery } from '~/queries/schema/schema-general'
+
 import type { ReportMetricChartType } from '../../utils/reportMetrics'
 import { monitoringChartBucketPositioner } from '../../utils/reportMonitoringChart'
 import { ReportCheckMonitoringTimeline } from './ReportCheckMonitoringTimeline'
@@ -21,15 +23,20 @@ export const CHART_TIMELINE_HEIGHT = 12
 export function ReportChartMonitoringTimeline({
     timeline,
     type,
+    interval,
 }: {
     timeline: MonitoringTimeline
     type: ReportMetricChartType
+    interval: NonNullable<TrendsQuery['interval']>
 }): JSX.Element | null {
     const { scales, dimensions, labels } = useChartLayout()
     const xScale = scales.x
     const { timezone } = useValues(teamLogic)
 
-    const bucketAt = useMemo(() => monitoringChartBucketPositioner(labels, timezone), [labels, timezone])
+    const bucketAt = useMemo(
+        () => monitoringChartBucketPositioner(labels, timezone, interval),
+        [labels, timezone, interval]
+    )
 
     const layout = useMemo(() => {
         const centers = labels.map((label) => xScale(label))

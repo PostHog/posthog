@@ -72,8 +72,8 @@ export function ReportCheckRow({
                         query={chartQuery.source}
                         goalGrain="whole_window"
                         goalBounds={comparison?.operator === 'between' ? comparison.bounds : null}
-                        // A windowed chart runs a different query from the Expected impact chart of the same check.
-                        version={timeline ? `${check.id}.window` : check.id}
+                        // Its own key: sharing one with the Expected impact chart lets their queries overwrite each other.
+                        version={timeline ? `${check.id}.follow-up.window` : `${check.id}.follow-up`}
                         timeline={timeline}
                         monitoring={
                             monitoringConfig
@@ -88,17 +88,18 @@ export function ReportCheckRow({
                     />
                 </div>
             )}
-            {timeline && !chartQuery ? (
-                <div className="pt-1">
-                    <ReportCheckMonitoringTimeline timeline={timeline} />
-                </div>
-            ) : !timeline ? (
+            {(!timeline || !chartQuery) && (
                 <div className="min-w-0 pl-[1.375rem]">
                     <span className="min-w-0 flex-1 text-xs leading-snug text-tertiary">
                         <ReportCheckTiming check={check} reportStatus={reportStatus} detail={detail} />
                     </span>
                 </div>
-            ) : null}
+            )}
+            {timeline && !chartQuery && (
+                <div className="pt-1">
+                    <ReportCheckMonitoringTimeline timeline={timeline} />
+                </div>
+            )}
             {cancellable && (
                 <div className="flex flex-wrap justify-end gap-1">
                     {monitoringEnabled && (
