@@ -1225,8 +1225,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             **{field: value for field, value in validated_data.items() if field != "insight"},
             "snoozed_until": instance.snoozed_until,
             "next_check_at": instance.next_check_at,
-            "threshold": instance.threshold.configuration if instance.threshold else None,
         }
+        if threshold_data is not None:
+            changes["threshold"] = instance.threshold.configuration if instance.threshold else None
         if target_insight:
             changes["insight_id"] = target_insight.id
 

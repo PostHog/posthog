@@ -652,6 +652,27 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert read(self._copy()) == expected
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
 
+    def test_renaming_a_detector_alert_insight_keeps_no_row_for_keeps_it_without_a_threshold(self) -> None:
+        insight = self.alert.insight
+        insight.query = {**(insight.query or {}), "trendsFilter": {"display": "ActionsLineGraph"}}
+        insight.save(update_fields=["query"])
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            platform_testing.set_source_config(
+                self.copy_id,
+                {
+                    **stored_config,
+                    "condition": {**stored_config["condition"], "threshold": None, "detector": {"type": "zscore"}},
+                },
+            )
+
+        response = self.client.patch(f"{self.url}/{self.copy_id}/", {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        copy = self._copy()
+        assert (copy.name, copy.source_config["condition"]["threshold"]) == ("Renamed", None)
+
     @parameterized.expand([("counted", False, 1), ("left_out_of_its_own_edit", True, 0)])
     def test_the_ai_detector_cap_counts_an_ai_alert_insight_keeps_no_row_for(
         self, _name: str, editing_it: bool, expected: int

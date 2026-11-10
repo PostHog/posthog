@@ -31,6 +31,7 @@ from products.alerts.backend.platform_cutover import (
     in_an_environment,
 )
 from products.alerts.backend.platform_insight_alert import (
+    alert_from_platform,
     insight_of,
     insight_row_settings,
     interval_of,
@@ -294,9 +295,13 @@ def write_native_alert_edit(
     Raises like `on_updated`.
     """
     view = native_insight_alert_view(team_id, alert_id, lock=True)
-    alert = AlertConfiguration.from_platform_view(view, team_id=team_id) if view is not None else None
+    if view is None:
+        return None
+    # Not the API's presentation, which fills in a threshold the alert may not have.
+    alert = alert_from_platform(view, team_id=team_id, enabled=view.enabled)
     if alert is None:
         return None
+    alert.schedule_start_time = view.anchor_time
     for field, value in changes.items():
         if field == "threshold":
             alert.threshold = Threshold(configuration=value) if value is not None else None
