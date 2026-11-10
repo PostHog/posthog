@@ -16,7 +16,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 
 import { saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { HogFlow, HogFlowSchedule } from './hogflows/types'
-import { prefilledEmailContent, withPrefilledEmail } from './workflowEmailPrefill'
+import { EMAIL_ACTION_ID, prefilledEmailContent, withPrefilledEmail } from './workflowEmailPrefill'
 import { workflowLogic } from './workflowLogic'
 
 const WORKFLOW_ID = 'wf-autosave-1'
@@ -1488,7 +1488,13 @@ describe('workflowLogic auto-save', () => {
             { case: 'a link without a draft source', props: { ...linkProps, draftSource: undefined } },
         ])('asks for no AI draft for $case', async ({ props }) => {
             let requests = 0
-            useMocks({ post: { '/api/projects/:team_id/workflow_email_drafts/': () => [200, (requests += 1)] } })
+            const email = { id: EMAIL_ACTION_ID, type: 'function_email', config: { inputs: { email: { value: {} } } } }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': { ...workflow, actions: [...workflow.actions, email] },
+                },
+                post: { '/api/projects/:team_id/workflow_email_drafts/': () => [200, (requests += 1)] },
+            })
             initKeaTests()
             logic = workflowLogic(props)
             logic.mount()
