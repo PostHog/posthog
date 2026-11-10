@@ -75,7 +75,7 @@ describe('provider edge', () => {
         return json.id
     }
 
-    it('records a send with the unit id, the action id from the signed tracking code, and unknown tracking without configuration sets', async () => {
+    it('records a send with the unit id from the recipient and the action id from the signed tracking code', async () => {
         const trackingCode = new EmailTrackingCodeSigner(TRACKING_KEYS, 'https://track.example.com').generate({
             functionId: 'flow-1',
             id: 'invocation-1',
@@ -94,7 +94,19 @@ describe('provider edge', () => {
                 actionId: 'email-step',
             }),
         ])
+    })
+
+    it('leaves tracking unknown when the edge has no configuration sets', async () => {
+        await send(ALICE)
+
         expect((await truth()).records[0].detail.message?.tracked).toBeUndefined()
+    })
+
+    it('answers a request the edge fails on with a 500 and keeps serving', async () => {
+        const { status, json } = await call('GET', '//edge:99999/')
+
+        expect([status, json.message]).toEqual([500, expect.stringContaining('The edge failed')])
+        expect((await call('GET', '/_health')).json).toEqual({ ok: true })
     })
 
     it('records a send whose address list is not a list as a 400', async () => {
@@ -134,9 +146,17 @@ describe('provider edge', () => {
             dose: { count: 1 },
         })
 
-        expect(await sendEach([`"Alice" <${ALICE}>`, `"Alice" <${ALICE}>`])).toEqual(['MessageRejected', 'sent'])
+        expect(await sendEach([`"Alice" <${ALICE}>`, `"Alice" <${ALICE}> (work)`])).toEqual(['MessageRejected', 'sent'])
 
         expect((await truth()).records.map((record) => record.unitId)).toEqual(['run-1-1', 'run-1-1'])
+    })
+
+    it('applies a share at every crossing even where the product rounds just below it', async () => {
+        await addFault({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 0.58 } })
+
+        const outcomes = await sendEach(Array.from({ length: 50 }, () => ALICE))
+
+        expect(outcomes.filter((outcome) => outcome === 'MessageRejected')).toHaveLength(29)
     })
 
     it.each([

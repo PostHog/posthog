@@ -157,11 +157,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             }
             respond(
                 res,
-                sesError({
-                    status: 400,
-                    type: 'BadRequestException',
-                    message: `The edge could not read the request: ${String(error)}`,
-                })
+                sesError({ status: 500, type: 'InternalFailure', message: `The edge failed: ${String(error)}` })
             )
         })
     })

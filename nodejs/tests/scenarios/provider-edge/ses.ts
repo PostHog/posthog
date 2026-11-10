@@ -1,3 +1,5 @@
+import addressparser from 'nodemailer/lib/addressparser'
+
 import { TRACKING_CODE_HEADER_NAME } from '~/cdp/services/messaging/helpers/tracking-code'
 
 import { SesStatusAnswer } from './faults'
@@ -128,7 +130,7 @@ export function readSendEmail(
 }
 
 export function addressesOf(mailboxes: string[]): string[] {
-    return mailboxes.map((mailbox) => /<([^<>]+)>\s*$/.exec(mailbox)?.[1] ?? mailbox)
+    return mailboxes.flatMap((mailbox) => addressparser(mailbox, { flatten: true }).map(({ address }) => address))
 }
 
 export function unitIdOf(addresses: string[]): string | undefined {
