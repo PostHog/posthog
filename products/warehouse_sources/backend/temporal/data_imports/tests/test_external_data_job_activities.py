@@ -1,10 +1,11 @@
 import asyncio
+import contextlib
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, CancelledError, TimeoutError, TimeoutType
@@ -26,20 +27,42 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
     TRANSIENT_SOURCE_ERROR_MESSAGE,
+    TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
+    Any_Source_Errors,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
     _is_app_db_failure,
+    _non_retryable_error_message,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.test_delta_errors import (
+    OWN_BUCKET,
+    OWN_BUCKET_LIST_FORBIDDEN,
+    OWN_BUCKET_REDIRECT_WITHOUT_LOCATION,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ACCESS_DENIED_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
+    _MONGO_NOT_AUTHORIZED_MESSAGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    XMIN_AS_INCREMENTAL_FIELD_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+    _CUSTOM_ACCESS_DENIAL_ERROR,
+    PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
+from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
 
 
 class TestCustomerFacingError(SimpleTestCase):
@@ -110,6 +133,56 @@ class TestIsAppDbFailure(SimpleTestCase):
         # str(ApplicationError) is what the workflow stores as internal_error, so build the input
         # the same way rather than hand-writing the prefix this depends on.
         assert _is_app_db_failure(str(ApplicationError(message, type=exc_type))) is expected
+
+
+class TestNonRetryableErrorMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Each class-name or broad key below has a None value and sits before the entry that
+            # carries the message, so a first-match pick showed the customer the raw driver text.
+            (
+                "postgres_table_permission",
+                PostgresSource,
+                "InsufficientPrivilege",
+                "permission denied for table orders",
+                "GRANT SELECT",
+            ),
+            (
+                "postgres_schema_permission",
+                PostgresSource,
+                "InsufficientPrivilege",
+                "permission denied for schema analytics",
+                "USAGE",
+            ),
+            (
+                "redshift_relation_permission",
+                RedshiftSource,
+                "InsufficientPrivilege",
+                "permission denied for relation orders",
+                "Redshift reported",
+            ),
+            (
+                "postgres_xmin_as_incremental_field",
+                PostgresSource,
+                "ValueError",
+                XMIN_AS_INCREMENTAL_FIELD_ERROR,
+                "choose a different incremental field",
+            ),
+        ]
+    )
+    def test_a_none_entry_does_not_hide_a_later_message(
+        self, _name: str, source_cls: type, exc_type: str, message: str, expected_fragment: str
+    ) -> None:
+        errors = {**Any_Source_Errors, **source_cls().get_non_retryable_errors()}
+        result = _non_retryable_error_message(errors, str(ApplicationError(message, type=exc_type)))
+        assert result is not None
+        assert expected_fragment in result
+        assert "orders" not in result and "analytics" not in result
+
+    def test_an_error_only_none_entries_match_keeps_no_message(self) -> None:
+        errors = {**Any_Source_Errors, **PostgresSource().get_non_retryable_errors()}
+        internal_error = str(ApplicationError("table orders is gone", type="NoSuchTableError"))
+        assert _non_retryable_error_message(errors, internal_error) is None
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
@@ -195,6 +268,50 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
 
     @parameterized.expand(
         [
+            ("completed", ExternalDataJob.Status.COMPLETED, True),
+            ("failed", ExternalDataJob.Status.FAILED, False),
+            ("billing_limit", ExternalDataJob.Status.BILLING_LIMIT_REACHED, False),
+        ]
+    )
+    def test_resumes_a_schedule_paused_for_an_ad_hoc_run_only_on_completion(
+        self, _name: str, status: ExternalDataJobStatus, expect_resume: bool
+    ) -> None:
+        env = ActivityEnvironment()
+        inputs = UpdateExternalDataJobStatusInputs(
+            team_id=self.team.id,
+            job_id="019fde98-0727-0000-3f05-9991b4c84155",
+            schema_id="019fde98-0727-0000-3f05-9991b4c84156",
+            source_id="019fde98-0727-0000-3f05-9991b4c84157",
+            status=status,
+            internal_error=None,
+            latest_error=None,
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows",
+                return_value=0,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.resume_schedule_after_ad_hoc_run",
+                return_value=True,
+            ) as mock_resume,
+        ):
+            asyncio.run(env.run(update_external_data_job_model, inputs))
+
+        if expect_resume:
+            mock_resume.assert_called_once_with(inputs.schema_id, self.team.id, inputs.job_id)
+        else:
+            mock_resume.assert_not_called()
+
+    @parameterized.expand(
+        [
             ("handed_a_token", "run-token", ["update", "release"]),
             ("no_token", None, ["update"]),
         ]
@@ -243,8 +360,18 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
 
 # transaction=True commits the fixture rows: the activity resolves the schema through
 # database_sync_to_async_pool, whose pool-thread connection can't see a test transaction.
+@parameterized.expand(
+    [
+        ("plain text", "could not create the sync job", "could not create the sync job"),
+        # Raw driver/vendor text can carry a NUL byte, which Postgres text columns reject
+        # outright and would otherwise crash this save with a DataError.
+        ("nul byte stripped", "could not create\x00 the sync job", "could not create the sync job"),
+    ]
+)
 @pytest.mark.django_db(transaction=True)
-def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
+def test_failed_finalization_with_no_job_resets_stale_running_schema(
+    _name: str, latest_error: str, expected_latest_error: str
+) -> None:
     # When an early activity fails before the job row is committed, no later finalization can
     # repaint the schema, so the Running status painted at trigger time would stick forever.
     org = Organization.objects.create(name="org")
@@ -262,7 +389,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
         source_id=str(source.id),
         status=ExternalDataJob.Status.FAILED,
         internal_error=None,
-        latest_error="could not create the sync job",
+        latest_error=latest_error,
         workflow_run_id="run-id-with-no-job",
     )
 
@@ -281,7 +408,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     mock_capture_exception.assert_not_called()
     schema.refresh_from_db()
     assert schema.status == ExternalDataSchema.Status.FAILED
-    assert schema.latest_error == "could not create the sync job"
+    assert schema.latest_error == expected_latest_error
 
 
 # transaction=True for the same reason as the test above: the activity resolves the source through
@@ -347,6 +474,109 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
 # database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
 @parameterized.expand(
     [
+        # Our own bucket's 403 body says "not authorized", which the Postgres row-level security
+        # entry and the MongoDB role entry both match. Neither source caused it.
+        (
+            "postgres_own_bucket_forbidden",
+            ExternalDataSourceType.POSTGRES,
+            OWN_BUCKET_LIST_FORBIDDEN,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        (
+            "mongodb_own_bucket_forbidden",
+            ExternalDataSourceType.MONGODB,
+            OWN_BUCKET_LIST_FORBIDDEN,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        (
+            "postgres_own_bucket_redirect",
+            ExternalDataSourceType.POSTGRES,
+            OWN_BUCKET_REDIRECT_WITHOUT_LOCATION,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        # The guard must leave a genuine source-side denial alone.
+        (
+            "postgres_row_level_security_raise",
+            ExternalDataSourceType.POSTGRES,
+            "RaiseException: Access denied: No user ID provided",
+            True,
+            _CUSTOM_ACCESS_DENIAL_ERROR,
+        ),
+        (
+            "mongodb_role_not_authorized",
+            ExternalDataSourceType.MONGODB,
+            'OperationFailure: not authorized on example_db to execute command { find: "orders" }',
+            True,
+            _MONGO_NOT_AUTHORIZED_MESSAGE,
+        ),
+        (
+            "amazon_s3_customer_bucket_denied",
+            ExternalDataSourceType.AMAZONS3,
+            f"ObjectStorageError: {ACCESS_DENIED_ERROR} 's3://acme-uploads/exports/'. Check the access key "
+            "and secret, and that the key can list and read objects in this bucket.",
+            True,
+            AmazonS3Source().get_non_retryable_errors()[ACCESS_DENIED_ERROR],
+        ),
+    ]
+)
+@override_settings(DATAWAREHOUSE_BUCKET=OWN_BUCKET, BUCKET_URL=f"s3://{OWN_BUCKET}")
+@pytest.mark.django_db(transaction=True)
+def test_warehouse_bucket_error_never_disables_the_schema_or_shows_source_copy(
+    _name: str,
+    source_type: ExternalDataSourceType,
+    internal_error: str,
+    expect_disabled: bool,
+    expected_message: str,
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=source_type.value)
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="table")
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=internal_error,
+        latest_error=internal_error,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    assert mock_update_should_sync.called is expect_disabled
+    status_kwargs = mock_update_job_status.call_args.kwargs
+    assert status_kwargs["latest_error"] == expected_message
+    # A PostHog-side failure must not count toward the source's failure streak either.
+    assert status_kwargs["counts_as_source_failure"] is False
+
+
+# transaction=True for the same reason as the tests above: the activity resolves the source through
+# database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
+@parameterized.expand(
+    [
         # psycopg's connect-time wrapper around a dropped TLS session. The address is a
         # documentation-reserved one, standing in for the host the driver echoes back.
         (
@@ -355,6 +585,23 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
             "SSL SYSCALL error: EOF detected",
             TRANSIENT_CONNECT_DROPPED_MESSAGE,
+        ),
+        # An SSH-tunneled source connects to the local end of the tunnel, so libpq names loopback.
+        # The tunnel closes the connection when the SSH server cannot reach the database.
+        (
+            "postgres_ssh_tunnel_closed_at_connect",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "127.0.0.1", port 40123 failed: '
+            "server closed the connection unexpectedly",
+            TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
+        ),
+        # A loopback host does not claim failures that are not a connect-time drop.
+        (
+            "postgres_ssh_tunnel_connection_limit",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "127.0.0.1", port 40123 failed: '
+            "FATAL: sorry, too many clients already",
+            _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
         ),
         # The same drop on an established connection, which keeps the idle-connection copy.
         (
@@ -434,16 +681,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         # A hand-rolled transport's own retryable marker, which no map names for this source.
         (
             "retryable_status_marker",
-            ExternalDataSourceType.HUBSPOT,
-            "Hubspot search error (retryable): status=500, url=https://api.example.com/v3/things/search",
+            ExternalDataSourceType.GITHUB,
+            "Github API error (retryable): status=500, url=https://api.example.com/repos/things",
             TRANSIENT_SOURCE_ERROR_MESSAGE,
         ),
         # A source that names its vendor for the same marker keeps that copy over the generic one.
         (
             "retryable_status_marker_with_source_copy",
-            ExternalDataSourceType.MATOMO,
-            "Matomo API error (retryable): status=503, url=https://matomo.example.com/index.php",
-            MatomoSource().get_retry_exhausted_errors()["Matomo API error (retryable)"],
+            ExternalDataSourceType.STRIPE,
+            "Acme API error (retryable): status=503, url=https://api.example.com/index.php",
+            "Acme kept returning temporary errors.",
+            {"Acme API error (retryable)": "Acme kept returning temporary errors."},
         ),
         # A Redshift cluster that never answered the connect keeps its schedule.
         (
@@ -456,7 +704,11 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
 )
 @pytest.mark.django_db(transaction=True)
 def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_schema(
-    _name: str, source_type: ExternalDataSourceType, internal_error: str, expected_message: str
+    _name: str,
+    source_type: ExternalDataSourceType,
+    internal_error: str,
+    expected_message: str,
+    fake_retry_exhausted_errors: dict[str, str] | None = None,
 ) -> None:
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org, name="team")
@@ -477,6 +729,18 @@ def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_sc
         latest_error=internal_error,
     )
 
+    fake_source = mock.MagicMock()
+    fake_source.get_non_retryable_errors.return_value = {}
+    fake_source.get_retry_exhausted_errors.return_value = fake_retry_exhausted_errors
+    registry_patch = (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.SourceRegistry.get_source",
+            return_value=fake_source,
+        )
+        if fake_retry_exhausted_errors is not None
+        else contextlib.nullcontext()
+    )
+
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
@@ -489,6 +753,7 @@ def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_sc
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
         ) as mock_update_job_status,
+        registry_patch,
     ):
         asyncio.run(env.run(update_external_data_job_model, inputs))
 

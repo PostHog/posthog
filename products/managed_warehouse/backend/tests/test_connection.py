@@ -41,6 +41,7 @@ from products.managed_warehouse.backend.logic.connection import (
     get_managed_warehouse_source_generation,
     internal_schemas,
     reconcile_managed_warehouse_tables,
+    reserve_internal_warehouse,
     soft_delete_legacy_managed_warehouse_sources,
     soft_delete_managed_warehouse_sources,
     update_managed_warehouse_root_password,
@@ -53,6 +54,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
@@ -1364,7 +1366,7 @@ class TestManagedWarehouseLifecycle:
         assert isinstance(source.job_inputs, dict)
         assert isinstance(other_source.job_inputs, dict)
         assert source.job_inputs["password"] == _PROJECT_READER_PASSWORD
-        assert other_source.job_inputs["password"] == "rotated"
+        assert SourceInputsStore.load(other_source)["password"] == "rotated"
         assert server.password == "rotated"
 
     def test_update_root_password_skips_soft_deleted_sources(self) -> None:
@@ -1585,10 +1587,19 @@ class TestManagedWarehouseLifecycle:
         assert lifecycle.desired_active is False
         assert lifecycle.generation == cleanup_generation
 
-    def test_genuine_reprovision_conditionally_activates_the_inactive_generation(self) -> None:
+    @parameterized.expand([False, True])
+    def test_genuine_reprovision_conditionally_activates_the_inactive_generation(self, internal_only: bool) -> None:
         org = Organization.objects.create(name="Org")
         active_generation = get_active_managed_warehouse_source_generation(organization_id=org.id)
         assert active_generation is not None
+        if internal_only:
+            assert reserve_internal_warehouse(organization_id=org.id)
+            assert (
+                activate_managed_warehouse_source_lifecycle(
+                    organization_id=org.id, expected_generation=active_generation
+                )
+                is None
+            )
         cleanup_generation = deactivate_managed_warehouse_source_lifecycle(
             organization_id=org.id,
             expected_generation=active_generation,
@@ -1605,6 +1616,7 @@ class TestManagedWarehouseLifecycle:
         assert activated_generation == provision_generation + 1
         lifecycle = ManagedWarehouseSourceLifecycle.objects.get(organization_id=org.id)
         assert lifecycle.desired_active is True
+        assert lifecycle.internal_only is False
         assert lifecycle.generation == activated_generation
 
     def test_old_cleanup_retry_cannot_delete_a_genuine_reprovision_after_failed_cleanup(self) -> None:

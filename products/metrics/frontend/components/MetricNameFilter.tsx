@@ -5,16 +5,16 @@ import { List } from 'react-window'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, Spinner } from '@posthog/lemon-ui'
 
-import { metricNamePickerLogic } from './metricNamePickerLogic'
+import { type MetricNameItem, customMetricName, metricNamePickerLogic } from './metricNamePickerLogic'
 
 const ROW_HEIGHT = 32
 const MAX_DROPDOWN_HEIGHT = 320
 const DROPDOWN_WIDTH = 320
 
 interface OptionRowData {
-    items: { name: string }[]
+    items: MetricNameItem[]
     selected: string
-    onPick: (name: string) => void
+    onPick: (item: MetricNameItem) => void
 }
 
 function MetricOptionRow({
@@ -36,7 +36,7 @@ function MetricOptionRow({
                 type={isSelected ? 'primary' : 'tertiary'}
                 size="small"
                 fullWidth
-                onClick={() => onPick(item.name)}
+                onClick={() => onPick(item)}
                 data-attr={`metrics-name-option-${item.name}`}
             >
                 <span className="truncate">{item.name}</span>
@@ -48,11 +48,14 @@ function MetricOptionRow({
 export interface MetricNameFilterProps {
     /** Currently selected metric name (empty string when nothing is picked). */
     value: string
-    onChange: (name: string) => void
+    /** Gets the metric type too when the user picks a listed metric. A typed name or a cleared pick has none. */
+    onChange: (name: string, metricType?: string) => void
     /** Placeholder shown on the trigger when no metric is picked. */
     placeholder?: string
     disabled?: boolean
     disabledReason?: string | null
+    /** Offer the typed name when the list does not have it, so a metric older than the list's 24 hours can be set. */
+    allowCustomName?: boolean
 }
 
 export const MetricNameFilter = ({
@@ -61,6 +64,7 @@ export const MetricNameFilter = ({
     placeholder = 'Pick a metric',
     disabled,
     disabledReason,
+    allowCustomName,
 }: MetricNameFilterProps): JSX.Element => {
     return (
         <BindLogic logic={metricNamePickerLogic} props={{}}>
@@ -70,6 +74,7 @@ export const MetricNameFilter = ({
                 placeholder={placeholder}
                 disabled={disabled}
                 disabledReason={disabledReason}
+                allowCustomName={allowCustomName}
             />
         </BindLogic>
     )
@@ -81,22 +86,28 @@ function MetricNameFilterInner({
     placeholder,
     disabled,
     disabledReason,
+    allowCustomName,
 }: {
     value: string
-    onChange: (name: string) => void
+    onChange: (name: string, metricType?: string) => void
     placeholder: string
     disabled?: boolean
     disabledReason?: string | null
+    allowCustomName?: boolean
 }): JSX.Element {
     const { items, filteredItems, fullItemsLoading, searchedItemsLoading, scopeLoading, search } =
         useValues(metricNamePickerLogic)
     const { setSearch, openPicker } = useActions(metricNamePickerLogic)
 
     const onPick = useCallback(
-        (name: string) => {
+        (item: MetricNameItem) => {
             // Single-select: replace on pick. Comparing several metrics is done with
             // clause rows (MetricsClauseRow), each holding its own picker.
-            onChange(value === name ? '' : name)
+            if (value === item.name) {
+                onChange('')
+            } else {
+                onChange(item.name, item.metric_type)
+            }
         },
         [value, onChange]
     )
@@ -112,6 +123,7 @@ function MetricNameFilterInner({
     }, [filteredItems.length])
 
     const triggerLabel = value || placeholder
+    const customName = allowCustomName ? customMetricName(items, search) : null
 
     return (
         <LemonDropdown
@@ -153,6 +165,16 @@ function MetricNameFilterInner({
                             rowProps={rowProps}
                         />
                     )}
+                    {customName ? (
+                        <LemonButton
+                            size="small"
+                            fullWidth
+                            onClick={() => onChange(customName)}
+                            data-attr="metrics-name-filter-custom"
+                        >
+                            Use "{customName}"
+                        </LemonButton>
+                    ) : null}
                 </div>
             }
         >

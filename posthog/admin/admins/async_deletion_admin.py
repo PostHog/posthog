@@ -45,7 +45,11 @@ class AsyncDeletionAdmin(admin.ModelAdmin):
         # A subquery keeps the watermark lookup to the one changelist query instead of one per row.
         latest_watermark = (
             DeletionRunLog.objects.filter(
-                job=DeletionRunJob.DELETES, status=DeletionRunStatus.SUCCEEDED, limited_to_team_id__isnull=True
+                job=DeletionRunJob.DELETES,
+                status=DeletionRunStatus.SUCCEEDED,
+                limited_to_team_id__isnull=True,
+                # A run that skipped the watermark step has no watermark and must not hide the last known one.
+                watermark__isnull=False,
             )
             .order_by("-started_at")
             .values("watermark")[:1]

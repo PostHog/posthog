@@ -6,7 +6,6 @@ import { HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
-import dashboardFixture from 'scenes/dashboard/__mocks__/dashboard.json'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { recordingPlaylists } from 'scenes/session-recordings/__mocks__/recording_playlists'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -29,6 +28,7 @@ import {
 } from '~/types'
 
 import traceWithoutContent from 'products/ai_observability/frontend/__mocks__/traceWithoutContent.json'
+import dashboardFixture from 'products/dashboards/frontend/__mocks__/dashboard.json'
 import {
     errorTrackingEventsQueryResponse,
     errorTrackingQueryResponse,

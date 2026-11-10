@@ -43,11 +43,21 @@ async def emit_issue_reopened_signal_activity(inputs: IssueReopenedWorkflowInput
             "Previously resolved error tracking issue has reappeared - this particular exception was observed "
             "previously, and thought to be resolved, but has reappeared"
         ),
+        event="$error_tracking_issue_reopened",
+        exception_timestamp=inputs.event_timestamp,
     )
+
+
+@activity.defn
+def generate_issue_reopened_summary_activity(inputs: IssueReopenedWorkflowInputs) -> None:
+    # A no-op that keeps the activity registered. The workflow schedules it behind SUMMARY_ON_REOPEN_PATCH, so removing
+    # the call would break the replay of every workflow that already scheduled it.
+    pass
 
 
 ACTIVITIES = [
     dispatch_issue_reopened_alert_activity,
     emit_issue_reopened_internal_event_activity,
     emit_issue_reopened_signal_activity,
+    generate_issue_reopened_summary_activity,
 ]

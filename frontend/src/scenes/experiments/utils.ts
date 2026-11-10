@@ -6,7 +6,9 @@ import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { SeriesNode, isActionsSeriesNode, isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
+import { isFunnelsQuery, isNodeWithSource, isTrendsQuery } from '~/queries/schema/node-guards'
 import {
+    ActionsNode,
     AnyEntityNode,
     Breakdown,
     CachedNewExperimentQueryResponse,
@@ -23,12 +25,14 @@ import {
     TrendsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentExposureNode,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
+import { isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     BreakdownAttributionType,
     ChartDisplayType,
     Experiment,
@@ -38,6 +42,7 @@ import {
     FeatureFlagType,
     FunnelConversionWindowTimeUnit,
     MultivariateFlagVariant,
+    PropertyFilterType,
     type InsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -75,7 +80,13 @@ export function isEventExposureConfig(config: ExperimentExposureConfig): config 
 }
 
 export function getExposureConfigDisplayName(config: ExperimentExposureConfig): string {
-    return isEventExposureConfig(config) ? config.event || 'Unknown Event' : config.name || `Action ${config.id}`
+    if (isEventExposureConfig(config)) {
+        return config.event || 'Unknown Event'
+    }
+    if (config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return 'Warehouse-native query'
+    }
+    return config.name || `Action ${config.id}`
 }
 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
@@ -148,13 +159,21 @@ export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolea
     return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
 }
 
+// The experiments backend replaces these HogQL filter keys with the team's current evaluation pass rules. Other query
+// kinds cannot resolve them, so queries outside the experiment results drop them.
+const EVALUATION_PASS_MARKERS = new Set(['aiEvaluationGraded()', 'aiEvaluationPassed()'])
+
+function withoutEvaluationPassMarkers(properties: AnyPropertyFilter[]): AnyPropertyFilter[] {
+    return properties.filter((p) => !(p.type === PropertyFilterType.HogQL && EVALUATION_PASS_MARKERS.has(p.key)))
+}
+
 function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): UniversalFiltersGroupValue | null {
     if (series.kind === NodeKind.EventsNode) {
         return {
             id: series.event ?? null,
             name: series.event as string,
             type: 'events',
-            properties: series.properties ?? [],
+            properties: withoutEvaluationPassMarkers(series.properties ?? []),
         }
     }
 
@@ -184,13 +203,14 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
  * surfaces don't enumerate) yields no filters.
  */
 export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFiltersGroupValue[] {
-    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
-        ? [metric.source]
-        : isExperimentFunnelMetric(metric)
-          ? metric.series
-          : isExperimentRatioMetric(metric)
-            ? [metric.numerator, metric.denominator]
-            : []
+    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] =
+        isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)
+            ? [metric.source]
+            : isExperimentFunnelMetric(metric)
+              ? metric.series
+              : isExperimentRatioMetric(metric)
+                ? [metric.numerator, metric.denominator]
+                : []
     return sources
         .filter((source) => source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode)
         .map((source) => seriesToFilter(source))
@@ -337,13 +357,14 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
     ].filter((metric): metric is ExperimentMetric => metric?.kind === NodeKind.ExperimentMetric)
 
     for (const metric of metrics) {
-        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
-            ? [metric.source]
-            : isExperimentFunnelMetric(metric)
-              ? metric.series
-              : isExperimentRatioMetric(metric)
-                ? [metric.numerator, metric.denominator]
-                : []
+        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] =
+            isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)
+                ? [metric.source]
+                : isExperimentFunnelMetric(metric)
+                  ? metric.series
+                  : isExperimentRatioMetric(metric)
+                    ? [metric.numerator, metric.denominator]
+                    : []
         for (const source of sources) {
             if (source.kind === NodeKind.EventsNode && source.event) {
                 eventNames.add(source.event)
@@ -448,8 +469,28 @@ export function getDefaultRetentionMetric(): ExperimentMetric {
     }
 }
 
+export const DEFAULT_METRIC_QUANTILE = 0.9
+
+export function getDefaultQuantileMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
+        metric_type: ExperimentMetricType.QUANTILE,
+        // Percentile metrics usually measure durations such as load time, where lower is better
+        goal: ExperimentMetricGoal.Decrease,
+        quantile: DEFAULT_METRIC_QUANTILE,
+        source: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+        },
+    }
+}
+
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
+        case ExperimentMetricType.QUANTILE:
+            return getDefaultQuantileMetric()
         case ExperimentMetricType.FUNNEL:
             return getDefaultFunnelMetric()
         case ExperimentMetricType.RATIO:
@@ -536,7 +577,7 @@ export function exposureConfigToSeries(exposureConfig: ExperimentExposureConfig)
 /**
  * Only an event or an action can mark exposure, so any other series gives no config.
  */
-export function seriesToExposureConfig(series: SeriesNode[]): ExperimentExposureConfig | undefined {
+export function seriesToExposureConfig(series: SeriesNode[]): ExperimentEventExposureConfig | ActionsNode | undefined {
     const [node] = series
     if (isEventsSeriesNode(node)) {
         return {
@@ -553,6 +594,45 @@ export function seriesToExposureConfig(series: SeriesNode[]): ExperimentExposure
             name: node.name,
             properties: node.properties,
         }
+    }
+    return undefined
+}
+
+export function experimentHasQuantileMetric(experiment: Experiment): boolean {
+    return [
+        ...(experiment.metrics ?? []),
+        ...(experiment.metrics_secondary ?? []),
+        ...(experiment.saved_metrics ?? []).map((savedMetric: { query?: ExperimentMetric }) => savedMetric.query),
+    ].some((metric) => metric?.kind === NodeKind.ExperimentMetric && isExperimentQuantileMetric(metric))
+}
+
+// The backend accepts quantile levels from 0.01 to 0.99.
+export const MIN_PERCENTILE = 1
+export const MAX_PERCENTILE = 99
+
+/** Why a percentile level can't be saved, or undefined when it can. */
+export function getPercentileError(percentile: number | undefined): string | undefined {
+    const hasAtMostOneDecimal =
+        percentile !== undefined && Math.abs(Math.round(percentile * 10) - percentile * 10) < 1e-6
+    if (
+        percentile === undefined ||
+        !Number.isFinite(percentile) ||
+        percentile < MIN_PERCENTILE ||
+        percentile > MAX_PERCENTILE ||
+        !hasAtMostOneDecimal
+    ) {
+        return `Enter a percentile from ${MIN_PERCENTILE} to ${MAX_PERCENTILE}, with up to one decimal place`
+    }
+    return undefined
+}
+
+/** The backend rejects an incomplete metric too, but this lets the save button say what is missing first. */
+export function getMetricIncompleteReason(metric: ExperimentMetric): string | undefined {
+    if (isExperimentQuantileMetric(metric)) {
+        if (!metric.source.math_property) {
+            return 'Select a numeric property for the percentile'
+        }
+        return getPercentileError(metric.quantile * 100)
     }
     return undefined
 }
@@ -653,7 +733,9 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                         event: lastStep.event,
                         math: ExperimentMetricMathType.TotalCount,
                         ...(lastStep.properties &&
-                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                            lastStep.properties.length > 0 && {
+                                properties: withoutEvaluationPassMarkers(lastStep.properties),
+                            }),
                     },
                 ]
             } else if (lastStep.kind === NodeKind.ActionsNode) {
@@ -680,6 +762,7 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                 : retentionMetric.start_event
         )
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
+        .when(isExperimentQuantileMetric, (quantileMetric) => quantileMetric.source)
         .otherwise(() => null)
 
     if (!source) {
@@ -693,7 +776,10 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                 name: eventsNode.event || undefined,
                 event: eventsNode.event || undefined,
                 math: ExperimentMetricMathType.TotalCount,
-                ...(eventsNode.properties && eventsNode.properties.length > 0 && { properties: eventsNode.properties }),
+                ...(eventsNode.properties &&
+                    eventsNode.properties.length > 0 && {
+                        properties: withoutEvaluationPassMarkers(eventsNode.properties),
+                    }),
             },
         ])
         .with({ kind: NodeKind.ActionsNode }, (actionsNode) => [
@@ -720,6 +806,8 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                     dataWarehouseNode.properties.length > 0 && { properties: dataWarehouseNode.properties }),
             },
         ])
+        // PostHog holds no rows of a warehouse-native source, so it has no recent activity to count.
+        .with({ kind: NodeKind.ExperimentWarehouseNativeNode }, () => [])
         .exhaustive()
 
     return series

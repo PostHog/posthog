@@ -19,6 +19,7 @@ export function OfflineEvaluationsTabs({ activeTab }: { activeTab: OfflineEvalua
             options={[
                 {
                     value: 'experiments',
+                    'data-attr': 'offline-evaluations-experiments-tab',
                     label: (
                         <span className="flex items-center gap-1">
                             <span>Experiments</span>
@@ -38,6 +39,7 @@ export function OfflineEvaluationsTabs({ activeTab }: { activeTab: OfflineEvalua
                 },
                 {
                     value: 'datasets',
+                    'data-attr': 'offline-evaluations-datasets-tab',
                     label: 'Datasets',
                     disabledReason: !datasetsEnabled
                         ? 'Datasets are coming soon.'

@@ -20,16 +20,16 @@ import pydantic
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
+from posthog.constants import GroupTypeIndex
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.migration_helpers import deprecate_field
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import (
     create_project_secret_api_key_for_token,
     delete_project_secret_api_keys_for_token,
 )
-from posthog.models.signals import mutable_receiver, secret_api_token_rotated
+from posthog.models.signals import mutable_receiver, secret_api_token_backup_deleted, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
     generate_random_token_heatmap_screenshot,
@@ -63,6 +63,13 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def timezone_choices() -> list[tuple[str, str]]:
+    # Callable so a pytz release that adds a zone doesn't generate a no-op migration.
+    return TIMEZONES
+
 
 # TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
 DEPRECATED_ATTRS = (
@@ -600,7 +607,7 @@ class Team(UUIDTClassicModel):
     )
 
     timezone = field_access_control(
-        models.CharField(max_length=240, choices=TIMEZONES, default="UTC"), "project", "admin"
+        models.CharField(max_length=240, choices=timezone_choices, default="UTC"), "project", "admin"
     )
     data_attributes = field_access_control(
         models.JSONField(default=get_default_data_attributes, blank=True), "project", "admin"
@@ -946,9 +953,14 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.storage.team_metadata_signal_handlers import enqueue_retired_token_metadata_clear_on_commit
         from posthog.tasks.remote_config import update_team_remote_config
+        from posthog.tasks.team_access_cache_tasks import invalidate_team_tokens_sync
 
         self.save()
+        # The auth entries go first, because the metadata clear removes the entry they still point to.
+        transaction.on_commit(lambda: invalidate_team_tokens_sync(self.id))
+        enqueue_retired_token_metadata_clear_on_commit(self.id, old_token)
         # The post_save receiver also dispatches the plain remote config sync for this save.
         # A worker that predates the old_token argument rejects this task. That worker still
         # runs the plain sync, which writes the new token's Redis entry.
@@ -1000,7 +1012,9 @@ class Team(UUIDTClassicModel):
                     delete_project_secret_api_keys_for_token(self.id, expired_token)
                 # With the legacy verifiers off, only the mirror row authenticates the new token.
                 create_project_secret_api_key_for_token(self.id, new_token)
-                secret_api_token_rotated.send(sender=self.__class__, team=self)
+                # expired_token lets receivers drop their own copies of the credential
+                # this rotation retires for good (it leaves the backup column too).
+                secret_api_token_rotated.send(sender=self.__class__, team=self, expired_token=expired_token)
         except Exception:
             # save() already cached this team (post_save) with the new tokens, which the
             # rollback discarded. Rewrite that entry from the committed row.
@@ -1145,6 +1159,7 @@ class Team(UUIDTClassicModel):
                 self.secret_api_token_backup = None
                 self.save()
                 delete_project_secret_api_keys_for_token(self.id, old_backup_token)
+                secret_api_token_backup_deleted.send(sender=self.__class__, team=self, deleted_token=old_backup_token)
         except Exception:
             # save() already cached this team (post_save) with the cleared backup, which
             # the rollback discarded. Rewrite that entry from the committed row.

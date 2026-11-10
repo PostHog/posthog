@@ -113,6 +113,7 @@ fn every_deployable_binary_has_an_image_entry() {
         "stl_dump",
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
+        "logs-ingestion-bench",   // logs consumer benchmark CLI, not a service
         "personhog-stateright",   // model-checker explorer CLI, not a service
         "personhog-test-harness", // e2e load/correctness harness CLI, not a service
         "reconcile_dispatch",     // operator-invoked cohort reconcile dispatcher CLI, not a service
@@ -254,7 +255,12 @@ fn leaf_service_only_affects_itself_and_dependents() {
     assert_eq!(result.directly_changed, vec!["capture"]);
     assert_eq!(
         result.images,
-        vec!["capture", "capture-apm-metrics", "capture-logs"]
+        vec![
+            "capture",
+            "capture-apm-metrics",
+            "capture-logs",
+            "replay-recorder-v4"
+        ]
     );
 }
 

@@ -8,7 +8,9 @@ configuration already holds in this app. The prefix names what the rows are for:
 source configures on the shared platform, rather than one product's own table.
 """
 
+from collections.abc import Collection
 from typing import Any
+from uuid import UUID
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -18,9 +20,11 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from products.alerts_platform.backend.facade.contracts import DestinationType, Grouping
+from products.alerts_platform.backend.facade.contracts import MAX_HOLD_REASON_LENGTH, DestinationType, Grouping
 from products.alerts_platform.backend.facade.enums import (
     DeliveryPath,
+    HoldRelease,
+    HoldReleasedBy,
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
@@ -62,6 +66,20 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     # `posthog_user`, and creating that constraint locks a table every request writes.
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Every source kind's alert carries it, so a source's pages can show and filter on it without its own row.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        # The partial index in Meta serves user deletion, which nulls this column across every team.
+        db_index=False,
+        related_name="+",
+    )
+    # When the alert was first turned on. Null means it is still a draft. Kept for an alert with no
+    # source row, because the source's pages show it.
+    first_enabled_at = models.DateTimeField(null=True, blank=True)
 
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True, db_default=True)
@@ -115,6 +133,8 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
     owner_changed_at = models.DateTimeField(null=True, blank=True)
+    labels = models.JSONField(default=dict, db_default={})
+    annotations = models.JSONField(default=dict, db_default={})
     # Which rows an alert's destinations live in: the source's HogFunctions, or `AlertDestination`.
     # Separate from `owner`, because an alert moves its evaluation first and its destinations later.
     destinations_owner = models.CharField(
@@ -122,6 +142,20 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     )
 
     activity_logging_on_delete = True
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The alert's public id: the id its source, its clients and its destinations know it by. The
+        source row's id for a copy, and the configuration's own id for an alert with no source row."""
+        return self.legacy_configuration_id or self.id
+
+    @staticmethod
+    def with_destination_alert_ids(ids: Collection[UUID]) -> models.Q:
+        """Matches the configurations whose `destination_alert_id` is one of `ids`."""
+        listed = list(ids)
+        return models.Q(legacy_configuration_id__in=listed) | models.Q(
+            legacy_configuration_id__isnull=True, id__in=listed
+        )
 
     def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
         # A copy its source owns is not logged, so its writes skip the read of the row before the update.
@@ -134,6 +168,11 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         # Pinned: the name predates this app, and removing this renames a live table.
         db_table = "alerts_platformalertconfiguration"
         indexes = [
+            models.Index(
+                fields=["created_by"],
+                name="platform_alert_cfg_creator_idx",
+                condition=models.Q(created_by__isnull=False),
+            ),
             # Discovery: enabled rows ordered by due time. Partial, because a disabled
             # configuration is never discovered and does not belong in the index.
             models.Index(
@@ -274,6 +313,58 @@ class PlatformAlertDeliveryPath(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class PlatformAlertDeliveryHold(TeamScopedRootMixin, UUIDModel):
+    """One evaluation's delivery, held back until a release says whether to send it.
+
+    Written in the same transaction as the outcome that held it, because a recorded firing whose
+    hold was lost would be neither sent nor swept. Released once: the first release wins, and only
+    a send hands the request back, so two releasers cannot both deliver it.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(
+        PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="delivery_holds"
+    )
+
+    evaluation_key = models.CharField(max_length=255)
+    reason = models.CharField(max_length=MAX_HOLD_REASON_LENGTH)
+    # The stored form of the facade's `AlertDeliveryRequest`.
+    request = models.JSONField()
+
+    held_at = models.DateTimeField()
+    # When the safety net sends it if nothing released it first.
+    release_after = models.DateTimeField()
+    released_at = models.DateTimeField(null=True, blank=True)
+    release_action = models.CharField(max_length=16, choices=HoldRelease.choices, null=True, blank=True)
+    released_by = models.CharField(max_length=16, choices=HoldReleasedBy.choices, null=True, blank=True)
+    # When the releaser of a send started its delivery. The sweep starts any send left unstarted.
+    delivery_started_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "alerts_platformalertdeliveryhold"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuration", "evaluation_key"], name="platform_alert_delivery_hold_one_per_evaluation"
+            )
+        ]
+        indexes = [
+            # The safety net's sweep. Partial, because a released hold is never swept again.
+            models.Index(
+                fields=["release_after"],
+                name="platform_alert_hold_due_idx",
+                condition=models.Q(released_at__isnull=True),
+            ),
+            # The sweep's recovery of released sends whose releaser never started them.
+            models.Index(
+                fields=["released_at"],
+                name="platform_alert_hold_start_idx",
+                condition=models.Q(release_action="send", delivery_started_at__isnull=True),
+            ),
+            # Pruning, which deletes holds once the history rows they annotate have expired.
+            models.Index(fields=["held_at"], name="platform_alert_hold_age_idx"),
+        ]
+
+
 class AlertDestination(TeamScopedRootMixin, UUIDModel):
     """Where an alert sends, for an alert whose `destinations_owner` is the platform.
 
@@ -301,3 +392,44 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "alerts_platformalertdestination"
+
+
+class AlertReceiver(TeamScopedRootMixin, UUIDModel):
+    """A named destination that routes send to, for every alert they match rather than one alert."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    name = models.CharField(max_length=255)
+    type = models.CharField(max_length=32, choices=DestinationType.choices)
+    config = EncryptedJSONStringField(default=dict)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "alerts_platformalertreceiver"
+        constraints = [models.UniqueConstraint(fields=["team", "name"], name="alert_receiver_unique_name")]
+
+
+class AlertRoute(TeamScopedRootMixin, UUIDModel):
+    """Which alerts a receiver hears, by the labels on the alert's configuration.
+
+    Routes are read in `position` order. Every matching route sends, unless one with `continue_matching`
+    off stops the routes after it.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    receiver = models.ForeignKey(AlertReceiver, on_delete=models.CASCADE, related_name="routes")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # `[{"label": ..., "op": "=", "value": ...}]`, all of which must hold. An empty list matches every alert.
+    matchers = models.JSONField(default=list, db_default=[])
+    event_kinds = ArrayField(models.CharField(max_length=16), default=list)
+    position = models.PositiveIntegerField(default=0, db_default=0)
+    continue_matching = models.BooleanField(default=True, db_default=True)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "alerts_platformalertroute"
+        indexes = [models.Index(fields=["team", "position"], name="alert_route_team_position_idx")]

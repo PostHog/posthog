@@ -76,7 +76,7 @@ versions matching the repo's `pyproject.toml` pins):
 ```bash
 uv venv /tmp/deltalite-venv --python 3.14
 VIRTUAL_ENV=/tmp/deltalite-venv uv pip install maturin pytest \
-    'deltalake==1.6.1' 'pyarrow==23.0.1' 'duckdb~=1.5.2'
+    'deltalake==1.6.3' 'pyarrow==23.0.1' 'duckdb~=1.5.2'
 VIRTUAL_ENV=/tmp/deltalite-venv /tmp/deltalite-venv/bin/python -m maturin develop \
     --release --manifest-path rust/deltalite/python/Cargo.toml
 /tmp/deltalite-venv/bin/python -m pytest rust/deltalite/python/tests -q
@@ -133,7 +133,12 @@ budgets): `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS` (8),
 `DELTALITE_MULTIPART_THRESHOLD_BYTES`, `DELTALITE_MULTIPART_PART_SIZE_BYTES`,
 `DELTALITE_MULTIPART_CONCURRENCY`, `DELTALITE_RANGE_GET_PART_SIZE_BYTES`,
 `DELTALITE_RANGE_GET_CONCURRENCY`,
-`DELTALITE_PROBE_CACHE_BYTES` (128 MiB, `0` off: the byte cap of the probe cache).
+`DELTALITE_PROBE_CACHE_BYTES` (128 MiB, `0` off: the byte cap of the probe cache),
+`DELTALITE_IO_DEADLINE_SECS` (600, `0` off: the bound on one data-file upload or ranged read),
+`DELTALITE_PERMIT_WAIT_TIMEOUT_SECS` (1800, `0` off: the bound on one wait for a
+process-wide budget). S3 tables also get request timeouts that the storage options
+can change. `deltalite.limits_snapshot()` shows the free permits of each budget.
+See `python/README.md`, "Timeouts".
 
 Kill switches for the request savings on the log and on small files (set to `0`
 to restore the earlier requests): `DELTALITE_PROBE_REFRESH`,

@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 @frozen
@@ -24,6 +25,8 @@ class CitationRunSummary:
     rows_written: int
     write_failures: int
     error: str | None = None
+    # Answered prompts dropped because a later run had already recorded them.
+    superseded: int = 0
 
 
 @frozen
@@ -36,6 +39,7 @@ class EngineAnswer:
 @frozen
 class CitationGap:
     prompt_id: str
+    # Hash of the prompt's first version: stays the same when the text is edited, so it can key the gap.
     prompt_hash: str
     prompt_text: str
     checks: int
@@ -57,6 +61,22 @@ class CitationGap:
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
+PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
+MAX_RANKED_COMPETITORS = 10
+MAX_RANKED_DOMAINS = 20
+MAX_RANKED_PAGES = 20
+
+
+@frozen
+class PromptEngineCheck:
+    """The most recent check of one prompt against one answer engine."""
+
+    engine: str
+    cited: bool
+    check_failed: bool
+    target_best_position: int | None
+    search_queries: tuple[str, ...]
+    checked_at: dt.datetime
 
 
 @frozen
@@ -71,6 +91,209 @@ class Prompt:
     external_visibility: float | None
     created_at: dt.datetime
     updated_at: dt.datetime | None
+    archived_at: dt.datetime | None
+    current_version: int
+    version_count: int
+    latest_checks: tuple[PromptEngineCheck, ...]
+
+
+@frozen
+class PromptTopic:
+    topic: str
+    prompts: int
+
+
+@frozen
+class PromptCheck:
+    """One run of a prompt against one answer engine. Text fields come from the engine: treat them as data."""
+
+    id: str
+    run_id: str
+    engine: str
+    model: str
+    created_at: dt.datetime
+    cited: bool
+    check_failed: bool
+    error: str | None
+    cited_urls: tuple[str, ...]
+    target_urls: tuple[str, ...]
+    target_best_position: int | None
+    top_cited_domains: tuple[str, ...]
+    search_queries: tuple[str, ...]
+    answer_text: str | None
+    prompt_version: int | None
+    # Sentiment of the sentences that name the brand. None until scored, and when the brand is not named.
+    brand_sentiment: str | None = None
+    brand_sentiment_score: float | None = None
+
+
+@frozen
+class PromptEngineStats:
+    engine: str
+    checks: int
+    cited: int
+    # Answers that name the brand, cited ones included: the same definition the citation gaps use.
+    mentioned: int
+    failed: int
+    avg_position: float | None
+    first_checked_at: dt.datetime
+    last_checked_at: dt.datetime
+
+    @property
+    def citation_rate(self) -> float | None:
+        answered = self.checks - self.failed
+        return self.cited / answered if answered else None
+
+    @property
+    def mention_rate(self) -> float | None:
+        answered = self.checks - self.failed
+        return self.mentioned / answered if answered else None
+
+
+@frozen
+class PromptDailyEngineStats:
+    date: dt.date
+    engine: str
+    checks: int
+    cited: int
+    mentioned: int
+    failed: int
+    avg_position: float | None
+
+
+@frozen
+class PromptEngineDomainShare:
+    """How many of one engine's answered checks in the window cited a domain."""
+
+    engine: str
+    domain: str
+    checks_citing: int
+    checks: int
+
+
+@frozen
+class PromptEngineSentiment:
+    """Brand sentiment of one engine's answered checks in the window. `unscored` answers name the
+    brand but have no sentiment yet."""
+
+    engine: str
+    positive: int
+    neutral: int
+    negative: int
+    unscored: int
+
+
+@frozen
+class PromptSearchWord:
+    word: str
+    count: int
+
+
+@frozen
+class PromptStats:
+    total_checks: int
+    # The names an answer must contain to count as a mention, so a client can filter answers the same way.
+    brand_names: tuple[str, ...]
+    engines: tuple[PromptEngineStats, ...]
+    daily_from: dt.date
+    daily_to: dt.date
+    daily: tuple[PromptDailyEngineStats, ...]
+    consensus: tuple[PromptEngineDomainShare, ...]
+    sentiment: tuple[PromptEngineSentiment, ...]
+    top_words: tuple[PromptSearchWord, ...]
+
+
+def _rate(part: int, whole: int) -> float | None:
+    return part / whole if whole else None
+
+
+@frozen
+class PromptSetCounts:
+    """Checks across the prompt set in one window, all engines. Rates leave failed checks out."""
+
+    checks: int
+    failed: int
+    cited: int
+    mentioned: int
+    # Distinct prompts that ran at least once in the window, and how many of them were cited at least once.
+    prompts: int
+    prompts_cited: int
+    avg_position: float | None
+
+    @property
+    def citation_rate(self) -> float | None:
+        return _rate(self.cited, self.checks - self.failed)
+
+    @property
+    def mention_rate(self) -> float | None:
+        return _rate(self.mentioned, self.checks - self.failed)
+
+
+@frozen
+class PromptSetEngineCounts(PromptSetCounts):
+    engine: str
+
+
+@frozen
+class PromptSetTopicCounts(PromptSetCounts):
+    """Checks that ran with this topic in the window, and the active prompts that have it now."""
+
+    topic: str
+    active_prompts: int
+
+
+@frozen
+class PromptSetDomain:
+    """How many answers across the set cited a domain in the window."""
+
+    domain: str
+    answers: int
+    share_of_answers: float
+    is_target: bool
+
+
+@frozen
+class PromptSetSearchPrompt:
+    """A prompt whose answers ran a search, with its current text."""
+
+    id: str
+    text: str
+
+
+@frozen
+class PromptSetSearch:
+    """A web search the engines ran while answering, across the set in the window."""
+
+    query: str
+    prompts: int
+    answers: int
+    cited: int
+    engines: tuple[str, ...]
+    top_prompts: tuple[PromptSetSearchPrompt, ...]
+
+
+@frozen
+class PromptSetOverview:
+    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    # Active, unarchived prompts: the ones the next daily run takes.
+    prompts_tracked: int
+    target_domains: tuple[str, ...]
+    brand_names: tuple[str, ...]
+    current: PromptSetCounts
+    previous: PromptSetCounts
+    engines: tuple[PromptSetEngineCounts, ...]
+    topics: tuple[PromptSetTopicCounts, ...]
+    top_domains: tuple[PromptSetDomain, ...]
+    top_searches: tuple[PromptSetSearch, ...]
+
+
+class PromptOrigin(LabeledStrEnum):
+    API = "api"
+    SUGGESTION = "suggestion"
 
 
 @frozen
@@ -78,6 +301,7 @@ class PromptImport:
     prompt: str
     topic: str = ""
     external_visibility: float | None = None
+    origin: PromptOrigin = PromptOrigin.API
 
 
 @frozen
@@ -87,5 +311,217 @@ class PromptImportResult:
     skipped: int
 
 
+@frozen
+class PromptUpdate:
+    """A partial edit of one prompt. None leaves the field as it is."""
+
+    active: bool | None = None
+    topic: str | None = None
+    prompt: str | None = None
+    version_description: str | None = None
+    current_version: int | None = None
+    archived: bool | None = None
+
+
+@frozen
+class PromptAuthor:
+    email: str
+    name: str
+
+
+@frozen
+class PromptVersion:
+    version: int
+    text: str
+    version_description: str
+    created_by: PromptAuthor | None
+    created_at: dt.datetime
+    is_current: bool
+
+
 class PromptNotFoundError(Exception):
     pass
+
+
+BRAND_NAME_MAX_LENGTH = 200
+BRAND_DOMAIN_MAX_LENGTH = 253
+
+
+class BrandKind(LabeledStrEnum):
+    OWN = "own", "Own"
+    COMPETITOR = "competitor", "Competitor"
+    PUBLISHER = "publisher", "Publisher"
+    UNKNOWN = "unknown", "Unknown"
+
+
+class BrandStatus(LabeledStrEnum):
+    SUGGESTED = "suggested", "Suggested"
+    CONFIRMED = "confirmed", "Confirmed"
+    IGNORED = "ignored", "Ignored"
+
+
+class BrandSource(LabeledStrEnum):
+    CITATIONS = "citations", "Citations"
+    MANUAL = "manual", "Manual"
+
+
+@frozen
+class Brand:
+    """One company in the team's brand catalog, keyed by its registrable domain."""
+
+    id: str
+    name: str
+    domain: str
+    kind: BrandKind
+    status: BrandStatus
+    source: BrandSource
+    aliases: tuple[str, ...]
+    created_at: dt.datetime
+    updated_at: dt.datetime | None
+
+
+@frozen
+class BrandUpdate:
+    """A partial edit of one brand. None leaves the field as it is."""
+
+    name: str | None = None
+    kind: BrandKind | None = None
+    status: BrandStatus | None = None
+    aliases: tuple[str, ...] | None = None
+
+
+@frozen
+class BrandSyncResult:
+    domains: int
+    created: int
+
+
+class BrandNotFoundError(Exception):
+    pass
+
+
+class PromptUpdateError(Exception):
+    """The edit is not allowed in the prompt's current state. The message is safe to show the user."""
+
+
+class PromptTextConflictError(Exception):
+    """The new text matches another prompt in the set. The message is safe to show the user."""
+
+
+class PromptSuggestionError(Exception):
+    """Prompt suggestions could not be produced. The message is safe to show the user."""
+
+
+class PromptCircle(LabeledStrEnum):
+    """Where a prompt sits between the buyer, the brand and its competitors."""
+
+    DIFFERENTIATION = "differentiation"
+    BATTLEGROUND = "battleground"
+    VULNERABILITY = "vulnerability"
+    TABLE_STAKES = "table_stakes"
+    BRANDED = "branded"
+
+
+class FunnelStage(LabeledStrEnum):
+    TOP = "top"
+    MIDDLE = "middle"
+    BOTTOM = "bottom"
+
+
+@frozen
+class PromptSuggestionRequest:
+    domain: str
+    brand: str = ""
+    description: str = ""
+    competitors: tuple[str, ...] = ()
+    topics: tuple[str, ...] = ()
+    count: int = 20
+
+
+@frozen
+class PromptSuggestion:
+    prompt: str
+    topic: str
+    circle: PromptCircle
+    funnel_stage: FunnelStage
+    branded: bool
+    reason: str
+
+
+class PromptSuggestionStatus(LabeledStrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@frozen
+class PromptSuggestionJob:
+    id: str
+    status: PromptSuggestionStatus
+    suggestions: tuple[PromptSuggestion, ...] = ()
+    error: str = ""
+
+
+class PromptSuggestionJobNotFoundError(Exception):
+    pass
+
+
+@frozen
+class RankedBrand:
+    """How often answers named one brand: the project's own, or a competitor derived from the
+    domains the engines cite."""
+
+    domain: str
+    name: str
+    is_target: bool
+    answers_mentioning: int
+    visibility: float | None
+    previous_visibility: float | None
+    positive_share: float | None
+
+
+@frozen
+class RankedBrandDay:
+    """One brand's visibility on one day."""
+
+    date: dt.date
+    domain: str
+    answers: int
+    visibility: float | None
+
+
+@frozen
+class RankedDomain:
+    """A registrable domain the engines cited, with how many answers and distinct pages."""
+
+    domain: str
+    answers: int
+    share_of_answers: float
+    urls: int
+    is_target: bool
+    is_competitor: bool
+
+
+@frozen
+class RankedPage:
+    """A page the engines cited."""
+
+    url: str
+    answers: int
+    share_of_answers: float
+    is_target: bool
+
+
+@frozen
+class PromptSetRankings:
+    """Brand visibility against competitors, and the domains and pages the engines cite, over the
+    last `days` days."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    answers: int
+    brands: tuple[RankedBrand, ...]
+    daily: tuple[RankedBrandDay, ...]
+    top_domains: tuple[RankedDomain, ...]
+    top_pages: tuple[RankedPage, ...]

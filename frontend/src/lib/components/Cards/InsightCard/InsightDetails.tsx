@@ -31,11 +31,29 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { everyWarehouseSeriesReadsFlagCalls } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { urls } from 'scenes/urls'
 
+import { getCompareFilter, getInterval } from '~/queries/schema/node-accessors'
+import {
+    isActionsNode,
+    isAnyDataWarehouseNode,
+    isDataTableNodeWithHogQLQuery,
+    isDataVisualizationNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isHogQLQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isPathsV2Query,
+    isRetentionQuery,
+    isTrendsQuery,
+    hasBreakdownFilter,
+} from '~/queries/schema/node-guards'
 import {
     AnyEntityNode,
     BreakdownFilter,
@@ -58,26 +76,6 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import {
-    getCompareFilter,
-    getInterval,
-    isActionsNode,
-    isAnyDataWarehouseNode,
-    isDataTableNodeWithHogQLQuery,
-    isDataVisualizationNode,
-    isEventsNode,
-    isFunnelsQuery,
-    isHogQLQuery,
-    isInsightQueryWithBreakdown,
-    isInsightQueryWithSeries,
-    isInsightVizNode,
-    isLifecycleQuery,
-    isPathsQuery,
-    isPathsV2Query,
-    isRetentionQuery,
-    isTrendsQuery,
-    hasBreakdownFilter,
-} from '~/queries/utils'
-import {
     AnyPropertyFilter,
     BaseMathType,
     FilterLogicalOperator,
@@ -86,6 +84,7 @@ import {
     UserBasicType,
 } from '~/types'
 
+import { BreakdownTag } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/BreakdownTag'
 import { journeysSummaryParts } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 import {
     MathCategory,

@@ -49,9 +49,18 @@ function billingFor(state: InboxState): BillingType {
     return { ...billingJson, products: [inboxProduct(state)], custom_limits_usd: {} }
 }
 
-function StateMocks({ state }: { state: InboxState }): JSX.Element {
+function StateMocks({
+    state,
+    trialUnavailable = false,
+}: {
+    state: InboxState
+    trialUnavailable?: boolean
+}): JSX.Element {
     useStorybookMocks({
         get: {
+            '/api/projects/:team_id/signals/trial/': trialUnavailable
+                ? [503, { detail: 'Service unavailable' }]
+                : { enabled: false, grant_status: 'not_claimed' },
             '/api/billing/': billingFor(state),
             '/api/projects/:team_id/signals/reports/refund-summary/': {
                 credited_refund_count: state.refundedPrs ?? 0,
@@ -84,6 +93,14 @@ type Story = StoryObj
 
 export const FreePlanZeroUsage: Story = {
     render: () => <StateMocks state={{ subscribed: false, freePrs: 3, usedPrs: 0, limitPrs: 3 }} />,
+}
+
+export const TrialStatusUnavailable: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SELF_DRIVING_UBP],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => <StateMocks state={{ subscribed: false, freePrs: 3, usedPrs: 0, limitPrs: 3 }} trialUnavailable />,
 }
 
 export const WithinFreeTier: Story = {

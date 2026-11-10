@@ -17,7 +17,6 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.exceptions import NotFound
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.renderers import BaseRenderer
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -30,6 +29,7 @@ from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -38,8 +38,13 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Person, PropertyDefinition, User
-from posthog.models.event.legacy_events_query import LegacyEventsListQuery, get_one_event
+from posthog.models import Element, Person, User
+from posthog.models.event.legacy_events_query import (
+    EVENT_LIST_DEFAULT_AFTER_WINDOW,
+    LegacyEventsListQuery,
+    get_one_event,
+    resolve_before,
+)
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
@@ -54,6 +59,7 @@ from posthog.rate_limit import (
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, refresh_requested_by_client, relative_date_parse
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)
@@ -66,6 +72,7 @@ EVENT_VALUES_COUNTER = Counter(
 
 QUERY_DEFAULT_EXPORT_LIMIT = 1_000
 EVENT_LIST_MAX_LIMIT = 1_000
+DEFAULT_AFTER_HEADER = "X-PostHog-Events-Default-After"
 
 
 # Legacy property-filter keys the frontend still appends but EventsQuery's schema forbids.
@@ -113,6 +120,11 @@ class EventValueQueryParams:
     value: str | None
 
 
+class EventListPagingQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, min_value=0, help_text="The maximum number of results to return")
+    offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of rows to skip.")
+
+
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
 
@@ -149,7 +161,7 @@ class EventPropertyValuesResponseSerializer(serializers.Serializer):
     )
 
 
-class UncountedLimitOffsetPagination(LimitOffsetPagination):
+class UncountedLimitOffsetPagination(BoundedLimitOffsetPagination):
     """
     the events api works with the default LimitOffsetPagination, but the
     results don't have a count, so we need to override the pagination class
@@ -198,8 +210,11 @@ class EventViewSet(
         request: request.Request,
         last_event_timestamp: datetime,
         order_by: list[str],
+        after: Optional[str],
     ) -> str:
         params = request.GET.dict()
+        if after:
+            params["after"] = after
         reverse = "-timestamp" in order_by
         timestamp = last_event_timestamp.replace(tzinfo=UTC).isoformat()
         if reverse:
@@ -274,23 +289,16 @@ class EventViewSet(
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        # An empty `limit=` or `offset=` means the default, so only non-empty values are validated.
+        paging = EventListPagingQuerySerializer(
+            data={key: request.GET[key] for key in ("limit", "offset") if request.GET.get(key)}
+        )
+        paging.is_valid(raise_exception=True)
+        default_limit = QUERY_DEFAULT_EXPORT_LIMIT if is_csv_request else DEFAULT_RETURNED_ROWS
+        limit = min(paging.validated_data.get("limit", default_limit), EVENT_LIST_MAX_LIMIT)
+        offset: int = paging.validated_data["offset"]
         try:
-            is_csv_request = self.request.accepted_renderer.format == "csv"
-
-            if self.request.GET.get("limit", None):
-                limit = int(self.request.GET.get("limit"))  # type: ignore
-            elif is_csv_request:
-                limit = QUERY_DEFAULT_EXPORT_LIMIT
-            else:
-                limit = DEFAULT_RETURNED_ROWS
-
-            limit = min(limit, EVENT_LIST_MAX_LIMIT)
-
-            try:
-                offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
-            except ValueError:
-                offset = 0
-
             team = self.team
 
             deprecate_offset = (
@@ -311,13 +319,21 @@ class EventViewSet(
             restricted_context = self._get_restricted_properties_context(request, team)
             self._reject_restricted_property_references(properties, order_by, restricted_context)
 
+            before = request.GET.get("before")
+            after = request.GET.get("after")
+            default_after: Optional[str] = None
+            if not after:
+                before_dt = resolve_before(before, team.timezone_info)
+                before = before_dt.isoformat()
+                default_after = after = (before_dt.astimezone(UTC) - EVENT_LIST_DEFAULT_AFTER_WINDOW).isoformat()
+
             request_user = cast(Optional[User], request.user if request.user.is_authenticated else None)
             query_result, has_more = LegacyEventsListQuery(team, request_user).run(
                 limit=limit,
                 offset=offset,
                 order=order,
-                before=request.GET.get("before"),
-                after=request.GET.get("after"),
+                before=before,
+                after=after,
                 event=request.GET.get("event"),
                 person_id=request.GET.get("person_id"),
                 distinct_id=request.GET.get("distinct_id"),
@@ -337,17 +353,17 @@ class EventViewSet(
 
             next_url: Optional[str] = None
             if not is_csv_request and has_more and query_result:
-                next_url = self._build_next_url(request, query_result[-1]["timestamp"], order_by)
-            headers = None
+                next_url = self._build_next_url(request, query_result[-1]["timestamp"], order_by, after)
+            headers: dict[str, str] = {}
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
-                headers = {"X-PostHog-Warn": "https://posthog.com/docs/api/events"}
+                headers["X-PostHog-Warn"] = "https://posthog.com/docs/api/events"
             elif deprecate_offset and offset:
-                headers = {
-                    "X-PostHog-Warn": (
-                        "offset is deprecated. "
-                        "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
-                    )
-                }
+                headers["X-PostHog-Warn"] = (
+                    "offset is deprecated. "
+                    "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                )
+            if default_after:
+                headers[DEFAULT_AFTER_HEADER] = default_after
             return response.Response({"next": next_url, "results": result}, headers=headers)
 
         except Exception as ex:

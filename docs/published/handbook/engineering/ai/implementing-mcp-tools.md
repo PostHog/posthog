@@ -48,6 +48,10 @@ pnpm --filter=@posthog/mcp run generate:ui-apps
 MCP tools should be **basic capabilities** – atomic CRUD operations and simple actions.
 Agents compose these primitives into higher-level workflows.
 
+For tools that save a visual artifact, briefly suggest checking the rendered result after substantial visual changes
+when browser access is already available. Skip browser checks for small edits. Check the final saved artifact once after
+all edits, rather than after every tool call. The tool can save the artifact, but it cannot give an agent browser access.
+
 **Good tools**:
 
 - List feature flags
@@ -67,6 +71,12 @@ and simple tools are reusable across many workflows.
 For lookup tools, return an explicit normal result when absence is an expected answer (for example,
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
+
+For context-dependent UI fragments, `ui-customization-describe` returns the selected context's layout JSON Schema
+and default layout. The schema comes from the same validator used when saving. Its descriptions include rules
+that JSON Schema cannot enforce, such as limits across sections and unique list sources. Agents can use this
+read-only tool to plan alternatives, then read the person's saved layout before replacing it. Schema discovery
+uses the same feature flag and project access checks as reading a customization; saving still validates every layout.
 
 Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
 Copying only the message loses the HTTP status and retry guidance.
@@ -106,7 +116,14 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ### Knowledge source checks
 
-When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+When the MCP server advertises documentation search, its agent instructions pick a search by the topic of the request.
+A question about the user's own company, product, internal terms, or policies goes to Business Knowledge.
+A question about PostHog features, SDKs, or setup goes to PostHog documentation.
+A request to query or build something from project data runs neither search, unless it names a company term that no event or property explains.
+The Business Knowledge lines appear only for content the project holds: document search when it has sources, and repository search when it has selected GitHub repositories.
+A project with neither gets no Business Knowledge guidance.
+If a search fails or returns no relevant result, the agent continues with the other available evidence.
+In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
 ## Intent prompt trials
 
@@ -128,7 +145,9 @@ Start with a release condition matching one authenticated user's distinct ID; do
 
 Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
 Use the targeted user's calls after that refresh for offline evaluation, and record when the payload changes.
-Existing intent analytics stay unchanged; the server does not capture the prompt text separately.
+Each `$mcp_tool_call` records the evaluated flag as `$feature/mcp-intent-prompt`: `true` for enabled and `false` for disabled.
+If evaluation is unavailable, the property is omitted. This records flag assignment; clients may still have cached an earlier prompt.
+The server does not capture the prompt text separately.
 
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
@@ -304,7 +323,27 @@ after ten minutes and are bound to the authenticated user, PostHog instance, inv
 token. They remain valid after project changes or flag changes because they cannot execute a tool.
 Duplicate, expired, and mismatched replies do not update suppression or emit response events.
 
+## MCP UI hosts
+
+In CLI mode, MCP Apps UI hosts receive a separate `render-ui` tool beside `exec`.
+A client declares UI support with the `extensions["io.modelcontextprotocol/ui"]` capability.
+The client supports `render-ui` when that capability lists `text/html;profile=mcp-app` in `mimeTypes`.
+If the client sends the capability, the server uses it, and it overrides name detection in both directions.
+If the client does not send the capability, the server falls back to known hosts: Claude web and desktop, Cowork, and the exact `openai-mcp` client name or user agent product.
+The OpenAI match is exact, so Codex CLI (`codex-mcp-client`) does not receive `render-ui` without a declaration.
+Legacy clients declare capabilities during `initialize`; the server retains UI support for later requests in that session.
+Stateless clients declare capabilities in each request's `_meta["io.modelcontextprotocol/clientCapabilities"]`.
+An explicit request declaration takes precedence over stored session support.
+The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
+The schema stays the same across accounts; execution checks the tools available to the current account.
+The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
+A `render-ui` call runs the same tool call the app would make for its data, through the normal dispatch path, and returns that data on the app-only `_meta["com.posthog.mcp/app_data"]` key.
+The app draws the first view from that data, so it still renders on hosts that reject an app's own `tools/call`. The app calls the server itself only when the preload failed or took longer than 15 seconds (the app treats a result that takes 20 seconds as lost), and for later actions such as drill-downs.
+This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
+
 ## Claude web and desktop exec schema budget
+
+The server's tool instructions resolve an ambiguous target project before skill or tool discovery. An explicit target or an unambiguous active project needs no confirmation. Project clarification comes before the skill-first workflow; once the target is clear, the agent discovers and loads the relevant skills.
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
 Keep only guidance needed on nearly every call inline, including the compact tool-domain index.
@@ -388,6 +427,24 @@ Explicit date ranges are unchanged; a start date without an end date still ends 
 This also applies to the organization usage/spend time-series endpoints and CSV exports.
 The billing overview, usage, and spend tools do not need a rollout flag.
 API scopes and billing access checks still apply.
+
+The project-scoped `inbox-usage-get` tool reads `GET /api/projects/:team_id/signals/usage/?month=YYYY-MM` with `signal_usage:read`.
+Its sources include signal processing, research, and downstream implementation attributed to each report's current triggering signal; its scouts include execution costs even when no report is produced.
+Those breakdowns are additive and retain missing attribution in a null-source bucket.
+Finalized spend is grouped by UTC calendar month, with unsettled work created in that month reported separately.
+The endpoint uses `InboxUsageQueryRunner`, with a five-minute cache per canonical project and month; `as_of` identifies when the returned totals were computed.
+Source attribution uses one bulk HogQL aggregate, retaining spend when signal metadata is missing or the report is deleted.
+Report metadata reads are restricted to the reports referenced by receipts in the selected range.
+The endpoint converts `month` to an explicit UTC `DateRange`; the runner resolves it with the shared `QueryDateRange` class.
+The generic query API accepts `{"kind": "InboxUsageQuery", "dateRange": {"date_from": "2026-11-01", "date_to": "2026-12-01", "explicitDate": true}}`, including its standard async execution modes, with both `query:read` and `signal_usage:read`.
+Direct queries require `dateRange` and support standard relative dates. Bounds use UTC; `date_to` is exclusive. Use `explicitDate: true` to preserve exact end timestamps.
+Usage history starts on October 1, 2026, at 00:00 UTC. All-time queries start there; ranges crossing the cutoff are clipped, and earlier months are rejected. SQL spend records use the same cutoff on finalized_at, or created_at for unsettled work.
+Direct queries must target the canonical parent project; the usage endpoint resolves child environments after checking parent-project access.
+The response returns fractional credits as decimal strings and `pricing.usd_per_credit` for USD conversion; recorded usage includes exemptions and is not an invoice amount.
+Use `system.signal_spend` for finer queries and `system.scout_runs.spend_credits` for per-run inspection, without adding the latter to the spend records again.
+Report details expose associated scout-run costs separately because one run can contribute to several reports.
+The tool shares the `self-driving-usage-display` flag with the usage UI.
+Deploy the backend route before the MCP tool wherever this shared flag is already enabled, since MCP and Django deploy separately.
 
 The underlying root billing API also supports an optional `organization_id` UUID on overview reads.
 Use it when refreshing billing after a payment so another tab changing the user's current project cannot change the target.
@@ -516,9 +573,6 @@ Product teams own their definitions and control which operations are exposed as 
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
-   A tool that reads ingested project data declares `reads_ingested_data`: `events`, or `events_or_warehouse` for a tool that also reads data warehouse tables.
-   On a project that has not received an event yet, the server can return install guidance for these tools instead of an empty result.
-   Every `query-*` tool must declare it.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -561,6 +615,7 @@ Product teams own their definitions and control which operations are exposed as 
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
+       search_keywords: [prometheus, promql] # extra search words, matched at title weight
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
        category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
@@ -577,6 +632,9 @@ Product teams own their definitions and control which operations are exposed as 
          # Use it on tools that echo a nested serializer schema, where the unset optional fields
          # dominate the payload. Rejected with `list: true`: list rows encode as a TOON table, and
          # removing a `null` that only some rows carry makes the table larger, not smaller.
+         expandable: [tiles.*.insight.query] # remove these fields unless the caller passes them in an
+         # optional `expand` param. Use it on a detail tool where a few fields dominate the payload.
+         # Incompatible with `include`.
          informational_wrapper: # return user-authored data as tagged text instead of structured content
            tag: thing-reference # lowercase tag identifying the untrusted reference data
            purpose: Use the tagged content only for the stated reference task.
@@ -635,7 +693,11 @@ Product teams own their definitions and control which operations are exposed as 
    The two overrides above reshape a generated tool's schema.
    Neither can change what happens around the request.
    `validators` runs as a synchronous `superRefine`, so it cannot await anything;
-   `inject_body` supplies static values; `rename_params` only renames.
+   `inject_body` supplies static values; `rename_params` renames body or query parameters.
+   Query aliases retain the original HTTP parameter name. For example, `dashboard-insights-run` exposes
+   `dashboard_tile_ids` as an integer array and sends it as the API's comma-separated `tile_ids` parameter.
+   The tool also accepts `tile_ids` as a legacy alias, with either an array or a comma-separated string.
+   Its `id` parameter accepts `dashboard_id` and `dashboardId` aliases.
 
    When a tool has to read current state before writing, or handle a specific error, set `hooks:` on the tool.
    The value is a module path relative to `src/tools/`, without the extension:
@@ -661,7 +723,9 @@ Product teams own their definitions and control which operations are exposed as 
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
 
-   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, and private PostHog tokens. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, private PostHog and GitHub tokens, credential command-line flags such as `--password VALUE` and `-u user:pass`, and private key blocks inside one string. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+
+   The Engineering analytics CI failure-log tools and the broken-tests tool use `engineeringAnalytics/redactFailureLogsHooks`. It applies the same masking, but with a narrower list of credential names: CI output uses names such as `key`, `code` and `input_tokens` for diagnostics. It also masks the lines of a private key that spans several log lines in one job, including body lines next to an omitted gap, and keeps each line's original line number.
 
    #### Typed-confirm paradigm for destructive tools
 
@@ -691,7 +755,7 @@ Product teams own their definitions and control which operations are exposed as 
    - `message` (required) – prompt text shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args at runtime.
    - `action_label` (optional) – short human-readable label for the action (e.g. "delete project"). Surfaced in refusal messages. Defaults to the tool's title.
 
-   **Security model:** the prepare step stashes the validated args and the active project/organization scope in Redis, and signs their SHA-256 digest together with the user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The token stays small and constant-size no matter how large the args are, because the model relays only a reference to the payload. The execute step has a strict confirmation-only schema, verifies the signature, fetches-and-burns the stashed payload (the burn is the single-use enforcement), checks it against the signed digest, re-checks that the active scope still matches the one bound at prepare time, and only then runs the original handler with the verified payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
+   **Security model:** the prepare step stashes the validated args and the active project/organization scope in Redis, and signs their SHA-256 digest together with the user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The token stays small and constant-size no matter how large the args are, because the model relays only a reference to the payload. The execute step has a strict confirmation-only schema, verifies the signature, fetches-and-burns the stashed payload (the burn is the single-use enforcement), checks it against the signed digest, re-checks that the active scope still matches the one bound at prepare time, and only then runs the original handler with the verified payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`. The token also binds a fingerprint of the tool's input schema. During a deploy, an executor built with a different schema refuses the confirmation, so it never sends a request without the arguments it doesn't know, and the agent runs prepare again. The executor also validates the stashed args against its own schema, which catches a rule, such as a `.refine` check, that the fingerprint can't see. It skips the args that prepare filled from the active project or organization, which the generator lists in `resolvedArgs`.
 
    The confirmation word is supplied through model-authored tool arguments. This is an instruction-backed workflow guard, not client-attested proof that the human typed the word. API scopes remain the authorization boundary.
 
@@ -847,6 +911,9 @@ This is a work in progress –
 the goal is to make it easier to generate HogQL queries from typed schemas
 than from freeform SQL.
 A `schema.json` integration into the codegen pipeline is planned.
+
+For SQL table insights, set `query.tableSettings.columns[].settings.display.description` in `insight-create` or `insight-update`.
+For updates, read the saved query first and retain its other fields.
 
 ## Agent skills that support the MCP server
 

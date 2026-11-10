@@ -12,6 +12,17 @@ class DataModelingJobStatus(models.TextChoices):
     SKIPPED = "Skipped", "Skipped"
 
 
+# Once a job reaches one of these, later activities must not overwrite its status or error.
+TERMINAL_JOB_STATUSES = frozenset(
+    {
+        DataModelingJobStatus.CANCELLED,
+        DataModelingJobStatus.COMPLETED,
+        DataModelingJobStatus.FAILED,
+        DataModelingJobStatus.SKIPPED,
+    }
+)
+
+
 class DataModelingJobEngine(models.TextChoices):
     CLICKHOUSE = "clickhouse", "ClickHouse"
     LEGACY_DUCKGRES = "duckgres", "Duckgres"
@@ -55,11 +66,6 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     last_run_at = models.DateTimeField(default=timezone.now)
     rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
-    bytes_read = models.BigIntegerField(
-        null=True,
-        blank=True,
-        help_text="Bytes the engine read to build the model. Null when the run was not measured.",
-    )
     read_bytes = models.BigIntegerField(
         null=True, blank=True, help_text="Bytes read by this run, including probes and retries."
     )

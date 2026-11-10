@@ -59,6 +59,7 @@ import {
     PERSON_FREQUENCY_OPTIONS,
     TriggerFrequencyOption,
     getRegisteredTriggerTypes,
+    getTriggerDisplayType,
 } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
@@ -68,6 +69,7 @@ import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitP
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RealtimeCohortAudienceNotice } from './components/RealtimeCohortAudienceNotice'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
+import { ScheduleList } from './components/ScheduleList'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
 import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
 import { keepOnlyRealtimeCohort } from './realtimeCohortStatus'
@@ -90,14 +92,6 @@ type TriggerOptionItem = {
     icon: JSX.Element
     group?: string
     tag?: JSX.Element
-}
-
-function getTriggerDisplayType(type: string, config: any): string {
-    // Several tiles can share one config type (`event`, `internal-event`), so the tile is whichever
-    // one claims this config, not the type itself. Types owned by a single tile fall through to the
-    // type, which is that tile's value.
-    const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(config))
-    return match ? match.value : type
 }
 
 function TriggerTypeDropdown({
@@ -229,7 +223,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const { featureFlags } = useValues(featureFlagLogic)
 
     const type = node.data.config.type
-    const displayType = getTriggerDisplayType(type, node.data.config)
+    const displayType = getTriggerDisplayType(node.data.config)
     const validationResult = actionValidationErrorsById[node.id]
 
     const allTriggerItems = useMemo(() => {
@@ -377,6 +371,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                         Schedule triggers run without a person or event. If your workflow needs to target specific
                         users, use a batch trigger instead.
                     </p>
+                    <ScheduleList />
                     <LemonField.Pure error={validationResult?.errors?.schedule}>
                         <WorkflowRecurringSchedulePicker />
                     </LemonField.Pure>
@@ -642,6 +637,7 @@ function BatchScheduleSection(): JSX.Element {
         <>
             <LemonDivider />
             <LemonLabel showOptional>Schedule</LemonLabel>
+            <ScheduleList />
             <WorkflowRecurringSchedulePicker />
         </>
     )

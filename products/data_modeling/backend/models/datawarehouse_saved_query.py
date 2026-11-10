@@ -47,6 +47,8 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
+from products.data_modeling.backend.models.view_engine import ViewEngine
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -115,6 +117,11 @@ class NoSchedulableDagError(Exception):
     bootstrap one from."""
 
 
+class SchedulingUnavailableError(Exception):
+    """Raised when Temporal is unreachable, so the schedule state of a saved query is unknown.
+    The caller decides what to keep, because the saved query itself is not at fault."""
+
+
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
@@ -155,6 +162,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
     # Null on rows that predate the column; the write path accepts any token for those until their first edit.
     query_revision = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
+    query_updated_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         null=True, choices=Status, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
@@ -293,12 +301,24 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     def name_chain(self) -> list[str]:
         return self.name.split(".")
 
+    @property
+    def engine(self) -> ViewEngine:
+        # The list defers `query` and annotates its engine keys, so reading `query` there would load it once per row.
+        return ViewEngine.from_annotated(self) or ViewEngine.from_query(self.query)
+
     def schedule_materialization(
-        self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None
+        self,
+        *,
+        frequency_target: timedelta | None = None,
+        reconcile: bool = True,
+        trigger_immediate_run: bool = False,
+        triggered_by_id: int | None = None,
     ):
         """
-        Put this saved query on the schedule that will materialize it, at the frequency in
-        sync_frequency_interval.
+        Put this saved query on the schedule that will materialize it.
+
+        frequency_target is written to the query's DAG node(s), which are the only store of
+        cadence. None carries no frequency opinion and leaves existing targets alone.
 
         trigger_immediate_run is for callers enabling materialization: it starts the first
         materialization right away instead of waiting for the node's cadence tier to fire.
@@ -308,9 +328,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         triggered_by_id is the person who enabled materialization, and is who hears about it if
         that first run fails.
 
-        A rejected frequency propagates to the caller. Any other failure disables
-        materialization, because the alternative is a query that reports itself materialized
-        while nothing is scheduled to materialize it.
+        A rejected frequency propagates to the caller. A Temporal outage propagates as
+        SchedulingUnavailableError and leaves is_materialized as it is: an outage says nothing
+        about the query, and the schedules that already back it keep running. Any other failure
+        disables materialization, because the alternative is a query that reports itself
+        materialized while nothing is scheduled to materialize it.
         """
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
@@ -322,14 +344,23 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             bootstrap_dag_to_tiers,
         )
         from products.data_modeling.backend.models.node import Node
-        from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids, is_transient_temporal_error
 
         node: Node | None = None
         try:
             # If this query's DAG runs on cadence tiers, those tiers materialize it.
             # This Temporal lookup stays inside the try so that, if it fails, we honor the failure
             # contract below rather than leaving is_materialized=True with no schedule backing it.
-            on_v2 = self.id in get_v2_saved_query_ids([self.id])
+            # An unreachable Temporal is the exception: it goes to the caller, which knows whether
+            # a schedule already backs the query.
+            try:
+                on_v2 = self.id in get_v2_saved_query_ids([self.id])
+            except Exception as e:
+                if is_transient_temporal_error(e):
+                    raise SchedulingUnavailableError(
+                        f"Temporal is unavailable to schedule saved query {self.id}"
+                    ) from e
+                raise
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
@@ -352,26 +383,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     raise MissingDagNodeError(
                         f"Saved query {self.id} is on a v2 team but has no DAG node to schedule through"
                     )
-                # The interval is one-shot transport for frequency intent — consume it into the
-                # node target(s) and reconcile. Validation raises before the nulling below, so a
-                # rejected frequency stays visible for retry. A call with no interval carries no
-                # frequency opinion and must not touch existing targets.
-                if self.sync_frequency_interval is not None:
+                if frequency_target is not None:
                     # A bootstrap reconciles the whole DAG once below, once the target has landed,
                     # so asking for a second pass here would only repeat it.
                     apply_saved_query_frequency_target(
-                        self, self.sync_frequency_interval, reconcile=reconcile and dag_to_bootstrap is None
+                        self, frequency_target, reconcile=reconcile and dag_to_bootstrap is None
                     )
                 if dag_to_bootstrap is not None:
                     # Last, so a frequency the validation above rejects leaves no seeded targets and
                     # no schedules behind: on_commit fires immediately for the callers that are not
                     # inside an atomic block, and two of the three are not.
                     bootstrap_dag_to_tiers(dag_to_bootstrap, requested_by=self)
-                # The interval must end up NULL: the node target is the only durable store of
-                # frequency intent.
-                if self.sync_frequency_interval is not None:
-                    self.sync_frequency_interval = None
-                    self.save(update_fields=["sync_frequency_interval"])
                 if trigger_immediate_run:
                     # Deferred to commit so the run sees the enable's writes (endpoints enable
                     # runs inside an atomic block); immediate under autocommit.
@@ -382,6 +404,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The query is fine — the requested frequency is not. Surface it to the caller
             # instead of silently disabling materialization.
+            raise
+        except SchedulingUnavailableError as e:
+            capture_exception(e, {"saved_query_id": self.id, "team_id": self.team_id})
+            logger.warning("schedule_materialization_temporal_unavailable", saved_query_id=str(self.id))
             raise
         except Exception as e:
             capture_exception(
@@ -491,15 +517,26 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.columns = columns
         self.column_order = list(columns.keys())
 
-    def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
-        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
+    def stores_columns(self, columns: dict[str, Any]) -> bool:
+        """Whether ``set_columns(columns)`` would leave this view's stored columns unchanged."""
+        return columns == self.columns and list(columns.keys()) == self.column_order
 
+    @property
+    def sql(self) -> str:
+        """The stored SQL as every reader outside a materialization run sees it: the incremental
+        window start bound to NULL. A run binds the real window start on the parsed query instead."""
         query = self.query or {}
         if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
+        return bind_window_start_sql(query["query"])
+
+    def get_columns(
+        self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
+    ) -> dict[str, dict[str, Any]]:
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
-        select_query = parse_select(query["query"])
+        select_query = parse_select(self.sql)
         _limit_to_zero_rows(select_query)
         _InSubqueryZeroRows().visit(select_query)
 
@@ -509,7 +546,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             tag_contains_user_hogql()
             # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
             with app_org_concurrency_slot(self.team):
-                response = execute_hogql_query(select_query, team=self.team, user=user, query_type="HogQLQuery")
+                response = execute_hogql_query(
+                    select_query,
+                    team=self.team,
+                    user=user,
+                    query_type="HogQLQuery",
+                    refresh_stale_view_columns=False,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                )
         result = response.types
 
         if result is None:
@@ -559,11 +603,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
-        query = self.query or {}
-        if not isinstance(query, dict) or "query" not in query:
-            raise Exception("Saved query is missing a query definition")
-
-        node = parse_select(query["query"])
+        node = parse_select(self.sql)
         resolved_node = resolve_types(node, context, dialect="clickhouse")
 
         table_collector = S3TableVisitor()
@@ -615,7 +655,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return SavedQuery(
             id=str(self.id),
             name=self.name,
-            query=query["query"],
+            query=self.sql,
             fields=self.hogql_fields(),
             # Currently only storing metadata related to the managed viewset, but we can expand this in the future
             # This is basically just a bag of props that can be used by other methods to properly identify this query

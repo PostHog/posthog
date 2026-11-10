@@ -10,6 +10,7 @@ export interface MCPClientContext extends Pick<
     | 'mcpConsumer'
     | 'mcpVendorClient'
     | 'mcpElicitationUrlSupported'
+    | 'mcpUiSupported'
 > {}
 
 export interface MCPRequestContext
@@ -28,6 +29,9 @@ export interface MCPRequestContext
             | 'mcpSessionId'
             | 'mcpConversationId'
             | 'region'
+            | 'features'
+            | 'tools'
+            | 'excludeTools'
         > {
     mode?: McpMode | undefined
     authMethod: McpAuthMethod
@@ -50,12 +54,16 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         mcpClientVersion: props.mcpClientVersion,
         mcpProtocolVersion: props.mcpProtocolVersion,
         mcpElicitationUrlSupported: props.mcpElicitationUrlSupported,
+        mcpUiSupported: props.mcpUiSupported,
         transport: props.transport,
         mcpSessionId: props.mcpSessionId,
         mcpConversationId: props.mcpConversationId,
         mcpConsumer: props.mcpConsumer,
         mode: props.mode,
         region: props.region,
+        features: props.features,
+        tools: props.tools,
+        excludeTools: props.excludeTools,
         mcpVendorClient: props.mcpVendorClient,
         authMethod: classifyAuthMethod(props.apiToken),
     }

@@ -29,6 +29,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     assert_trial_work_enabled,
 )
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
+from products.signals.backend.task_profiles import SCOUT_TRIAL_JUDGE
 from products.signals.backend.temporal.agentic import get_or_create_signals_sandbox_env
 from products.signals.backend.trial_judging import (
     JUDGE_PROMPT_VERSION as JUDGE_PROMPT_VERSION,
@@ -42,6 +43,7 @@ from products.signals.backend.trial_judging import (
 from products.signals.backend.trial_judging_types import TrialJudgeVerdicts, TrialRunEvidence, TrialRunJudgment
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO, TaskRunInputFile
+from products.tasks.backend.facade.profiles import TaskRunOptions
 
 JUDGE_MAX_RUNTIME_SECONDS = 30 * 60
 JUDGE_SANDBOX_ENVIRONMENT = "SIGNALS_SCOUT_TRIAL_JUDGE"
@@ -78,7 +80,6 @@ def _assert_scout_available(snapshot: TrialEvaluationSnapshot, evidence: TrialRu
             task_run__task__created_by_id=snapshot.user_id,
             task_run__task__deleted=False,
             task_run__task__origin_product="signals_scout",
-            task_run__task__origin_key=f"scout-trial:{evidence.launch_id}",
         )
         .first()
     )
@@ -90,6 +91,7 @@ def _assert_scout_available(snapshot: TrialEvaluationSnapshot, evidence: TrialRu
         or marker.get("launch_id") != str(evidence.launch_id)
         or marker.get("context_id") != str(snapshot.context_id)
         or run.task_run.status != "completed"
+        or run.task_run.task.stored_idempotency_key != f"scout-trial:{evidence.launch_id}"
     ):
         raise TrialJudgeValidationError("The saved scout run is no longer available for this evaluation.")
     if ScoutTrialStore(run).invalid_reason() is not None:
@@ -157,35 +159,30 @@ class _JudgeRun:
         team = Team.objects.get(pk=self.snapshot.team_id)
         assert_trial_work_enabled(team)
         environment_id = get_or_create_signals_sandbox_env(
-            self.snapshot.team_id,
-            JUDGE_SANDBOX_ENVIRONMENT,
-            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
-            allowed_domains=[],
-            include_default_domains=False,
+            self.snapshot.team_id, JUDGE_SANDBOX_ENVIRONMENT, SCOUT_TRIAL_JUDGE
         )
         try:
             created = tasks_facade.create_and_run_task(
                 team=team,
                 title="[sandbox_prompt:scout_trial_judge] Assess a saved scout run",
                 description=self.prompt,
-                # Reuse rubric generation's repo-less internal sandbox policy.
-                origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                profile=SCOUT_TRIAL_JUDGE,
                 origin_key=self.origin_key,
                 user_id=self.snapshot.user_id,
+                options=TaskRunOptions(
+                    adapter="codex",
+                    model=self.snapshot.judge_model,
+                    reasoning_effort="xhigh",
+                    mcp_scopes=[],
+                    permission_mode="full-access",
+                ),
                 create_pr=False,
                 mode="background",
-                internal=True,
                 sandbox_environment_id=environment_id,
-                posthog_mcp_scopes=[],
-                model=self.snapshot.judge_model,
-                runtime_adapter="codex",
-                reasoning_effort="xhigh",
-                initial_permission_mode="full-access",
                 github_read_access=False,
                 sandbox_timeout_seconds=JUDGE_MAX_RUNTIME_SECONDS + 120,
                 inactivity_timeout_seconds=JUDGE_MAX_RUNTIME_SECONDS,
                 ai_stage="scout:trial_judge",
-                mcp_builtin_agent_key="scout",
                 mcp_gateway_server_ids=[],
                 before_task_dispatch=self.bind_before_dispatch,
                 output_schema=TrialJudgeVerdicts.model_json_schema(),

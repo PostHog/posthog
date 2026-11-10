@@ -103,10 +103,14 @@ AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
 INBOX_RANKING_DATASET_S3_BUCKET = os.getenv("INBOX_RANKING_DATASET_S3_BUCKET", "")
 INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
 # Training dag (products/signals/dags/inbox_ranking/training): how many daily snapshots back the
-# examples reach, and how many trailing days of reports grade a candidate. Promotion is manual: a
-# person runs `inbox_ranking_promote_job`, which writes the served pointer.
+# examples reach, and how many trailing days of reports grade a candidate.
 INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 90, type_cast=int)
 INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
+# Serving publish (products/signals/dags/inbox_ranking/training/dag.py): once this many days have
+# passed since the last promotion, the daily publish serves the newest version of the served recipe
+# that passed the promotion gate. 0 turns the step off, and promotion is then only the manual
+# `inbox_ranking_promote_job`.
+INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS = get_from_env("INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS", 3, type_cast=int)
 # Labels refresh sensor (products/signals/dags/inbox_ranking/dataset): how many stale labels
 # partitions one hourly tick rewrites after a FEATURE_SCHEMA_VERSION bump, newest first.
 INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRESH_MAX_RUNS", 6, type_cast=int)
@@ -115,6 +119,12 @@ INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRE
 # no mirror.
 INBOX_RANKING_SERVING_MIRROR_BUCKET = os.getenv("INBOX_RANKING_SERVING_MIRROR_BUCKET", "")
 INBOX_RANKING_SERVING_MIRROR_REGION = os.getenv("INBOX_RANKING_SERVING_MIRROR_REGION", "")
+# Project vectors in the mirror region (products/signals/dags/inbox_ranking/mirror). The region builds
+# them from its own report embeddings and the engagement export the training region writes to its
+# object store. Off by default: the schedule skips its ticks until this is set.
+INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED = get_from_env(
+    "INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED", False, type_cast=str_to_bool
+)
 # Serving manifest (products/signals/dags/inbox_ranking/training/serving.py): how many of the served
 # family's newest versions the sweep also scores, read from the last 2N days. Each one costs the
 # sweep one more model per pass. The served entry, these versions and one challenger per other family
@@ -139,6 +149,12 @@ INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
 # Activity summary tick (products/signals/backend/activity_summary/tick.py). The `activity-summary`
 # flag payload gates the work and holds the caps, so the schedule ticks in every environment.
 ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES = get_from_env("ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES", 60, type_cast=int)
+# Personal inbox ranking tick (products/signals/backend/personal_ranking/tick.py). The `tick` object of the
+# `personal-inbox-ranking` flag payload gates the work. It ticks more often than the list's target interval,
+# so a list comes due soon after the interval passes.
+PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES = get_from_env(
+    "PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES", 15, type_cast=int
+)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

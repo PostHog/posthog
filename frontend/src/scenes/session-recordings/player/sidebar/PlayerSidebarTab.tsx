@@ -12,10 +12,10 @@ import { playerSidebarLogic } from './playerSidebarLogic'
 import { PlayerSidebarOverviewTab } from './PlayerSidebarOverviewTab'
 import { PlayerSidebarPersonRecordingsTab } from './PlayerSidebarPersonRecordingsTab'
 
-export function PlayerSidebarTab(): JSX.Element | null {
+export function PlayerSidebarTab({ tab }: { tab?: SessionRecordingSidebarTab } = {}): JSX.Element | null {
     const { activeTab } = useValues(playerSidebarLogic)
 
-    switch (activeTab) {
+    switch (tab ?? activeTab) {
         case SessionRecordingSidebarTab.OVERVIEW:
             return <PlayerSidebarOverviewTab />
         case SessionRecordingSidebarTab.INSPECTOR:

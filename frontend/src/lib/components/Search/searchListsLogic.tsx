@@ -1,118 +1,89 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-
-import {
-    IconBell,
-    IconClock,
-    IconDownload,
-    IconLeave,
-    IconNotification,
-    IconSupport,
-    IconTerminal,
-} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
-import { newInternalTab } from 'lib/utils/newInternalTab'
-import { toSentenceCase } from 'lib/utils/strings'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProductItems'
-import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
-import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
+import {
+    SettingsVisibilityGates,
+    isSettingVisible,
+    matchesFlagDefinition,
+    visibleSettingsSections,
+} from '~/scenes/settings/flagGating'
 import { getTitleText } from '~/scenes/settings/settingsSearch'
-import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
-import { ActivityTab, IntegrationType, UserType } from '~/types'
+import type { SettingSection } from '~/scenes/settings/types'
+import { IntegrationType, OrganizationType, PreflightStatus, TeamPublicType, TeamType, UserType } from '~/types'
 
-import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
-import { SEARCH_TAB_CATEGORY } from './utils'
+import { SearchItem } from './searchItems'
+import {
+    CommandKSettingsSection,
+    SettingsSectionSummary,
+    commandKSettingsSearchItems,
+    actionSearchItems,
+    dataManagementSearchItems,
+    healthSearchItems,
+    newSearchItems,
+    peopleSearchItems,
+    productSearchItems,
+    settingsSearchItems,
+    starredSearchItems,
+} from './searchListItems'
 
-const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet): boolean =>
-    !flag || !!(featureFlags as Record<string, boolean>)[flag]
+const summarizeSettingsSection = (section: SettingSection): SettingsSectionSummary => ({
+    id: section.id,
+    level: section.level,
+    titleString: getTitleText(section.title) || null,
+    hideFromNavigation: section.hideFromNavigation,
+    flag: section.flag,
+    to: section.to,
+    keywords: section.keywords,
+    settings: section.settings.map((setting) => ({
+        id: setting.id,
+        // A setting can render a title that getTitleText cannot read, such as a whole
+        // component, and it must stay findable via its id token.
+        // hasTitle preserves that distinction.
+        hasTitle: !!setting.title,
+        titleString: getTitleText(setting.title) || null,
+        descriptionString:
+            setting.searchDescription ?? (typeof setting.description === 'string' ? setting.description : null),
+        keywords: setting.keywords,
+        flag: setting.flag,
+    })),
+})
 
-const displayNameOf = (item: SearchItem): string => item.displayName || item.name
-
-const CATEGORY_SEARCH_KEYWORDS: Record<string, string[]> = {
-    CDP: ['data pipelines', 'data pipeline', 'pipeline'],
-}
-
-const toSearchTabItems = (
-    parents: SearchItem[],
-    sources: FileSystemImport[],
-    featureFlags: FeatureFlagsSet
-): SearchItem[] => {
-    const tabsByPath = new Map(sources.map((source) => [source.path, source.searchTabs ?? []]))
-    return parents.flatMap((parent) =>
-        (tabsByPath.get(parent.name) ?? [])
-            .filter((tab) => isEnabledByFlag(tab.flag, featureFlags))
-            .map((tab) => ({
-                id: `${parent.id}-tab-${tab.name}`,
-                name: `${displayNameOf(parent)} ${tab.name}`,
-                displayName: tab.name,
-                category: SEARCH_TAB_CATEGORY,
-                parentName: displayNameOf(parent),
-                href: tab.href,
-                itemType: parent.itemType,
-                searchKeywords: tab.searchKeywords,
-                disabledReason: parent.disabledReason,
-                record: parent.record,
-            }))
-    )
-}
-
-/** Most recently viewed first. Items never viewed go last, by name. */
-const byLastViewed = (a: SearchItem, b: SearchItem): number => {
-    if (!a.lastViewedAt && !b.lastViewedAt) {
-        return a.name.localeCompare(b.name)
-    }
-    if (!a.lastViewedAt) {
-        return 1
-    }
-    if (!b.lastViewedAt) {
-        return -1
-    }
-    return new Date(b.lastViewedAt).getTime() - new Date(a.lastViewedAt).getTime()
-}
-
-/** Max starred shortcuts shown in quick search (folders excluded). */
-export const STARRED_LIMIT = 20
-
-/**
- * Lean projection of SETTINGS_MAP for search. The full map statically imports every
- * settings component (the whole configuration UI graph), so it is loaded dynamically
- * on mount and only the searchable metadata is kept.
- */
-export interface SettingsSectionSummary {
-    id: SettingSection['id']
-    level: SettingSection['level']
-    titleString: string | null
-    hideFromNavigation?: boolean
-    flag?: SettingSection['flag']
-    to?: string
-    keywords?: string[]
-    settings: {
-        id: string
-        hasTitle: boolean
-        titleString: string | null
-        descriptionString: string | null
-        keywords?: string[]
-        flag?: SettingSection['flag']
-    }[]
-}
+const summarizeCommandKSettingsSections = (
+    sections: SettingSection[],
+    gates: SettingsVisibilityGates
+): CommandKSettingsSection[] =>
+    visibleSettingsSections(sections, gates)
+        .filter((section) => !section.hideFromNavigation)
+        .map((section) => ({
+            id: section.id,
+            level: section.level === 'environment' ? 'project' : section.level,
+            titleString: getTitleText(section.title) || null,
+            to: section.to,
+            keywords: section.keywords,
+            settings: section.settings
+                .filter((setting) => !!setting.title && isSettingVisible(setting, gates))
+                .map((setting) => ({
+                    id: setting.id,
+                    titleString: getTitleText(setting.title) || null,
+                    descriptionString:
+                        setting.searchDescription ??
+                        (typeof setting.description === 'string' ? setting.description : null),
+                    keywords: setting.keywords,
+                })),
+        }))
 
 export interface SearchListsLogicProps {
     /** The command palette runs `onSelect` items, so it gets rows other search surfaces cannot use. */
@@ -124,19 +95,29 @@ export interface searchListsLogicValues {
     billingEntryUrl: string | null // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     organizationIntegrations: IntegrationType[] | null // organizationIntegrationsLogic
+    currentOrganization: OrganizationType | null // organizationLogic
+    isAdminOrOwner: boolean | null // organizationLogic
+    isCloudOrDev: boolean | undefined // preflightLogic
     isDev: boolean | undefined // preflightLogic
+    preflight: PreflightStatus | null // preflightLogic
     cachedStarred: FileSystemEntry[] // projectTreeDataLogic
     treeGroupItems: FileSystemImport[] // projectTreeDataLogic
     sceneLogViewsByRef: Record<string, string> // recentItemsModel
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    actionItems: SearchItem[]
+    commandKSettingsItems: SearchItem[]
     dataManagementItems: SearchItem[]
+    hasOrganizationIntegrations: boolean
     healthItems: SearchItem[]
-    miscItems: SearchItem[]
     newItems: SearchItem[]
     peopleItems: SearchItem[]
     productsItems: SearchItem[]
     settingsItems: SearchItem[]
+    settingsMap: SettingSection[]
     settingsSections: SettingsSectionSummary[]
+    showTerminal: boolean
+    showUnreleased: boolean
     starredItems: SearchItem[]
 }
 
@@ -145,6 +126,9 @@ export interface searchListsLogicActions {
     toggleTerminal: () => {
         value: true
     } // terminalDockLogic
+    setSettingsMap: (sections: SettingSection[]) => {
+        sections: SettingSection[]
+    }
     setSettingsSections: (sections: SettingsSectionSummary[]) => {
         sections: SettingsSectionSummary[]
     }
@@ -154,37 +138,41 @@ export interface searchListsLogicActions {
 export interface searchListsLogicMeta {
     key: 'command-palette' | 'page'
     __keaTypeGenInternalSelectorTypes: {
+        showUnreleased: (isDev: boolean | undefined, user: UserType | null) => boolean
+        showTerminal: (featureFlags: FeatureFlagsSet, arg: boolean) => boolean
+        hasOrganizationIntegrations: (organizationIntegrations: IntegrationType[] | null) => boolean
         starredItems: (cachedStarred: FileSystemEntry[]) => SearchItem[]
         productsItems: (
             featureFlags: FeatureFlagsSet,
-            isDev: boolean | undefined,
-            user: UserType | null,
+            showUnreleased: boolean,
             sceneLogViewsByRef: Record<string, string>
         ) => SearchItem[]
         dataManagementItems: (
             featureFlags: FeatureFlagsSet,
-            isDev: boolean | undefined,
-            user: UserType | null,
+            showUnreleased: boolean,
             sceneLogViewsByRef: Record<string, string>
         ) => SearchItem[]
-        newItems: (
-            featureFlags: FeatureFlagsSet,
-            isDev: boolean | undefined,
-            user: UserType | null,
-            arg: boolean
-        ) => SearchItem[]
+        newItems: (featureFlags: FeatureFlagsSet, showUnreleased: boolean, arg: boolean) => SearchItem[]
         peopleItems: (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
-        miscItems: (
-            sceneLogViewsByRef: Record<string, string>,
-            featureFlags: FeatureFlagsSet,
-            arg: boolean
-        ) => SearchItem[]
+        actionItems: (showTerminal: boolean) => SearchItem[]
         settingsItems: (
-            featureFlags: FeatureFlagsSet,
-            organizationIntegrations: IntegrationType[] | null,
             settingsSections: SettingsSectionSummary[],
+            featureFlags: FeatureFlagsSet,
+            hasOrganizationIntegrations: boolean,
             billingEntryUrl: string | null
+        ) => SearchItem[]
+        commandKSettingsItems: (
+            settingsMap: SettingSection[],
+            featureFlags: FeatureFlagsSet,
+            isCloudOrDev: boolean | undefined,
+            preflight: PreflightStatus | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            currentOrganization: OrganizationType | null,
+            hasOrganizationIntegrations: boolean,
+            billingEntryUrl: string | null,
+            isAdminOrOwner: boolean | null,
+            user: UserType | null
         ) => SearchItem[]
     }
 }
@@ -211,7 +199,11 @@ export const searchListsLogic = kea<searchListsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             preflightLogic,
-            ['isDev'],
+            ['isDev', 'isCloudOrDev', 'preflight'],
+            teamLogic,
+            ['currentTeam'],
+            organizationLogic,
+            ['currentOrganization', 'isAdminOrOwner'],
             userLogic,
             ['user'],
             recentItemsModel,
@@ -226,6 +218,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
     })),
     actions({
         setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
+        setSettingsMap: (sections: SettingSection[]) => ({ sections }),
     }),
     reducers({
         settingsSections: [
@@ -234,480 +227,126 @@ export const searchListsLogic = kea<searchListsLogicType>([
                 setSettingsSections: (_, { sections }) => sections,
             },
         ],
+        settingsMap: [
+            [] as SettingSection[],
+            {
+                setSettingsMap: (_, { sections }) => sections,
+            },
+        ],
     }),
     selectors({
+        showUnreleased: [
+            (s) => [s.isDev, s.user],
+            (isDev: boolean | undefined, user: UserType | null): boolean => !!isDev || !!user?.is_staff,
+        ],
+        showTerminal: [
+            (s) => [s.featureFlags, (_, props: SearchListsLogicProps) => props.commandPalette],
+            (featureFlags: FeatureFlagsSet, commandPalette: boolean): boolean =>
+                commandPalette && !!featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL],
+        ],
+        hasOrganizationIntegrations: [
+            (s) => [s.organizationIntegrations],
+            (organizationIntegrations: IntegrationType[] | null): boolean => !!organizationIntegrations?.length,
+        ],
         starredItems: [
             (s) => [s.cachedStarred],
-            (cachedStarred: FileSystemEntry[]): SearchItem[] => {
-                return cachedStarred
-                    .filter((e) => e.type !== 'folder')
-                    .slice(0, STARRED_LIMIT)
-                    .map((item) =>
-                        fileSystemEntryToSearchItem(item, {
-                            id: `starred-${item.id}`,
-                            category: 'starred',
-                            searchKeywords: ['starred', 'favorite', 'favourite', 'shortcut'],
-                        })
-                    )
-            },
+            (cachedStarred: FileSystemEntry[]): SearchItem[] => starredSearchItems(cachedStarred),
         ],
         productsItems: [
-            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef],
             (
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                isDev: boolean | undefined,
-                user: null | import('~/types').UserType,
+                featureFlags: FeatureFlagsSet,
+                showUnreleased: boolean,
                 sceneLogViewsByRef: Record<string, string>
-            ): SearchItem[] => {
-                const allProducts = [
-                    ...getTreeItemsProducts(),
-                    ...getTreeItemsMetadata().filter((item) => !isDefinitionsTabHref(item.href)),
-                ]
-                const seenHrefs = new Set<string>()
-                const filteredProducts = allProducts.filter((product) => {
-                    if (!product.href || seenHrefs.has(product.href)) {
-                        return false
-                    }
-                    if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
-                        return false
-                    }
-                    if (!isFileSystemImportFlagEnabled(product, featureFlags)) {
-                        return false
-                    }
-                    seenHrefs.add(product.href)
-                    return true
-                })
-
-                const items: SearchItem[] = filteredProducts.map((product) => ({
-                    id: `product-${product.path}`,
-                    name: product.path,
-                    displayName: product.displayLabel ?? product.path,
-                    category: 'tools',
-                    productCategory: product.category || null,
-                    href: product.href || PLACEHOLDER_HREF,
-                    itemType: product.iconType || product.type || null,
-                    searchKeywords: [
-                        ...(product.category ? (CATEGORY_SEARCH_KEYWORDS[product.category] ?? []) : []),
-                        ...(product.searchKeywords ?? []),
-                    ],
-                    lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
-                    disabledReason: getProductAccessDisabledReason(product),
-                    record: {
-                        type: product.type || product.iconType,
-                        iconType: product.iconType,
-                        iconColor: product.iconColor,
-                    },
-                }))
-                items.push({
-                    id: 'product-activity',
-                    name: 'Activity',
-                    displayName: 'Activity',
-                    category: 'tools',
-                    productCategory: null,
-                    href: urls.activity(ActivityTab.ExploreEvents),
-                    icon: <IconClock />,
-                    itemType: null,
-                    lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
-                    record: {
-                        type: 'activity',
-                        iconType: undefined,
-                        iconColor: undefined,
-                    },
-                })
-                items.push(...toSearchTabItems(items, filteredProducts, featureFlags))
-
-                return items.sort(byLastViewed)
-            },
+            ): SearchItem[] => productSearchItems(featureFlags, showUnreleased, sceneLogViewsByRef),
         ],
         dataManagementItems: [
-            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef],
             (
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                isDev: boolean | undefined,
-                user: null | import('~/types').UserType,
+                featureFlags: FeatureFlagsSet,
+                showUnreleased: boolean,
                 sceneLogViewsByRef: Record<string, string>
-            ): SearchItem[] => {
-                const allMetadata = getTreeItemsMetadata().filter((item) => isDefinitionsTabHref(item.href))
-                const filteredMetadata = allMetadata.filter((item) => {
-                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
-                        return false
-                    }
-                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
-                        return false
-                    }
-                    return true
-                })
-
-                const items: SearchItem[] = filteredMetadata.map((item) => ({
-                    id: `data-management-${item.path}`,
-                    name: item.path,
-                    displayName: item.path,
-                    category: 'data-management',
-                    productCategory: item.category || null,
-                    href: item.href || PLACEHOLDER_HREF,
-                    itemType: item.iconType || item.type || null,
-                    searchKeywords: item.searchKeywords,
-                    lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
-                    disabledReason: getProductAccessDisabledReason(item),
-                    record: {
-                        type: item.type || item.iconType,
-                        iconType: item.iconType,
-                        iconColor: item.iconColor,
-                    },
-                }))
-
-                items.push(...toSearchTabItems(items, filteredMetadata, featureFlags))
-
-                return items.sort(byLastViewed)
-            },
+            ): SearchItem[] => dataManagementSearchItems(featureFlags, showUnreleased, sceneLogViewsByRef),
         ],
         newItems: [
-            (s) => [s.featureFlags, s.isDev, s.user, (_, props: SearchListsLogicProps) => props.commandPalette],
-            (
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                isDev: boolean | undefined,
-                user: null | import('~/types').UserType,
-                commandPalette: boolean
-            ): SearchItem[] => {
-                const allNewItems = getTreeItemsNew()
-                const filteredItems = allNewItems.filter((item) => {
-                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
-                        return false
-                    }
-                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
-                        return false
-                    }
-                    return true
-                })
-
-                const items: SearchItem[] = filteredItems.map((item) => {
-                    // Format display name:
-                    // "Insight/Lifecycle" -> "New Lifecycle insight"
-                    // "Data/Destination" -> "New Destination" (no suffix for Data)
-                    const pathParts = item.path.split('/')
-                    let displayName: string
-                    if (pathParts.length > 1) {
-                        const suffix = pathParts[0].toLowerCase()
-                        // Don't append "data" suffix for data pipeline items
-                        displayName =
-                            suffix === 'data'
-                                ? `New ${pathParts.slice(1).join(' ')}`
-                                : `New ${pathParts.slice(1).join(' ')} ${suffix}`
-                    } else {
-                        displayName = `New ${item.path}`
-                    }
-
-                    return {
-                        id: `new-${item.path}`,
-                        name: displayName,
-                        displayName,
-                        category: 'create',
-                        productCategory: item.category || null,
-                        href: item.href || PLACEHOLDER_HREF,
-                        itemType: item.iconType || item.type || null,
-                        hiddenSearchText: [displayName, item.path, item.type, item.iconType].filter(Boolean).join(' '),
-                        record: {
-                            type: item.type || item.iconType,
-                            iconType: item.iconType,
-                            iconColor: item.iconColor,
-                        },
-                    }
-                })
-
-                // Blank SQL query in a new browser tab (inheriting the active warehouse connection when
-                // triggered from within the SQL editor). Scoped to the command palette: it relies on
-                // onSelect + newInternalTab, and only the 'command' Search surface honors onSelect —
-                // the new-tab scene and AI-first homepage are href-only and would render a dead item.
-                if (commandPalette) {
-                    items.push({
-                        id: 'new-sql-query-tab',
-                        name: 'New SQL query',
-                        displayName: 'New SQL query',
-                        category: 'create',
-                        productCategory: null,
-                        itemType: 'insight/hog',
-                        searchKeywords: ['sql', 'hogql', 'query', 'blank sql', 'new tab'],
-                        record: { type: 'insight', iconType: 'insight/hog' },
-                        onSelect: () => {
-                            const onSqlEditor =
-                                removeProjectIdIfPresent(router.values.location.pathname) === urls.sqlEditor()
-                            const connectionId = onSqlEditor ? router.values.hashParams?.c : undefined
-                            newInternalTab(urls.sqlEditor(connectionId ? { connectionId } : {}))
-                        },
-                    })
-                }
-
-                return items
-            },
+            (s) => [s.featureFlags, s.showUnreleased, (_, props: SearchListsLogicProps) => props.commandPalette],
+            (featureFlags: FeatureFlagsSet, showUnreleased: boolean, commandPalette: boolean): SearchItem[] =>
+                newSearchItems(featureFlags, showUnreleased, commandPalette),
         ],
         peopleItems: [
             (s) => [s.treeGroupItems, s.sceneLogViewsByRef],
-            (
-                treeGroupItems: import('~/queries/schema/schema-general').FileSystemImport[],
-                sceneLogViewsByRef: Record<string, string>
-            ): SearchItem[] => {
-                const combined = [...getDefaultTreePersons(), ...treeGroupItems]
-                return combined.map((item) => ({
-                    id: `people-${item.path}`,
-                    name: item.path,
-                    displayName: item.path,
-                    category: 'people',
-                    productCategory: item.category || null,
-                    href: item.href || PLACEHOLDER_HREF,
-                    itemType: item.iconType || item.type || null,
-                    lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
-                    record: {
-                        type: item.type || item.iconType,
-                        iconType: item.iconType,
-                        iconColor: item.iconColor,
-                    },
-                }))
-            },
+            (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>): SearchItem[] =>
+                peopleSearchItems(treeGroupItems, sceneLogViewsByRef),
         ],
         healthItems: [
             (s) => [s.sceneLogViewsByRef],
-            (sceneLogViewsByRef: Record<string, string>): SearchItem[] => [
-                {
-                    id: 'health-pipeline-status',
-                    name: 'Pipeline status',
-                    displayName: 'Pipeline status',
-                    category: 'health',
-                    href: urls.pipelineStatus(),
-                    itemType: 'pipeline_status',
-                    lastViewedAt: sceneLogViewsByRef['PipelineStatus'] ?? null,
-                    record: { type: 'pipeline_status', iconType: 'pipeline_status' },
-                },
-                {
-                    id: 'health-sdk-health',
-                    name: 'SDK health',
-                    displayName: 'SDK health',
-                    category: 'health',
-                    href: urls.sdkHealth(),
-                    itemType: 'sdk_health',
-                    lastViewedAt: sceneLogViewsByRef['SdkHealth'] ?? null,
-                    record: { type: 'sdk_health', iconType: 'sdk_health' },
-                },
-            ],
+            (sceneLogViewsByRef: Record<string, string>): SearchItem[] => healthSearchItems(sceneLogViewsByRef),
         ],
-        miscItems: [
-            (s) => [s.sceneLogViewsByRef, s.featureFlags, (_, props: SearchListsLogicProps) => props.commandPalette],
-            (
-                sceneLogViewsByRef: Record<string, string>,
-                featureFlags: FeatureFlagsSet,
-                commandPalette: boolean
-            ): SearchItem[] => [
-                ...(commandPalette && featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL]
-                    ? [
-                          {
-                              id: 'misc-toggle-terminal',
-                              name: 'Toggle terminal',
-                              displayName: 'Toggle terminal',
-                              category: 'misc',
-                              icon: <IconTerminal />,
-                              itemType: null,
-                              searchKeywords: ['terminal', 'shell', 'console'],
-                              onSelect: () => terminalDockLogic.actions.toggleTerminal(),
-                              record: { type: 'terminal' },
-                          },
-                      ]
-                    : []),
-                {
-                    id: 'misc-exports',
-                    name: 'Exports',
-                    displayName: 'Exports',
-                    category: 'misc',
-                    href: urls.exports(),
-                    icon: <IconDownload />,
-                    itemType: null,
-                    lastViewedAt: sceneLogViewsByRef['Exports'] ?? null,
-                    record: { type: 'exports' },
-                },
-                {
-                    id: 'misc-alerts',
-                    name: 'Alerts',
-                    displayName: 'Alerts',
-                    category: 'misc',
-                    href: urls.alerts(),
-                    icon: <IconBell />,
-                    itemType: null,
-                    lastViewedAt: sceneLogViewsByRef['SavedInsights'] ?? null,
-                    record: { type: 'alerts' },
-                },
-                {
-                    id: 'misc-subscriptions',
-                    name: 'Subscriptions',
-                    displayName: 'Subscriptions',
-                    category: 'misc',
-                    href: urls.subscriptions(),
-                    icon: <IconNotification />,
-                    itemType: null,
-                    lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
-                    record: { type: 'subscriptions' },
-                },
-                // The user's own tickets with PostHog. The Support product holds tickets from their customers.
-                {
-                    id: 'misc-my-tickets',
-                    name: 'Your tickets',
-                    displayName: 'Your tickets',
-                    category: 'misc',
-                    productCategory: 'PostHog support',
-                    href: urls.myTickets(),
-                    icon: <IconSupport />,
-                    itemType: 'my_tickets',
-                    searchKeywords: [
-                        'my tickets',
-                        'support tickets',
-                        'posthog support',
-                        'contact support',
-                        'support',
-                        'help',
-                    ],
-                    lastViewedAt: sceneLogViewsByRef['MyTickets'] ?? null,
-                    record: { type: 'my_tickets' },
-                },
-                {
-                    id: 'misc-logout',
-                    name: 'Log out',
-                    displayName: 'Log out',
-                    category: 'misc',
-                    icon: <IconLeave />,
-                    itemType: null,
-                    searchKeywords: ['logout', 'log out', 'sign out', 'signout', 'exit'],
-                    onSelect: () => userLogic.actions.logout(),
-                    record: { type: 'logout' },
-                },
-            ],
+        actionItems: [
+            (s) => [s.showTerminal],
+            (showTerminal: boolean): SearchItem[] =>
+                actionSearchItems(showTerminal ? () => terminalDockLogic.actions.toggleTerminal() : null),
         ],
         settingsItems: [
-            (s) => [s.featureFlags, s.organizationIntegrations, s.settingsSections, s.billingEntryUrl],
+            (s) => [s.settingsSections, s.featureFlags, s.hasOrganizationIntegrations, s.billingEntryUrl],
             (
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                organizationIntegrations: import('~/types').IntegrationType[] | null,
                 settingsSections: SettingsSectionSummary[],
+                featureFlags: FeatureFlagsSet,
+                hasOrganizationIntegrations: boolean,
                 billingEntryUrl: string | null
-            ): SearchItem[] => {
-                const checkFlag = (flagKey: Pick<Setting, 'flag'>['flag']): boolean =>
-                    matchesFlagDefinition(flagKey, featureFlags)
-
-                const items: SearchItem[] = []
-
-                // Skip project-level sections as they are duplicates of environment sections
-                const seenSectionIds = new Set<string>()
-
-                for (const section of settingsSections) {
-                    // Skip sections hidden from navigation (they are only accessible
-                    // from their product's own configuration page)
-                    if (section.hideFromNavigation) {
-                        continue
-                    }
-
-                    // Mirror sidebar gating: only surface organization integrations when any exist
-                    if (
-                        section.id === 'organization-integrations' &&
-                        (!organizationIntegrations || organizationIntegrations.length === 0)
-                    ) {
-                        continue
-                    }
-
-                    // Mirror the sidebar's billing gate. billingEntryUrl is null when the user has no
-                    // billing access, and for view-only members it points at Usage, which keeps them
-                    // off the admin-only Overview and the restricted state it renders first.
-                    let billingHref: string | null = null
-                    if (section.id === 'organization-billing') {
-                        if (!billingEntryUrl) {
-                            continue
-                        }
-                        billingHref = billingEntryUrl
-                    }
-
-                    // Map environment sections to project level
-                    const effectiveLevel = section.level === 'environment' ? 'project' : section.level
-                    const effectiveSectionId = (
-                        section.level === 'environment' ? section.id.replace('environment-', 'project-') : section.id
-                    ) as SettingSectionId
-
-                    // Filter by feature flag if required
-                    if (section.flag) {
-                        if (!checkFlag(section.flag as Pick<Setting, 'flag'>['flag'])) {
-                            continue
-                        }
-                    }
-
-                    // Skip duplicate project sections (environment sections take priority)
-                    if (seenSectionIds.has(effectiveSectionId)) {
-                        continue
-                    }
-                    seenSectionIds.add(effectiveSectionId)
-
-                    // Create a search item for each settings section
-                    const levelPrefix = toSentenceCase(effectiveLevel)
-
-                    const searchTerms = [
-                        ...(section.keywords ?? []),
-                        ...section.settings
-                            .filter((setting) => setting.hasTitle && checkFlag(setting.flag))
-                            .flatMap((setting) => [
-                                toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                                ...(setting.titleString ? [setting.titleString] : []),
-                                ...(setting.descriptionString ? [setting.descriptionString] : []),
-                                ...(setting.keywords ?? []),
-                            ]),
-                    ]
-
-                    // Create the display name for each settings section
-                    const displayName = section.titleString ?? toSentenceCase(section.id.replace(/[-]/g, ' '))
-
-                    const displayNameSuffix =
-                        displayName === 'General' || displayName === 'Danger zone' || displayName === 'Integrations'
-                            ? ` (${toSentenceCase(effectiveLevel)})`
-                            : ''
-
-                    items.push({
-                        id: `settings-${effectiveSectionId}`,
-                        name: `${levelPrefix}: ${displayName} (${searchTerms})`,
-                        displayName: `${displayName}${displayNameSuffix}`,
-                        category: 'settings',
-                        href: billingHref || section.to || urls.settings(effectiveSectionId),
-                        itemType: 'settings',
-                        record: {
-                            type: 'settings',
-                            level: effectiveLevel,
-                            sectionId: effectiveSectionId,
-                        },
-                    })
-                }
-
-                return items
-            },
+            ): SearchItem[] =>
+                settingsSearchItems(settingsSections, {
+                    isFlagEnabled: (flag) => matchesFlagDefinition(flag, featureFlags),
+                    hasOrganizationIntegrations,
+                    billingEntryUrl,
+                }),
+        ],
+        commandKSettingsItems: [
+            (s) => [
+                s.settingsMap,
+                s.featureFlags,
+                s.isCloudOrDev,
+                s.preflight,
+                s.currentTeam,
+                s.currentOrganization,
+                s.hasOrganizationIntegrations,
+                s.billingEntryUrl,
+                s.isAdminOrOwner,
+                s.user,
+            ],
+            (
+                settingsMap: SettingSection[],
+                featureFlags: FeatureFlagsSet,
+                isCloudOrDev: boolean | undefined,
+                preflight: PreflightStatus | null,
+                currentTeam: TeamType | TeamPublicType | null,
+                currentOrganization: OrganizationType | null,
+                hasOrganizationIntegrations: boolean,
+                billingEntryUrl: string | null,
+                isAdminOrOwner: boolean | null,
+                user: UserType | null
+            ): SearchItem[] =>
+                commandKSettingsSearchItems(
+                    summarizeCommandKSettingsSections(settingsMap, {
+                        featureFlags,
+                        isCloudOrDev,
+                        realm: preflight?.realm,
+                        currentTeam,
+                        currentOrganization,
+                        hasOrganizationIntegrations,
+                        billingEntryUrl,
+                        isAdminOrOwner,
+                        isStaff: !!user?.is_staff,
+                    }),
+                    billingEntryUrl
+                ),
         ],
     }),
     afterMount(({ actions }) => {
         import('~/scenes/settings/SettingsMap')
             .then(({ SETTINGS_MAP }) => {
-                actions.setSettingsSections(
-                    SETTINGS_MAP.map((section) => ({
-                        id: section.id,
-                        level: section.level,
-                        titleString: getTitleText(section.title) || null,
-                        hideFromNavigation: section.hideFromNavigation,
-                        flag: section.flag,
-                        to: section.to,
-                        keywords: section.keywords,
-                        settings: section.settings.map((setting) => ({
-                            id: setting.id,
-                            // A setting can render a title that getTitleText cannot read, such as a
-                            // whole component, and it must stay findable via its id token.
-                            // hasTitle preserves that distinction.
-                            hasTitle: !!setting.title,
-                            titleString: getTitleText(setting.title) || null,
-                            descriptionString:
-                                setting.searchDescription ??
-                                (typeof setting.description === 'string' ? setting.description : null),
-                            keywords: setting.keywords,
-                            flag: setting.flag,
-                        })),
-                    }))
-                )
+                actions.setSettingsSections(SETTINGS_MAP.map(summarizeSettingsSection))
+                actions.setSettingsMap(SETTINGS_MAP)
             })
             .catch((error) => {
                 console.error('Failed to load SETTINGS_MAP for settings search:', error)

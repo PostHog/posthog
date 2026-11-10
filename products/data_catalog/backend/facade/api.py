@@ -18,7 +18,7 @@ from ..logic.certifications import (
     revoke_certification,
 )
 from ..logic.drift import compute_drift
-from ..logic.execution import run_metric
+from ..logic.execution import MAX_METRIC_RUN_PAGES, run_metric
 from ..logic.metric_reads import (
     get_metric_summary,
     live_metric_ids,
@@ -33,6 +33,7 @@ from ..logic.metrics import (
     approve_metric,
     approved_metric_names_for_team,
     bulk_approve_metrics,
+    bulk_change_metric_owner,
     bulk_soft_delete_metrics,
     metrics_for_team,
     metrics_visible_to_user,
@@ -52,6 +53,7 @@ __all__ = [
     "BULK_SKIP_NOT_FOUND",
     "DESCRIPTION_TOO_LONG_MESSAGE",
     "MAX_DESCRIPTION_LENGTH",
+    "MAX_METRIC_RUN_PAGES",
     "METRIC_BULK_MAX",
     "METRIC_NAME_MAX_LENGTH",
     "HogQLMetricDefinition",
@@ -70,6 +72,7 @@ __all__ = [
     "approve_metric",
     "approved_metric_names_for_team",
     "bulk_approve_metrics",
+    "bulk_change_metric_owner",
     "bulk_soft_delete_metrics",
     "certification_target_name",
     "certifications_for_team",

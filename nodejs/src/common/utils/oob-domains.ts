@@ -56,6 +56,8 @@ function firstSightInWindow(key: string, now: number): boolean {
     return true
 }
 
+const MAX_DNS_NAME_LENGTH = 253
+
 // A host of letters, digits, dots, hyphens and underscores needs no IDNA pass, because
 // domainToASCII would only lowercase it.
 const PLAIN_HOST_RE = /^[A-Za-z0-9._-]+$/
@@ -89,6 +91,10 @@ export function matchedOobDomain(host: string | null | undefined): string | null
     if (!host || host.includes('@') || host.includes('/')) {
         return null
     }
+    if ((host.endsWith('.') ? host.length - 1 : host.length) > MAX_DNS_NAME_LENGTH) {
+        // A longer name never resolves, and a match keeps the host in the dedupe map and the log line.
+        return null
+    }
     const canonical = canonicalizeHost(host)
     if (canonical === null) {
         return null
@@ -97,34 +103,38 @@ export function matchedOobDomain(host: string | null | undefined): string | null
 }
 
 /**
- * Record a lookup of an out-of-band interaction domain, without refusing it.
+ * The listed out-of-band interaction domain this host belongs to, or null.
  *
  * These names resolve to ordinary public IPs, so every IP check passes them, while the lookup alone
- * confirms the path to whoever runs the collaborator. Detection only: this never throws and never
- * changes what the caller does. Call it before the resolve, so the later blocking phase is a small
- * change.
+ * confirms the path to whoever runs the collaborator. The caller refuses the host; this function
+ * only matches and records. Call it before the resolve, so no lookup reaches the collaborator.
  *
  * `context.teamId` is logged as `team_id`, which is the field the Python guards bind.
  */
-export function noteOobDomain(
+export function checkOobDomain(
     host: string | null | undefined,
     guard: OobGuard,
     context: Record<string, unknown> = {}
-): void {
+): string | null {
     if (!isCloud()) {
-        return
+        return null
     }
     try {
         const domain = matchedOobDomain(host)
         if (domain === null) {
-            return
+            return null
         }
         const { teamId, ...rest } = context
-        if (!firstSightInWindow(`${guard}\u0000${teamId ?? 'none'}\u0000${host}`, Date.now())) {
-            return
+        // The window gates the log line and nothing else. Every match is refused, including the
+        // ones whose line it suppresses.
+        if (firstSightInWindow(`${guard}\u0000${teamId ?? 'none'}\u0000${host}`, Date.now())) {
+            logger.info('security.oob_domain_seen', { ...rest, team_id: teamId ?? null, host, domain, guard })
         }
-        logger.info('security.oob_domain_seen', { ...rest, team_id: teamId ?? null, host, domain, guard })
+        return domain
     } catch (error) {
+        // A fault in the matcher must not fail the caller. The host goes on as it did before this
+        // list existed.
         logger.warn('security.oob_domain_check_failed', { host, guard, error })
+        return null
     }
 }

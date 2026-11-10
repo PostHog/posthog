@@ -130,7 +130,7 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
     implying nothing changed."""
     rows = (
         queryset.annotate(snapshot_version=KeyTextTransform("scanner_version", "scanner_snapshot"))
-        .exclude(snapshot_version=None)
+        .exclude(snapshot_version__isnull=True)
         .annotate(
             day=TruncDate("created_at"),
             # The whole snapshot, not just scanner_config, so every version-tracked field can be diffed.

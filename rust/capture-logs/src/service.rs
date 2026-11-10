@@ -1,6 +1,6 @@
 use crate::authorizer::{Authorizer, Signal};
 use crate::log_record::{default_max_past, KafkaLogRow};
-use crate::metric_record::{flatten_metric, KafkaMetricRow};
+use crate::metric_record::{extract_resource_attributes, flatten_metric, KafkaMetricRow};
 use crate::trace_record::KafkaTraceRow;
 use axum::{
     extract::Query,
@@ -14,9 +14,11 @@ use common_compression::{decompress_gzip_capped, has_gzip_magic_header, Compress
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+use opentelemetry_proto::tonic::metrics::v1::{metric::Data, Metric};
 use prost::Message;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 
@@ -308,6 +310,7 @@ pub struct Service {
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) firehose_max_request_body_size_bytes: usize,
     pub(crate) max_backfill_days: u32,
+    pub(crate) max_expanded_request_bytes: usize,
 }
 
 #[derive(Deserialize)]
@@ -328,6 +331,7 @@ impl Service {
         max_request_body_size_bytes: usize,
         firehose_max_request_body_size_bytes: usize,
         max_backfill_days: u32,
+        max_expanded_request_bytes: usize,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
@@ -335,6 +339,7 @@ impl Service {
             max_request_body_size_bytes,
             firehose_max_request_body_size_bytes,
             max_backfill_days,
+            max_expanded_request_bytes,
         })
     }
 }
@@ -387,6 +392,38 @@ pub(crate) fn resolve_backfill_window(
     Ok(TimeDelta::days(days as i64))
 }
 
+pub(crate) const ROW_OVERHEAD_BYTES: usize = 256;
+pub(crate) const ATTRIBUTE_OVERHEAD_BYTES: usize = 64;
+
+/// Every row copies its resource, so the body cap does not bound the rows a request builds.
+/// Handlers add up the size of the rows they build and reject the request past the limit.
+pub(crate) fn attributes_bytes(map: &HashMap<String, String>) -> usize {
+    map.iter()
+        .map(|(k, v)| k.len() + v.len() + ATTRIBUTE_OVERHEAD_BYTES)
+        .sum()
+}
+
+fn data_point_count(metric: &Metric) -> usize {
+    match &metric.data {
+        Some(Data::Gauge(d)) => d.data_points.len(),
+        Some(Data::Sum(d)) => d.data_points.len(),
+        Some(Data::Histogram(d)) => d.data_points.len(),
+        Some(Data::ExponentialHistogram(d)) => d.data_points.len(),
+        Some(Data::Summary(d)) => d.data_points.len(),
+        None => 0,
+    }
+}
+
+pub(crate) fn expansion_rejection(limit: usize) -> (StatusCode, Json<serde_json::Value>) {
+    counter!("capture_logs_expanded_request_rejected_total").increment(1);
+    (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        Json(json!({
+            "error": format!("Request expands to more than {limit} bytes of rows. Send fewer records per request.")
+        })),
+    )
+}
+
 pub(crate) fn decode_body_if_gzip_magic(
     body: Bytes,
     max_request_body_size_bytes: usize,
@@ -411,6 +448,18 @@ pub fn export_success_response(headers: &HeaderMap) -> Response {
     } else {
         Json(json!({})).into_response()
     }
+}
+
+// Forwarded unchecked, because only the logs consumer knows the team the token resolves to.
+const INTERNAL_LOGS_HTTP_HEADER: &str = "x-posthog-internal";
+const MAX_INTERNAL_LOGS_SIGNATURE_LEN: usize = 256;
+
+fn internal_logs_signature(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(INTERNAL_LOGS_HTTP_HEADER)?
+        .to_str()
+        .ok()
+        .filter(|signature| signature.len() <= MAX_INTERNAL_LOGS_SIGNATURE_LEN)
 }
 
 #[instrument(skip_all, fields(
@@ -480,6 +529,7 @@ pub async fn export_logs_http(
 
     let mut rows: Vec<KafkaLogRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
+    let mut expanded_bytes: usize = 0;
     for resource_logs in export_request.resource_logs {
         for scope_logs in resource_logs.scope_logs {
             for log_record in scope_logs.log_records {
@@ -498,6 +548,14 @@ pub async fn export_logs_http(
                         ));
                     }
                 };
+                expanded_bytes += ROW_OVERHEAD_BYTES
+                    + row.byte_count() as usize
+                    + row.service_name.len()
+                    + (row.resource_attributes.len() + row.attributes.len())
+                        * ATTRIBUTE_OVERHEAD_BYTES;
+                if expanded_bytes > service.max_expanded_request_bytes {
+                    return Err(expansion_rejection(service.max_expanded_request_bytes));
+                }
                 if was_overridden {
                     timestamps_overridden += 1;
                 }
@@ -515,6 +573,7 @@ pub async fn export_logs_http(
             body.len() as u64,
             timestamps_overridden,
             backfill_params.backfill_days,
+            internal_logs_signature(&headers),
         )
         .await
     {
@@ -634,6 +693,7 @@ pub async fn export_traces_http(
 
     let mut rows: Vec<KafkaTraceRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
+    let mut expanded_bytes: usize = 0;
     for resource_spans in export_request.resource_spans {
         for scope_spans in resource_spans.scope_spans {
             for span in scope_spans.spans {
@@ -651,6 +711,13 @@ pub async fn export_traces_http(
                         ));
                     }
                 };
+                expanded_bytes += ROW_OVERHEAD_BYTES
+                    + row.bytes_uncompressed.unwrap_or(0).max(0) as usize
+                    + (row.resource_attributes.len() + row.attributes.len())
+                        * ATTRIBUTE_OVERHEAD_BYTES;
+                if expanded_bytes > service.max_expanded_request_bytes {
+                    return Err(expansion_rejection(service.max_expanded_request_bytes));
+                }
                 if was_overridden {
                     timestamps_overridden += 1;
                 }
@@ -772,10 +839,26 @@ pub async fn export_metrics_http(
 
     let mut rows: Vec<KafkaMetricRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
+    let mut expanded_bytes: usize = 0;
 
     for resource_metrics in &export_request.resource_metrics {
+        let resource_bytes = ROW_OVERHEAD_BYTES
+            + attributes_bytes(&extract_resource_attributes(
+                resource_metrics.resource.as_ref(),
+            ));
         for scope_metrics in &resource_metrics.scope_metrics {
             for metric in &scope_metrics.metrics {
+                // flatten_metric converts the resource even for a metric with no data points.
+                expanded_bytes = expanded_bytes
+                    .saturating_add(
+                        data_point_count(metric)
+                            .max(1)
+                            .saturating_mul(resource_bytes),
+                    )
+                    .saturating_add(metric.encoded_len());
+                if expanded_bytes > service.max_expanded_request_bytes {
+                    return Err(expansion_rejection(service.max_expanded_request_bytes));
+                }
                 let (metric_rows, overridden) = match flatten_metric(
                     metric.clone(),
                     resource_metrics.resource.as_ref(),
@@ -909,6 +992,33 @@ mod tests {
             let window = resolve_backfill_window(Some(days), ceiling);
 
             assert!(window.is_err(), "{case}");
+        }
+    }
+
+    #[test]
+    fn internal_logs_signature_forwards_only_a_bounded_header() {
+        let at_cap = "a".repeat(MAX_INTERNAL_LOGS_SIGNATURE_LEN);
+        let over_cap = "a".repeat(MAX_INTERNAL_LOGS_SIGNATURE_LEN + 1);
+        for (case, value, expected) in [
+            (
+                "a signature",
+                Some("v1.hog_flow.abc"),
+                Some("v1.hog_flow.abc"),
+            ),
+            (
+                "a signature at the cap",
+                Some(at_cap.as_str()),
+                Some(at_cap.as_str()),
+            ),
+            ("a signature over the cap", Some(over_cap.as_str()), None),
+            ("no header", None, None),
+        ] {
+            let mut headers = HeaderMap::new();
+            if let Some(value) = value {
+                headers.insert(INTERNAL_LOGS_HTTP_HEADER, value.parse().unwrap());
+            }
+
+            assert_eq!(internal_logs_signature(&headers), expected, "{case}");
         }
     }
 

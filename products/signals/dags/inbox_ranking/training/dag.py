@@ -10,14 +10,18 @@ assets run on the same daily partition as the dataset dag and write under the da
 the training history and the Temporal workers cannot reach it, so the asset copies the models the
 sweep needs into the deployment's own object store and writes a manifest naming them
 (`serving/manifest.json`, `serving/models/<key>/`). The manifest is the dag's serving decision:
-which models a pass scores, and which of them the inbox would order on. Only
-`inbox_ranking_promote_job` (`training/promote.py`) writes `served.json`, and a person runs it.
-The `<name>/champion.json` objects that the retired automatic promotion wrote stay in place, and
-the manifest still reads them for the cross-family role.
+which models a pass scores, and which of them the inbox would order on. Two paths write
+`served.json`, both through `write_served_pointer`: the publish itself, which every
+`INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS` serves the newest version of the served recipe that
+passed the promotion gate, and `inbox_ranking_promote_job` (`training/promote.py`), which a person
+runs to switch recipe or roll back. The automatic step never changes `model_name`. The
+`<name>/champion.json` objects that the retired per-family promotion wrote stay in place, and the
+manifest still reads them for the cross-family role.
 
 This module also holds the plumbing the `nn` trainer shares: snapshot loading, the recipe check
 and `decide_family_champion`, which records each family's promotion decision against the served
 model of its own name, graded on the candidate's holdout through the incumbent's train-only fit.
+The decision is saved next to the candidate as `promotion.json`, where the automatic step reads it.
 
 Two further assets grade the served models on data no example covers. `inbox_ranking_served_scores`
 (`training/served.py`) reads the scoring sweep's live scores of every report born on D, one row set
@@ -36,7 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import dagster
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from posthog import settings
 from posthog.dataclasses import frozen
@@ -44,12 +48,16 @@ from posthog.storage import object_storage
 
 from products.signals.backend.ranking.features import FEATURE_SETS
 from products.signals.backend.ranking.model_contract import model_mismatch, trained_head_files
-from products.signals.backend.ranking.overrides import read_ranking_overrides
+from products.signals.backend.ranking.overrides import MODEL_KEY_PATTERN, RankingOverrides, read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import (
+    PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
+    PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY,
+    USER_VECTORS_SCHEMA_VERSION_METADATA_KEY,
     ServingManifest,
     model_key,
     serving_manifest_key,
     serving_project_vectors_key,
+    serving_user_vectors_key,
 )
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
@@ -65,7 +73,16 @@ from products.signals.dags.inbox_ranking.common import (
     serving_mirror_storage,
     skip_unconfigured,
 )
-from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, PROJECT_VECTORS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
+    STATE_TABLE,
+    USER_VECTORS_TABLE,
+)
+from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_VECTORS_SCHEMA_VERSION,
+)
 from products.signals.dags.inbox_ranking.training.examples import (
     BASE_STATE_COLUMNS,
     PROVENANCE_LABEL_COLUMNS,
@@ -85,11 +102,17 @@ from products.signals.dags.inbox_ranking.training.heads import (
     HEADS_BY_HORIZON,
     HEADS_BY_NAME,
 )
-from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
+from products.signals.dags.inbox_ranking.training.promotion import (
+    PromotionDecision,
+    auto_promotion_candidate,
+    decide_promotion,
+)
 from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, recipe_mismatch
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, ManifestDecision, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
+    MirrorPublication,
     capture_training_events,
+    model_promoted_event,
     promotion_event,
     serving_manifest_event,
     unseen_calibration_events,
@@ -117,6 +140,7 @@ MODELS_TABLE = "inbox_ranking_models"
 CHAMPION_FILE = "champion.json"
 SERVED_FILE = "served.json"
 METADATA_FILE = "metadata.json"
+PROMOTION_FILE = "promotion.json"
 
 # Label columns the heads read (plus the provenance inputs); everything else stays on disk.
 _LABEL_COLUMNS = (
@@ -203,6 +227,99 @@ def _put_json(client, bucket: str, key: str, payload: dict[str, Any]) -> None:
 def read_served_pointer(client, bucket: str, prefix: str) -> dict[str, Any] | None:
     """The `served.json` record, or None before the first promotion."""
     return _read_json_if_exists(client, bucket, served_object_key(prefix))
+
+
+class PromotionRefused(ValueError):
+    pass
+
+
+def promotable_model(client, bucket: str, prefix: str, key: str) -> dict[str, Any]:
+    """The metadata of the model `key` names. Raises `PromotionRefused` when the sweep could not
+    serve it with every head the inbox reads."""
+    if not MODEL_KEY_PATTERN.match(key):
+        raise PromotionRefused(f"{key!r} is not a `<model_name>@<YYYY-MM-DD>` model key")
+    try:
+        metadata, reason = _pin_metadata(client, bucket, prefix, key)
+    except ClientError as error:
+        raise PromotionRefused(f"could not read {key}: {error!r}") from error
+    if metadata is None:
+        raise PromotionRefused(f"{key} cannot be served: {reason}")
+    missing_heads = sorted(set(HEADS_BY_NAME) - set(trained_head_files(metadata, HEADS_BY_NAME)))
+    if missing_heads:
+        raise PromotionRefused(f"{key} has no model for the heads {', '.join(missing_heads)}")
+    return metadata
+
+
+def served_pointer(
+    metadata: Mapping[str, Any],
+    *,
+    reason: str,
+    previous: Mapping[str, Any] | None,
+    run_id: str,
+    promoted_at: datetime.datetime,
+    auto: bool,
+) -> dict[str, Any]:
+    return {
+        "model_key": model_key(metadata["model_name"], metadata["model_version"]),
+        "model_name": metadata["model_name"],
+        "model_version": metadata["model_version"],
+        "promoted_at": promoted_at.isoformat(),
+        "reason": reason,
+        "previous_key": (previous or {}).get("model_key"),
+        "run_id": run_id,
+        "auto": auto,
+    }
+
+
+def write_served_pointer(
+    context: RunContext,
+    client,
+    bucket: str,
+    prefix: str,
+    metadata: Mapping[str, Any],
+    *,
+    reason: str,
+    previous: Mapping[str, Any] | None,
+    partition_key: str,
+    run_id: str,
+    promoted_at: datetime.datetime,
+    auto: bool,
+) -> dict[str, Any]:
+    """Point `served.json` at the model `metadata` describes and capture the promoted event. The
+    automatic step and the promote job both write through here, so the pointer and the event have
+    one shape. `metadata` must already have passed `promotable_model`."""
+    pointer = served_pointer(
+        metadata, reason=reason, previous=previous, run_id=run_id, promoted_at=promoted_at, auto=auto
+    )
+    _put_json(client, bucket, served_object_key(prefix), pointer)
+    context.log.info(
+        f"served.json now names {pointer['model_key']} (was {pointer['previous_key']}, auto={auto}): {reason}"
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            model_promoted_event(
+                model_key=pointer["model_key"],
+                previous_key=pointer["previous_key"],
+                reason=reason,
+                run_id=run_id,
+                auto=auto,
+            )
+        ],
+        timestamp=promoted_at,
+    )
+    return pointer
+
+
+def promotion_record(decision: PromotionDecision, incumbent_key: str | None) -> dict[str, Any]:
+    return {
+        "would_promote": decision.promote,
+        "reason": decision.reason,
+        "gates_passed": decision.gates_passed,
+        "skipped_heads": list(decision.skipped_heads),
+        "incumbent_key": incumbent_key,
+    }
 
 
 def previous_recipe_metadata(
@@ -313,8 +430,8 @@ def decide_family_champion(
     grade_champion: Callable[[Mapping[str, Any]], dict[str, HoldoutGrade]],
 ) -> dict[str, dagster.MetadataValue] | None:
     """One family's promotion decision against the served model of its name, or None when the
-    family has no candidate for the partition. The decision is recorded and never written to a
-    pointer.
+    family has no candidate for the partition. The decision is saved as the candidate's
+    `promotion.json` and never written to a pointer: the daily serving publish reads it later.
 
     `grade_champion` grades the incumbent's train-only fit on the candidate's holdout, in the
     family's own learner. Every family shares the rest, so one rule decides every family.
@@ -348,9 +465,16 @@ def decide_family_champion(
         champion_grades=champion_grades,
         min_holdout_positives={name: head.min_holdout_positives for name, head in HEADS_BY_NAME.items()},
     )
+    incumbent_key = model_key(champion["model_name"], champion["model_version"]) if champion is not None else None
+    _put_json(
+        client,
+        bucket,
+        model_object_key(prefix, family.name, partition_key, PROMOTION_FILE),
+        promotion_record(decision, incumbent_key),
+    )
     context.log.info(
-        f"{family.name} promotion decision for dt={partition_key}: would promote={decision.promote} "
-        f"({decision.reason}); run inbox_ranking_promote_job to serve it"
+        f"{family.name} promotion decision for dt={partition_key} against {incumbent_key}: "
+        f"would promote={decision.promote} ({decision.reason})"
     )
 
     incumbent_champion_version = (champion or {}).get("model_version", "none")
@@ -398,16 +522,24 @@ class _ServingStore:
     # A cross-account bucket refuses a write that does not hand ownership to the bucket owner.
     acl: str | None = None
 
-    def write(self, key: str, content: str | bytes, content_type: str | None = None) -> None:
-        extras: dict[str, str] = {}
+    def write(
+        self,
+        key: str,
+        content: str | bytes,
+        content_type: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        extras: dict[str, Any] = {}
         if content_type is not None:
             extras["ContentType"] = content_type
+        if metadata is not None:
+            extras["Metadata"] = metadata
         if self.acl is not None:
             extras["ACL"] = self.acl
         self.storage.write(bucket=self.bucket, key=key, content=content, extras=extras or None)
 
 
-@dagster.asset(name=SERVING_MANIFEST_ASSET, deps=[PROJECT_VECTORS_TABLE], **COMMON_ASSET_KWARGS)
+@dagster.asset(name=SERVING_MANIFEST_ASSET, deps=[PROJECT_VECTORS_TABLE, USER_VECTORS_TABLE], **COMMON_ASSET_KWARGS)
 def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> None:
     """Publish the models the scoring sweep serves, and the manifest naming them.
 
@@ -420,17 +552,36 @@ def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> No
     When an entry reads project vectors, the dt=D `inbox_project_vectors` day is copied the same
     way, and the manifest names it. Its `as_of` is the end of dt=D, so it is never newer than a
     report the sweep scores after this publish.
+
+    The dt=D `inbox_user_vectors` day is copied too, and the manifest names it in `user_vectors`. No
+    model reads it yet, so a missing day leaves the key out and never blocks the publish.
+
+    Before it reads `served.json`, the asset runs the automatic promotion step, so a promotion is
+    served by the manifest of the same run.
     """
     if skip_unconfigured(context):
         return
-    context.add_output_metadata(_publish_manifest(context, context.partition_key, context.run.run_id))
+    context.add_output_metadata(
+        _publish_manifest(context, context.partition_key, context.run.run_id, auto_promote=True)
+    )
 
 
-def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> dict[str, dagster.MetadataValue]:
+def _publish_manifest(
+    context: RunContext, partition_key: str, run_id: str, *, auto_promote: bool = False
+) -> dict[str, dagster.MetadataValue]:
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+    overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
+    auto_metadata = (
+        {
+            "auto_promotion": dagster.MetadataValue.text(
+                _auto_promote(context, client, bucket, prefix, partition_key, run_id, overrides)
+            )
+        }
+        if auto_promote
+        else {}
+    )
     served, served_reason = _served_model(client, bucket, prefix)
     served_family = served["model_name"] if served is not None else "none"
-    overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     pinned, dropped_pins = _pinned_models(client, bucket, prefix, overrides.pin)
     for key, reason in dropped_pins.items():
         context.log.warning(f"pinned model {key} dropped: {reason}")
@@ -498,7 +649,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
                 )
             ],
         )
-        return {"published": dagster.MetadataValue.bool(False), **pin_metadata}
+        return {"published": dagster.MetadataValue.bool(False), **pin_metadata, **auto_metadata}
 
     manifest = decision.manifest
     project_vectors_source = None
@@ -507,11 +658,22 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         manifest = manifest.model_copy(update={"project_vectors": serving_project_vectors_key(prefix, partition_key)})
     manifest_key = serving_manifest_key(prefix)
     primary = _ServingStore(storage=object_storage.object_storage_client(), bucket=settings.OBJECT_STORAGE_BUCKET)
+    user_vectors_key = serving_user_vectors_key(prefix, partition_key)
+    user_vectors_bytes = _publish_user_vectors(
+        context,
+        client,
+        bucket,
+        partition_object_key(prefix, USER_VECTORS_TABLE, partition_key),
+        user_vectors_key,
+        primary,
+    )
+    if user_vectors_bytes is not None:
+        manifest = manifest.model_copy(update={"user_vectors": user_vectors_key})
     publication = publish_serving_models(
         context, client, bucket, prefix, manifest, primary, project_vectors_source=project_vectors_source
     )
     context.log.info(f"published serving manifest {manifest.manifest_version} serving {manifest.served.key}")
-    mirror_published = _publish_mirror(context, client, bucket, prefix, manifest)
+    mirror = _publish_mirror(context, client, bucket, prefix, partition_key, manifest)
     capture_training_events(
         context,
         partition_key,
@@ -524,8 +686,8 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
                 reason=decision.reason,
                 copied_keys=publication.copied,
                 present_keys=publication.present,
-                bytes_copied=publication.bytes_copied,
-                mirror_published=mirror_published,
+                bytes_copied=publication.bytes_copied + (user_vectors_bytes or 0),
+                mirror=mirror,
                 recipe_hashes={
                     model_key(metadata["model_name"], metadata["model_version"]): metadata.get(RECIPE_HASH_KEY)
                     for metadata in (
@@ -540,7 +702,13 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         ],
     )
     mirror_metadata = (
-        {} if mirror_published is None else {"mirror_published": dagster.MetadataValue.bool(mirror_published)}
+        {}
+        if mirror is None
+        else {
+            "mirror_published": dagster.MetadataValue.bool(mirror.published),
+            "mirror_project_vectors_key": dagster.MetadataValue.text(mirror.project_vectors_key or ""),
+            "mirror_skip_reason": dagster.MetadataValue.text(mirror.skip_reason or ""),
+        }
     )
     return {
         "published": dagster.MetadataValue.bool(True),
@@ -552,11 +720,123 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         ),
         "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
         "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
-        "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
+        "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied + (user_vectors_bytes or 0)),
         "project_vectors_key": dagster.MetadataValue.text(manifest.project_vectors or ""),
+        "user_vectors_key": dagster.MetadataValue.text(manifest.user_vectors or ""),
         **pin_metadata,
         **mirror_metadata,
+        **auto_metadata,
     }
+
+
+def _auto_promote(
+    context: RunContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    run_id: str,
+    overrides: RankingOverrides,
+) -> str:
+    """Move `served.json` to the newest version of the served recipe that passed the promotion
+    gate, when the interval has passed. Returns what the step did.
+
+    The step never fails the publish: an S3 error skips it for the day and the manifest still
+    publishes with the current pointer. A first promotion and a recipe switch stay with a person.
+    """
+    try:
+        result, promotion = _auto_promotion_choice(client, bucket, prefix, partition_key, overrides)
+        if promotion is not None:
+            write_served_pointer(
+                context,
+                client,
+                bucket,
+                prefix,
+                promotion.metadata,
+                reason=promotion.reason,
+                previous=promotion.previous,
+                partition_key=partition_key,
+                run_id=run_id,
+                promoted_at=promotion.promoted_at,
+                auto=True,
+            )
+    except (BotoCoreError, ClientError, ValueError, KeyError) as error:
+        context.log.warning(f"auto promotion skipped for dt={partition_key}: {error!r}")
+        return f"not promoted: {error!r}"
+    context.log.info(f"auto promotion for dt={partition_key}: {result}")
+    return result
+
+
+@frozen
+class _AutoPromotionWrite:
+    # The `served.json` record the write replaces.
+    previous: dict[str, Any]
+    metadata: dict[str, Any]
+    reason: str
+    promoted_at: datetime.datetime
+
+
+def _auto_promotion_choice(
+    client, bucket: str, prefix: str, partition_key: str, overrides: RankingOverrides
+) -> tuple[str, _AutoPromotionWrite | None]:
+    """What the step does, and the pointer write when it promotes."""
+    pointer = read_served_pointer(client, bucket, prefix)
+    if pointer is None:
+        return f"no {SERVED_FILE}; the first promotion is inbox_ranking_promote_job", None
+    decisions = _promotion_decisions(
+        client, bucket, prefix, pointer["model_name"], pointer["model_version"], partition_key
+    )
+    now = datetime.datetime.now(datetime.UTC)
+    interval_days = settings.INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS
+    choice = auto_promotion_candidate(
+        pointer,
+        decisions,
+        partition_key=partition_key,
+        today=now.date(),
+        interval_days=interval_days,
+        held=overrides.hold_auto_promotion,
+        served_override=overrides.served,
+    )
+    if choice.model_version is None:
+        return f"not promoted: {choice.reason}", None
+    key = model_key(pointer["model_name"], choice.model_version)
+    try:
+        metadata = promotable_model(client, bucket, prefix, key)
+    except PromotionRefused as error:
+        return f"not promoted: {error}", None
+    # The manual promote job does not share this asset's pool, so it can write served.json while
+    # this step reads. Writing from the stale pointer would undo that person's choice, so the step
+    # reads the pointer again and skips when it changed.
+    if read_served_pointer(client, bucket, prefix) != pointer:
+        return f"not promoted: {SERVED_FILE} changed while the step ran", None
+    return f"promoted {key}", _AutoPromotionWrite(
+        previous=pointer, metadata=metadata, reason=choice.reason, promoted_at=now
+    )
+
+
+def _promotion_decisions(
+    client, bucket: str, prefix: str, model_name: str, served_version: str, partition_key: str
+) -> dict[str, dict[str, Any]]:
+    """The recorded `promotion.json` of each `model_name` version after `served_version` and before
+    `partition_key`, by version. A day without a candidate has no record."""
+    decisions: dict[str, dict[str, Any]] = {}
+    day = datetime.date.fromisoformat(partition_key) - datetime.timedelta(days=1)
+    served_day = datetime.date.fromisoformat(served_version)
+    while day > served_day:
+        version = day.isoformat()
+        try:
+            decision = _read_json_if_exists(
+                client, bucket, model_object_key(prefix, model_name, version, PROMOTION_FILE)
+            )
+        except ClientError as error:
+            # S3 answers 403, not 404, for a missing key when the role cannot list the prefix.
+            if error.response.get("Error", {}).get("Code") not in _ACCESS_DENIED_CODES:
+                raise
+            decision = None
+        if decision is not None:
+            decisions[version] = decision
+        day -= datetime.timedelta(days=1)
+    return decisions
 
 
 _ACCESS_DENIED_CODES = ("403", "AccessDenied")
@@ -650,6 +930,7 @@ def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str,
 
     The promote job, the served pointer, the pins and the recent and challenger reads all pass this
     check, so an experiment family is refused here once for every path."""
+    # nosemgrep: email-domain-after-last-at -- a model@version key, not an email address
     model_name, model_version = key.split("@", 1)
     if model_name in experiment_names(MODEL_FAMILIES):
         return None, (
@@ -675,38 +956,139 @@ def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str,
     return metadata, None
 
 
-def _publish_mirror(context: RunContext, client, bucket: str, prefix: str, manifest: ServingManifest) -> bool | None:
+# How many days before the publish partition the mirror region's project vectors day, and the
+# engagement export it was built from, may be. The mirror region builds day D after this region's
+# 05:00 UTC publish, so a mirror that keeps up names D-1.
+MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS = 3
+
+NO_FRESH_PROJECT_VECTORS = "no_fresh_project_vectors"
+UNKNOWN_SCHEMA_VERSION = "unknown_schema_version"
+STALE_ENGAGEMENT_EXPORT = "stale_engagement_export"
+MIRROR_PUBLISH_FAILED = "publish_failed"
+
+
+@frozen
+class _MirrorProjectVectors:
+    """The mirror region's project vectors day the mirror manifest names, or the newest day refused."""
+
+    key: str | None
+    date: str | None
+    engagement_export_date: str | None
+    # Why no day passes, or None when `key` names one.
+    refusal: str | None
+
+
+# The mirror region deploys apart from this one, so its day can carry the version before the
+# current one. The scorer skips a model that reads a kind the day has no rows for.
+_NAMEABLE_PROJECT_VECTORS_SCHEMA_VERSIONS = frozenset({"1", str(PROJECT_VECTORS_SCHEMA_VERSION)})
+
+
+def _project_vectors_refusal(metadata: Mapping[str, str], oldest: datetime.date) -> str | None:
+    if metadata.get(PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY) not in _NAMEABLE_PROJECT_VECTORS_SCHEMA_VERSIONS:
+        return UNKNOWN_SCHEMA_VERSION
+    try:
+        engagement_date = datetime.date.fromisoformat(metadata.get(PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY, ""))
+    except ValueError:
+        return STALE_ENGAGEMENT_EXPORT
+    return STALE_ENGAGEMENT_EXPORT if engagement_date < oldest else None
+
+
+def _mirror_project_vectors(mirror: _ServingStore, prefix: str, partition_key: str) -> _MirrorProjectVectors:
+    """The newest day within `MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS` of the partition that the mirror
+    region wrote its own project vectors for, and that this build can name.
+
+    Only object metadata is read, never the body: this region must not hold the mirror region's
+    per-team vectors. The mirror grant has no list permission, so a missing key answers 403, and
+    `head_object` reads both as absent.
+    """
+    end = datetime.date.fromisoformat(partition_key)
+    oldest = end - datetime.timedelta(days=MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS)
+    newest_refused: _MirrorProjectVectors | None = None
+    for offset in range(MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS + 1):
+        day = (end - datetime.timedelta(days=offset)).isoformat()
+        key = serving_project_vectors_key(prefix, day)
+        head = mirror.storage.head_object(bucket=mirror.bucket, file_key=key)
+        if head is None:
+            continue
+        metadata = head.get("Metadata") or {}
+        refusal = _project_vectors_refusal(metadata, oldest)
+        found = _MirrorProjectVectors(
+            key=None if refusal else key,
+            date=day,
+            engagement_export_date=metadata.get(PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY),
+            refusal=refusal,
+        )
+        if refusal is None:
+            return found
+        newest_refused = newest_refused or found
+    return newest_refused or _MirrorProjectVectors(
+        key=None, date=None, engagement_export_date=None, refusal=NO_FRESH_PROJECT_VECTORS
+    )
+
+
+def _publish_mirror(
+    context: RunContext, client, bucket: str, prefix: str, partition_key: str, manifest: ServingManifest
+) -> MirrorPublication | None:
     """Copy the same publish into the mirror store, if one is set. Returns None when no mirror is
-    set, otherwise whether the mirror now serves this manifest.
+    set, otherwise what the mirror now serves.
 
     The primary publish has already succeeded, so a mirror failure only logs: the region that
     trains keeps serving, and the mirror keeps its previous manifest and models.
 
     Project vectors are per-team data of this deployment's teams, so they never go to another
-    deployment's store. The mirror's manifest names none, and its sweep skips the models that read them.
-    A served model that reads them could not score there, so the mirror keeps its previous manifest.
+    deployment's store. When an entry reads them, the mirror's manifest names the mirror region's
+    own day instead (`_mirror_project_vectors`). That day is already in the mirror store, so
+    `publish_serving_models` gets no source and copies none. Without such a day the mirror's
+    manifest names none, and its sweep skips the models that read them. A served model that reads
+    them could not score there, so then the mirror keeps its previous manifest.
+
+    User vectors are per-user data of this deployment, so they never go to the mirror either, and
+    the mirror's manifest names none.
     """
     if not settings.INBOX_RANKING_SERVING_MIRROR_BUCKET:
         return None
-    if manifest.served.reads_project_vectors:
-        context.log.warning(
-            f"serving manifest {manifest.manifest_version} not mirrored: its served model reads project vectors"
-        )
-        return False
+    vectors: _MirrorProjectVectors | None = None
     try:
         mirror = _ServingStore(
             storage=serving_mirror_storage(),
             bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET,
             acl="bucket-owner-full-control",
         )
+        if manifest.project_vectors is not None:
+            vectors = _mirror_project_vectors(mirror, prefix, partition_key)
+        project_vectors_key = vectors.key if vectors else None
+        if manifest.served.reads_project_vectors and vectors is not None and project_vectors_key is None:
+            context.log.warning(
+                f"serving manifest {manifest.manifest_version} not mirrored: its served model reads project "
+                f"vectors and the mirror has no usable day ({vectors.refusal}, newest day {vectors.date})"
+            )
+            return _mirror_publication(vectors, skip_reason=vectors.refusal)
         publish_serving_models(
-            context, client, bucket, prefix, manifest.model_copy(update={"project_vectors": None}), mirror
+            context,
+            client,
+            bucket,
+            prefix,
+            manifest.model_copy(update={"project_vectors": project_vectors_key, "user_vectors": None}),
+            mirror,
         )
     except Exception as error:
         context.log.exception(f"serving manifest {manifest.manifest_version} not mirrored: {error!r}")
-        return False
-    context.log.info(f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}")
-    return True
+        return _mirror_publication(vectors, skip_reason=MIRROR_PUBLISH_FAILED)
+    context.log.info(
+        f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}"
+        f" with project vectors {project_vectors_key}"
+    )
+    return _mirror_publication(vectors, skip_reason=None)
+
+
+def _mirror_publication(vectors: _MirrorProjectVectors | None, skip_reason: str | None) -> MirrorPublication:
+    return MirrorPublication(
+        published=skip_reason is None,
+        project_vectors_key=vectors.key if vectors and skip_reason is None else None,
+        project_vectors_date=vectors.date if vectors else None,
+        engagement_export_date=vectors.engagement_export_date if vectors else None,
+        skip_reason=skip_reason,
+    )
 
 
 @frozen
@@ -781,6 +1163,39 @@ def _publish_project_vectors(
         raise dagster.Failure(f"project vectors {source} are missing in the dataset bucket; manifest not written")
     target.write(target_key, body)
     context.log.info(f"copied project vectors to {target.bucket}/{target_key}")
+    return len(body)
+
+
+def _publish_user_vectors(
+    context: RunContext,
+    client,
+    bucket: str,
+    source: str,
+    target_key: str,
+    target: _ServingStore,
+) -> int | None:
+    """Copy one day of user vectors to `target_key`, stamped with its schema version. Returns the
+    bytes moved, or None when the day is not in `target` after the call.
+
+    No model reads user vectors yet, so a missing day or a failed copy only logs, and the publish
+    goes on without them. A day already at the target is left alone, like a project vectors day.
+    """
+    try:
+        if target.storage.head_object(bucket=target.bucket, file_key=target_key) is not None:
+            return 0
+        body = _read_bytes_if_exists(client, bucket, source)
+        if body is None:
+            context.log.warning(f"user vectors {source} are missing in the dataset bucket; manifest names none")
+            return None
+        target.write(
+            target_key,
+            body,
+            metadata={USER_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(USER_VECTORS_SCHEMA_VERSION)},
+        )
+    except Exception as error:
+        context.log.exception(f"user vectors {source} not copied: {error!r}")
+        return None
+    context.log.info(f"copied user vectors to {target.bucket}/{target_key}")
     return len(body)
 
 

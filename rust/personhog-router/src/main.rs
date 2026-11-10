@@ -7,7 +7,7 @@ use envconfig::Envconfig;
 use k8s_awareness::K8sAwareness;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
+use personhog_common::grpc::{tracked_tcp_incoming_until, until_incoming_ends, GrpcMetricsLayer};
 use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
 use personhog_coordination::changelog::{
     keep_changelog_live, load_changelog_config, LiveChangelog, CHANGELOG_BOOT_POLL_INTERVAL,
@@ -253,14 +253,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             endpoints: config.etcd_endpoint_list(),
             prefix: config.etcd_prefix.clone(),
         };
-        let etcd_store = EtcdStore::connect(etcd_config)
+        let etcd_store = EtcdStore::connect_with_member_failover(etcd_config)
             .await
             .expect("Failed to connect to etcd");
         let store = Arc::new(PersonhogStore::new(etcd_store));
 
-        let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
-            .await
-            .expect("Failed to load the changelog config from etcd");
+        let boot_shutdown = changelog_handle
+            .as_ref()
+            .expect("changelog handle must be registered in leader mode")
+            .shutdown_token();
+        let Some(loaded) =
+            load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL, &boot_shutdown)
+                .await
+                .expect("Failed to load the changelog config from etcd")
+        else {
+            return Ok(());
+        };
         let num_partitions = loaded.partitions;
         tracing::info!(
             num_partitions,
@@ -438,7 +446,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
         };
-        let incoming = tracked_tcp_incoming(listener);
+        let incoming = tracked_tcp_incoming_until(listener, grpc_handle.shutdown_token());
 
         let proxy = RawProxyService::new(
             replica_backend,
@@ -461,7 +469,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .add_service(proxy.clone())
             .add_service(IdentityProxyService(proxy.clone()))
             .add_service(LifecycleProxyService(proxy))
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, until_incoming_ends())
             .await;
 
         if let Err(e) = result {

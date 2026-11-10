@@ -1,15 +1,48 @@
+from typing import TYPE_CHECKING
+
 from django.utils import timezone
 
 import posthoganalytics
+from drf_spectacular.extensions import OpenApiSerializerExtension
 from rest_framework import serializers
 
+from posthog.api.object_media_preview import visible_previews, with_preview_media
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
-from posthog.models import EventDefinition, ObjectMediaPreview
+from posthog.models import ObjectMediaPreview
 from posthog.models.organization import OrganizationMembership
 
+from products.event_definitions.backend.models import EventDefinition
+
 from ee.models.event_definition import EnterpriseEventDefinition
+
+if TYPE_CHECKING:
+    from drf_spectacular.openapi import AutoSchema
+    from drf_spectacular.utils import Direction
+
+
+class EnterpriseEventDefinitionSerializerExtension(OpenApiSerializerExtension):
+    """Documents `owner` as a user ID in request bodies, and as the user object that `to_representation` returns."""
+
+    target_class = "ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer"
+
+    def get_name(self, auto_schema: "AutoSchema", direction: "Direction") -> str | None:
+        # One component cannot describe both `owner` shapes. A PATCH body already gets its own "Patched"
+        # component, so only POST and PUT bodies need a name apart from the response.
+        if direction == "request" and not getattr(self.target, "partial", False):
+            return "EnterpriseEventDefinitionRequest"
+        return None
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema: dict = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        if direction == "response":
+            schema["properties"]["owner"] = {
+                "oneOf": [auto_schema.resolve_serializer(UserBasicSerializer, direction).ref, {"type": "null"}],
+                "readOnly": True,
+                "description": "The user responsible for the event, or null when it has no owner.",
+            }
+        return schema
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -53,6 +86,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_at",
             "verified_by",
             "hidden",
+            "scheduled_deletion_at",
             "enforcement_mode",
             "primary_property",
             # Action fields
@@ -65,6 +99,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "default_columns",
             "media_preview_urls",
         )
+        extra_kwargs = {"owner": {"help_text": "ID of the user responsible for the event. Null removes the owner."}}
         read_only_fields = [
             "id",
             "name",
@@ -74,6 +109,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "last_updated_at",
             "verified_at",
             "verified_by",
+            "scheduled_deletion_at",
             # Action fields
             "is_action",
             "action_id",
@@ -165,6 +201,10 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             validated_data["verified_by"] = None
             validated_data["verified_at"] = None
 
+        # Unhiding (directly or by verifying) cancels a scheduled delete, even if the event is hidden again later
+        if validated_data.get("hidden") is False:
+            validated_data["scheduled_deletion_at"] = None
+
         # Remove post_to_slack field - it exists on Action model but not EventDefinition
         validated_data.pop("post_to_slack", None)
 
@@ -214,9 +254,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         if not obj.id:
             return []
-        previews = (
-            ObjectMediaPreview.objects.filter(event_definition_id=obj.id)
-            .select_related("uploaded_media", "exported_asset")
-            .order_by("-updated_at")
+        previews = with_preview_media(ObjectMediaPreview.objects.filter(event_definition_id=obj.id)).order_by(
+            "-updated_at"
         )
-        return [p.media_url for p in previews if p.media_url]
+        return [p.media_url for p in visible_previews(previews, self.context.get("view")) if p.media_url]

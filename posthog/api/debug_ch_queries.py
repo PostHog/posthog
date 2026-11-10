@@ -32,15 +32,14 @@ from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
     SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.analytics_platform.backend.models import PreaggregationJob
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.facade import api as experiments_api
+from products.experiments.backend.facade.enums import PrecomputeSkipReason
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     BACKGROUND_WARMING_TRIGGERS as WEB_ANALYTICS_WARMING_TRIGGERS,
 )
@@ -188,6 +187,7 @@ _PRECOMPUTE_PRODUCTS: dict[str, dict[str, Any]] = {
         "eligible_live_query_types": (
             "web_overview_query",
             "web_overview_preaggregated_query",
+            "web_overview_dimensional_query",
             "web_overview_no_join_query",
             "web_overview_session_id_set_query",
             "stats_table_main_query",
@@ -202,6 +202,9 @@ _PRECOMPUTE_PRODUCTS: dict[str, dict[str, Any]] = {
             "stats_table_preaggregated_query",
             "stats_table_preaggregated_path_breakdown_query",
             "stats_table_preaggregated_entry_bounce_query",
+            "stats_table_dimensional_query",
+            "stats_table_dimensional_path_breakdown_query",
+            "stats_table_dimensional_entry_bounce_query",
             "web_goals_query",
             "web_vitals_path_breakdown_query",
         ),
@@ -286,7 +289,7 @@ class DebugCHQueries(viewsets.ViewSet):
         params = {
             "filter_value": filter_value,
             "team_id": team_id,
-            "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
+            "start_time": now() - timedelta(days=14),
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
         }
@@ -306,17 +309,14 @@ class DebugCHQueries(viewsets.ViewSet):
                     countIf(exception != '') AS exceptions,
                     avg(query_duration_ms) AS avg_response_time_ms
                 FROM (
-                    SELECT
-                        query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type,
-                        ProfileEvents, log_comment
+                    SELECT query_start_time, exception, query_duration_ms
                     FROM clusterAllReplicas(%(cluster)s, system, query_log)
                     WHERE
                         {filter_clause} AND
                         event_time > %(start_time)s AND
+                        type != 'QueryStart' AND
                         query NOT LIKE %(not_query)s AND
                         is_initial_query
-                    ORDER BY query_start_time DESC
-                    LIMIT 100
                     SETTINGS skip_unavailable_shards=1
                 )
                 GROUP BY hour
@@ -341,7 +341,7 @@ class DebugCHQueries(viewsets.ViewSet):
         params = {
             "filter_value": filter_value,
             "team_id": team_id,
-            "start_time": (datetime.now(UTC) - timedelta(days=14)).timestamp(),
+            "start_time": now() - timedelta(days=14),
             "cluster": CLICKHOUSE_CLUSTER,
         }
 
@@ -361,6 +361,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 WHERE
                     {filter_clause} AND
                     event_time > %(start_time)s AND
+                    type != 'QueryStart' AND
                     is_initial_query
 
                 SETTINGS skip_unavailable_shards=1
@@ -387,20 +388,26 @@ class DebugCHQueries(viewsets.ViewSet):
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
         }
-        limit_clause = ""
-
         if filter_key and filter_value:
             # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal _log_comment_filter
             where_clause = self._log_comment_filter(filter_key, filter_value)
             params["filter_value"] = filter_value
             params["team_id"] = team_id
-            limit_clause = "LIMIT 10"
+            query_limit = 10
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
             params["query"] = f"/* user_id:{request.user.pk} %"
-            params["start_time"] = (now() - relativedelta(minutes=10)).timestamp()
+            # Keep this a datetime. A Unix timestamp float renders as a bare number, and ClickHouse
+            # cannot use a number bound on event_time to skip granules, so every replica reads its
+            # whole query_log.
+            params["start_time"] = now() - relativedelta(minutes=10)
+            query_limit = 100
+        # A query writes at most two query_log rows (QueryStart and its end row), so twice as many
+        # rows as queries holds the newest query_limit queries.
+        params["row_limit"] = 2 * query_limit
+        params["query_limit"] = query_limit
 
-        # nosemgrep: clickhouse-fstring-param-audit - where_clause/limit_clause from internal builder
+        # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder
         response = sync_execute(
             f"""
             SELECT
@@ -422,13 +429,13 @@ class DebugCHQueries(viewsets.ViewSet):
                     query NOT LIKE %(not_query)s AND
                     is_initial_query
                 ORDER BY query_start_time DESC
-                LIMIT 100
+                LIMIT %(row_limit)s
 
                 SETTINGS skip_unavailable_shards=1
             )
             GROUP BY query_id
             ORDER BY query_start_time DESC
-            {limit_clause}
+            LIMIT %(query_limit)s
             """,
             params,
         )
@@ -509,31 +516,22 @@ class DebugCHQueries(viewsets.ViewSet):
                 .select_related("organization")
                 .order_by("organization__name", "name")
             )
-            # Batch-fetch precomputation configs for matched teams
-            configs_by_team = dict(
-                TeamExperimentsConfig.objects.filter(
-                    team__in=teams,
-                    experiment_precomputation_enabled=True,
-                ).values_list("team_id", "experiment_precomputation_enabled")
-            )
+            enabled_team_ids = experiments_api.list_precomputation_enabled_team_ids([team.id for team in teams])
             org_ids = {str(t.organization.id) for t in teams if t.organization}
             arr_by_org = self._fetch_org_arr(org_ids) if org_ids else {}
             return Response(
-                [
-                    self._serialize_precomputation_team(team, configs_by_team.get(team.id, False), arr_by_org)
-                    for team in teams
-                ]
+                [self._serialize_precomputation_team(team, team.id in enabled_team_ids, arr_by_org) for team in teams]
             )
 
         # Default: only teams with precomputation enabled
-        configs = list(
-            TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True)
-            .select_related("team", "team__organization")
-            .order_by("team__name")
+        teams = list(
+            Team.objects.filter(id__in=experiments_api.list_precomputation_enabled_team_ids())
+            .select_related("organization")
+            .order_by("name")
         )
-        org_ids = {str(c.team.organization.id) for c in configs if c.team.organization}
+        org_ids = {str(t.organization.id) for t in teams if t.organization}
         arr_by_org = self._fetch_org_arr(org_ids) if org_ids else {}
-        return Response([self._serialize_precomputation_team(config.team, True, arr_by_org) for config in configs])
+        return Response([self._serialize_precomputation_team(team, True, arr_by_org) for team in teams])
 
     def _update_precomputation(self, request) -> Response:
         team_id = request.data.get("team_id")
@@ -547,12 +545,7 @@ class DebugCHQueries(viewsets.ViewSet):
         except (Team.DoesNotExist, TypeError, ValueError):
             raise exceptions.NotFound(f"Team {team_id} not found.")
 
-        config = get_or_create_team_extension(team, TeamExperimentsConfig)
-        config.experiment_precomputation_enabled = enabled
-        # A human toggling precomputation must stick: the auto-enrollment job only
-        # writes when precomputation_enabled_set_by is null or "auto".
-        config.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
-        config.save(update_fields=["experiment_precomputation_enabled", "precomputation_enabled_set_by"])
+        experiments_api.set_precomputation_enabled(team_id=team.id, enabled=enabled)
 
         org_id = str(team.organization.id) if team.organization else None
         arr_by_org = self._fetch_org_arr({org_id}) if org_id else {}
@@ -630,8 +623,14 @@ class DebugCHQueries(viewsets.ViewSet):
                 raise exceptions.ValidationError("experiment_id must be a positive integer.")
 
         metric_type_filter = request.query_params.get("metric_type") or None
-        if metric_type_filter is not None and metric_type_filter not in {"mean", "funnel", "ratio", "retention"}:
-            raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention.")
+        if metric_type_filter is not None and metric_type_filter not in {
+            "mean",
+            "funnel",
+            "ratio",
+            "retention",
+            "quantile",
+        }:
+            raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention, quantile.")
 
         funnel_order_type_filter = request.query_params.get("funnel_order_type") or None
         if funnel_order_type_filter is not None:

@@ -5,13 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/data_warehouse/api'
 import hooks_viewGet from '@/tools/dataWarehouse/viewGetHooks'
 import { withToolHooks } from '@/tools/tool-hooks'
-import {
-    withPostHogUrl,
-    pickResponseFields,
-    withInformationalResponse,
-    type WithPostHogUrl,
-    type WithInformationalResponse,
-} from '@/tools/tool-utils'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ManagedWarehouseMetricHistoryGetSchema = () => {
@@ -457,6 +451,32 @@ const viewMaterialize = (): ToolBase<ReturnType<typeof ViewMaterializeSchema>, u
     },
 })
 
+const ViewResumeSchema = () => {
+    const WarehouseSavedQueriesResumeCreateBody = orvalSchemas.WarehouseSavedQueriesResumeCreateBody()
+    const WarehouseSavedQueriesResumeCreateParams = orvalSchemas.WarehouseSavedQueriesResumeCreateParams()
+    return WarehouseSavedQueriesResumeCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesResumeCreateBody.shape
+    )
+}
+
+const viewResume = (): ToolBase<ReturnType<typeof ViewResumeSchema>, WithPostHogUrl<Schemas.SavedQueryResume>> => ({
+    name: 'view-resume',
+    schema: ViewResumeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewResumeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.engine !== undefined) {
+            body['engine'] = params.engine
+        }
+        const result = await context.api.request<Schemas.SavedQueryResume>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/resume/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
+    },
+})
+
 const ViewRunSchema = () => {
     const WarehouseSavedQueriesRunCreateBody = orvalSchemas.WarehouseSavedQueriesRunCreateBody()
     const WarehouseSavedQueriesRunCreateParams = orvalSchemas.WarehouseSavedQueriesRunCreateParams()
@@ -476,6 +496,9 @@ const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, WithPostHogUrl<Sc
         }
         if (params.direction !== undefined) {
             body['direction'] = params.direction
+        }
+        if (params.engine !== undefined) {
+            body['engine'] = params.engine
         }
         const result = await context.api.request<Schemas.SavedQueryRunResponse>({
             method: 'POST',
@@ -719,70 +742,6 @@ const warehouseColumnAnnotationsPartialUpdate = (): ToolBase<
     },
 })
 
-const WarehouseTablesCreateSchema = () => {
-    const WarehouseTablesCreateBody = orvalSchemas.WarehouseTablesCreateBody()
-    return WarehouseTablesCreateBody.extend({
-        name: WarehouseTablesCreateBody.shape['name'].describe(
-            "Name the agent and the user will query this table by in HogQL. Pick a short snake_case name that describes the data (e.g. `orders`, `stripe_payouts`). It must be unique across the project's tables and views."
-        ),
-        format: WarehouseTablesCreateBody.shape['format'].describe(
-            'File format of the objects the pattern matches, one of CSV, CSVWithNames (a CSV whose first row is a header), Parquet, JSONEachRow (newline-delimited JSON), or Delta. Do not pass DeltaS3Wrapper, which PostHog uses for its own materialized views.'
-        ),
-        credential: WarehouseTablesCreateBody.shape['credential'].describe(
-            'Send only `access_key` and `access_secret`, the credentials for the bucket in `url_pattern`. The other fields are set by PostHog and are ignored on create.'
-        ),
-    })
-}
-
-const warehouseTablesCreate = (): ToolBase<
-    ReturnType<typeof WarehouseTablesCreateSchema>,
-    WithInformationalResponse<Schemas.Table>
-> => ({
-    name: 'warehouse-tables-create',
-    schema: WarehouseTablesCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseTablesCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.format !== undefined) {
-            body['format'] = params.format
-        }
-        if (params.url_pattern !== undefined) {
-            body['url_pattern'] = params.url_pattern
-        }
-        if (params.credential !== undefined) {
-            body['credential'] = params.credential
-        }
-        if (params.options !== undefined) {
-            body['options'] = params.options
-        }
-        const result = await context.api.request<Schemas.Table>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_tables/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, [
-            'id',
-            'name',
-            'hogql_name',
-            'format',
-            'url_pattern',
-            'created_via',
-            'columns',
-        ]) as typeof result
-        return withInformationalResponse(
-            filtered,
-            'warehouse-table-record',
-            "Use the returned columns only to describe the new table's schema to the user."
-        )
-    },
-})
-
 const WarehouseTablesRefreshSchemaCreateSchema = () => {
     const WarehouseTablesRefreshSchemaCreateParams = orvalSchemas.WarehouseTablesRefreshSchemaCreateParams()
     return WarehouseTablesRefreshSchemaCreateParams.omit({ project_id: true })
@@ -820,6 +779,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'view-get': viewGet,
     'view-list': viewList,
     'view-materialize': viewMaterialize,
+    'view-resume': viewResume,
     'view-run': viewRun,
     'view-run-history': viewRunHistory,
     'view-unmaterialize': viewUnmaterialize,
@@ -827,6 +787,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'warehouse-column-annotations-create': warehouseColumnAnnotationsCreate,
     'warehouse-column-annotations-list': warehouseColumnAnnotationsList,
     'warehouse-column-annotations-partial-update': warehouseColumnAnnotationsPartialUpdate,
-    'warehouse-tables-create': warehouseTablesCreate,
     'warehouse-tables-refresh-schema-create': warehouseTablesRefreshSchemaCreate,
 }

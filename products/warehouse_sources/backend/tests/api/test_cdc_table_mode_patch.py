@@ -9,6 +9,8 @@ Every external dependency (workflow trigger/cancel, schedule sync, CDC publicati
 mutation) is mocked. These tests only exercise the serializer + helper logic.
 """
 
+from contextlib import ExitStack
+
 import pytest
 from unittest import mock
 
@@ -21,7 +23,12 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import Team, User
 
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 pytestmark = [pytest.mark.django_db]
@@ -367,6 +374,7 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
             **schema.sync_type_config,
             "cdc_reset_pending": {"trigger": True},
             "cdc_snapshot_lane": "buffer",
+            "cdc_snapshot_position": 23803368,
         }
     )
     client.force_login(user)
@@ -389,6 +397,7 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
     schema.refresh_from_db()
     assert "cdc_reset_pending" not in schema.sync_type_config
     assert "cdc_snapshot_lane" not in schema.sync_type_config
+    assert "cdc_snapshot_position" not in schema.sync_type_config
     unpause.assert_called_once_with(str(schema.id))
 
 
@@ -622,3 +631,184 @@ def test_patch_cdc_table_mode_drop_target_allowed_when_team_over_billing_limit(t
     assert response.status_code == 200, response.content
     schema.refresh_from_db()
     assert schema.cdc_table_mode == "consolidated"
+
+
+@pytest.mark.parametrize(
+    ("old_mode", "patch", "expected_event", "expected_table_mode"),
+    [
+        ("consolidated", {"cdc_table_mode": "both"}, "data warehouse history enabled", "both"),
+        ("both", {"cdc_table_mode": "consolidated"}, "data warehouse history disabled", "both"),
+        ("cdc_only", {"sync_type": "full_refresh"}, "data warehouse history disabled", "cdc_only"),
+        ("cdc_only", {"cdc_table_mode": "both"}, None, None),
+        ("consolidated", {"cdc_table_mode": "consolidated"}, None, None),
+    ],
+)
+def test_patch_reports_history_enabled_and_disabled(
+    team, user, client: HttpClient, old_mode, patch, expected_event, expected_table_mode
+):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["facade_sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["pause_external_data_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["has_queued_batches"], return_value=False),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data=patch,
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    history_events = [
+        call.kwargs
+        for call in mock_capture.call_args_list
+        if str(call.kwargs.get("event", "")).startswith("data warehouse history")
+    ]
+    assert [event["event"] for event in history_events] == ([expected_event] if expected_event else [])
+    if expected_event:
+        assert history_events[0]["properties"]["schema_id"] == str(schema.id)
+        assert history_events[0]["properties"]["source_id"] == str(source.id)
+        assert history_events[0]["properties"]["table_mode"] == expected_table_mode
+
+
+_GET_S3_CLIENT = "products.data_warehouse.backend.facade.api.get_s3_client"
+
+
+def _history_table(schema: ExternalDataSchema, *, linked: bool = False) -> DataWarehouseTable:
+    table = DataWarehouseTable.objects.create(
+        team=schema.team,
+        name="postgres_orders_cdc",
+        format="DeltaS3Wrapper",
+        url_pattern="s3://bucket/orders_cdc",
+        external_data_source=schema.source,
+        options={"history_table": True},
+    )
+    if linked:
+        ExternalDataSchema.objects.filter(id=schema.id).update(table=table)
+    return table
+
+
+def _history_drop_mocks(*, queued: bool = False, workflow_running: bool = False) -> list:
+    return [
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane._workflow_is_running",
+            return_value=workflow_running,
+        ),
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["has_queued_batches"], return_value=queued),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch(_GET_S3_CLIENT, return_value=mock.MagicMock(**{"ls.return_value": []})),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("old_mode", "patch", "drop", "job_running", "expected_status", "dropped"),
+    [
+        ("both", {"cdc_table_mode": "consolidated"}, True, False, 200, True),
+        ("both", {"cdc_table_mode": "consolidated"}, False, False, 200, False),
+        # cdc_only links the schema to its history table, and the switch takes a new snapshot.
+        ("cdc_only", {"cdc_table_mode": "consolidated"}, True, False, 200, True),
+        ("both", {"sync_type": "full_refresh"}, True, False, 200, True),
+        ("consolidated", {"cdc_table_mode": "both"}, True, False, 400, False),
+        ("both", {"cdc_table_mode": "consolidated"}, True, True, 400, False),
+    ],
+)
+def test_a_switch_off_history_drops_the_history_table_only_when_asked(
+    team, user, client: HttpClient, old_mode, patch, drop, job_running, expected_status, dropped
+):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
+    history = _history_table(schema, linked=old_mode == "cdc_only")
+    if job_running:
+        ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="sync-workflow",
+        )
+    client.force_login(user)
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks(workflow_running=job_running):
+            stack.enter_context(patcher)
+        capture = stack.enter_context(mock.patch("posthog.event_usage.posthoganalytics.capture"))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={**patch, "drop_history_table": drop},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    history.refresh_from_db()
+    schema.refresh_from_db()
+    assert history.deleted is dropped
+    if dropped:
+        assert schema.table_id is None
+    deleted_events = [
+        call.kwargs
+        for call in capture.call_args_list
+        if call.kwargs.get("event") == "data warehouse history table deleted"
+    ]
+    assert [event["properties"]["trigger"] for event in deleted_events] == (["mode_change"] if dropped else [])
+
+
+@pytest.mark.parametrize(("mode", "expected_status"), [("consolidated", 204), ("both", 400)])
+def test_the_history_table_action_deletes_only_a_table_the_schema_no_longer_writes(
+    team, user, client: HttpClient, mode, expected_status
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=mode)
+    history = _history_table(schema)
+    client.force_login(user)
+    url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
+
+    before = client.get(url).json()["registered_history_table_name"]
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        response = client.delete(f"{url}/history_table/")
+    after = client.get(url).json()["registered_history_table_name"]
+
+    assert response.status_code == expected_status, response.content
+    history.refresh_from_db()
+    assert history.deleted is (expected_status == 204)
+    assert (before, after) == ("postgres_orders_cdc", None if mode == "consolidated" else "postgres_orders_cdc")
+
+
+def test_a_drop_refused_after_the_save_names_the_kept_history_table(team, user, client: HttpClient):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    history = _history_table(schema)
+    client.force_login(user)
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        # A sync starts between the check before the save and the drop after it.
+        stack.enter_context(mock.patch(_PATCH_TARGETS["has_queued_batches"], side_effect=[False, True]))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"cdc_table_mode": "consolidated", "drop_history_table": True},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    assert response.json()["registered_history_table_name"] == "postgres_orders_cdc"
+    history.refresh_from_db()
+    assert not history.deleted

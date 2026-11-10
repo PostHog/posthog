@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
+import structlog
+
 from posthog.schema import (
     CachedWebStatsTableQueryResponse,
     EventPropertyFilter,
@@ -18,7 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
     get_property_key,
@@ -29,7 +31,7 @@ from posthog.hogql.property import (
 )
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
+from posthog.clickhouse.query_tagging import clear_tag
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
@@ -57,6 +59,18 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     StatsTableQueryStrategy,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    WEB_STATS_DIMENSIONAL_READ_TABLE,
+)
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DimensionalReadFailure,
+    DimensionalStatsTableQueryBuilder,
+    classify_dimensional_read_failure,
+    dimensional_precompute_stale,
+    dimensional_precomputed_at,
+    ready_dimensional_job_ids,
+)
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
     can_use_lazy_precompute as can_use_frustration_lazy_precompute,
@@ -71,6 +85,8 @@ from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precomput
     can_use_lazy_precompute as can_use_paths_lazy_precompute,
     execute_lazy_precomputed_read as execute_paths_lazy_precomputed_read,
 )
+
+logger = structlog.get_logger(__name__)
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
@@ -121,35 +137,41 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         )
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
+        # Set by `_calculate` when it serves the dimensional read.
+        self.dimensional_query_builder: Optional[DimensionalStatsTableQueryBuilder] = None
+
+    def _is_preaggregated_shape(self) -> bool:
+        return (
+            not self.query.includeAvgTimeOnPage
+            and not self.query.conversionGoal
+            and self.preaggregated_query_builder.can_use_preaggregated_tables()
+        )
 
     def _can_serve_preaggregated(self) -> bool:
         return bool(
-            self.modifiers
-            and self.modifiers.useWebAnalyticsPreAggregatedTables
-            and self.preaggregated_query_builder.can_use_preaggregated_tables()
-            and not self.query.includeAvgTimeOnPage
-            and not self.query.conversionGoal
+            self.modifiers and self.modifiers.useWebAnalyticsPreAggregatedTables and self._is_preaggregated_shape()
+        )
+
+    def _preaggregated_strategy(
+        self, builder: StatsTablePreAggregatedQueryBuilder, prefix: str
+    ) -> ResolvedStatsTableStrategy:
+        if self.query.breakdownBy == WebStatsBreakdown.PAGE:
+            strategy = f"{prefix}_path_breakdown"
+        elif self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
+            strategy = f"{prefix}_entry_bounce"
+        else:
+            strategy = prefix
+        return ResolvedStatsTableStrategy(
+            strategy=strategy,
+            build_query=builder.get_query,
+            uses_preaggregated_tables=True,
         )
 
     def _resolve_strategy(self) -> ResolvedStatsTableStrategy:
+        if self.dimensional_query_builder is not None:
+            return self._preaggregated_strategy(self.dimensional_query_builder, "stats_table_dimensional")
         if self._can_serve_preaggregated():
-            if self.query.breakdownBy == WebStatsBreakdown.PAGE:
-                return ResolvedStatsTableStrategy(
-                    strategy="stats_table_preaggregated_path_breakdown",
-                    build_query=self.preaggregated_query_builder.get_query,
-                    uses_preaggregated_tables=True,
-                )
-            if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
-                return ResolvedStatsTableStrategy(
-                    strategy="stats_table_preaggregated_entry_bounce",
-                    build_query=self.preaggregated_query_builder.get_query,
-                    uses_preaggregated_tables=True,
-                )
-            return ResolvedStatsTableStrategy(
-                strategy="stats_table_preaggregated",
-                build_query=self.preaggregated_query_builder.get_query,
-                uses_preaggregated_tables=True,
-            )
+            return self._preaggregated_strategy(self.preaggregated_query_builder, "stats_table_preaggregated")
 
         strategy = self._get_strategy()
         return ResolvedStatsTableStrategy(
@@ -581,12 +603,6 @@ WHERE and(
             query_type="stats_table_session_id_set_preflight",
         )
 
-    def _lazy_precompute_stale(self) -> Optional[bool]:
-        # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
-        # before executing the read; surfacing it on the response lets clients (and the
-        # frontend's 'query completed' telemetry) see it too. None when served fresh.
-        return True if get_query_tag_value("precompute_stale") else None
-
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
         if self.query.includeTrafficMetrics or not can_use_lazy_precompute(self):
             return None
@@ -620,7 +636,8 @@ WHERE and(
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
-            preComputeStale=self._lazy_precompute_stale(),
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
             hasMore=result.has_more,
             limit=self.paginator.limit,
             offset=self.paginator.offset,
@@ -713,7 +730,8 @@ WHERE and(
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
-            preComputeStale=self._lazy_precompute_stale(),
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -776,7 +794,8 @@ WHERE and(
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
-            preComputeStale=self._lazy_precompute_stale(),
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -804,6 +823,25 @@ WHERE and(
         return field, direction
 
     def _calculate(self):
+        self.dimensional_query_builder = None
+        live_blocking_error: Exception | None = None
+        if self._is_preaggregated_shape():
+            job_ids = ready_dimensional_job_ids(
+                self, tables=(WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
+            )
+            if job_ids is not None:
+                self.dimensional_query_builder = DimensionalStatsTableQueryBuilder(self, job_ids)
+                try:
+                    return self._calculate_from_query()
+                except Exception as error:
+                    failure = classify_dimensional_read_failure(error)
+                    if failure is DimensionalReadFailure.RERAISE:
+                        raise
+                    logger.exception("web_stats_dimensional_read_failed", team_id=self.team.pk)
+                    self.dimensional_query_builder = None
+                    if failure is DimensionalReadFailure.SKIP_LIVE:
+                        live_blocking_error = error
+
         # Ask only the family that owns this shape. Trying all three in turn made the other two
         # refuse a query they could never have served, and each refusal recorded its own rejection
         # reason, so the last gate to run decided what the read reported.
@@ -822,9 +860,18 @@ WHERE and(
             if lazy_result is not None:
                 return self._build_response_from_lazy(lazy_result)
 
+        if live_blocking_error is not None and not self._can_serve_preaggregated():
+            raise live_blocking_error
+        return self._calculate_from_query()
+
+    def _calculate_from_query(self) -> WebStatsTableQueryResponse:
         # Preflight only when the live query will actually run as the id-set
         # shape — pre-aggregated serving must not pay a discarded events scan.
-        if self.should_use_session_id_set and not self._can_serve_preaggregated():
+        if (
+            self.should_use_session_id_set
+            and self.dimensional_query_builder is None
+            and not self._can_serve_preaggregated()
+        ):
             self._session_id_set_selectivity_ok = self._check_session_id_set_selectivity()
 
         query = self.to_query()
@@ -850,6 +897,7 @@ WHERE and(
             bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             timings=self.timings,
             modifiers=modifiers,
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         results = self.paginator.results
@@ -888,6 +936,7 @@ WHERE and(
             else WebAnalyticsPreComputeStrategy.LIVE
         )
 
+        dimensional_job_ids = self.dimensional_query_builder.job_ids if self.dimensional_query_builder else None
         return WebStatsTableQueryResponse(
             columns=columns,
             results=results_mapped,
@@ -897,6 +946,8 @@ WHERE and(
             modifiers=self.modifiers,
             preComputeStrategy=strategy,
             preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
+            preComputeStale=dimensional_precompute_stale(dimensional_job_ids),
+            preComputedAt=dimensional_precomputed_at(dimensional_job_ids),
             **self.paginator.response_params(),
         )
 

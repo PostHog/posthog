@@ -2,21 +2,24 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconReceipt, IconUndo } from '@posthog/icons'
+import { canResolveReport } from '@posthog/agent-contracts/signal-report-state'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock, IconPerson } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canResolveReport } from '../../utils/reportActions'
+import { canMonitorReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
+import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
+import { openTakeOverReportDialog } from '../shell/TakeOverReportDialog'
 import { useReportResolve } from './useReportResolve'
 
 /**
@@ -38,7 +41,10 @@ export interface ReportDetailAction {
 }
 
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { reportStateChanged } = useActions(inboxBulkActionsLogic)
+    const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
+    const { changeReportState, setReportClaimed } = useActions(detailLogic)
+    const { reportStateSaving, reportChecks, teammateClaimHolder, claimSaving } = useValues(detailLogic)
+    const { reportStateChanged, reportWriteFailed } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
@@ -119,7 +125,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
         setIsRestoring(true)
         try {
-            await api.signalReports.setState(report.id, { state: 'potential' })
+            await setReportState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
             // Broadcast so any mounted list (including that Archive instance) reconciles against the
@@ -128,6 +134,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
         } catch (error: any) {
             lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
+            reportWriteFailed([report.id])
         } finally {
             setIsRestoring(false)
         }
@@ -167,7 +174,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         label: 'Resolve',
         icon: <IconCheckCircle />,
         loading: isResolving,
-        tooltip: 'Mark this report as done',
+        tooltip:
+            report.status === SignalReportStatus.MONITORING
+                ? 'Resolve manually without automatic verification or an evidence amendment'
+                : 'Mark this report as done',
         // The judge found the fix already in flight, so Create PR is withheld and closing the
         // report is the step it waits on.
         primary: report.already_addressed === true,
@@ -175,6 +185,46 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
+        ...(teammateClaimHolder
+            ? [
+                  {
+                      key: 'takeover',
+                      label: 'Take over',
+                      icon: <IconPerson />,
+                      loading: claimSaving,
+                      tooltip: 'Take over the claim to work on this report',
+                      onClick: () =>
+                          openTakeOverReportDialog({
+                              report,
+                              holder: teammateClaimHolder,
+                              onConfirm: () => setReportClaimed(true, true, report.assignee),
+                          }),
+                  },
+              ]
+            : []),
+        ...(canMonitorReport(report, (reportChecks?.length ?? 0) > 0)
+            ? [
+                  {
+                      key: 'monitor',
+                      label: 'Start monitoring',
+                      icon: <IconClock />,
+                      loading: reportStateSaving,
+                      tooltip: 'PostHog watches to make sure the fix works',
+                      onClick: () => changeReportState('monitoring'),
+                  },
+              ]
+            : []),
+        ...([SignalReportStatus.MONITORING, SignalReportStatus.CLOSED].includes(report.status)
+            ? [
+                  {
+                      key: 'reopen',
+                      label: 'Reopen',
+                      icon: <IconUndo />,
+                      loading: reportStateSaving,
+                      onClick: () => changeReportState('potential'),
+                  },
+              ]
+            : []),
         ...(canResolve ? [resolve] : []),
         {
             key: 'dismiss',
@@ -187,5 +237,9 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         ...(canRefund ? [refund] : []),
     ]
 
-    return actions
+    const updating = reportStateSaving || isResolving || isDismissing || isRefunding
+    return actions.map((action) => ({
+        ...action,
+        disabledReason: action.disabledReason ?? (updating ? 'Updating report…' : undefined),
+    }))
 }

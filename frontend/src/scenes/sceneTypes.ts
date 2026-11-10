@@ -30,7 +30,9 @@ export enum Scene {
     BillingSection = 'BillingSection',
     BusinessIntelligence = 'BusinessIntelligence',
     Canvas = 'Canvas',
+    WorkloadTrustPolicyRequest = 'WorkloadTrustPolicyRequest',
     CLIAuthorize = 'CLIAuthorize',
+    OAuthDeviceAuthorize = 'OAuthDeviceAuthorize',
     CLILive = 'CLILive',
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
@@ -49,6 +51,7 @@ export enum Scene {
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
     DataWarehouseSourceConnect = 'DataWarehouseSourceConnect',
+    DataWarehouseMigrationConnect = 'DataWarehouseMigrationConnect',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
     DataWarehouseSourceSchema = 'DataWarehouseSourceSchema',
     DeadLetterQueue = 'DeadLetterQueue',
@@ -209,6 +212,7 @@ export enum Scene {
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WarehouseDestinations = 'WarehouseDestinations',
+    WarehouseDestinationConnect = 'WarehouseDestinationConnect',
     WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
@@ -221,8 +225,11 @@ export enum Scene {
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
     Broadcasts = 'Broadcasts',
+    Transactional = 'Transactional',
+    TransactionalEmailLogEntry = 'TransactionalEmailLogEntry',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
+    WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
@@ -366,6 +373,8 @@ export interface SceneConfig {
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
+    /** Self-hosted installs open the Move to PostHog Cloud page instead, and the scene's logic never mounts */
+    cloudOnly?: boolean
 }
 
 // Map scenes to their access control resource types
@@ -420,7 +429,8 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.WebAnalyticsRecap]: AccessControlResourceType.WebAnalytics,
 
     // Marketing Analytics
-    [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+    [Scene.MarketingAnalytics]: AccessControlResourceType.MarketingAnalytics,
+    [Scene.MarketingAnalyticsSettings]: AccessControlResourceType.MarketingAnalytics,
 
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,
@@ -455,8 +465,11 @@ export const sceneToAccessControlResourceType: Partial<
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
+    [Scene.Transactional]: AccessControlResourceType.Workflow,
+    [Scene.TransactionalEmailLogEntry]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
+    [Scene.WorkflowsEmailDomain]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

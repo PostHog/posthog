@@ -19,6 +19,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentMetricOutlierHandling,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
@@ -34,7 +35,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationQuery,
     LazyComputationTable,
@@ -56,7 +57,13 @@ METRIC_EVENTS_TABLE = LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATE
 BOTH_TABLES = frozenset({EXPOSURES_TABLE, METRIC_EVENTS_TABLE})
 
 Output = Literal["query", "exposure_timeseries", "daily_exposures", "exposures_write", "metric_events_write"]
-Metric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+Metric = (
+    ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
+    | ExperimentQuantileMetric
+)
 
 PURCHASE = EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount")
 PAGEVIEW = EventsNode(event="$pageview")
@@ -79,7 +86,7 @@ BROWSER = [Breakdown(property="$browser")]
 
 
 def _mean_on_action(team: Team) -> ExperimentMeanMetric:
-    action = Action.objects.create(team=team, name="purchase", steps_json=[{"event": "purchase"}])
+    action = create_action(team=team, name="purchase", steps_json=[{"event": "purchase"}])
     return ExperimentMeanMetric(source=ActionsNode(id=action.id))
 
 
@@ -155,6 +162,12 @@ CASES = [
         "ratio_breakdown",
         metric=ExperimentRatioMetric(numerator=PURCHASE, denominator=PAGEVIEW),
         breakdowns=BROWSER,
+    ),
+    param(
+        "quantile_events",
+        metric=ExperimentQuantileMetric(
+            source=EventsNode(event="app_ready", math_property="app_ready_ms"), quantile=0.9, **SEVEN_DAYS
+        ),
     ),
     param("funnel_ordered", metric=_funnel()),
     param("funnel_unordered", metric=_funnel(funnel_order_type=StepOrderValue.UNORDERED)),

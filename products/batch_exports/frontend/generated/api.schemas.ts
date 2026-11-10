@@ -186,9 +186,8 @@ export const PostgresDestinationConfigApiType = {
 /**
  * Typed configuration for a PostgreSQL batch-export destination.
  *
- * Connection credentials may live in a linked Integration (when one is provided) or
- * inline in this config (legacy). Mirrors the non-credential fields of
- * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ * Connection credentials live in the linked Integration, never here. Mirrors the
+ * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
  */
 export interface PostgresDestinationConfigApi {
     /** PostgreSQL database name to connect to. */
@@ -356,27 +355,6 @@ export const RedshiftExportModeEnumApi = {
 } as const
 
 /**
- * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
- */
-export type RedshiftCopyInputsApiAuthorization =
-    | number
-    | string
-    | {
-          aws_access_key_id: string
-          aws_secret_access_key: string
-      }
-
-/**
- * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
- */
-export type RedshiftCopyInputsApiBucketCredentials =
-    | number
-    | {
-          aws_access_key_id: string
-          aws_secret_access_key: string
-      }
-
-/**
  * S3 staging configuration for a Redshift batch export running in COPY mode.
  */
 export interface RedshiftCopyInputsApi {
@@ -386,10 +364,10 @@ export interface RedshiftCopyInputsApi {
     region_name: string
     /** Key prefix for staged files in the S3 bucket. */
     s3_key_prefix: string
-    /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
-    authorization: RedshiftCopyInputsApiAuthorization
-    /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
-    bucket_credentials: RedshiftCopyInputsApiBucketCredentials
+    /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. */
+    authorization: number | string
+    /** AWS S3 integration ID used to stage files in the S3 bucket. */
+    bucket_credentials: number
 }
 
 export type RedshiftDestinationConfigApiType =
@@ -402,8 +380,7 @@ export const RedshiftDestinationConfigApiType = {
 /**
  * Typed configuration for a Redshift batch-export destination.
  *
- * Connection credentials may live in a linked Integration (when one is provided) or inline in
- * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+ * Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
  * `products/batch_exports/backend/service.py`.
  */
 export interface RedshiftDestinationConfigApi {
@@ -832,6 +809,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -861,9 +840,7 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -1059,6 +1036,7 @@ export interface BatchExportApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -1894,6 +1872,7 @@ export interface BatchExportBackfillApi {
 }
 
 export interface PaginatedBatchExportBackfillListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1902,6 +1881,7 @@ export interface PaginatedBatchExportBackfillListApi {
 }
 
 export interface PaginatedBatchExportRunListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -2386,6 +2366,7 @@ export const RedshiftDestinationRequestTypeEnumApi = {
 export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2490,6 +2471,11 @@ export type BatchExportsRunsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -2522,6 +2508,11 @@ export type BatchExportsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -2531,6 +2522,7 @@ export type BatchExportsLogsRetrieveParams = {
 export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2564,6 +2556,11 @@ export type FileDownloadBatchExportsLogsRetrieveParams = {
      * @maximum 500
      */
     limit?: number
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1

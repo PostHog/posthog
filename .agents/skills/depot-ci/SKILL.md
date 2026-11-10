@@ -25,6 +25,8 @@ This SKILL.md covers the core workflow plus the most common commands. Detailed f
 PostHog addition: read [references/posthog-check-run-semantics.md](references/posthog-check-run-semantics.md) before you reason about what a Depot CI run reports to GitHub.
 It covers what Depot CI and GitHub Actions each post for a skipped, empty-matrix or `continue-on-error` job, how GitHub and the Trunk merge queue score those conclusions, and how the two engines differ on check naming and reruns.
 This repo runs Depot CI workflows out of `.depot/workflows/` alongside GitHub Actions, so both engines report on the same commit.
+Depot posts each check from one of three GitHub apps.
+The "Which app posts a Depot check" section of `references/posthog-check-run-semantics.md` lists the apps and how to match their checks.
 
 <!-- End PostHog-local section. -->
 
@@ -148,9 +150,11 @@ depot ci run --workflow .depot/workflows/ci.yml --repo owner/repo
 depot ci run --workflow .depot/workflows/ci.yml --forge depot
 ```
 
-The CLI detects GitHub, Origin, and Depot Code from git remotes. Depot Code is automatic only when all supported remotes use Depot Code; mirrored checkouts default to GitHub or Origin. Set `--forge` to `github`, `origin`, or `depot` to select a forge. Use `--repo <name>` to select a repository. When no matching remote exists, specify `--forge origin` or `--forge depot` for those forges.
+The CLI detects GitHub, Origin, Entire, and Depot Code from git remotes. Depot Code is automatic only when all supported remotes use Depot Code; mirrored checkouts use the other forge. Set `--forge` to `github`, `origin`, `entire`, or `depot` to select a forge. Use `--repo <name>` to select a repository. Without a matching remote, also specify `--forge` for non-GitHub repositories. Entire names include the namespace, such as `et/acme/api`.
 
-Local patches contain unpushed changes relative to the branch's remote state, or changes relative to the default branch for local-only branches. The CLI uploads the patch to Depot Cache and injects an application step after `actions/checkout`. Jobs that call reusable workflows have no steps for patch injection and run the merge-base code without local changes; the CLI warns about them.
+Local patches contain unpushed changes relative to the branch's remote state, or changes relative to the default branch for local-only branches. The patch applies after `actions/checkout` for the run's repository, including jobs in same-repository reusable workflows. Download or application failures fail the job. Use the latest CLI, because older versions may still warn that reusable workflow patches are unsupported.
+
+If an external reusable workflow checks out the run's repository, push your changes and run CI from that commit; local patches are rejected. In reusable workflows, move checkout out of a composite action with `continue-on-error`, or remove `continue-on-error`, so patch failures cannot be hidden.
 
 Use `--ssh` / `--ssh-after-step` to start a debug session when launching a new run; both require exactly one `--job` and cannot be combined. Use `depot ci ssh` to connect to an already-running job. Pass `--follow` to stream the triggered run's logs: it follows the single requested job, or selects the only job and prompts when several are running. `--follow` cannot be combined with `--ssh` / `--ssh-after-step`.
 
@@ -165,7 +169,7 @@ depot ci dispatch --repo depot/cli --workflow deploy.yml --ref main \
 depot ci dispatch --repo depot/cli --workflow deploy.yml --ref main --output json
 ```
 
-`--workflow` takes the workflow file's **basename** (for example `deploy.yml`), not the full path `.depot/workflows/deploy.yml`, matching GitHub's `workflow_dispatch` API convention. Required flags: `--repo <owner/repo>`, `--workflow <filename>`, `--ref <branch-or-tag>`. `--input <key>=<value>` is repeatable.
+`--workflow` takes the workflow file's **basename** (for example `deploy.yml`), not the full path `.depot/workflows/deploy.yml`, matching GitHub's `workflow_dispatch` API convention. Required flags: `--repo <owner/repo>` (or `<namespace>/<owner>/<repo>` for Entire), `--workflow <filename>`, `--ref <branch-or-tag>`. `--input <key>=<value>` is repeatable.
 
 The `depot.actor` context identifies who created the run; `depot.triggering_actor` identifies who started the current attempt, including retries and reruns. Both expose `kind`, `id`, `email`, and `name`. Actor kinds are `user`, `organization_token`, `service`, and `github`; only users have an email. The corresponding environment variables are `DEPOT_ACTOR_KIND`, `DEPOT_ACTOR_ID`, `DEPOT_ACTOR_EMAIL`, `DEPOT_ACTOR_NAME`, `DEPOT_TRIGGERING_ACTOR_KIND`, `DEPOT_TRIGGERING_ACTOR_ID`, `DEPOT_TRIGGERING_ACTOR_EMAIL`, and `DEPOT_TRIGGERING_ACTOR_NAME`. GitHub actor contexts retain their GitHub meaning.
 
@@ -218,6 +222,8 @@ jobs:
 ```
 
 The `image` value can be a shorthand name like `ci-base` (which Depot expands to `{orgId}.registry.depot.dev/depot/snapshots/ci-base`) or a full Depot Registry reference `{orgId}.registry.depot.dev/some-image`. It must reference an image created by a snapshot job, not an arbitrary image.
+
+Pin a reviewed snapshot with `image: <org-id>.registry.depot.dev/my-ci-image@sha256:<digest>`, using its full 64-character digest from Registry → repository → tag → Details. Keep a tag on snapshots still in use: digest pinning does not prevent retention from deleting them.
 
 Available sizes: `2x8`, `4x16`, `8x32`, `16x64`, `32x128`, `64x256` (CPUs x RAM in GB).
 
@@ -325,6 +331,12 @@ steps:
 - **`DEPOT_JOB_URL`**: each job's environment includes `DEPOT_JOB_URL`, a direct link to the job in the Depot dashboard.
 - **GitHub checks**: Depot CI automatically reports a GitHub check for each job in a workflow run.
 
+Completed GitHub checks include errors, annotations, step summaries from `$GITHUB_STEP_SUMMARY`, and artifact links to the Depot job. Use workflow commands such as `::error file=src/example.ts,line=10::Expected a value` for inline annotations. Checks truncate large output; open the Depot job for full summaries and artifacts.
+
+If GitHub API limits delay check updates, organization owners can connect **Depot Checks** and **Depot Checks 2** under Settings → Connections → GitHub Checks. Depot Code Access must already be connected. Give the checks apps access to the same repositories. If an approved connection remains pending, use **Finish connecting**.
+
+Before adding checks apps, set required Depot check sources to **Any source**, because multiple apps can publish the same name. **Any source** also permits other repository writers to satisfy that name. Keep a pinned source and skip additional apps when app-specific trust is required. Existing checks stay with their original app and can still encounter its rate limit.
+
 ## OIDC for Cloud Authentication
 
 Depot CI issues a signed JWT to each job so workflows can authenticate to cloud providers (AWS, GCP, Azure) with short-lived tokens instead of static credentials. Set `permissions: id-token: write` in the workflow for the token to be issued; the issuer is `https://identity.depot.dev`. Depot injects the token-request credentials into the environment, so standard actions like `aws-actions/configure-aws-credentials` work without extra configuration.
@@ -404,7 +416,7 @@ Depot CI executes GitHub Actions YAML workflows. There are a few limitations whe
 Read the compatibility reference when you need to answer or act on any of the following or similar questions:
 
 - Whether a specific workflow-, job-, or step-level field is supported, for example `concurrency`, `jobs.<id>.environment`, `jobs.<id>.snapshot`, `jobs.<id>.container`, `jobs.<id>.services`, `jobs.<id>.strategy.matrix`, `steps[*].shell`.
-- Whether a trigger event is accepted: the supported list (`push`, `pull_request`, `pull_request_target`, `pull_request_review`, `issue_comment`, `deployment_status`, `repository_dispatch`, `schedule`, `workflow_call`, `workflow_dispatch`, `workflow_run`, `merge_group`) and the GitHub-only events Depot CI rejects (for example, `release`, `issues`, `deployment`, `branch_protection_rule`).
+- Whether a trigger event is accepted: the supported list (`push`, `pull_request`, `pull_request_target`, `pull_request_review`, `pull_request_review_comment`, `issue_comment`, `deployment_status`, `repository_dispatch`, `schedule`, `workflow_call`, `workflow_dispatch`, `workflow_run`, `merge_group`) and the GitHub-only events Depot CI rejects (for example, `release`, `issues`, `deployment`, `branch_protection_rule`).
 - Which expression contexts (`github`, `env`, `vars`, `secrets`, `needs`, `strategy`, `matrix`, `steps`, `job`, `runner`, `inputs`, `depot`) and functions (`always()`, `success()`, `failure()`, `cancelled()`, `case()`, `contains()`, `startsWith()`, `endsWith()`, `format()`, `join()`, `toJSON()`, `fromJSON()`, `hashFiles()`) are available.
 - Which `permissions` scopes work (`actions`, `checks`, `code-quality`, `contents`, `id-token`, `issues`, `packages`, `pull-requests`, `security-events`, `statuses`). Request `code-quality` explicitly because `read-all` and `write-all` do not include it.
 - Which action types run (JavaScript Node 12/16/20/24, Composite, Docker).

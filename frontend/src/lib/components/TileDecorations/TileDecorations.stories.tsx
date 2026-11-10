@@ -2,13 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/react'
 
 import { App } from 'scenes/App'
-import __dashboard1 from 'scenes/dashboard/__mocks__/dashboard1.json'
-import __dashboards from 'scenes/dashboard/__mocks__/dashboards.json'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import type { TileBadge } from '~/types'
+
+import __dashboard1 from 'products/dashboards/frontend/__mocks__/dashboard1.json'
+import __dashboards from 'products/dashboards/frontend/__mocks__/dashboards.json'
 
 interface TileOverrides {
     badge?: TileBadge
@@ -84,7 +85,7 @@ export const WinnerWithGroupTitle: Story = {
         dashboardMocks(
             buildDashboard(
                 { 1: { badge: 'winner', group_key: 'launch' }, 2: { group_key: 'launch' } },
-                { group_titles: { launch: 'Launch metrics' } }
+                { groups: { launch: { title: 'Launch metrics' } } }
             )
         ),
     ],

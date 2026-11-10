@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 
 import { TraceIdentityChips } from 'products/tracing/frontend/components/TraceDrawer/TraceIdentityChips'
 import { TraceLoadErrorNotice } from 'products/tracing/frontend/components/TraceDrawer/TraceLoadErrorNotice'
@@ -100,11 +100,14 @@ export function TraceDialog(): JSX.Element | null {
             ) : (
                 <TraceView
                     traceId={trace.traceId}
+                    surface="trace_dialog"
                     inspectorOpen={inspectorOpen}
                     sessionId={traceSessionId}
                     showErrorsTab={sessionErrorBadgesEnabled}
                     openedFrom={openedFrom}
                     openedAtUs={openedAtUs}
+                    // The dialog loads a capped number of pages and offers Open in Tracing for the rest.
+                    spansPartial={traceSpans.truncated}
                 />
             )}
         </TraceViewDrawer>

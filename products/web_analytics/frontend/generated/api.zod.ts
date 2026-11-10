@@ -10,14 +10,86 @@
 import * as zod from 'zod'
 
 /**
- * @summary Turn an AEO prompt on or off
+ * Renames, relabels, confirms or ignores a brand, or replaces its other names. The daily run keeps these edits; it only adds newly cited domains.
+ * @summary Update an AEO brand
  */
-export const AeoPromptsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    active: zod.boolean().optional().describe('Turn the prompt on or off for future runs.'),
+export const aeoBrandsPartialUpdateBodyNameMax = 200
+
+export const aeoBrandsPartialUpdateBodyAliasesItemMax = 200
+
+export const aeoBrandsPartialUpdateBodyAliasesMax = 20
+
+export const AeoBrandsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(aeoBrandsPartialUpdateBodyNameMax).optional().describe('Brand name as people say it.'),
+    kind: zod
+        .enum(['own', 'competitor', 'publisher', 'unknown'])
+        .describe('\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown')
+        .optional()
+        .describe(
+            "What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.\n\n\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown"
+        ),
+    status: zod
+        .enum(['suggested', 'confirmed', 'ignored'])
+        .describe('\* `suggested` - Suggested\n\* `confirmed` - Confirmed\n\* `ignored` - Ignored')
+        .optional()
+        .describe(
+            "'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.\n\n\* `suggested` - Suggested\n\* `confirmed` - Confirmed\n\* `ignored` - Ignored"
+        ),
+    aliases: zod
+        .array(zod.string().max(aeoBrandsPartialUpdateBodyAliasesItemMax).describe('One other name for the brand.'))
+        .max(aeoBrandsPartialUpdateBodyAliasesMax)
+        .optional()
+        .describe("Replaces the brand's other names. Names are trimmed, and repeated names are dropped."),
 })
 
 /**
- * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state.
+ * Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text change adds the next version and makes it current, and current_version moves back to an earlier one. The prompt keeps its id, and past checks are always kept.
+ * @summary Update an AEO prompt
+ */
+export const aeoPromptsPartialUpdateBodyTopicMax = 200
+
+export const aeoPromptsPartialUpdateBodyPromptMax = 2000
+
+export const aeoPromptsPartialUpdateBodyVersionDescriptionMax = 400
+
+export const AeoPromptsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    active: zod.boolean().nullish().describe('Turn the prompt on or off for future runs.'),
+    topic: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyTopicMax)
+        .optional()
+        .describe(
+            'New topic for the prompt. An empty string removes the topic. Past checks keep the topic they ran with.'
+        ),
+    prompt: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyPromptMax)
+        .optional()
+        .describe(
+            'New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id and its check history, and each check records the version that ran. A change of case or whitespace only adds no version. Fails with 409 when another prompt in the set already has the text.'
+        ),
+    version_description: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe("Optional note on what the text change does, stored on the new version. Send it with 'prompt'."),
+    current_version: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe(
+            'Make an existing version current again, for example to roll back a text change. Adds no version. Fails with 400 when the version does not exist, and with 409 when another prompt has its text.'
+        ),
+    archived: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "True archives the prompt: it is turned off, never runs again, and keeps its check history. Send it without other fields. False restores an archived prompt. A restored prompt stays off unless 'active' is true in the same request. An archived prompt accepts no other change until it is restored."
+        ),
+})
+
+/**
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.
  * @summary Import AEO prompts
  */
 export const aeoPromptsBulkImportBodyPromptsItemPromptMax = 10000
@@ -52,11 +124,72 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.'
                     ),
+                origin: zod
+                    .enum(['api', 'suggestion'])
+                    .describe('\* `api` - Api\n\* `suggestion` - Suggestion')
+                    .optional()
+                    .describe(
+                        "Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts\/suggest). Stored in the prompt's evidence so suggested prompts can be audited later.\n\n\* `api` - Api\n\* `suggestion` - Suggestion"
+                    ),
             })
         )
         .min(1)
         .max(aeoPromptsBulkImportBodyPromptsMax)
         .describe('Prompts to add or update, at most 2000 per request.'),
+})
+
+/**
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO prompts
+ */
+export const aeoPromptsSuggestBodyDomainMax = 200
+
+export const aeoPromptsSuggestBodyBrandMax = 200
+
+export const aeoPromptsSuggestBodyDescriptionMax = 1000
+
+export const aeoPromptsSuggestBodyCompetitorsItemMax = 200
+
+export const aeoPromptsSuggestBodyCompetitorsMax = 20
+
+export const aeoPromptsSuggestBodyTopicsItemMax = 200
+
+export const aeoPromptsSuggestBodyTopicsMax = 20
+
+export const aeoPromptsSuggestBodyCountDefault = 20
+export const aeoPromptsSuggestBodyCountMax = 50
+
+export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoPromptsSuggestBodyDomainMax)
+        .describe('The site to suggest prompts for, for example posthog.com. The model reads it with web search.'),
+    brand: zod
+        .string()
+        .max(aeoPromptsSuggestBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty.'),
+    description: zod
+        .string()
+        .max(aeoPromptsSuggestBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    competitors: zod
+        .array(zod.string().max(aeoPromptsSuggestBodyCompetitorsItemMax))
+        .max(aeoPromptsSuggestBodyCompetitorsMax)
+        .optional()
+        .describe('Competitor names or domains. The model picks the main ones when empty.'),
+    topics: zod
+        .array(zod.string().max(aeoPromptsSuggestBodyTopicsItemMax))
+        .max(aeoPromptsSuggestBodyTopicsMax)
+        .optional()
+        .describe('Topics to spread the prompts across. The model picks 3 to 6 when empty.'),
+    count: zod
+        .number()
+        .min(1)
+        .max(aeoPromptsSuggestBodyCountMax)
+        .default(aeoPromptsSuggestBodyCountDefault)
+        .describe('How many prompts to suggest, at most 50.'),
 })
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000

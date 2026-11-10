@@ -1,5 +1,4 @@
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -19,47 +18,13 @@ use crate::partition_budget::BudgetLimits;
 use crate::routing::{Router, RoutingStrategy};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum CompletionGranularity {
-    #[default]
-    Poll,
-    Group,
-}
+/// The consumer loop must report healthy within this, or the lifecycle
+/// manager restarts the process.
+pub const LIVENESS_DEADLINE: Duration = Duration::from_secs(60);
 
-impl FromStr for CompletionGranularity {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim().to_lowercase().as_str() {
-            "poll" => Ok(Self::Poll),
-            "group" => Ok(Self::Group),
-            other => Err(format!(
-                "unknown consumer completion granularity '{other}' (expected 'poll' or 'group')"
-            )),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Polling {
-    #[default]
-    Capped,
-    Continuous,
-}
-
-impl FromStr for Polling {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim().to_lowercase().as_str() {
-            "capped" => Ok(Self::Capped),
-            "continuous" => Ok(Self::Continuous),
-            other => Err(format!(
-                "unknown consumer polling strategy '{other}' (expected 'capped' or 'continuous')"
-            )),
-        }
-    }
-}
+/// How long a shutdown waits for the consumer loop to drain its in-flight
+/// work before the process exits.
+pub const GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(60);
 
 /// Configuration for the ingestion consumer. Env var names and defaults match
 /// the Node.js ingestion consumer, so both read the same ConfigMap.
@@ -260,28 +225,27 @@ pub struct Config {
     #[envconfig(from = "INGESTION_GOVERNOR_STEP_INTERVAL_MS", default = "1000")]
     pub governor_step_interval_ms: u64,
 
-    /// Maximum polls in flight under the capped polling strategy; continuous
-    /// polling does not read it. Same name as the Node.js setting.
-    #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
-    pub consumer_max_background_tasks: usize,
-
-    /// `poll` or `group`; see [`CompletionGranularity`].
-    #[envconfig(from = "CONSUMER_COMPLETION_GRANULARITY", default = "poll")]
-    pub consumer_completion_granularity: CompletionGranularity,
-
-    /// Minimum spacing between offset commits at `group` granularity
-    /// (milliseconds). Not read at `poll` granularity.
+    /// Minimum spacing between offset commits (milliseconds).
     #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
     pub consumer_commit_interval_ms: u64,
 
-    /// Uncommitted events at which a partition's fetch pauses. `0` (default)
-    /// sets no event limit. Not read at `poll` granularity.
+    /// How long a revoke waits for the revoked partitions' in-flight messages
+    /// before it commits them and hands the partitions to their new owner
+    /// (milliseconds). The commit gets the same time again. librdkafka fetches
+    /// no partition while it waits. `0` (default) hands them over at once,
+    /// and the new owner processes their in-flight messages again. At least
+    /// twice `INGESTION_REQUEST_SOFT_BUDGET_MS` when that is set, and at most
+    /// half the smallest of the liveness deadline, the graceful shutdown, and
+    /// `KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS`.
+    #[envconfig(from = "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", default = "0")]
+    pub consumer_revoke_drain_timeout_ms: u64,
+
+    /// Uncommitted events at which a partition's fetch pauses. Required.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_EVENTS", default = "0")]
     pub consumer_partition_budget_events: u64,
 
     /// Uncommitted key-plus-value-plus-header bytes at which a partition's
-    /// fetch pauses. `0` (default) sets no byte limit. Not read at `poll`
-    /// granularity.
+    /// fetch pauses. Required.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_BYTES", default = "0")]
     pub consumer_partition_budget_bytes: u64,
 
@@ -290,23 +254,15 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", default = "0.8")]
     pub consumer_partition_budget_low_watermark: f64,
 
-    /// `capped` or `continuous`. `continuous` runs only with `group`
-    /// granularity, a partition budget, and an in-flight limit; without all
-    /// three the consumer runs `capped`.
-    #[envconfig(from = "CONSUMER_POLLING_STRATEGY", default = "capped")]
-    pub consumer_polling_strategy: Polling,
-
-    /// Uncommitted events across all partitions at which the continuous
-    /// strategy stops reading from Kafka. The poll in progress still
-    /// completes, so the total can pass it by `CONSUMER_BATCH_SIZE`. `0`
-    /// (default) sets no event limit.
+    /// Uncommitted events across all partitions at which the consumer stops
+    /// reading from Kafka. The poll in progress still completes, so the total
+    /// can pass it by `CONSUMER_BATCH_SIZE`. Required.
     #[envconfig(from = "CONSUMER_IN_FLIGHT_EVENTS", default = "0")]
     pub consumer_in_flight_events: u64,
 
     /// Uncommitted key-plus-value-plus-header bytes across all partitions at
-    /// which the continuous strategy stops reading from Kafka. The poll in
-    /// progress still completes, so the total can pass it by one poll. `0`
-    /// (default) sets no byte limit.
+    /// which the consumer stops reading from Kafka. The poll in progress
+    /// still completes, so the total can pass it by one poll. Required.
     #[envconfig(from = "CONSUMER_IN_FLIGHT_BYTES", default = "0")]
     pub consumer_in_flight_bytes: u64,
 
@@ -375,6 +331,11 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", default = "60000")]
     pub ingestion_worker_stream_ack_timeout_ms: u64,
 
+    /// Close a worker stream after nothing on it is un-acked for this long.
+    /// `0` keeps idle streams open.
+    #[envconfig(from = "INGESTION_WORKER_STREAM_IDLE_CLOSE_MS", default = "5000")]
+    pub ingestion_worker_stream_idle_close_ms: u64,
+
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
     /// co-located sidecar default) or `endpointslice` (watch a Kubernetes
@@ -412,8 +373,9 @@ pub struct Config {
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width
-    /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
-    /// cover the whole pool. Small values maximize sub-batch consolidation.
+    /// is the smallest multiple of `pool / dispatchers` workers at or above
+    /// this value, so every worker gets the same share of the fleet's slices.
+    /// Small values maximize sub-batch consolidation.
     #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
     pub min_aperture: usize,
 
@@ -613,19 +575,36 @@ impl Config {
         })
     }
 
+    // Each limit needs both axes, because one axis alone leaves the other
+    // unbounded: a message with no key, value or headers charges zero bytes.
+
     pub fn partition_budget(&self) -> Result<BudgetLimits, String> {
-        BudgetLimits::new(
+        let budget = BudgetLimits::new(
             NonZeroU64::new(self.consumer_partition_budget_events),
             NonZeroU64::new(self.consumer_partition_budget_bytes),
             self.consumer_partition_budget_low_watermark,
-        )
+        )?;
+        if !budget.sets_both_axes() {
+            return Err(
+                "CONSUMER_PARTITION_BUDGET_EVENTS and CONSUMER_PARTITION_BUDGET_BYTES must both be set"
+                    .to_string(),
+            );
+        }
+        Ok(budget)
     }
 
-    pub fn in_flight_limit(&self) -> ChargeLimit {
-        ChargeLimit::new(
+    pub fn in_flight_limit(&self) -> Result<ChargeLimit, String> {
+        let limit = ChargeLimit::new(
             NonZeroU64::new(self.consumer_in_flight_events),
             NonZeroU64::new(self.consumer_in_flight_bytes),
-        )
+        );
+        if !limit.sets_both_axes() {
+            return Err(
+                "CONSUMER_IN_FLIGHT_EVENTS and CONSUMER_IN_FLIGHT_BYTES must both be set"
+                    .to_string(),
+            );
+        }
+        Ok(limit)
     }
 
     const MIN_REQUEST_SOFT_BUDGET_MS: u64 = 100;
@@ -679,6 +658,48 @@ impl Config {
             soft_budget: Duration::from_millis(budget_ms),
             attempts,
         }))
+    }
+
+    /// A budgeted request comes back within one soft budget. A drain shorter
+    /// than two soft budgets can time out on requests that are about to finish.
+    const MIN_REVOKE_DRAIN_SOFT_BUDGETS: u64 = 2;
+
+    pub fn revoke_drain_timeout(&self) -> Result<Option<Duration>, String> {
+        let timeout_ms = self.consumer_revoke_drain_timeout_ms;
+        if timeout_ms == 0 {
+            return Ok(None);
+        }
+        let floor_ms = self
+            .request_soft_budget_ms
+            .saturating_mul(Self::MIN_REVOKE_DRAIN_SOFT_BUDGETS);
+        if timeout_ms < floor_ms {
+            return Err(format!(
+                "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS must be 0 or at least {} times \
+                 INGESTION_REQUEST_SOFT_BUDGET_MS ({floor_ms})",
+                Self::MIN_REVOKE_DRAIN_SOFT_BUDGETS
+            ));
+        }
+        // The drain's commit phase neither polls Kafka nor reports healthy for
+        // up to the timeout, a drain at shutdown adds that phase to the
+        // graceful budget, and wait plus commit must fit the broker's
+        // rebalance timeout (max.poll.interval.ms).
+        let ceiling_ms = [
+            LIVENESS_DEADLINE.as_millis() as u64,
+            GRACEFUL_SHUTDOWN.as_millis() as u64,
+            u64::from(self.kafka_consumer_max_poll_interval_ms),
+        ]
+        .into_iter()
+        .min()
+        .expect("three candidates")
+            / 2;
+        if timeout_ms > ceiling_ms {
+            return Err(format!(
+                "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS must be at most half the smallest of the \
+                 liveness deadline, the graceful shutdown, and \
+                 KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS ({ceiling_ms})"
+            ));
+        }
+        Ok(Some(Duration::from_millis(timeout_ms)))
     }
 
     pub fn worker_urls(&self) -> Vec<String> {
@@ -756,6 +777,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::str::FromStr;
 
     use rstest::rstest;
 
@@ -819,21 +841,56 @@ mod tests {
         assert!(config(vars).request_budget().is_err());
     }
 
-    #[rstest]
-    #[case::unset(&[], false)]
-    #[case::events_only(&[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000")], true)]
-    #[case::bytes_only(&[("CONSUMER_PARTITION_BUDGET_BYTES", "1048576")], true)]
-    fn a_valid_partition_budget_is_read(#[case] vars: &[(&str, &str)], #[case] is_set: bool) {
-        assert_eq!(config(vars).partition_budget().unwrap().is_set(), is_set);
+    struct DrainTimeoutCase {
+        vars: &'static [(&'static str, &'static str)],
+        expected: Result<Option<Duration>, ()>,
     }
 
-    #[test]
-    fn a_partition_budget_with_an_invalid_watermark_is_rejected() {
-        let vars = &[
-            ("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"),
-            ("CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", "1.2"),
-        ];
-        assert!(config(vars).partition_budget().is_err());
+    #[rstest]
+    #[case::off(DrainTimeoutCase { vars: &[("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(None) })]
+    #[case::no_soft_budget(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "100")], expected: Ok(Some(Duration::from_millis(100))) })]
+    #[case::at_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "6000"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(Some(Duration::from_millis(6000))) })]
+    #[case::below_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "5999"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Err(()) })]
+    #[case::at_half_the_liveness_deadline(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "30000")], expected: Ok(Some(Duration::from_millis(30000))) })]
+    #[case::above_half_the_liveness_deadline(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "30001")], expected: Err(()) })]
+    #[case::above_half_a_short_poll_interval(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "10001"), ("KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS", "20000")], expected: Err(()) })]
+    fn the_revoke_drain_timeout_is_off_or_between_two_soft_budgets_and_half_the_tightest_budget(
+        #[case] case: DrainTimeoutCase,
+    ) {
+        assert_eq!(
+            config(case.vars).revoke_drain_timeout().map_err(drop),
+            case.expected
+        );
+    }
+
+    struct LimitsCase {
+        vars: &'static [(&'static str, &'static str)],
+        expected_valid: bool,
+    }
+
+    #[rstest]
+    #[case::both_axes(LimitsCase { vars: &[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"), ("CONSUMER_PARTITION_BUDGET_BYTES", "1048576")], expected_valid: true })]
+    #[case::unset(LimitsCase { vars: &[], expected_valid: false })]
+    #[case::events_only(LimitsCase { vars: &[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000")], expected_valid: false })]
+    #[case::bytes_only(LimitsCase { vars: &[("CONSUMER_PARTITION_BUDGET_BYTES", "1048576")], expected_valid: false })]
+    #[case::an_invalid_watermark(LimitsCase { vars: &[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"), ("CONSUMER_PARTITION_BUDGET_BYTES", "1048576"), ("CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", "1.2")], expected_valid: false })]
+    fn the_partition_budget_needs_both_axes(#[case] case: LimitsCase) {
+        assert_eq!(
+            config(case.vars).partition_budget().is_ok(),
+            case.expected_valid
+        );
+    }
+
+    #[rstest]
+    #[case::both_axes(LimitsCase { vars: &[("CONSUMER_IN_FLIGHT_EVENTS", "30000"), ("CONSUMER_IN_FLIGHT_BYTES", "52428800")], expected_valid: true })]
+    #[case::unset(LimitsCase { vars: &[], expected_valid: false })]
+    #[case::events_only(LimitsCase { vars: &[("CONSUMER_IN_FLIGHT_EVENTS", "30000")], expected_valid: false })]
+    #[case::bytes_only(LimitsCase { vars: &[("CONSUMER_IN_FLIGHT_BYTES", "52428800")], expected_valid: false })]
+    fn the_in_flight_limit_needs_both_axes(#[case] case: LimitsCase) {
+        assert_eq!(
+            config(case.vars).in_flight_limit().is_ok(),
+            case.expected_valid
+        );
     }
 
     #[rstest]
@@ -894,18 +951,5 @@ mod tests {
         assert_eq!(Adaptation::from_str(" ON "), Ok(Adaptation::On));
         assert_eq!(Adaptation::from_str("off"), Ok(Adaptation::Off));
         assert!(Adaptation::from_str("true").is_err());
-    }
-
-    #[test]
-    fn completion_granularity_parses_known_values() {
-        assert_eq!(
-            CompletionGranularity::from_str(" POLL "),
-            Ok(CompletionGranularity::Poll)
-        );
-        assert_eq!(
-            CompletionGranularity::from_str("group"),
-            Ok(CompletionGranularity::Group)
-        );
-        assert!(CompletionGranularity::from_str("batch").is_err());
     }
 }

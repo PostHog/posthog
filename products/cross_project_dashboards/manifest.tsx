@@ -1,7 +1,13 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'CrossProjectDashboards',
+    activityDescribers: {
+        [ActivityScope.CROSS_PROJECT_DASHBOARD]: () =>
+            import('./frontend/crossProjectDashboardActivityDescriber').then(
+                (module) => module.crossProjectDashboardActivityDescriber
+            ),
+    },
     scenes: {
         CrossProjectDashboards: {
             name: 'Cross-project dashboards',

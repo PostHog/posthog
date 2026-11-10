@@ -2,12 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import {
-    createDefaultTooltipAccessor,
-    ensureJsdom,
-    getHogChart,
-    hoverUntilTooltip,
-} from '@posthog/quill-charts/testing'
+import { createDefaultTooltipAccessor, ensureJsdom, getChart, hoverUntilTooltip } from '@posthog/quill-charts/testing'
 
 import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -46,7 +41,7 @@ describe('MetricsPanel', () => {
 
         it('draws one line per series by default', () => {
             renderPanel([seriesWith({ service: 'checkout' }, [1, 2, 3]), seriesWith({ service: 'billing' }, [4, 5, 6])])
-            expect(getHogChart().seriesCount).toBe(2)
+            expect(getChart().seriesCount).toBe(2)
         })
 
         it.each([
@@ -55,13 +50,13 @@ describe('MetricsPanel', () => {
             ['renders the bar display as a bar chart', 'bar' as const, 'bar'],
         ])('%s', (_name, type, expectedChart) => {
             renderPanel([seriesWith({ service: 'a' }, [1, 2, 3]), seriesWith({ service: 'b' }, [4, 5, 6])], { type })
-            expect(getHogChart().seriesCount).toBe(2)
+            expect(getChart().seriesCount).toBe(2)
             expect(screen.getByTestId(`hog-chart-timeseries-${expectedChart}-legend`)).toBeInTheDocument()
         })
 
         it('falls back to a line chart for an unknown display type', () => {
             renderPanel([seriesWith({ service: 'a' }, [1, 2, 3])], { type: 'pie' as never })
-            expect(getHogChart().seriesCount).toBe(1)
+            expect(getChart().seriesCount).toBe(1)
         })
 
         it('renders a clickable dot per traced exemplar', () => {
@@ -75,14 +70,14 @@ describe('MetricsPanel', () => {
         // until the quill null-data change; dropping it would shift later values a bucket left.
         it('charts a null bucket as zero rather than dropping the point', async () => {
             renderPanel([seriesWith({}, [1, null, 3])])
-            const chart = getHogChart()
+            const chart = getChart()
             const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 1, BUCKETS.length))
             expect(tooltip.value('http.requests')).toBe('0')
         })
 
         it('formats the y axis and tooltip with the resolved unit', async () => {
             renderPanel([seriesWith({}, [250, 1500, 3000], 'http.duration', 'ms')])
-            const chart = getHogChart()
+            const chart = getChart()
             expect(chart.yTicks().some((tick) => tick.endsWith(' s'))).toBe(true)
             const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 0, BUCKETS.length))
             expect(tooltip.value('http.duration')).toBe('250 ms')
@@ -90,7 +85,7 @@ describe('MetricsPanel', () => {
 
         it('labels every ratio tick on one scale when the data exceeds 1', () => {
             renderPanel([seriesWith({}, [0, 1, 2], 'load', '1')])
-            const ticks = getHogChart().yTicks()
+            const ticks = getChart().yTicks()
             expect(ticks.length).toBeGreaterThan(1)
             expect(ticks.some((tick) => tick.endsWith('%'))).toBe(false)
         })
@@ -168,7 +163,7 @@ describe('MetricsPanel', () => {
             renderPanel([seriesWith({ pod: 'a' }, [1, 2, 10]), seriesWith({ pod: 'b' }, [1, 2, 20])], {
                 type: 'bargauge',
             })
-            expect(getHogChart().seriesCount).toBe(1)
+            expect(getChart().seriesCount).toBe(1)
             expect(screen.getByText('pod=a')).toBeInTheDocument()
             expect(screen.getByText('pod=b')).toBeInTheDocument()
         })

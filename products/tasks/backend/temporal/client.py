@@ -669,6 +669,7 @@ def execute_posthog_code_agent_relay_workflow(
     message_id: str | None = None,
     trace_id: str | None = None,
     offer_reply_suggestions: bool = False,
+    offer_feature_tip: bool = False,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -687,6 +688,7 @@ def execute_posthog_code_agent_relay_workflow(
                 message_id=message_id,
                 trace_id=trace_id,
                 offer_reply_suggestions=offer_reply_suggestions,
+                offer_feature_tip=offer_feature_tip,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

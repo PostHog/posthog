@@ -8,6 +8,7 @@ import signal
 import contextlib
 import subprocess
 import importlib.util
+from collections.abc import Callable
 
 import unittest
 from unittest.mock import MagicMock, patch
@@ -26,7 +27,7 @@ from toolbox.kubernetes import (
     validate_context,
     wait_for_context_access,
 )
-from toolbox.pod import ClaimRaceError, claim_pod, delete_pod, get_toolbox_pod
+from toolbox.pod import KEPT_LABELS, ClaimRaceError, claim_pod, delete_pod, get_toolbox_pod
 from toolbox.tailscale import SKIP_CHECK_ENV_VAR, TAILSCALE_RUNBOOK_URL, ensure_tailscale_connected
 from toolbox.user import get_current_user, parse_arn, sanitize_label
 
@@ -234,7 +235,7 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(pod_name, "toolbox-pod-1")
         self.assertFalse(is_claimed)
         self.assertEqual(resource_version, "12345")
-        mock_run.assert_called_once_with(
+        mock_run.assert_called_with(
             [
                 "kubectl",
                 "get",
@@ -279,7 +280,8 @@ class TestToolbox(unittest.TestCase):
             namespace="posthog",
             context="posthog-dev",
         )
-        mock_run.assert_called_once_with(
+        self.assertEqual({call.args[0][1] for call in mock_run.call_args_list}, {"--context=posthog-dev"})
+        mock_run.assert_called_with(
             [
                 "kubectl",
                 "--context=posthog-dev",
@@ -328,7 +330,7 @@ class TestToolbox(unittest.TestCase):
             namespace="posthog-toolbox-django",
             extra_selector="app.kubernetes.io/component=app",
         )
-        mock_run.assert_called_once_with(
+        mock_run.assert_called_with(
             [
                 "kubectl",
                 "get",
@@ -345,39 +347,57 @@ class TestToolbox(unittest.TestCase):
             check=True,
         )
 
+    @staticmethod
+    def _kubectl_honoring_label_selector(pods: list[dict]) -> Callable[..., MagicMock]:
+        def run(cmd: list[str], **kwargs: object) -> MagicMock:
+            terms = [term.partition("=") for term in cmd[cmd.index("-l") + 1].split(",")]
+            matching = [
+                pod
+                for pod in pods
+                if all(
+                    pod["metadata"]["labels"].get(key) == value if sep else key in pod["metadata"]["labels"]
+                    for key, sep, value in terms
+                )
+            ]
+            return MagicMock(stdout=json.dumps({"items": matching}))
+
+        return run
+
     @patch("subprocess.run")
     def test_get_toolbox_pod_returns_existing_claim_with_rv(self, mock_run):
         """An already-claimed pod returns is_claimed=True and the observed resourceVersion."""
-        mock_response = MagicMock()
-        mock_response.stdout = json.dumps(
-            {
-                "items": [
-                    {
-                        "metadata": {
-                            "name": "toolbox-pod-1",
-                            "resourceVersion": "55555",
-                            "labels": {
-                                "app.kubernetes.io/name": "posthog-toolbox-django",
-                                "toolbox-claimed": "michael.k_at_posthog.com",
-                            },
-                            "deletionTimestamp": None,
-                        },
-                        "status": {"phase": "Running"},
-                    }
-                ]
-            }
+        pool_labels = {
+            "app.kubernetes.io/name": "posthog-toolbox-django",
+            "app.kubernetes.io/component": "app",
+            "pod-template-hash": "749c5d8db",
+            "posthog.com/warpstream-client": "true",
+        }
+        claimed_labels = {key: value for key, value in pool_labels.items() if key in KEPT_LABELS}
+        claimed_labels.update({"toolbox-claimed": "michael.k_at_posthog.com", "terminate-after": "1700000000"})
+        mock_run.side_effect = self._kubectl_honoring_label_selector(
+            [
+                {
+                    "metadata": {"name": "toolbox-pod-unclaimed", "resourceVersion": "11111", "labels": pool_labels},
+                    "status": {"phase": "Running"},
+                },
+                {
+                    "metadata": {"name": "toolbox-pod-1", "resourceVersion": "55555", "labels": claimed_labels},
+                    "status": {"phase": "Running"},
+                },
+            ]
         )
-        mock_run.return_value = mock_response
 
-        pod_name, is_claimed, rv = get_toolbox_pod(
-            "michael.k_at_posthog.com",
-            app_label="posthog-toolbox-django",
-            claimed_label_key="toolbox-claimed",
-            namespace="posthog",
-        )
-        self.assertEqual(pod_name, "toolbox-pod-1")
-        self.assertTrue(is_claimed)
-        self.assertEqual(rv, "55555")
+        cases = [("posthog", None), ("posthog-toolbox-django", "app.kubernetes.io/component=app")]
+        for namespace, extra_selector in cases:
+            with self.subTest(extra_selector=extra_selector):
+                result = get_toolbox_pod(
+                    "michael.k_at_posthog.com",
+                    app_label="posthog-toolbox-django",
+                    claimed_label_key="toolbox-claimed",
+                    namespace=namespace,
+                    extra_selector=extra_selector,
+                )
+                self.assertEqual(result, ("toolbox-pod-1", True, "55555"))
 
     @patch("subprocess.run")
     def test_claim_pod(self, mock_run):
@@ -651,6 +671,26 @@ class TestToolbox(unittest.TestCase):
         annotate_args = mock_run.call_args_list[2][0][0]
         self.assertIn("--resource-version=42", strip_args)
         self.assertNotIn("--resource-version=42", annotate_args)
+
+    @patch("subprocess.run")
+    def test_claim_pod_keeps_the_warpstream_client_label(self, mock_run):
+        """The claim orphans the pod but keeps the label that lets it produce to WarpStream."""
+        mock_get_response = MagicMock()
+        mock_get_response.stdout = json.dumps(
+            {
+                "app.kubernetes.io/name": "posthog-toolbox-django",
+                "app.kubernetes.io/component": "app",
+                "pod-template-hash": "abc123",
+                "posthog.com/warpstream-client": "true",
+            }
+        )
+        mock_run.side_effect = [mock_get_response, *(MagicMock() for _ in range(4))]
+
+        claim_pod("toolbox-pod-1", {"toolbox-claimed": "u_at_posthog.com"}, 1234567890, namespace="posthog")
+
+        strip_args = mock_run.call_args_list[1][0][0]
+        self.assertEqual(strip_args[-2:], ["app.kubernetes.io/component-", "pod-template-hash-"])
+        self.assertFalse(any(arg.startswith("posthog.com/warpstream-client") for arg in strip_args))
 
     @patch("subprocess.run")
     def test_claim_pod_raises_claim_race_error_on_conflict(self, mock_run):
@@ -1283,9 +1323,9 @@ class TestToolbox(unittest.TestCase):
 
         mock_run.assert_called_once()
 
+    @patch.dict(os.environ, {"DEBUG": "1", "PATH": "/test/bin", "AWS_PROFILE": "test-profile"}, clear=True)
     @patch("subprocess.run")
     def test_connect_to_pod_returns_zero_on_success(self, mock_run):
-        """connect_to_pod returns 0 when kubectl exec exits cleanly."""
         from toolbox.pod import connect_to_pod
 
         mock_result = MagicMock()
@@ -1294,6 +1334,8 @@ class TestToolbox(unittest.TestCase):
 
         rc = connect_to_pod("toolbox-pod-1", namespace="posthog")
         self.assertEqual(rc, 0)
+        self.assertEqual(mock_run.call_args.kwargs["env"], {"PATH": "/test/bin", "AWS_PROFILE": "test-profile"})
+        self.assertEqual(os.environ["DEBUG"], "1")
 
     @patch("subprocess.run")
     def test_connect_to_pod_returns_nonzero_on_failure(self, mock_run):
@@ -1312,16 +1354,16 @@ class TestToolbox(unittest.TestCase):
         rc = connect_to_pod("toolbox-pod-1", namespace="posthog")
         self.assertEqual(rc, 1)
 
+    @patch.dict(os.environ, {"PATH": "/test/bin", "AWS_PROFILE": "test-profile"}, clear=True)
     @patch("subprocess.run")
     def test_connect_to_pod_with_context(self, mock_run):
-        """connect_to_pod with context= passes --context to kubectl exec."""
         from toolbox.pod import connect_to_pod
 
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_run.return_value = mock_result
 
-        connect_to_pod("toolbox-pod-1", namespace="posthog", context="posthog-dev")
+        connect_to_pod("toolbox-pod-1", namespace="posthog", context="posthog-dev", kubectl_debug=True)
         mock_run.assert_called_once_with(
             [
                 "kubectl",
@@ -1333,8 +1375,10 @@ class TestToolbox(unittest.TestCase):
                 "toolbox-pod-1",
                 "--",
                 "bash",
-            ]
+            ],
+            env={"PATH": "/test/bin", "AWS_PROFILE": "test-profile", "DEBUG": "1"},
         )
+        self.assertNotIn("DEBUG", os.environ)
 
     def _patch_main_collaborators(self, *, get_pod_returns=("toolbox-pod-1", False, "12345")):
         """Common patch stack for main() integration tests.
@@ -1717,7 +1761,6 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(m_claim.call_args.kwargs["resource_version"], None)
 
     def test_main_propagates_connect_to_pod_exit_code(self):
-        """When kubectl exec returns non-zero, main() exits with the same code."""
         patches = self._patch_main_collaborators()
         patches["connect_to_pod"] = patch.object(toolbox_script, "connect_to_pod", return_value=42)
 
@@ -1725,11 +1768,11 @@ class TestToolbox(unittest.TestCase):
             patches["get_current_user"],
             patches["get_toolbox_pod"],
             patches["claim_pod"],
-            patches["connect_to_pod"],
+            patches["connect_to_pod"] as mock_connect,
             patches["delete_pod"],
             patches["select_context"],
             patches["validate_context"],
-            patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete"]),
+            patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete", "--kubectl-debug"]),
             patch.dict(os.environ, {}, clear=False),
         ):
             self._clean_env()
@@ -1737,6 +1780,7 @@ class TestToolbox(unittest.TestCase):
                 toolbox_script.main()
 
         self.assertEqual(ctx.exception.code, 42)
+        self.assertTrue(mock_connect.call_args.kwargs["kubectl_debug"])
 
     def test_main_retries_on_claim_race_and_picks_new_pod(self):
         """A ClaimRaceError on the first attempt triggers a re-fetch and retry against the next available pod."""
@@ -1777,7 +1821,9 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(m_get_pod.call_count, 2)
         self.assertEqual(m_claim.call_count, 2)
         # We connected to the pod we won, not the one we lost.
-        m_connect.assert_called_once_with("toolbox-pod-B", namespace="posthog-toolbox-django", context="posthog-dev")
+        m_connect.assert_called_once_with(
+            "toolbox-pod-B", namespace="posthog-toolbox-django", context="posthog-dev", kubectl_debug=False
+        )
         # atexit was registered twice (once per candidate pod) and unregistered once
         # to clear the stale registration after the race.
         self.assertEqual(m_atexit.call_count, 2)
@@ -1867,7 +1913,9 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
-        m_connect.assert_called_once_with("toolbox-pod-mine", namespace="posthog-toolbox-django", context="posthog-dev")
+        m_connect.assert_called_once_with(
+            "toolbox-pod-mine", namespace="posthog-toolbox-django", context="posthog-dev", kubectl_debug=False
+        )
         # claim_pod was called once (the racing one) and not retried since we found our own pod.
         self.assertEqual(m_claim.call_count, 1)
         # First atexit register armed cleanup for pod-A; on the race we unregistered;

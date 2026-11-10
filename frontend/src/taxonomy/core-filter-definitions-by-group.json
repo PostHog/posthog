@@ -797,10 +797,21 @@
             "label": "Anomaly interval",
             "type": "String"
         },
+        "$anomaly_model_id": {
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "label": "Anomaly model ID",
+            "type": "String"
+        },
         "$anomaly_profile": {
             "description": "Name of the scoring profile that produced the score.",
             "examples": ["default-v1"],
             "label": "Anomaly scoring profile",
+            "type": "String"
+        },
+        "$anomaly_run": {
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
+            "examples": ["train", "score"],
+            "label": "Anomaly scoring run",
             "type": "String"
         },
         "$anomaly_score": {
@@ -843,6 +854,11 @@
         "$app_build": {
             "description": "The build number for the app.",
             "label": "App build"
+        },
+        "$app_language": {
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+            "label": "App language"
         },
         "$app_name": {
             "description": "The name of the app.",
@@ -3310,6 +3326,10 @@
             "description": "Fires when the status of a support conversation ticket changes.",
             "label": "Conversation ticket status changed"
         },
+        "$conversation_ticket_tag_added": {
+            "description": "Fires when a tag is added to a support conversation ticket.",
+            "label": "Conversation ticket tag added"
+        },
         "$copy_autocapture": {
             "description": "Selected text automatically captured when a user copies or cuts.",
             "ignored_in_assistant": true,
@@ -4739,10 +4759,21 @@
             "label": "Anomaly interval",
             "type": "String"
         },
+        "$anomaly_model_id": {
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "label": "Anomaly model ID",
+            "type": "String"
+        },
         "$anomaly_profile": {
             "description": "Name of the scoring profile that produced the score.",
             "examples": ["default-v1"],
             "label": "Anomaly scoring profile",
+            "type": "String"
+        },
+        "$anomaly_run": {
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
+            "examples": ["train", "score"],
+            "label": "Anomaly scoring run",
             "type": "String"
         },
         "$anomaly_score": {
@@ -4785,6 +4816,11 @@
         "$app_build": {
             "description": "The build number for the app. Data from the last time this user was seen.",
             "label": "Latest app build"
+        },
+        "$app_language": {
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+            "label": "App language"
         },
         "$app_name": {
             "description": "The name of the app. Data from the last time this user was seen.",

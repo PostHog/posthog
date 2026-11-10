@@ -22,8 +22,14 @@ import { QuillRemoveAccessButton } from './QuillRemoveAccessButton'
 
 export function QuillAccessControlMembers(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { resource, membersById, addableMembers, accessControlMembers, availableLevels, accessControlsLoading } =
-        useValues(accessControlLogic)
+    const {
+        resource,
+        membersById,
+        addableMembers,
+        accessControlMembers,
+        availableLevelsWithNone,
+        accessControlsLoading,
+    } = useValues(accessControlLogic)
     // Each change saves the whole list, so a second change before the first lands could overwrite it.
     const savingReason = accessControlsLoading ? 'Saving…' : undefined
     const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
@@ -58,7 +64,7 @@ export function QuillAccessControlMembers(): JSX.Element | null {
                         <QuillAccessLevelSelect
                             level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
                             disabled
-                            levels={availableLevels}
+                            levels={availableLevelsWithNone}
                             onChange={() => {}}
                         />
                     </ItemActions>
@@ -83,7 +89,7 @@ export function QuillAccessControlMembers(): JSX.Element | null {
                 <ItemActions>
                     <QuillAccessLevelSelect
                         level={memberAc.access_level}
-                        levels={availableLevels}
+                        levels={availableLevelsWithNone}
                         disabledReason={savingReason}
                         onChange={(level) =>
                             void updateAccessControlMembers([{ member: memberAc.organization_member as string, level }])

@@ -177,10 +177,10 @@ export interface DataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -280,10 +280,10 @@ export interface DataCatalogMetricCreateApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -407,10 +407,10 @@ export interface PatchedDataCatalogMetricApi {
      */
     unit?: string
     /**
-     * Email of the human accountable for this metric, or null.
+     * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
      * @nullable
      */
-    readonly owner?: string | null
+    owner?: string | null
     /**
      * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
      * @nullable
@@ -469,6 +469,14 @@ export interface PatchedDataCatalogMetricApi {
 }
 
 /**
+ * Input for approving one metric.
+ */
+export interface DataCatalogMetricApproveRequestApi {
+    /** The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version. */
+    expected_updated_at?: string
+}
+
+/**
  * * `second` - second
  * * `minute` - minute
  * * `hour` - hour
@@ -478,10 +486,9 @@ export interface PatchedDataCatalogMetricApi {
  * * `quarter` - quarter
  * * `year` - year
  */
-export type DataCatalogMetricRunRequestIntervalEnumApi =
-    (typeof DataCatalogMetricRunRequestIntervalEnumApi)[keyof typeof DataCatalogMetricRunRequestIntervalEnumApi]
+export type IntervalTypeEnumApi = (typeof IntervalTypeEnumApi)[keyof typeof IntervalTypeEnumApi]
 
-export const DataCatalogMetricRunRequestIntervalEnumApi = {
+export const IntervalTypeEnumApi = {
     Second: 'second',
     Minute: 'minute',
     Hour: 'hour',
@@ -510,7 +517,12 @@ export interface DataCatalogMetricRunRequestApi {
      * * `month` - month
      * * `quarter` - quarter
      * * `year` - year */
-    interval?: DataCatalogMetricRunRequestIntervalEnumApi
+    interval?: IntervalTypeEnumApi
+    /**
+     * Rows to skip, to read the page after a run that returned has_more. Pass next_offset from that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.
+     * @minimum 0
+     */
+    offset?: number
     /** Client-supplied id to correlate or cancel the run. */
     query_id?: string
 }
@@ -547,13 +559,23 @@ export interface DataCatalogMetricRunApi {
     compiled_query: string | null
     /** Async query status, when the run is not blocking. */
     query_status: unknown
-    /** True when the query hit its row limit and more rows exist. Narrow the window or the interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those overrides, so report the window the definition itself covers, or ask for a parameterized metric. Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row cap was reported for that run. */
+    /** True when the query hit its row limit and more rows exist. Run the metric again with offset set to next_offset, and repeat until has_more is false. Do not re-derive the rows by hand. False whenever row_limit is null, because no row cap was reported for that run. */
     has_more: boolean
     /**
      * Row limit applied to this run. Null when no row cap was reported: a markdown metric, an insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field cannot verify the completeness of those runs.
      * @nullable
      */
     row_limit: number | null
+    /**
+     * Offset that returns the next page of rows. Null when has_more is false, or when the run reached the page limit (see paging_stopped_reason). Pages follow the definition's ORDER BY, so rows that tie on every ORDER BY column can move between pages.
+     * @nullable
+     */
+    next_offset: number | null
+    /**
+     * Why paging stopped while has_more is still true: a metric run returns at most 10 pages. Report the result as partial. Null when paging can continue or the rows are complete.
+     * @nullable
+     */
+    paging_stopped_reason: string | null
     /**
      * Deep link to open the query in the app (SQL editor or insight).
      * @nullable
@@ -567,9 +589,9 @@ export interface DataCatalogMetricRunApi {
 }
 
 /**
- * Input for the bulk metric actions: the metric names to act on.
+ * Input for giving many metrics one owner.
  */
-export interface DataCatalogMetricBulkNamesRequestApi {
+export interface DataCatalogMetricBulkChangeOwnerRequestApi {
     /**
      * Names of the metrics to act on, at most 100. Duplicates are collapsed.
      * @minItems 1
@@ -577,6 +599,11 @@ export interface DataCatalogMetricBulkNamesRequestApi {
      * @items.maxLength 128
      */
     names: string[]
+    /**
+     * Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval.
+     * @nullable
+     */
+    owner: string | null
 }
 
 /**
@@ -587,6 +614,29 @@ export interface DataCatalogMetricBulkSkipApi {
     name: string
     /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
     reason: string
+}
+
+/**
+ * Outcome of a bulk owner change: what changed, and what was left alone.
+ */
+export interface DataCatalogMetricBulkChangeOwnerApi {
+    /** The metrics that now have the new owner, freshly serialized. */
+    updated: DataCatalogMetricApi[]
+    /** Requested metrics whose owner did not change, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+/**
+ * Input for the bulk metric actions: the metric names to act on.
+ */
+export interface DataCatalogMetricBulkNamesRequestApi {
+    /**
+     * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    names: string[]
 }
 
 /**

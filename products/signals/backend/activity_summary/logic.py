@@ -1,7 +1,10 @@
-"""One activity summary update for one (team, user): gather, filter, render, summarize, persist."""
+"""One activity summary update for one (team, user): gather, filter, render, summarize, persist.
+
+`build_summary_as_of` runs the same steps as of a past moment, and persists nothing."""
 
 import datetime
 import dataclasses
+from collections import Counter
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -13,18 +16,34 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks, user_views
+from products.signals.backend.activity_summary.computed import compute_fields
+from products.signals.backend.activity_summary.inputs import (
+    McpRead,
+    activity_parents,
+    user_activity,
+    user_mcp_records,
+    user_tasks,
+    user_views,
+)
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
     RENDER_VERSION,
+    ActivityItem,
+    McpItem,
+    Product,
+    RenderedInput,
     RenderLimits,
+    TaskItem,
+    ViewItem,
     build_input,
     sampling_seed,
+    without_products,
 )
 from products.signals.backend.activity_summary.summaries import (
     DEFAULT_MODEL,
     MODEL_PRICES,
+    SummaryOutcome,
     cost_usd,
     gateway_client,
     summarize,
@@ -34,6 +53,8 @@ from products.signals.backend.models import UserActivitySummary, UserActivitySum
 # Fewer rendered lines than this since the last update say too little to change the summary.
 MIN_UNITS = 3
 MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
+# What someone opens changes slowly, so an update that views led waits longer.
+VIEW_UPDATE_INTERVAL = datetime.timedelta(days=7)
 # The `UserActivitySummaryVersion` rows kept per summary. An update deletes the older ones.
 MAX_VERSIONS = 30
 # A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
@@ -61,8 +82,14 @@ class UpdateStatus(StrEnum):
     OK = "ok"
     FAILED = "failed"
     SKIPPED_AI_NOT_APPROVED = "skipped_ai_not_approved"
+    SKIPPED_NOT_ENROLLED = "skipped_not_enrolled"
     SKIPPED_NOT_ELIGIBLE_YET = "skipped_not_eligible_yet"
     SKIPPED_TOO_FEW_UNITS = "skipped_too_few_units"
+    SKIPPED_EMPTY_PROFILE = "skipped_empty_profile"
+
+
+# The statuses of an update that called the model, so its cost counts against the daily caps.
+CALLED_MODEL_STATUSES = frozenset({UpdateStatus.OK, UpdateStatus.FAILED, UpdateStatus.SKIPPED_EMPTY_PROFILE})
 
 
 @frozen
@@ -76,8 +103,11 @@ class ActivitySummaryUpdate:
     latency_ms: int | None = None
     error: str | None = None
     inputs_used: dict[str, Any] | None = None
+    computed: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
     rebuilt: bool = False
+    # The pair had no generated summary before this update.
+    new_summary: bool = False
 
 
 class StoredSummaryVersion(Protocol):
@@ -104,7 +134,7 @@ def is_stale(stored: StoredSummaryVersion | None, rebuild_before: datetime.datet
 
 
 def skip_backoff(consecutive_skips: int, max_skip_backoff: datetime.timedelta) -> datetime.timedelta:
-    """The wait after a skip for too few units, when `consecutive_skips` skips came before it."""
+    """The wait after a skip, when `consecutive_skips` skips came before it."""
     return max(RETRY_BACKOFF, min(RETRY_BACKOFF * 2 ** min(consecutive_skips, _MAX_SKIP_DOUBLINGS), max_skip_backoff))
 
 
@@ -113,19 +143,130 @@ def _input_start(watermark: datetime.datetime | None, now: datetime.datetime, wi
     return earliest if watermark is None else max(earliest, watermark + _WATERMARK_STEP)
 
 
+@frozen
+class _WindowInputs:
+    tasks: list[TaskItem]
+    activity: list[ActivityItem]
+    views: list[ViewItem]
+    mcp: McpRead | None = None
+
+    @property
+    def mcp_records(self) -> tuple[McpItem, ...]:
+        return self.mcp.records if self.mcp is not None else ()
+
+
+def _read_inputs(
+    team_id: int,
+    user_id: int,
+    start: datetime.datetime,
+    end: datetime.datetime,
+    mcp_buffer_days: int | None = None,
+) -> _WindowInputs:
+    return _WindowInputs(
+        tasks=user_tasks(team_id, user_id, start, end),
+        activity=user_activity(team_id, user_id, start, end),
+        views=user_views(team_id, user_id, start, end),
+        mcp=(
+            user_mcp_records(team_id, user_id, start, end, max_days=mcp_buffer_days)
+            if mcp_buffer_days is not None
+            else None
+        ),
+    )
+
+
+def _render(
+    team_id: int,
+    user_id: int,
+    tasks: list[TaskItem],
+    activity: list[ActivityItem],
+    views: list[ViewItem],
+    *,
+    as_of: datetime.datetime,
+    limits: RenderLimits,
+    mcp: tuple[McpItem, ...] = (),
+) -> RenderedInput | None:
+    return build_input(
+        tasks,
+        activity,
+        as_of=as_of,
+        seed=sampling_seed(as_of.date().isoformat(), team_id, user_id),
+        views=views,
+        limits=limits,
+        parents=activity_parents(team_id, activity),
+        mcp=mcp,
+    )
+
+
+def _inputs_used(rendered: RenderedInput, limits: RenderLimits, mcp: McpRead | None = None) -> dict[str, Any]:
+    used: dict[str, Any] = {
+        "tasks": rendered.n_tasks,
+        "activity_lines": rendered.n_activity_lines,
+        "view_lines": rendered.n_view_lines,
+        "page_units": rendered.n_page_units,
+        "input_chars": rendered.input_chars,
+        "intent_lines": rendered.intent_lines,
+        "intent_chars": rendered.intent_chars,
+        "drops": rendered.drops,
+        "limits": dataclasses.asdict(limits),
+    }
+    if mcp is not None:
+        used.update(
+            {
+                "mcp_sessions": rendered.mcp_pool,
+                "mcp_burst_cap_drops": rendered.mcp_burst_cap_drops,
+                "mcp_sample_cap_drops": rendered.mcp_sample_cap_drops,
+                "mcp_budget_drops": rendered.mcp_budget_drops,
+                "mcp_lines": rendered.n_mcp_lines,
+                "mcp_chars": rendered.mcp_chars,
+                "mcp_records": len(mcp.records),
+                "mcp_truncated_days": mcp.truncated_days,
+                "mcp_read_error": mcp.read_error,
+            }
+        )
+    return used
+
+
+def _call_model(
+    team_id: int,
+    user_id: int,
+    rendered: RenderedInput,
+    computed: dict[str, Any],
+    *,
+    previous: dict[str, Any] | None,
+    as_of: datetime.datetime,
+    limits: RenderLimits,
+    trace_variant: str | None = None,
+) -> tuple[SummaryOutcome, float | None]:
+    outcome = summarize(
+        gateway_client(team_id, user_id, as_of.date(), variant=trace_variant),
+        rendered_input=rendered.text,
+        previous_summary=previous,
+        model=DEFAULT_MODEL,
+        as_of=as_of.date(),
+        max_completion_tokens=limits.max_completion_tokens,
+        profile_max_chars=limits.profile_max_chars,
+        computed=computed,
+    )
+    return outcome, cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(DEFAULT_MODEL))
+
+
 def _back_off(
     team_id: int,
     user_id: int,
     stored: UserActivitySummary | None,
     now: datetime.datetime,
     max_skip_backoff: datetime.timedelta,
+    *,
+    rebuild: bool,
 ) -> None:
     skips = stored.consecutive_skips if stored is not None else 0
     next_eligible_at = now + skip_backoff(skips, max_skip_backoff)
     # `update()` leaves `updated_at` alone, so the daily caps do not count a skip as a model call.
     if stored is not None:
+        # A skipped rebuild leaves no current summary, so the read stops serving the stale one.
+        status = {"status": UserActivitySummary.Status.SKIPPED} if rebuild else {}
         UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(
-            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS)
+            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS), **status
         )
         return
     UserActivitySummary.objects.for_team(team_id).get_or_create(
@@ -149,6 +290,7 @@ _VERSION_FIELDS = (
     "render_version",
     "input_watermark",
     "inputs_used",
+    "computed",
     "tokens_in",
     "tokens_out",
     "cost_usd",
@@ -240,6 +382,7 @@ def update_activity_summary(
     rebuild_before: datetime.datetime | None = None,
     max_versions: int = MAX_VERSIONS,
     max_skip_backoff: datetime.timedelta = MAX_SKIP_BACKOFF,
+    mcp_buffer_days: int | None = None,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
@@ -247,9 +390,12 @@ def update_activity_summary(
     run or for a stale summary (see `is_stale`). A stale summary is not sent to the model. A failed
     update records the error and keeps the stored summary and the watermark. With `dry_run`, the
     model is still called but nothing is written. `force` ignores `next_eligible_at`.
-    A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units sets it
-    to `skip_backoff` from now, which doubles with each skip until a good update resets it.
+    A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units or for an
+    empty first profile sets it to `skip_backoff` from now, which doubles with each skip until a good update
+    resets it. An empty first profile keeps the cost of its model call.
+    A skip of a stale summary's rebuild keeps the stored summary, but sets the status, so the read stops serving it.
     A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
+    With `mcp_buffer_days`, the update also reads up to that many UTC days of the MCP intent buffer.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     if team.organization.is_ai_data_processing_approved is not True:
@@ -261,51 +407,44 @@ def update_activity_summary(
         return ActivitySummaryUpdate(status=UpdateStatus.SKIPPED_NOT_ELIGIBLE_YET)
 
     rebuild = is_stale(stored, rebuild_before)
+    window_start = _input_start(None, now, limits.window_days)
     start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
-    tasks = user_tasks(team_id, user_id, start, now)
-    activity = user_activity(team_id, user_id, start, now)
-    views = user_views(team_id, user_id, start, now)
-    rendered = build_input(
-        tasks,
-        activity,
-        as_of=now,
-        seed=sampling_seed(now.date().isoformat(), team_id, user_id),
-        views=views,
-        limits=limits,
-        parents=activity_parents(team_id, activity),
-    )
+    window = _read_inputs(team_id, user_id, start, now, mcp_buffer_days)
+    tasks, activity, views = window.tasks, window.activity, window.views
+    rendered = _render(team_id, user_id, tasks, activity, views, as_of=now, limits=limits, mcp=window.mcp_records)
     if rendered is None or rendered.units < min_units:
         if not dry_run:
-            _back_off(team_id, user_id, stored, now, max_skip_backoff)
+            _back_off(team_id, user_id, stored, now, max_skip_backoff, rebuild=rebuild)
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
             rendered_input=rendered.text if rendered else None,
             inputs_used={"drops": rendered.drops} if rendered else None,
         )
 
-    inputs_used: dict[str, Any] = {
-        "tasks": rendered.n_tasks,
-        "activity_lines": rendered.n_activity_lines,
-        "view_lines": rendered.n_view_lines,
-        "input_chars": rendered.input_chars,
-        "drops": rendered.drops,
-        "limits": dataclasses.asdict(limits),
-    }
-    watermark = max([task.at for task in tasks] + [item.at for item in activity] + [view.at for view in views])
-    previous = stored.summary if stored is not None and not rebuild else None
-    model = DEFAULT_MODEL
-    outcome = summarize(
-        gateway_client(team_id, user_id, now.date()),
-        rendered_input=rendered.text,
-        previous_summary=previous,
-        model=model,
-        as_of=now.date(),
-        max_completion_tokens=limits.max_completion_tokens,
-        profile_max_chars=limits.profile_max_chars,
+    inputs_used = _inputs_used(rendered, limits, window.mcp)
+    watermark = max(
+        [task.at for task in tasks]
+        + [item.at for item in activity]
+        + [view.at for view in views]
+        + [record.at for record in window.mcp_records]
     )
-    cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
+    # An incremental update reads only the rows after the watermark, so the computed fields read the full window.
+    if start == window_start:
+        fields = compute_fields(tasks, activity, views)
+    else:
+        full = _read_inputs(team_id, user_id, window_start, now)
+        fields = compute_fields(full.tasks, full.activity, full.views)
+    computed = fields.with_line_refs(rendered).as_json()
+    previous = stored.summary if stored is not None and not rebuild else None
+    outcome, cost = _call_model(team_id, user_id, rendered, computed, previous=previous, as_of=now, limits=limits)
+    if outcome.summary is not None:
+        status = UpdateStatus.OK
+    elif outcome.empty_profile:
+        status = UpdateStatus.SKIPPED_EMPTY_PROFILE
+    else:
+        status = UpdateStatus.FAILED
     result = ActivitySummaryUpdate(
-        status=UpdateStatus.OK if outcome.summary is not None else UpdateStatus.FAILED,
+        status=status,
         rendered_input=rendered.text,
         summary=outcome.summary,
         tokens_in=outcome.tokens_in,
@@ -314,8 +453,10 @@ def update_activity_summary(
         latency_ms=outcome.latency_ms,
         error=outcome.error,
         inputs_used=inputs_used,
+        computed=computed if outcome.summary is not None else None,
         input_watermark=watermark if outcome.summary is not None else None,
         rebuilt=rebuild,
+        new_summary=stored is None or stored.generated_at is None,
     )
     if dry_run:
         return result
@@ -329,6 +470,21 @@ def update_activity_summary(
             "inputs_used": inputs_used,
             "error": outcome.error,
         }
+        if outcome.empty_profile:
+            skips = stored.consecutive_skips if stored is not None else 0
+            # `update_or_create` saves `updated_at`, so the daily caps count the model call.
+            UserActivitySummary.objects.for_team(team_id).update_or_create(
+                team_id=team_id,
+                user_id=user_id,
+                defaults={
+                    **accounting,
+                    "status": UserActivitySummary.Status.EMPTY_PROFILE,
+                    "next_eligible_at": now + skip_backoff(skips, max_skip_backoff),
+                    "consecutive_skips": min(skips + 1, _MAX_SKIP_DOUBLINGS),
+                },
+            )
+            return result
+
         if outcome.summary is None:
             UserActivitySummary.objects.for_team(team_id).update_or_create(
                 team_id=team_id,
@@ -349,8 +505,9 @@ def update_activity_summary(
                 "status": UserActivitySummary.Status.OK,
                 "summary": outcome.summary,
                 "summary_text": summary_text(outcome.summary),
+                "computed": computed,
                 "generated_at": now,
-                "model": model,
+                "model": DEFAULT_MODEL,
                 "prompt_version": PROMPT_VERSION,
                 "render_version": RENDER_VERSION,
                 "input_watermark": watermark,
@@ -362,3 +519,85 @@ def update_activity_summary(
         return result
     except Exception as error:
         raise UpdateAfterModelCallError(cost) from error
+
+
+@frozen
+class AsOfInput:
+    rendered: RenderedInput
+    computed: dict[str, Any]
+    inputs_used: dict[str, Any]
+
+
+def render_as_of(
+    team_id: int,
+    user_id: int,
+    as_of: datetime.datetime,
+    *,
+    limits: RenderLimits = DEFAULT_LIMITS,
+    exclude_products: frozenset[Product] = frozenset(),
+    mcp_buffer_days: int | None = None,
+) -> AsOfInput | None:
+    """The rendered input and computed fields of `[as_of - limits.window_days, as_of)`, or None when nothing renders.
+
+    Views come from the latest view of each object, so an object opened again after `as_of` is missing."""
+    window = _read_inputs(team_id, user_id, as_of - datetime.timedelta(days=limits.window_days), as_of, mcp_buffer_days)
+    tasks, activity, views = window.tasks, window.activity, window.views
+    excluded: Counter[str] = Counter()
+    activity, views = without_products(activity, views, exclude_products, excluded)
+    rendered = _render(team_id, user_id, tasks, activity, views, as_of=as_of, limits=limits, mcp=window.mcp_records)
+    if rendered is None:
+        return None
+    inputs_used = _inputs_used(rendered, limits, window.mcp)
+    inputs_used["drops"] = {**rendered.drops, **excluded}
+    return AsOfInput(
+        rendered=rendered,
+        computed=compute_fields(tasks, activity, views).with_line_refs(rendered).as_json(),
+        inputs_used=inputs_used,
+    )
+
+
+def build_summary_as_of(
+    team_id: int,
+    user_id: int,
+    as_of: datetime.datetime,
+    *,
+    limits: RenderLimits = DEFAULT_LIMITS,
+    min_units: int = MIN_UNITS,
+    exclude_products: frozenset[Product] = frozenset(),
+    trace_variant: str | None = None,
+    mcp_buffer_days: int | None = None,
+) -> ActivitySummaryUpdate:
+    """A summary of one user in one project as of `as_of`, from the inputs before it only.
+
+    The model gets no previous summary, and the sample seed comes from the `as_of` date. Nothing is written."""
+    built = render_as_of(
+        team_id, user_id, as_of, limits=limits, exclude_products=exclude_products, mcp_buffer_days=mcp_buffer_days
+    )
+    if built is None or built.rendered.units < min_units:
+        return ActivitySummaryUpdate(
+            status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
+            rendered_input=built.rendered.text if built else None,
+            inputs_used=built.inputs_used if built else None,
+        )
+    outcome, cost = _call_model(
+        team_id,
+        user_id,
+        built.rendered,
+        built.computed,
+        previous=None,
+        as_of=as_of,
+        limits=limits,
+        trace_variant=trace_variant,
+    )
+    return ActivitySummaryUpdate(
+        status=UpdateStatus.OK if outcome.summary is not None else UpdateStatus.FAILED,
+        rendered_input=built.rendered.text,
+        summary=outcome.summary,
+        tokens_in=outcome.tokens_in,
+        tokens_out=outcome.tokens_out,
+        cost_usd=cost,
+        latency_ms=outcome.latency_ms,
+        error=outcome.error,
+        inputs_used=built.inputs_used,
+        computed=built.computed if outcome.summary is not None else None,
+    )

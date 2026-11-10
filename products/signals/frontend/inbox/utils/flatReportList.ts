@@ -1,3 +1,4 @@
+import { isMergeKeySortField } from '../filterOptions'
 import type { InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
 import {
     INBOX_REPORT_SECTION_KEYS,
@@ -64,8 +65,8 @@ function mergeSortedSections(
  * The flat list's rows: the loaded rows of every selected state, deduplicated (a report can match
  * two states' filters, e.g. a PR'd report judged not actionable is in both Review and merge and the
  * staff Not actionable state; the first state in canonical order claims it), then ordered with the
- * same keys the server sorted each response by. The Recommended sort merges the responses by the
- * server's merge key instead, because the server orders each response by a score it does not send.
+ * same keys the server sorted each response by. The Recommended and Personalized sorts merge the
+ * responses by the server's merge key instead, because the server orders each response by a score it does not send.
  * Rows past a state's loaded page can sort below later-keyed rows from a shorter state until the
  * next page lands; the scroll sentinel keeps every selected state paging together.
  */
@@ -88,7 +89,7 @@ export function mergeReportRows(
         rowsBySection.push(sectionRows)
     }
     const compare = compareSignalReports(sortField, sortDirection)
-    if (sortField === 'recommended') {
+    if (isMergeKeySortField(sortField)) {
         return mergeSortedSections(rowsBySection, compare)
     }
     return rowsBySection.flat().sort((a, b) => compare(a.report, b.report))

@@ -32,7 +32,12 @@ from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification,
     sweep_first_report_notifications,
 )
-from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalFirstReportNotification,
+    SignalReport,
+    SignalReportArtefact,
+    SignalTeamConfig,
+)
 from products.signals.backend.report_access import may_read_reports
 
 MODULE = "products.signals.backend.first_report_notification"
@@ -80,6 +85,16 @@ class TestFirstReportNotification(BaseTest):
 
     def notification(self) -> SignalFirstReportNotification:
         return SignalFirstReportNotification.objects.for_team(self.team.id).get()
+
+    def test_first_investigation_can_notify_about_a_report_needing_a_decision(self) -> None:
+        report = self.report(
+            status=SignalReport.Status.PENDING_INPUT,
+            latest_actionability="requires_human_input",
+            scout_idempotency_key=f"first-report:{self.team.id}",
+        )
+        deliver_first_report_email(self.team.id)
+        assert self.notification().report_id == report.id
+        self.send.assert_called_once()
 
     @parameterized.expand(
         [
@@ -216,6 +231,17 @@ class TestFirstReportNotification(BaseTest):
         assert initial_send.kwargs["message_data"]["report_id"] == str(first.id)
         assert self.notification().queued_at is not None
 
+    @time_machine.travel("2026-01-15T12:01:00Z", tick=False)
+    def test_suppressed_recipient_cancels_the_notification(self) -> None:
+        self.report()
+        self.send.side_effect = TransactionalEmailRejected("http_422", code="recipient_suppressed")
+
+        deliver_first_report_email(self.team.id)
+        deliver_first_report_email(self.team.id)
+
+        assert self.send.call_count == 1
+        assert self.notification().cancelled_at is not None
+
     def test_project_access_is_required_even_with_task_access(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -335,18 +361,35 @@ class TestFirstReportNotification(BaseTest):
         self.send.assert_called_once()
         assert self.notification().queued_at is not None
 
-    def test_environment_activation_and_reports_keep_their_own_recipient(self) -> None:
+    @parameterized.expand([(False, True), (True, True), (True, False)])
+    def test_environment_activation_and_reports_keep_their_own_recipient(
+        self, first_investigation: bool, parent_access: bool
+    ) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
         other_user = User.objects.create_and_join(self.organization, "staging@example.com", None)
         register_first_report_notification(team=child, user=other_user)
-        report = self.report(team=child)
-        deliver_first_report_email(self.team.id)
-        self.send.assert_not_called()
-        deliver_first_report_email(child.id)
+        report_team = self.team if first_investigation else child
+        if first_investigation:
+            SignalTeamConfig.objects.update_or_create(
+                team=self.team, defaults={"onboarding": {"first_report_activation_team_id": child.id}}
+            )
+        report = self.report(team=report_team)
+        if not first_investigation:
+            deliver_first_report_email(self.team.id)
+            self.send.assert_not_called()
+        with patch(
+            f"{MODULE}.may_read_reports", side_effect=lambda *, user, team: parent_access or team.id == child.id
+        ):
+            deliver_first_report_email(child.id)
+        if not parent_access:
+            self.send.assert_not_called()
+            assert SignalFirstReportNotification.objects.for_team(child.id).get().cancelled_at is not None
+            return
+        self.send.assert_called_once()
         sent = self.send.call_args.kwargs
         assert sent["to"] == other_user.email
         assert sent["distinct_id"] == str(other_user.distinct_id)
-        assert sent["message_data"]["project_id"] == child.id
+        assert sent["message_data"]["project_id"] == report_team.id
         assert sent["message_data"]["report_id"] == str(report.id)
         assert self.notification().queued_at is None
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, TypeVar
+from uuid import uuid4
 
 import structlog
 import posthoganalytics
@@ -25,14 +26,13 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import rank_assignee_candidates
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, select_repository_for_team
+from products.signals.backend.task_profiles import CUSTOM_AGENT, REPO_SELECTION_WITHOUT_REPORT
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
-from products.signals.backend.temporal.agentic.select_repository import GITHUB_ONLY_DOMAINS
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, extract_json_from_text
 
 if TYPE_CHECKING:
@@ -476,10 +476,7 @@ involvement — the ranking handles that.
         if self.user_id is None:
             raise RuntimeError("_resolve_repository requires user_id to be resolved first")
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-            self.team_id,
-            SIGNALS_REPO_DISCOVERY_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
-            allowed_domains=GITHUB_ONLY_DOMAINS,
+            self.team_id, SIGNALS_REPO_DISCOVERY_ENV_NAME, REPO_SELECTION_WITHOUT_REPORT
         )
         selected = await select_repository_for_team(
             team_id=self.team_id,
@@ -518,6 +515,10 @@ involvement — the ranking handles that.
         Fails fast on missing title/description before any default-resolver
         LLM calls.
         """
+        from products.signals.backend.trial.direct_reports import (
+            funded_report,  # noqa: PLC0415 -- scout report registration imports custom agents
+        )
+
         missing_required = [
             name for name, value in (("title", self._title), ("description", self._description)) if value is None
         ]
@@ -525,18 +526,23 @@ involvement — the ranking handles that.
             raise MissingReportComponentError(
                 f"Custom agent must register {' and '.join(missing_required)} before finalizing"
             )
-        await self._resolve_missing_report_components()
-        final = self._final_report()
-        task_id = str(self._task.id) if self._task is not None else None
-        assert self._resolved_repository is not None, "start() must run before finalization"
-        persisted = await database_sync_to_async(create_custom_agent_ready_report, thread_sensitive=False)(
-            team_id=self.team_id,
-            final_report=final,
-            repo_selection=self._resolved_repository,
-            task_id=task_id,
-            agent_identifier=type(self).identifier(),
-            registered_artefacts=list(self._registered_artefacts),
-        )
+        team = await Team.objects.aget(id=self.team_id)
+        run_id = self._session.task_run.id if self._session else None
+        emission_key = f"{run_id or uuid4()}:{len(self._persisted_reports)}"
+        async with funded_report(team=team, run_id=run_id, emission_key=emission_key) as funded_report_id:
+            await self._resolve_missing_report_components()
+            final = self._final_report()
+            task_id = str(self._task.id) if self._task is not None else None
+            assert self._resolved_repository is not None, "start() must run before finalization"
+            persisted = await database_sync_to_async(create_custom_agent_ready_report, thread_sensitive=False)(
+                team_id=self.team_id,
+                final_report=final,
+                repo_selection=self._resolved_repository,
+                task_id=task_id,
+                agent_identifier=type(self).identifier(),
+                registered_artefacts=list(self._registered_artefacts),
+                funded_report_id=funded_report_id,
+            )
         self._persisted_reports.append(persisted)
         await self._maybe_autostart(persisted)
         return persisted
@@ -657,11 +663,7 @@ Return only a JSON object matching this schema. Do not include markdown fences o
             assert self.user_id is not None, "start() must run before send()"
             sandbox_environment_id = await database_sync_to_async(
                 get_or_create_signals_sandbox_env, thread_sensitive=False
-            )(
-                self.team_id,
-                SIGNALS_REPORT_RESEARCH_ENV_NAME,
-                tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
-            )
+            )(self.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, CUSTOM_AGENT)
             agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
                 self.team_id, STEP_CUSTOM_AGENT
             )
@@ -680,9 +682,8 @@ Return only a JSON object matching this schema. Do not include markdown fences o
                 prompt=prompt,
                 context=context,
                 step_name=label,
-                origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=CUSTOM_AGENT,
                 ai_stage=STEP_CUSTOM_AGENT,
-                internal=True,
             )
             self._session = session
             return raw_text

@@ -6,6 +6,7 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+import math
 from copy import deepcopy
 from typing import Annotated, Any, TypeGuard
 
@@ -52,7 +53,13 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
+    ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthRuleSide,
+    ExperimentHealthRuleTest,
+    ExperimentHealthValueKey,
+    ExperimentValidationError,
     HealthExposureInputsStatus,
+    RunningTimeMode,
 )
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
@@ -204,6 +211,19 @@ class ExperimentHealthEvidenceField(serializers.DictField):
     pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "nullable": True,
+        },
+    }
+)
+class ExperimentHealthCheckValuesField(serializers.DictField):
+    pass
+
+
 class ExperimentHealthFindingSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=ExperimentHealthFindingCode.choices,
@@ -214,6 +234,15 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
         help_text=(
             "The case within the code, when a code covers several, for example "
             "'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case."
+        ),
+    )
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), "
+            "what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit "
+            "('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). "
+            "Null when the finding names none."
         ),
     )
     severity = serializers.ChoiceField(
@@ -242,6 +271,47 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
             "Null when the skill has none."
         ),
     )
+    check = serializers.ChoiceField(
+        choices=ExperimentHealthCheckKey.choices,
+        help_text=(
+            "The key of the check in `checks` that reported the finding. A check can report several codes, so the "
+            "code doesn't name the check."
+        ),
+    )
+
+
+class ExperimentHealthRuleMinimumSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(
+        choices=ExperimentHealthValueKey.choices,
+        help_text="The key in `values` that must reach the threshold before the check judges.",
+    )
+    threshold = serializers.FloatField(
+        help_text="The value that the key must reach. Below it, the check reports no finding."
+    )
+
+
+class ExperimentHealthCheckRuleSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(
+        choices=ExperimentHealthValueKey.choices,
+        help_text="The key in `values` that the check compares with the threshold.",
+    )
+    threshold = serializers.FloatField(help_text="The threshold, in the unit that the suffix of the key gives.")
+    warns = serializers.ChoiceField(
+        choices=ExperimentHealthRuleSide.choices,
+        help_text=(
+            "above: the check reports a finding when the value is above the threshold. below: when the value is "
+            "below it. A value at the threshold passes."
+        ),
+    )
+    test = serializers.ChoiceField(
+        choices=ExperimentHealthRuleTest.choices,
+        allow_null=True,
+        help_text="The statistical test that computes the value, for example chi_squared. Null for a count or a share.",
+    )
+    minimum = ExperimentHealthRuleMinimumSerializer(
+        allow_null=True,
+        help_text="What the check needs before it judges. Null when the check judges from the first value.",
+    )
 
 
 class ExperimentHealthCheckResultSerializer(serializers.Serializer):
@@ -252,7 +322,10 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
             "finding code."
         ),
     )
-    name = serializers.CharField(help_text="What the check looks at, for example 'Feature flag variants'.")
+    name = serializers.CharField(help_text="The problem the check looks for, for example 'Metrics not set up'.")
+    description = serializers.CharField(
+        help_text=("What the check looks for and why it matters. The same for every experiment and every status.")
+    )
     status = serializers.ChoiceField(
         choices=ExperimentHealthCheckStatus.choices,
         help_text=(
@@ -269,6 +342,80 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
             "'Runs after launch'. Null for passed and finding."
         ),
     )
+    values = ExperimentHealthCheckValuesField(
+        help_text=(
+            "What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty "
+            "when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, "
+            "_percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a "
+            "suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key "
+            "that decides."
+        ),
+    )
+    rule = ExperimentHealthCheckRuleSerializer(
+        allow_null=True,
+        help_text=(
+            "How the check decides. The same for every experiment and every status. Null for a check without a "
+            "numeric rule."
+        ),
+    )
+
+
+class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
+    rollout_percentage = serializers.FloatField(
+        help_text="The share of the users matching the condition set's filters who get the flag, from 0 to 100.",
+    )
+    property_count = serializers.IntegerField(
+        help_text="The number of filters a user must match, such as properties and cohorts. 0 matches all users.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when "
+            "it assigns them by user."
+        ),
+    )
+
+
+class ExperimentHealthSetupSerializer(serializers.Serializer):
+    release_conditions = ExperimentHealthReleaseConditionSerializer(
+        many=True,
+        help_text=(
+            "The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a "
+            "request depends on the sets before it and on `early_exit`."
+        ),
+    )
+    early_exit = serializers.BooleanField(
+        help_text=(
+            "Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the "
+            "user out. Otherwise such a user goes on to the next set."
+        ),
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        help_text="The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The flag's own group type, which the exposure counts and the results use. A condition set can override "
+            "it. Null for users."
+        ),
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        help_text="The flag's `evaluation_runtime`. Null on the flag reads as all.",
+    )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation "
+            "contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag "
+            "has none."
+        ),
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        help_text="The flag's 'Persist flag across authentication steps' setting.",
+    )
 
 
 class ExperimentHealthSerializer(serializers.Serializer):
@@ -284,6 +431,14 @@ class ExperimentHealthSerializer(serializers.Serializer):
         help_text=(
             "The result of each health check, in the order the checks run. The checks that read the exposure "
             "counts are not here: the exposure query returns them as `health_checks`."
+        ),
+    )
+    setup = ExperimentHealthSetupSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The settings of the experiment's flag that decide which variant a user gets. Null when the experiment "
+            "has no flag."
         ),
     )
 
@@ -566,7 +721,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
             "'mean' (set source to an EventsNode with an event name), "
             "'funnel' (set series to an array of EventsNode steps), "
-            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'ratio' (set numerator and denominator EventsNode entries), "
+            "'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric "
+            "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; "
+            "breakdowns and sequential testing are not supported), or "
             "'retention' (set start_event and completion_event; pass start_event "
             '{"kind": "ExperimentExposureNode"} to start retention from the experiment\'s exposure event). '
             "Use the read-data-schema tool with query kind 'events' to find available events in the project."
@@ -1080,11 +1238,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Route through facade
         team = Team.objects.get(id=self.context["team_id"])
-        experiment_dto = create_experiment(
-            team=team,
-            user=self.context["request"].user,
-            input_dto=input_dto,
-        )
+        try:
+            experiment_dto = create_experiment(
+                team=team,
+                user=self.context["request"].user,
+                input_dto=input_dto,
+            )
+        except ExperimentValidationError as error:
+            raise ValidationError(str(error)) from error
 
         # Load instance for return (DRF expects model instance)
         instance = Experiment.objects.get(id=experiment_dto.id)
@@ -1568,7 +1729,7 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
         help_text="Status of this metric's calculation in the run",
     )
     # JSONField mirrors the ExperimentMetricResult.result column; concrete shape comes from
-    # posthog.schema.ExperimentQueryResponse (variants/baseline/credible intervals/etc., depending on metric type).
+    # posthog.schema.ExperimentQueryResponse (baseline, variant_results, and breakdown_results for a breakdown).
     result = serializers.JSONField(
         read_only=True,
         allow_null=True,
@@ -1634,9 +1795,11 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     metric_errors = serializers.JSONField(
         read_only=True,
         help_text=(
-            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is "
-            "true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can "
-            "succeed; false when the metric config, the data, or a resource limit must change first"
+            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. "
+            "retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry "
+            "can succeed; false when the metric config, the data, or a resource limit must change first. "
+            "exposures_path is where the query read the exposures, and is missing when the query failed before it "
+            "was built"
         ),
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
@@ -1719,6 +1882,17 @@ class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculat
     )
 
 
+class FiniteFloatField(serializers.FloatField):
+    """A float field that rejects "nan" and "inf". `FloatField` accepts both, no estimate can use them, and JSON can't
+    carry them back."""
+
+    def to_internal_value(self, data: Any) -> float:
+        value = super().to_internal_value(data)
+        if not math.isfinite(value):
+            self.fail("invalid")
+        return value
+
+
 class RunningTimeBaselineStatsSerializer(serializers.Serializer):
     """Raw control-group statistics the calculator uses to derive a baseline value and variance.
 
@@ -1729,27 +1903,32 @@ class RunningTimeBaselineStatsSerializer(serializers.Serializer):
     number_of_samples = serializers.IntegerField(
         min_value=0, help_text="Number of control-group samples (users/units) observed."
     )
-    sum = serializers.FloatField(
+    sum = FiniteFloatField(
         help_text="Sum of the metric values across the control group (for funnels, the numerator/conversions)."
     )
-    sum_squares = serializers.FloatField(
-        required=False, default=0.0, help_text="Sum of squared metric values. Required for ratio/retention variance."
+    sum_squares = FiniteFloatField(
+        required=False,
+        default=0.0,
+        help_text=(
+            "Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need "
+            "it. Without it, a mean metric's variance is approximated from the baseline value."
+        ),
     )
-    denominator_sum = serializers.FloatField(
+    denominator_sum = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text="Sum of the denominator values. Required for ratio/retention metrics.",
     )
-    denominator_sum_squares = serializers.FloatField(
+    denominator_sum_squares = FiniteFloatField(
         required=False, allow_null=True, help_text="Sum of squared denominator values (ratio/retention variance)."
     )
-    numerator_denominator_sum_product = serializers.FloatField(
+    numerator_denominator_sum_product = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text="Sum of numerator×denominator products, used for the delta-method covariance term.",
     )
     step_counts = serializers.ListField(
-        child=serializers.FloatField(),
+        child=FiniteFloatField(),
         required=False,
         help_text="Per-step counts for funnel metrics; the last entry is the final-step count.",
     )
@@ -1766,7 +1945,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
             "(both require baseline_stats or an explicit variance)."
         ),
     )
-    minimum_detectable_effect = serializers.FloatField(
+    minimum_detectable_effect = FiniteFloatField(
         min_value=0,
         help_text="Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.",
     )
@@ -1774,15 +1953,16 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
         required=False,
         default=2,
         min_value=2,
-        help_text="Total number of variants including control (default 2).",
+        max_value=100,
+        help_text="Total number of variants including control (default 2, at most 100).",
     )
-    exposure_rate_per_day = serializers.FloatField(
+    exposure_rate_per_day = FiniteFloatField(
         required=False,
         allow_null=True,
         min_value=0,
         help_text="Expected exposures per day. When provided, the response includes the recommended running time.",
     )
-    baseline_value = serializers.FloatField(
+    baseline_value = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text=(
@@ -1790,12 +1970,13 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
             "(ratio/retention). Provide this or baseline_stats."
         ),
     )
-    variance = serializers.FloatField(
+    variance = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text=(
-            "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is "
-            "ratio/retention and baseline_value is given directly."
+            "Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio/retention and "
+            "baseline_value is given directly. When given, it replaces the variance the calculator derives for any "
+            "metric type, including p(1-p) for funnels."
         ),
     )
     baseline_stats = RunningTimeBaselineStatsSerializer(
@@ -1847,6 +2028,85 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     recommended_running_time_days = serializers.IntegerField(
         allow_null=True,
         help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
+    )
+
+
+class RunningTimeTargetQuerySerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        required=False,
+        choices=RunningTimeMode.choices,
+        help_text=(
+            "The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes "
+            "it from the results, also for an experiment saved in manual mode."
+        ),
+    )
+
+
+class DetectableEffectCheckpointSerializer(serializers.Serializer):
+    weeks_since_launch = serializers.IntegerField(help_text="The week mark, in whole weeks since launch.")
+    detectable_effect = serializers.FloatField(
+        help_text="The smallest relative change, as a percentage, that the exposures by this week mark can detect."
+    )
+
+
+class RunningTimeOutlookSerializer(serializers.Serializer):
+    """What the experiment can detect over time, at its exposure rate so far."""
+
+    days_since_launch = serializers.FloatField(help_text="Days since the experiment launched, with fractions.")
+    exposures_per_day = serializers.FloatField(
+        help_text=(
+            "Exposures that count toward the target, per day from launch to the end of the window the current "
+            "results cover."
+        )
+    )
+    detectable_effect_now = serializers.FloatField(
+        help_text="The smallest relative change, as a percentage, that the exposures so far can detect."
+    )
+    upcoming_checkpoints = DetectableEffectCheckpointSerializer(
+        many=True,
+        help_text=(
+            "Up to three week marks after today, out of weeks 1, 2, 4, 6, 8, 12, 16, 26 and 52, with the change each "
+            "can detect at the exposure rate so far."
+        ),
+    )
+    reachable_effect = serializers.FloatField(
+        help_text=(
+            "The smallest relative change, as a percentage, that the experiment can detect within four weeks from "
+            "today. A target for a smaller change is out of reach."
+        )
+    )
+
+
+class RunningTimeTargetSerializer(serializers.Serializer):
+    """The target sample of the experiment's running time estimate."""
+
+    minimum_detectable_effect = serializers.FloatField(
+        help_text="The relative change, as a percentage, that the target sample is sized to detect."
+    )
+    recommended_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Exposures needed across the analyzed variants, so that the comparison of each variant with the control "
+            "can detect the minimum detectable effect at the analysis's confidence level and 80% power. In manual running time mode, "
+            "the saved target. Otherwise sized from the first primary metric's current result, with the variance the "
+            "analysis uses and the flag's traffic split. Null when no result can size it yet. The variances come from "
+            "the result and don't depend on the effect, so the sample scales with 1 / effect²: the target for another "
+            "effect is recommended_sample_size × (minimum_detectable_effect / effect)²."
+        ),
+    )
+    current_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Exposures so far that count toward the target: the control's and those of the variants that get "
+            "traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target."
+        ),
+    )
+    outlook = RunningTimeOutlookSerializer(
+        allow_null=True,
+        help_text=(
+            "What the experiment can detect over time, on the same curve the target is sized on. Null in manual mode, "
+            "before launch, when the current results cover less than 0.1 days, and when no result can size the target."
+        ),
     )
 
 
@@ -2837,7 +3097,9 @@ class ExperimentSetupCandidateMetricSerializer(serializers.Serializer):
 
 class ExperimentSetupOutcomeSerializer(serializers.Serializer):
     metric_type = serializers.CharField(
-        help_text="metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'."
+        help_text=(
+            "metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio', 'retention' or 'quantile'."
+        )
     )
     metric_samples = serializers.IntegerField(
         allow_null=True,
@@ -2969,7 +3231,9 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
     shared_metric_count = serializers.IntegerField(help_text="Shared metrics attached to the experiment.")
     primary_metric_types = serializers.ListField(
         child=serializers.CharField(),
-        help_text="metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'.",
+        help_text=(
+            "metric_type of each primary metric, for example 'mean', 'funnel', 'ratio', 'retention' or 'quantile'."
+        ),
     )
     primary_metric_events = serializers.ListField(
         child=serializers.CharField(), help_text="Event names the primary metrics count."
@@ -3046,7 +3310,8 @@ class ExperimentSetupSharedMetricSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Shared metric id, to attach it instead of creating an inline metric.")
     name = serializers.CharField(help_text="Shared metric name.")
     metric_type = serializers.CharField(
-        allow_null=True, help_text="'mean', 'funnel', 'ratio' or 'retention', or null for older metrics."
+        allow_null=True,
+        help_text="'mean', 'funnel', 'ratio', 'retention' or 'quantile', or null for older metrics.",
     )
     events = serializers.ListField(child=serializers.CharField(), help_text="Event names the metric counts.")
     action_ids = serializers.ListField(child=serializers.IntegerField(), help_text="Actions the metric counts.")
@@ -3067,7 +3332,7 @@ class ExperimentSetupSharedMetricSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, "
-            "'mean_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
+            "'mean_source', 'quantile_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
             "'retention_completion'. A metric that only starts from the event is a different precedent from one "
             "that converts on it. Empty when the metric does not count it, and null when no metric_event was "
             "passed."
@@ -3235,7 +3500,9 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
             "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
         ),
     )
-    launched_at = serializers.DateTimeField(help_text="When the experiment launched.")
+    start_date = serializers.DateTimeField(
+        help_text="The experiment's start date. The flag history counts changes from it, as the results count exposures from it."
+    )
     team_timezone = serializers.CharField(help_text="The project's time zone, which the findings use for times.")
     changes = ExperimentHealthInputsFlagChangeSerializer(
         many=True,
@@ -3299,6 +3566,105 @@ class ExperimentHealthInputsExposureEventsSerializer(serializers.Serializer):
             "The event, or the action's name, that has to follow a user's flag call before the user counts. Null "
             "without an activation."
         ),
+    )
+
+
+class ExperimentHealthInputsMetricCompileFailureSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The metric's name as the experiment shows it.")
+    role = serializers.CharField(help_text="'primary' or 'secondary'.")
+    kind = serializers.ChoiceField(
+        choices=ExperimentHealthMetricCompileErrorKind.choices,
+        help_text=(
+            "Who rejected the query: 'rejected' is a validation of the query builder, 'syntax' and 'query' come "
+            "from HogQL, 'definition' means the stored definition doesn't parse into a metric."
+        ),
+    )
+    message = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The compiler's message, without the list of a scope's fields. Null when it can hold the evaluation rules "
+            "that the AI evaluation markers keep out of the browser."
+        ),
+    )
+
+
+class ExperimentHealthInputsMetricCompilesSerializer(serializers.Serializer):
+    metric_count = serializers.IntegerField(help_text="The metrics that the experiment calculates, one per uuid.")
+    unknown_count = serializers.IntegerField(
+        help_text="The metrics whose compile raised an error that names no problem of the metric, such as a defect."
+    )
+    no_access_count = serializers.IntegerField(
+        help_text="The metrics that read a warehouse table or view that the reader may not query, so they aren't checked."
+    )
+    exposure_query_fails = serializers.BooleanField(
+        help_text=(
+            "Whether the exposure query alone doesn't compile. Every metric then fails for that reason, so no "
+            "failure is listed."
+        )
+    )
+    failures = ExperimentHealthInputsMetricCompileFailureSerializer(
+        many=True, help_text="The metrics whose query doesn't compile, with the compiler's message."
+    )
+
+
+class ExperimentHealthInputsMetricCalculationFailureSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The metric's name as the experiment shows it.")
+    role = serializers.CharField(help_text="'primary' or 'secondary'.")
+    error_type = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The class that the calculation stored for the error, such as 'timeout' or 'rate_limited'. Null for a "
+            "failure stored without a class."
+        ),
+    )
+    step = serializers.CharField(
+        allow_null=True,
+        help_text="The step of the calculation that failed, such as 'calculation'. Null when the failure names none.",
+    )
+    retriable = serializers.BooleanField(
+        help_text=(
+            "Whether the results page shows a button to try the metric again, which it does for a retriable error."
+        )
+    )
+    message = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The stored message as the results page shows it, without the names that HogQL suggests and the list of "
+            "a scope's fields. Null when it can hold evaluation rules that the AI evaluation markers keep out of the "
+            "browser."
+        ),
+    )
+
+
+class ExperimentHealthInputsZeroMetricSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The name of the metric, as the results page shows it.")
+    role = serializers.CharField(help_text="Whether the metric is a primary or a secondary metric of the experiment.")
+    exposures = serializers.IntegerField(help_text="The persons or groups of the result, across the variants.")
+    ratio_side = serializers.CharField(
+        allow_null=True,
+        help_text="The side of a ratio that reads zero. Each side that reads zero has its own entry. Null for the other "
+        "metric types.",
+    )
+    stopped_events = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The events of the metric that the project last received before launch.",
+    )
+
+
+class ExperimentHealthInputsLatestCalculationSerializer(serializers.Serializer):
+    finished_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the latest calculation that the results page shows finished. Null when none has finished.",
+    )
+    failures = ExperimentHealthInputsMetricCalculationFailureSerializer(
+        many=True, help_text="The metrics whose latest calculation failed, with the error that the results page shows."
+    )
+    hours_of_data = serializers.FloatField(
+        allow_null=True,
+        help_text="The hours from launch to the end of the data of this calculation. Null when none has finished.",
+    )
+    zero_metrics = ExperimentHealthInputsZeroMetricSerializer(
+        many=True, help_text="The metrics that read zero in every variant in this calculation."
     )
 
 
@@ -3416,6 +3782,15 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
             "came after the end, or when the organization's flag calls can't be read."
         ),
     )
+    flag_called_after_end = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag "
+            "state check reads it on an ended experiment whose flag is still active with multiple variants. False "
+            "only once 3 days have passed since the end. Null before the end, before those 3 days are over without a "
+            "call, or when the organization's flag calls can't be read."
+        ),
+    )
     exposure_events = ExperimentHealthInputsExposureEventsSerializer(
         allow_null=True,
         help_text="The events the exposure criteria count. Null when the stored exposure criteria don't parse.",
@@ -3425,6 +3800,21 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
         help_text=(
             "Whether the project has received each event that the metrics and the exposure criteria name, by event "
             "name. A name that ingestion keeps no record of is absent."
+        ),
+    )
+    metric_compiles = ExperimentHealthInputsMetricCompilesSerializer(
+        allow_null=True,
+        help_text=(
+            "The compile of each metric's query without running it, as the reader, which the 'Invalid metric "
+            "definitions' check reads. A metric that compiles is cached per reader for a day, and a failing metric "
+            "compiles again on every request. Null when the compile itself failed."
+        ),
+    )
+    latest_calculation = ExperimentHealthInputsLatestCalculationSerializer(
+        allow_null=True,
+        help_text=(
+            "The latest finished calculation of the metrics, which the metric results check reads. Null before "
+            "launch, on an archived experiment, or when the read failed."
         ),
     )
     flag_history = ExperimentHealthInputsFlagHistorySerializer(

@@ -1,4 +1,4 @@
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
 
 import type { SignalSourceProductApi, SignalSourceConfigSourceTypeEnumApi } from '../generated/api.schemas'
 
@@ -7,7 +7,7 @@ interface ExternalSignalSourceDefinition {
     label: string
     category: string
     watches: string
-    dwSourceType: ExternalDataSourceTypeEnumApi
+    dwSourceType: ExternalDataSourceType
     requiredTables: readonly string[]
     sourceType: SignalSourceConfigSourceTypeEnumApi
     // Creation-only cursors miss later edits, so these sources opt into full refresh.
@@ -32,6 +32,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Monitor new work items',
         dwSourceType: 'AzureDevOps',
         requiredTables: ['work_item_revisions'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'cursor',
+        label: 'Cursor Bugbot',
+        category: 'Code review',
+        watches: 'Surface bugs that Bugbot finds in pull requests',
+        dwSourceType: 'Cursor',
+        requiredTables: ['bugbot_reviews'],
         sourceType: 'issue',
     },
     {
@@ -107,6 +116,42 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         sourceType: 'issue',
     },
     {
+        source: 'clickup',
+        label: 'ClickUp',
+        category: 'Issue tracking',
+        watches: 'Monitor new tasks and updates',
+        dwSourceType: 'ClickUp',
+        requiredTables: ['tasks'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'wrike',
+        label: 'Wrike',
+        category: 'Issue tracking',
+        watches: 'Monitor new tasks and updates',
+        dwSourceType: 'Wrike',
+        requiredTables: ['tasks'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'trello',
+        label: 'Trello',
+        category: 'Issue tracking',
+        watches: 'Monitor new cards and updates',
+        dwSourceType: 'Trello',
+        requiredTables: ['cards'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'bugherd',
+        label: 'BugHerd',
+        category: 'Issue tracking',
+        watches: 'Monitor new bug reports and tasks',
+        dwSourceType: 'Bugherd',
+        requiredTables: ['Tasks'],
+        sourceType: 'issue',
+    },
+    {
         source: 'bugsnag',
         label: 'Bugsnag',
         category: 'Error tracking',
@@ -176,6 +221,33 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Surface failing background task errors',
         dwSourceType: 'TriggerDev',
         requiredTables: ['errors'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'appsignal',
+        label: 'AppSignal',
+        category: 'Error tracking',
+        watches: 'Surface new unresolved errors',
+        dwSourceType: 'Appsignal',
+        requiredTables: ['exception_incidents'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'azure_application_insights',
+        label: 'Azure Application Insights',
+        category: 'Error tracking',
+        watches: 'Surface new and recurring exceptions',
+        dwSourceType: 'AzureApplicationInsights',
+        requiredTables: ['exceptions'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'google_play_console',
+        label: 'Google Play Console',
+        category: 'Error tracking',
+        watches: 'Surface new crashes and ANRs in your Android apps',
+        dwSourceType: 'GooglePlayConsole',
+        requiredTables: ['error_issues'],
         sourceType: 'issue',
     },
     {
@@ -321,6 +393,42 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         dwSourceType: 'PgAnalyze',
         requiredTables: ['issues', 'servers'],
         sourceType: 'issue',
+    },
+    {
+        source: 'aws_guardduty',
+        label: 'AWS GuardDuty',
+        category: 'Security',
+        watches: 'Surface new security and code-quality findings',
+        dwSourceType: 'AwsGuardduty',
+        requiredTables: ['findings'],
+        sourceType: 'scanner_finding',
+    },
+    {
+        source: 'aws_inspector',
+        label: 'AWS Inspector',
+        category: 'Security',
+        watches: 'Surface new security and code-quality findings',
+        dwSourceType: 'AwsInspector',
+        requiredTables: ['findings'],
+        sourceType: 'scanner_finding',
+    },
+    {
+        source: 'aws_security_hub',
+        label: 'AWS Security Hub',
+        category: 'Security',
+        watches: 'Surface new security and code-quality findings',
+        dwSourceType: 'AwsSecurityHub',
+        requiredTables: ['findings'],
+        sourceType: 'scanner_finding',
+    },
+    {
+        source: 'microsoft_defender_cloud_apps',
+        label: 'Microsoft Defender for Cloud Apps',
+        category: 'Security',
+        watches: 'Surface new security and code-quality findings',
+        dwSourceType: 'MicrosoftDefenderCloudApps',
+        requiredTables: ['alerts'],
+        sourceType: 'scanner_finding',
     },
     {
         source: 'rapid7_insightvm',

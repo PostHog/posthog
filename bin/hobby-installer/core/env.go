@@ -11,7 +11,7 @@ import (
 
 // Service-to-service secrets that each get their own random value, so a leak from one
 // container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY.
-var dedicatedSecretKeys = []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET"}
+var dedicatedSecretKeys = []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET", "RECORDING_API_JWT_SECRET"}
 
 type EnvConfig struct {
 	PosthogSecret        string

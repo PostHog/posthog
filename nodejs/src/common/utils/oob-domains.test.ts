@@ -3,7 +3,7 @@ import path from 'path'
 
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
-import { OOB_DOMAINS, matchedOobDomain, noteOobDomain } from './oob-domains'
+import { OOB_DOMAINS, checkOobDomain, matchedOobDomain } from './oob-domains'
 
 // Python reads this file at runtime, so it is the one source of truth for the list. Reading the
 // file itself, rather than parsing Python, keeps the test green through a rename or a reformat on
@@ -24,6 +24,10 @@ describe('oob-domains', () => {
         ['an uppercase host', 'ABC.OAST.ME', 'oast.me'],
         ['an absolute host carrying the DNS root dot', 'abc.oast.me.', 'oast.me'],
         ['a host carrying more than one trailing dot', 'abc.oast.me..', 'oast.me'],
+        ['the longest name DNS carries', `${'a'.repeat(245)}.oast.me`, 'oast.me'],
+        ['the longest name with its root dot', `${'a'.repeat(245)}.oast.me.`, 'oast.me'],
+        ['a host longer than a DNS name', `${'a'.repeat(246)}.oast.me`, null],
+        ['a listed host followed by a long run of dots', `abc.oast.me${'.'.repeat(300)}`, null],
         ['a fullwidth host that IDNA maps onto a listed one', 'ｏａｓｔ．ｍｅ', 'oast.me'],
         ['a host that only ends in the same letters', 'notoast.me', null],
         ['a listed name used as a prefix', 'oast.me.evil.example', null],
@@ -38,7 +42,7 @@ describe('oob-domains', () => {
         expect(matchedOobDomain(host)).toBe(expected)
     })
 
-    describe('noteOobDomain', () => {
+    describe('checkOobDomain', () => {
         const originalCloudDeployment = process.env.CLOUD_DEPLOYMENT
         let info: jest.SpyInstance
 
@@ -58,7 +62,7 @@ describe('oob-domains', () => {
         it('logs the match with the caller attribution under the team_id the python guards bind', () => {
             process.env.CLOUD_DEPLOYMENT = 'US'
 
-            noteOobDomain('attribution.oast.me', 'node_request', { teamId: 2 })
+            checkOobDomain('attribution.oast.me', 'node_request', { teamId: 2 })
 
             expect(info).toHaveBeenCalledWith('security.oob_domain_seen', {
                 team_id: 2,
@@ -71,17 +75,30 @@ describe('oob-domains', () => {
         it('logs one line per host and team in the window, so a retrying caller cannot flood', () => {
             process.env.CLOUD_DEPLOYMENT = 'US'
 
-            noteOobDomain('flood.oast.me', 'node_request', { teamId: 3 })
-            noteOobDomain('flood.oast.me', 'node_request', { teamId: 3 })
+            checkOobDomain('flood.oast.me', 'node_request', { teamId: 3 })
+            checkOobDomain('flood.oast.me', 'node_request', { teamId: 3 })
 
+            expect(info).toHaveBeenCalledTimes(1)
+        })
+
+        it('still reports the match on the calls whose log line the window suppresses', () => {
+            // The window exists to keep a retrying caller out of the logs. A refusal that read
+            // the window instead would let every request after the first one through.
+            process.env.CLOUD_DEPLOYMENT = 'US'
+
+            const first = checkOobDomain('repeat.oast.me', 'node_request', { teamId: 6 })
+            const second = checkOobDomain('repeat.oast.me', 'node_request', { teamId: 6 })
+
+            expect(first).toBe('oast.me')
+            expect(second).toBe('oast.me')
             expect(info).toHaveBeenCalledTimes(1)
         })
 
         it('logs a second team hitting the same host, so one noisy team cannot mask another', () => {
             process.env.CLOUD_DEPLOYMENT = 'US'
 
-            noteOobDomain('shared.oast.me', 'node_request', { teamId: 4 })
-            noteOobDomain('shared.oast.me', 'node_request', { teamId: 5 })
+            checkOobDomain('shared.oast.me', 'node_request', { teamId: 4 })
+            checkOobDomain('shared.oast.me', 'node_request', { teamId: 5 })
 
             expect(info).toHaveBeenCalledTimes(2)
         })
@@ -89,7 +106,7 @@ describe('oob-domains', () => {
         it('stays silent off cloud, so self-hosted behavior does not change', () => {
             delete process.env.CLOUD_DEPLOYMENT
 
-            noteOobDomain('abc.oast.me', 'node_request')
+            checkOobDomain('abc.oast.me', 'node_request')
 
             expect(info).not.toHaveBeenCalled()
         })

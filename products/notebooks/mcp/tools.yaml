@@ -82,7 +82,9 @@ tools:
             The server stores the notebook as a markdown notebook: it converts this document, embedded charts included,
             into markdown with component tags. When you update the notebook later, notebooks-retrieve shows its content
             as one ph-markdown-notebook node, so keep that structure and edit attrs.markdown. For step-by-step data
-            analysis with executable SQL/Python cells, use `notebooks-create-markdown` instead.
+            analysis with executable SQL/Python cells, use `notebooks-create-markdown` instead. After substantial visual
+            changes, check the final saved notebook once if browser access is already available. Skip browser checks for
+            small edits.
         exclude_params:
             - _create_in_folder
         feature_flag: revamped-py-notebooks
@@ -231,7 +233,8 @@ tools:
             updating the content field, you must provide the current version number for optimistic concurrency control.
             Retrieve the notebook first to get the latest version. If the notebook content is a single
             ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of
-            replacing it with legacy rich-text blocks.
+            replacing it with legacy rich-text blocks. After substantial visual changes, check the final saved notebook
+            once if browser access is already available. Skip browser checks for small edits.
         exclude_params:
             - _create_in_folder
         param_overrides:
@@ -362,7 +365,8 @@ tools:
             contract to a dataframe in this notebook with `{source: "dataframe_name"}`. When source columns do not match
             the contract, add a pure Hog expression in `hog` that receives `rows`, `columns`, and `frame` and returns a
             list of objects with the contract's columns. Omit version_id or pass null to follow the latest shared
-            version; pass a version UUID to pin this placement.
+            version; pass a version UUID to pin this placement. After substantial visual changes, check the final saved
+            notebook once if browser access is already available. Skip browser checks for small edits.
         response:
             exclude:
                 - artifact_url

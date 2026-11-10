@@ -26,12 +26,14 @@ import structlog
 
 from posthog.schema import AlertState
 
+from posthog.tasks.alerts.investigation_wording import safety_net_breaches
 from posthog.tasks.alerts.utils import (
     dispatch_alert_notification,
     prepare_alert_insight_chart_url,
     record_alert_delivery,
 )
 
+from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, InvestigationStatus
 
 logger = structlog.get_logger(__name__)
@@ -78,6 +80,8 @@ def run_investigation_notification_safety_net() -> int:
         )
         # A skipped check copies the alert's FIRING state but evaluated nothing, so it has no fire to deliver.
         .exclude(triggered_metadata__has_key="skipped_reason")
+        # A firing the policy does not renotify was announced on an earlier check, so this one owes nothing.
+        .exclude(triggered_metadata__has_key=FIRING_NOT_RENOTIFIED_KEY)
         .filter(
             # Terminal investigation states (DONE / FAILED): the workflow is not coming
             # back, so a 5-min grace gets stuck dispatches through quickly. Non-terminal
@@ -109,7 +113,9 @@ def run_investigation_notification_safety_net() -> int:
                 locked = AlertCheck.objects.select_for_update().get(id=check.id)
                 if locked.notification_sent_at is not None or locked.notification_suppressed_by_agent:
                     continue
-                breaches = _fallback_breach_descriptions(locked)
+                breaches = safety_net_breaches(
+                    triggered_dates=locked.triggered_dates or [], value=locked.calculated_value
+                )
                 deliveries = dispatch_alert_notification(
                     alert, locked, breaches, extra_properties=extra_properties, render_chart=False
                 )
@@ -135,18 +141,3 @@ def run_investigation_notification_safety_net() -> int:
         notified += 1
 
     return notified
-
-
-def _fallback_breach_descriptions(alert_check: AlertCheck) -> list[str]:
-    """Minimal breach description for a safety-net dispatch (no verdict yet)."""
-    triggered_dates = alert_check.triggered_dates or []
-    if triggered_dates:
-        if len(triggered_dates) == 1:
-            head = f"Anomaly detected on {triggered_dates[0]}."
-        else:
-            head = f"Anomaly detected from {triggered_dates[0]} to {triggered_dates[-1]}."
-    elif alert_check.calculated_value is not None:
-        head = f"Calculated value at fire: {alert_check.calculated_value}."
-    else:
-        head = "Anomaly detected."
-    return [head, "(Investigation agent did not complete before the notification grace period expired.)"]

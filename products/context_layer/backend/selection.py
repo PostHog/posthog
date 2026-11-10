@@ -1,5 +1,6 @@
 import json
 import time
+import hashlib
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextvars import copy_context
@@ -14,8 +15,10 @@ from django.db import connections
 
 import httpx
 import structlog
+import posthoganalytics
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, normalize_search_term
 from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import build_system_one_client
@@ -25,6 +28,8 @@ from posthog.ph_client import get_feature_flag_or_none
 
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
+
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
 if TYPE_CHECKING:
     from posthog.llm.system_one_client import SystemOneClient
@@ -99,6 +104,19 @@ class SelectionUnavailable(RuntimeError):
     pass
 
 
+def elapsed_ms(started: float) -> int:
+    return round((time.monotonic() - started) * 1000)
+
+
+def is_timeout(error: BaseException) -> bool:
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, (TimeoutError, httpx.TimeoutException)):
+            return True
+        current = current.__cause__
+    return False
+
+
 def time_remaining(deadline: float) -> float:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
@@ -153,8 +171,21 @@ def selection_mode(run: TaskRun, actor: User) -> str:
 
 
 class ContextSelector:
-    def __init__(self, run: TaskRun, actor: User, selection: SelectionInput, authorization: str) -> None:
+    def __init__(
+        self,
+        run: TaskRun,
+        actor: User,
+        selection: SelectionInput,
+        authorization: str,
+        admit: Callable[[], bool] = lambda: True,
+    ) -> None:
         self.run = run
+        self.admit = admit
+        self.deadline: float | None = None
+        self.gate_probability: float | None = None
+        self.step_ms: dict[str, int] = {}
+        self.source_ms: dict[str, int] = {}
+        self.source_errors: dict[str, str] = {}
         self.actor = actor
         self.selection = selection
         self._authorization = authorization
@@ -168,6 +199,13 @@ class ContextSelector:
             self.query += "\n" + history[-(MAX_SEARCH_LENGTH - len(self.query) - 1) :]
 
     def search(self, kind: SourceKind, deadline: float) -> list[Candidate]:
+        started = time.monotonic()
+        try:
+            return self.search_source(kind, deadline)
+        finally:
+            self.source_ms[kind] = elapsed_ms(started)
+
+    def search_source(self, kind: SourceKind, deadline: float) -> list[Candidate]:
         if not self.query:
             return []
         path, limit = SOURCE_ENDPOINTS[kind]
@@ -257,10 +295,11 @@ class ContextSelector:
             try:
                 candidates.extend(future.result())
             except Exception as error:
-                errors[pending[future]] = type(error).__name__
+                errors[pending[future]] = "TimeoutError" if is_timeout(error) else type(error).__name__
         for future in unfinished:
             future.cancel()
             errors[pending[future]] = "TimeoutError"
+        self.source_errors = errors
         if errors:
             logger.info("context_selection_source_errors", selection_id=self.selection_id, errors=errors)
         return candidates
@@ -321,18 +360,85 @@ class ContextSelector:
             scored.append((candidate, answer.probability))
         return scored
 
+    def timed[T](self, step: str, operation: Callable[[], T]) -> T:
+        started = time.monotonic()
+        try:
+            return operation()
+        finally:
+            self.step_ms[step] = elapsed_ms(started)
+
     def select(self, deadline: float) -> PreparedContext:
-        if self.gate(deadline) <= 0.3:
+        gate = self.timed("gate", lambda: self.gate(deadline))
+        self.gate_probability = gate
+        if gate <= 0.3:
+            self.capture_outcome("gate_skipped")
             return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="gate_skipped")
         remaining = time_remaining(deadline)
-        candidates = self.retrieve(deadline - remaining / 2)
-        context = self.render(self.rerank(candidates, deadline))
+        candidates = self.timed("retrieval", lambda: self.retrieve(deadline - remaining / 2))
+        scored = self.timed("rerank", lambda: self.rerank(candidates, deadline))
+        context = self.render(scored)
+        reason = "selected" if context else "empty"
+        self.capture_outcome(reason, scored)
         return PreparedContext(
             selection_id=self.selection_id,
             mode=self.mode,
             context=context if self.mode == "treatment" else "",
-            reason="selected" if context else "empty",
+            reason=reason,
         )
+
+    def capture_outcome(
+        self, reason: str, scored: list[tuple[Candidate, float]] | None = None, error_type: str | None = None
+    ) -> None:
+        scored = scored or []
+        # The gateway drops System One inputs and answers from its events, so this is the only record of decisions.
+        # The event goes to PostHog's own analytics, so it carries no customer-written names.
+        privacy_mode = is_privacy_mode_enabled(self.run.team) if scored else None
+        candidates: list[dict[str, object]] = []
+        for candidate, score in sorted(scored, key=lambda pair: -pair[1]):
+            entry: dict[str, object] = {"kind": candidate.kind, "score": round(score, 4)}
+            if not privacy_mode:
+                entry["ref"] = self.candidate_ref(candidate)
+            candidates.append(entry)
+        posthoganalytics.capture(
+            distinct_id=str(self.actor.distinct_id),
+            event="context selection outcome",
+            properties={
+                **self.properties,
+                "selection_id": self.selection_id,
+                "mode": self.mode,
+                "config_version": CONFIG_VERSION,
+                "runtime_version": self.selection.runtime_version,
+                "reason": reason,
+                "error_type": error_type,
+                "gate_probability": None if self.gate_probability is None else round(self.gate_probability, 4),
+                "candidate_count": len(scored),
+                "budget_ms": round(settings.CONTEXT_SELECTION_TIMEOUT_SECONDS * 1000),
+                "duration_ms": self.duration_ms(),
+                "gate_ms": self.step_ms.get("gate"),
+                "retrieval_ms": self.step_ms.get("retrieval"),
+                "rerank_ms": self.step_ms.get("rerank"),
+                "source_ms": dict(self.source_ms),
+                "source_errors": dict(self.source_errors),
+                "source_timeout_count": sum(error == "TimeoutError" for error in self.source_errors.values()),
+                "over_budget": reason == "timeout" or "TimeoutError" in self.source_errors.values(),
+                "privacy_mode": privacy_mode,
+                "candidates": candidates,
+            },
+            groups=groups(self.run.team.organization, self.run.team),
+        )
+
+    def duration_ms(self) -> int | None:
+        if self.deadline is None:
+            return None
+        started = self.deadline - settings.CONTEXT_SELECTION_TIMEOUT_SECONDS
+        return elapsed_ms(started)
+
+    def candidate_ref(self, candidate: Candidate) -> str:
+        if candidate.kind != "skill":
+            return candidate.id
+        # A skill's id is its customer-written name, so only a team-scoped digest leaves the process.
+        digest = hashlib.sha256(f"{self.run.team_id}:{candidate.id}".encode()).hexdigest()
+        return f"sha256:{digest[:16]}"
 
     def render(self, scored: list[tuple[Candidate, float]]) -> str:
         header = (
@@ -369,27 +475,43 @@ class ContextSelector:
         return header + body + footer if selected_count else ""
 
     def prepare(self, deadline: float) -> PreparedContext:
+        self.deadline = deadline
         try:
             time_remaining(deadline)
             self.mode = selection_mode(self.run, self.actor)
             if self.mode == "disabled":
                 return PreparedContext()
-            if not self.selection.prompt.strip() or self.mode == "control":
-                return PreparedContext(
-                    selection_id=self.selection_id,
-                    mode=self.mode,
-                    reason="no_text" if not self.selection.prompt.strip() else "control",
-                )
+            if not self.selection.prompt.strip():
+                return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="no_text")
+            if self.mode == "control":
+                return self.finish("control")
             if self.run.team.organization.is_ai_data_processing_approved is not True:
-                return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="ai_consent_required")
+                return self.finish("ai_consent_required")
+            if not self.admit():
+                return self.finish("rate_limited")
             return self.select(deadline)
         except Exception as error:
-            logger.warning("context_selection_failed", selection_id=self.selection_id, error_type=type(error).__name__)
-            return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="error")
+            error_type = type(error).__name__
+            logger.warning("context_selection_failed", selection_id=self.selection_id, error_type=error_type)
+            try:
+                return self.finish("timeout" if is_timeout(error) else "error", error_type)
+            except Exception:
+                logger.exception("context_selection_outcome_capture_failed", selection_id=self.selection_id)
+                return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="error")
+
+    def finish(self, reason: str, error_type: str | None = None) -> PreparedContext:
+        self.capture_outcome(reason, error_type=error_type)
+        return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason=reason)
 
 
 def prepare_context_selection(
-    team_id: int, run_id: UUID, task_id: UUID, actor: User, selection: SelectionInput, authorization: str
+    team_id: int,
+    run_id: UUID,
+    task_id: UUID,
+    actor: User,
+    selection: SelectionInput,
+    authorization: str,
+    admit: Callable[[], bool] = lambda: True,
 ) -> PreparedContext:
     def execute(deadline: float) -> PreparedContext:
         time_remaining(deadline)
@@ -405,7 +527,7 @@ def prepare_context_selection(
         if not is_current_task_run_actor(team_id, run_id, actor.id):
             raise SelectionDenied("The credential no longer belongs to the current actor.")
         time_remaining(deadline)
-        result = ContextSelector(run, actor, selection, authorization).prepare(deadline)
+        result = ContextSelector(run, actor, selection, authorization, admit).prepare(deadline)
         if not is_current_task_run_actor(team_id, run_id, actor.id):
             raise SelectionDenied("The credential no longer belongs to the current actor.")
         return result

@@ -44,6 +44,7 @@ import { InsightShortId, SidePanelTab } from '~/types'
 
 import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, validateMetricName } from './common'
 import { MetricDefinition } from './components/MetricDefinition'
+import { MetricOwnerSelect } from './components/MetricOwnerSelect'
 import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
 import { buildDataCatalogMetricAgentContext, DATA_CATALOG_METRIC_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import {
@@ -155,11 +156,24 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
             title: 'Edit this approved metric?',
             content: (
                 <div className="text-sm text-secondary">
-                    Saving this change sets the metric back to proposed, so it will need to be approved again.
+                    Saving this change sets the metric back to proposed. Approve it again now, or leave it for a
+                    teammate to review.
                 </div>
             ),
-            primaryButton: { children: 'Save and reset to proposed', onClick: () => updateMetric(patch) },
-            secondaryButton: { children: 'Cancel' },
+            primaryButton: {
+                children: 'Save and approve',
+                onClick: () => updateMetric(patch, true),
+                disabledReason: metric.is_drifted
+                    ? 'This metric has drifted from its source insight. Refresh it before approving.'
+                    : undefined,
+                'data-attr': 'data-catalog-metric-save-and-approve',
+            },
+            secondaryButton: {
+                children: 'Save and reset to proposed',
+                onClick: () => updateMetric(patch),
+                'data-attr': 'data-catalog-metric-save-and-reset',
+            },
+            tertiaryButton: { children: 'Cancel' },
         })
     }
 
@@ -188,7 +202,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                         stop working until it is updated. The old name becomes available for a new metric.
                         {isApproved && ' Renaming also sets the metric back to proposed, so it needs approving again.'}
                     </div>
-                    <LemonField name="name" label="Name">
+                    <LemonField name="name" label="SQL name">
                         <LemonInput data-attr="data-catalog-metric-rename-input" autoFocus />
                     </LemonField>
                 </div>
@@ -382,7 +396,12 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
 
                 {mountedTabs.includes('definition') && (
                     <div className={tabPanelClassName('definition', activeTab)}>
-                        <MetricMetadata metric={metric} onSaveUnit={(unit) => confirmAndUpdate({ unit })} />
+                        <MetricMetadata
+                            metric={metric}
+                            saving={mutating}
+                            onSaveUnit={(unit) => confirmAndUpdate({ unit })}
+                            onSaveOwner={(owner) => updateMetric({ owner })}
+                        />
 
                         <MetricDefinition
                             metric={metric}
@@ -477,10 +496,14 @@ function StatusRow({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
 
 function MetricMetadata({
     metric,
+    saving,
     onSaveUnit,
+    onSaveOwner,
 }: {
     metric: DataCatalogMetricApi
+    saving: boolean
     onSaveUnit: (unit: string) => void
+    onSaveOwner: (owner: string | null) => void
 }): JSX.Element {
     const showProvenance = metric.created_source === 'ai_generated'
 
@@ -488,7 +511,10 @@ function MetricMetadata({
         <div className="flex flex-col gap-3">
             <StatusRow metric={metric} />
             <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-2xl">
-                <MetadataItem label="Owner" value={metric.owner || 'Unassigned'} />
+                <MetadataItem
+                    label="Owner"
+                    value={<MetricOwnerSelect owner={metric.owner} loading={saving} onChange={onSaveOwner} />}
+                />
                 <MetadataItem label="Approved by" value={metric.approved_by?.email || 'Not approved'} />
                 <MetadataItem
                     label="Approved at"

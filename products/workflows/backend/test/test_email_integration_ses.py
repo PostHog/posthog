@@ -2,12 +2,15 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 from posthog.api.integration import IntegrationViewSet
 from posthog.models.integration import EmailIntegration, Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.workflows.backend.providers import SESProvider
+from products.workflows.backend.providers.ses import AWS_ACCOUNT_ID_CACHE_KEY
 
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
@@ -77,8 +80,9 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
 
     @patch("products.workflows.backend.providers.SESProvider.delete_identity")
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    @patch("products.workflows.backend.providers.SESProvider.get_mail_from_subdomain", return_value=None)
     def test_destroy_email_integration_skips_ses_delete_when_sibling_exists(
-        self, mock_create_email_domain, mock_delete_identity
+        self, _mock_get_mail_from, mock_create_email_domain, mock_delete_identity
     ):
         mock_create_email_domain.return_value = {"status": "success"}
         sibling_team = Team.objects.create(organization=self.organization, name="sibling team")
@@ -159,12 +163,14 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         integration_b.refresh_from_db()
         assert integration_b.config.get("verified") is False
 
-    def test_aws_account_id_is_cached_per_provider(self):
-        provider = self._build_ses_provider()
-        provider.sts_client.get_caller_identity.reset_mock()
+    def test_aws_account_id_is_looked_up_once_across_providers(self):
+        cache.delete(AWS_ACCOUNT_ID_CACHE_KEY)
+        providers = [self._build_ses_provider(), self._build_ses_provider()]
+        for provider in providers:
+            provider.sts_client.get_caller_identity.reset_mock()
 
-        for _ in range(5):
+        for provider in providers:
             provider._identity_arn("partner.com")
             provider._identity_arn("other.com")
 
-        assert provider.sts_client.get_caller_identity.call_count == 1
+        assert sum(provider.sts_client.get_caller_identity.call_count for provider in providers) == 1

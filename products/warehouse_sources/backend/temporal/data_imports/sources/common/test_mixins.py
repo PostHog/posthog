@@ -13,7 +13,7 @@ from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
@@ -112,15 +112,25 @@ class TestIsHostSafe(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("postwh_us", "entirely-chief-wildcat.us.postwh.com"),
-            ("postwh_eu", "my-db.eu.postwh.com"),
-            ("postwh_bare", "something.postwh.com"),
+            ("legacy_us_shape", "entirely-chief-wildcat.us.postwh.com"),
+            ("legacy_eu_shape", "my-db.eu.postwh.com"),
+            ("bare_suffix", "something.postwh.com"),
+            ("managed_shape", "acme.dw.us.postwh.com"),
         ]
     )
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_allows_postwh_hosts(self, _name: str, host: str):
-        valid, _ = _is_host_safe(host, team_id=999)
-        assert valid
+    @override_settings(CLOUD_DEPLOYMENT="US", MANAGED_WAREHOUSE_INGRESS_IPS="10.1.0.1")
+    def test_a_postwh_name_alone_earns_no_exemption(self, _name: str, host: str):
+        # The exemption used to be the `.postwh.com` suffix. A name is now only a prefilter: the
+        # organization's own control-plane host and the resolved ingress address both have to
+        # agree, and no control plane is configured here, so every one of these is refused.
+        with patch(
+            f"{_MIXINS_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, None, ("10.1.0.1", 0))],
+        ):
+            valid, error = _is_host_safe(host, team_id=999, port=5432, source_type="postgres")
+
+        assert not valid
+        assert error is not None
 
     @parameterized.expand(
         [
@@ -665,11 +675,11 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         ]
     )
     def test_retries_transient_db_error_then_succeeds(self, _name: str, message: str):
-        integration = object()
+        integration = mock.Mock(auth_type="oauth")
         get = mock.Mock(side_effect=[OperationalError(message), OperationalError(message), integration])
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections") as close,
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -685,10 +695,10 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
     def test_success_does_not_evict_connection(self):
         # Closing the connection on the happy path would tear down the caller's open transaction
         # (e.g. inside a transactional test), so eviction must only happen between retries.
-        integration = object()
+        integration = mock.Mock(auth_type="oauth")
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", return_value=integration),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", return_value=integration),
             patch(f"{_MIXINS_MODULE}.close_old_connections") as close,
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -702,7 +712,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -715,10 +725,10 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=Integration.DoesNotExist())
+        get = mock.Mock(side_effect=IntegrationNotFound())
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -730,13 +740,25 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         assert get.call_count == 1
         sleep.assert_not_called()
 
-    def test_deletion_during_retry_is_surfaced_as_not_found(self):
-        # The row vanishes after a transient failure: the retry must convert DoesNotExist into the
-        # stable non-retryable ValueError rather than letting raw DoesNotExist escape and be retried.
-        get = mock.Mock(side_effect=[OperationalError("query_wait_timeout"), Integration.DoesNotExist()])
+    @parameterized.expand([("token",), ("credentials",)])
+    def test_row_of_another_auth_type_is_surfaced_as_not_found(self, auth_type: str):
+        get = mock.Mock(return_value=mock.Mock(auth_type=auth_type))
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
+            patch(f"{_MIXINS_MODULE}.close_old_connections"),
+            patch(f"{_MIXINS_MODULE}.time.sleep"),
+        ):
+            with pytest.raises(ValueError, match="^Integration not found: 1$"):
+                OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
+
+    def test_deletion_during_retry_is_surfaced_as_not_found(self):
+        # The row vanishes after a transient failure: the retry must convert IntegrationNotFound into the
+        # stable non-retryable ValueError rather than letting the raw error escape and be retried.
+        get = mock.Mock(side_effect=[OperationalError("query_wait_timeout"), IntegrationNotFound()])
+
+        with (
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep"),
         ):
@@ -747,7 +769,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("deleted_integration", Integration.DoesNotExist(), 4212),
+            ("deleted_integration", IntegrationNotFound(), 4212),
             ("unset_integration_id", None, 0),
         ]
     )
@@ -760,7 +782,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         get = mock.Mock(side_effect=side_effect)
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep"),
         ):
@@ -920,7 +942,6 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         [
             ("team_allowlist", "US", "db.internal.example.com", 2),
             ("not_cloud", None, "db.internal.example.com", 999),
-            ("posthog_managed", "US", "warehouse.postwh.com", 999),
         ]
     )
     def test_exemptions_skip_the_check_and_keep_the_set(
@@ -937,8 +958,8 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         assert resolution.addresses == ("10.0.0.5",)
 
 
-class TestOOBDomainDetection(SimpleTestCase):
-    def test_logs_before_the_exemption_so_an_allowlisted_team_is_recorded(self):
+class TestOOBDomainGuard(SimpleTestCase):
+    def test_refuses_before_the_exemption_so_an_allowlisted_team_is_refused_too(self):
         with (
             patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
             patch(f"{_MIXINS_MODULE}._host_check_exemption", return_value="team_allowlist"),
@@ -948,7 +969,7 @@ class TestOOBDomainDetection(SimpleTestCase):
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
         assert "oob_domain" in stages
-        assert resolution.connect_host is not None
+        assert resolution.connect_host is None
 
     def test_records_the_matched_domain_as_the_reason(self):
         with (
@@ -960,6 +981,7 @@ class TestOOBDomainDetection(SimpleTestCase):
 
         oob_calls = [call for call in log_host_check.call_args_list if call.args[3] == "oob_domain"]
         assert [call.args[4] for call in oob_calls] == ["oast.live"]
+        assert [call.args[2] for call in oob_calls] == ["block"]
 
     def test_does_not_log_off_cloud(self):
         with (
@@ -983,22 +1005,22 @@ class TestOOBDomainDetection(SimpleTestCase):
         assert "oob_domain" not in stages
 
 
-class TestOOBDomainDetectionOnThePinnedPath(SimpleTestCase):
-    def test_logs_before_it_resolves(self):
+class TestOOBDomainGuardOnThePinnedPath(SimpleTestCase):
+    def test_refuses_before_it_resolves(self):
         with (
             patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
             patch(f"{_MIXINS_MODULE}.host_lookup_is_skipped", return_value=False),
             patch(f"{_MIXINS_MODULE}._resolve_hostaddr_with_timeout", side_effect=AssertionError("resolved first")),
             patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
         ):
-            with pytest.raises(AssertionError):
+            with pytest.raises(HostNotAllowedError):
                 pinned_host_kwargs("abc.oast.live", port=5432, connect_timeout=1.0, team_id=2)
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
         assert "oob_domain" in stages
 
 
-class TestOOBDomainDetectionDetail(SimpleTestCase):
+class TestOOBDomainGuardDetail(SimpleTestCase):
     def test_the_two_call_sites_are_distinguishable(self):
         with (
             patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
@@ -1021,7 +1043,7 @@ class TestOOBDomainDetectionDetail(SimpleTestCase):
         stages = [call.args[3] for call in log_host_check.call_args_list]
         assert "oob_domain" not in stages
 
-    def test_the_real_team_allowlist_does_not_swallow_the_detection(self):
+    def test_the_real_team_allowlist_does_not_swallow_the_refusal(self):
         with (
             patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
             patch(f"{_MIXINS_MODULE}.get_instance_region", return_value="US"),
@@ -1030,6 +1052,5 @@ class TestOOBDomainDetectionDetail(SimpleTestCase):
             resolution = resolve_safe_host("abc.oast.live", 2)
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
-        assert stages[0] == "oob_domain"
-        assert "team_allowlist" in stages
-        assert resolution.connect_host is not None
+        assert stages == ["oob_domain"]
+        assert resolution.connect_host is None

@@ -11,7 +11,13 @@ from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
 
-from products.tasks.backend.access import DesktopAccessReason, DesktopAccessResolutionError, get_desktop_access_decision
+from products.tasks.backend.access import (
+    DesktopAccessDecision,
+    DesktopAccessReason,
+    DesktopAccessResolutionError,
+    PostHogAIAccessDecision,
+    get_desktop_access_decision,
+)
 from products.tasks.backend.logic.services.code_usage_gate import code_access_required_response
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState, StartupProgramLabel
@@ -221,13 +227,68 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["code"], "desktop_access_unavailable")
 
-    @parameterized.expand([(None,), ("control",), ("false",)])
-    @override_settings(DESKTOP_SIGNUP_CUTOFF="2000-01-01T00:00:00+00:00")
-    def test_indeterminate_flags_fail_closed(self, flag_value) -> None:
-        for flag_values in ([flag_value], [False, flag_value]):
-            self.mock_feature_flag.side_effect = flag_values
-            with self.assertRaises(DesktopAccessResolutionError):
-                get_desktop_access_decision(self.user, self.organization)
+    @parameterized.expand(
+        [
+            ("posthog_ai_task_skips_desktop_rules", "posthog_ai", "startup_plan", "grandfathered", None),
+            ("posthog_ai_task_takes_the_2_0_decision", "posthog_ai", "allowed", "beta_off", "task_unavailable"),
+            ("code_task_keeps_desktop_rules", "user_created", "startup_plan", "grandfathered", "code_access_required"),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_authenticator_scopes", return_value=[])
+    def test_task_gate_follows_the_task_origin(
+        self, _name: str, origin_product: str, desktop: str, posthog_ai: str, expected_code: str | None, _mock_scopes
+    ) -> None:
+        with (
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+                return_value=DesktopAccessDecision(desktop),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_posthog_ai_access_decision",
+                return_value=PostHogAIAccessDecision(posthog_ai),
+            ),
+        ):
+            response = code_access_required_response(MagicMock(), self.organization, origin_product=origin_product)
+
+        self.assertEqual(response.data["code"] if response is not None else None, expected_code)
+
+    @parameterized.expand(
+        [
+            ("override_none", None, False, None, False),
+            ("override_control", "control", False, None, False),
+            ("override_false_string", "false", False, None, False),
+            ("override_none_funding_fails", None, False, DesktopAccessResolutionError("unavailable"), True),
+            ("gate_none_after_cutoff", False, True, None, True),
+        ]
+    )
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_indeterminate_flags(
+        self,
+        _name: str,
+        override_value: object,
+        signed_up_after_cutoff: bool,
+        funding_error: DesktopAccessResolutionError | None,
+        expected_raise: bool,
+        mock_funding,
+    ) -> None:
+        if funding_error is not None:
+            mock_funding.side_effect = funding_error
+        else:
+            mock_funding.return_value = OrganizationFundingStatus(
+                startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+            )
+        self.mock_feature_flag.side_effect = [override_value, None]
+        cutoff = "2000-01-01T00:00:00+00:00" if signed_up_after_cutoff else ""
+
+        with override_settings(DESKTOP_SIGNUP_CUTOFF=cutoff):
+            if expected_raise:
+                with self.assertRaises(DesktopAccessResolutionError):
+                    get_desktop_access_decision(self.user, self.organization)
+                return
+            decision = get_desktop_access_decision(self.user, self.organization)
+
+        self.assertTrue(decision.allowed)
+        mock_funding.assert_called_once()
 
     @patch(
         "products.tasks.backend.access._get_funding_status",

@@ -12,7 +12,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal
@@ -28,6 +28,8 @@ from products.tasks.backend.models import (
     ChannelMembership,
     Task,
     TaskActivity,
+    TaskClient,
+    TaskClientProvenance,
     TaskRun,
     TaskThreadMessage,
 )
@@ -882,6 +884,19 @@ class ChannelsAPITestCase(TestCase):
         listed = self.client.get(f"{self._tasks_url()}?archived=true").json()["results"]
         self.assertEqual([task["id"] for task in listed], [task_id])
 
+    def test_task_without_a_channel_creates_and_lands_in_the_personal_channel(self):
+        self.assertFalse(Channel.objects.unscoped().filter(team=self.team).exists())
+
+        task_id = self.client.post(
+            self._tasks_url(),
+            {"title": "First chat", "description": "d", "origin_product": "posthog_ai"},
+        ).json()["id"]
+
+        channel = Task.objects.select_related("channel").get(id=task_id).channel
+        assert channel is not None
+        self.assertEqual(channel.channel_type, Channel.ChannelType.PERSONAL)
+        self.assertEqual(channel.created_by_id, self.user.id)
+
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
         self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
@@ -977,6 +992,44 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
 
         again = self.author_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_send_to_agent_records_last_client(self):
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        earlier = django_timezone.now() - timedelta(days=1)
+        Task.objects.filter(id=self.task.id).update(last_client=TaskClient.SLACK, last_client_at=earlier)
+        message_id = self.peer_client.post(self._thread_url(), {"content": "try X"}).json()["id"]
+        application = OAuthApplication.objects.create(
+            name="Desktop",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.author,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.author,
+            application=application,
+            token=f"pha_thread_{uuid4().hex}",
+            scope="task:read task:write",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            user=self.author, application=application, token=f"phr_thread_{uuid4().hex}", access_token=token
+        )
+        desktop_client = APIClient()
+        desktop_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        with patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True):
+            response = desktop_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.last_client, TaskClientProvenance.POSTHOG_DESKTOP)
+        assert self.task.last_client_at is not None
+        self.assertGreater(self.task.last_client_at, earlier)
 
     def test_send_to_agent_returns_structured_compute_quota_denial(self):
         TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -1090,8 +1143,15 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         # The author wasn't mentioned, so their own feed stays empty.
         self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
 
+    @parameterized.expand([("mobile", True), ("web", False), ("slack", False), ("picked_up_web", True)])
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_thread_message_notifies_creator_and_mentions_only(self, mock_delay):
+    def test_thread_message_notifies_creator_and_mentions_only(self, source, eligible, mock_delay):
+        self.task.state = {"created_on_mobile": source == "mobile"}
+        if source == "picked_up_web":
+            self.task.state["mobile_push_user_ids"] = [self.author.id, self.peer.id]
+        if source == "slack":
+            self.task.origin_product = Task.OriginProduct.SLACK
+        self.task.save(update_fields=["state", "origin_product"])
         mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
         unmentioned = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
         self.organization.members.add(mentioned, unmentioned)
@@ -1099,11 +1159,18 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         with self.captureOnCommitCallbacks(execute=True):
             message = self._post_message(self.peer_client, "ping @[Mina](mentioned@example.com)")
 
+        if not eligible:
+            mock_delay.assert_not_called()
+            return
+
         calls_by_user_id = {call.args[0]: call.args for call in mock_delay.call_args_list}
-        self.assertEqual(set(calls_by_user_id), {self.author.id, mentioned.id})
+        self.assertEqual(
+            set(calls_by_user_id), {self.author.id} if source == "picked_up_web" else {self.author.id, mentioned.id}
+        )
         self.assertEqual(calls_by_user_id[self.author.id][3]["messageId"], message["id"])
         self.assertIn("replied", calls_by_user_id[self.author.id][2])
-        self.assertIn("mentioned you", calls_by_user_id[mentioned.id][2])
+        if source != "picked_up_web":
+            self.assertIn("mentioned you", calls_by_user_id[mentioned.id][2])
 
     @patch("products.tasks.backend.push_dispatcher._enqueue_user")
     def test_thread_message_recipient_failures_are_isolated(self, mock_enqueue):
@@ -1118,6 +1185,8 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
     @patch("products.tasks.backend.facade.api.TaskActivity.record", side_effect=RuntimeError("db is down"))
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_mention_activity_failure_does_not_discard_push_recipients(self, mock_delay, _record):
+        self.task.state = {"created_on_mobile": True}
+        self.task.save(update_fields=["state"])
         mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
         self.organization.members.add(mentioned)
 
@@ -1455,17 +1524,11 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual([row["task_id"] for row in rows], [str(second.id), str(self.task.id)])
         first_page = self.author_client.get(self._activity_url(), {"limit": 1}).json()
         self.assertEqual([row["task_id"] for row in first_page["results"]], [str(second.id)])
-        second_page = self.author_client.get(
-            self._activity_url(),
-            {
-                "limit": 1,
-                "before": first_page["next_before"],
-                "before_id": first_page["next_before_id"],
-            },
-        ).json()
+        second_page = self.author_client.get(first_page["next"]).json()
         self.assertEqual([row["task_id"] for row in second_page["results"]], [str(self.task.id)])
         self.assertIsNone(second_page["next_before"])
         self.assertIsNone(second_page["next_before_id"])
+        self.assertIsNone(second_page["next"])
 
     def test_mark_read_rejects_an_empty_task_list(self):
         response = self.author_client.post(self._activity_url() + "mark_read/", {"activities": []}, format="json")

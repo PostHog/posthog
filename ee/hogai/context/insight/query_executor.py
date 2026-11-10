@@ -71,6 +71,7 @@ from posthog.exceptions import (
     QueryRanConcurrently,
 )
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
+from posthog.hogql_queries.utils.result_series import get_action_names
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -262,7 +263,9 @@ class AssistantQueryExecutor:
         _utc_now_datetime: Current UTC datetime for time-based calculations
     """
 
-    WAIT_TIME_S = 0.5
+    FIRST_POLL_INTERVAL_S = 0.05
+    POLL_BACKOFF_COEFFICIENT = 1.5
+    MAX_POLL_INTERVAL_S = 0.5
 
     def __init__(
         self,
@@ -511,6 +514,7 @@ class AssistantQueryExecutor:
                     polling_start = time.time()
                     poll_count = 0
                     total_wait_s = 0.0
+                    poll_interval_s = self.FIRST_POLL_INTERVAL_S
 
                     if debug_timing:
                         logger.warning(
@@ -518,17 +522,18 @@ class AssistantQueryExecutor:
                         )
 
                     # Poll async query until completion
-                    # Total wait time: 5 minutes with linear increments
+                    # Total wait time: 5 minutes with increments growing up to MAX_POLL_INTERVAL_S
                     while total_wait_s <= 60 * 5:
                         poll_count += 1
-                        total_wait_s += self.WAIT_TIME_S
+                        total_wait_s += poll_interval_s
 
                         if poll_count % 10 == 0 and debug_timing:  # Log every 10 polls
                             logger.warning(
                                 f"{TIMING_LOG_PREFIX} Polling attempt {poll_count}, total wait: {total_wait_s:.1f}s"
                             )
 
-                        await asyncio.sleep(self.WAIT_TIME_S)  # wait in seconds
+                        await asyncio.sleep(poll_interval_s)  # wait in seconds
+                        poll_interval_s = min(poll_interval_s * self.POLL_BACKOFF_COEFFICIENT, self.MAX_POLL_INTERVAL_S)
 
                         status_check_start = time.time()
                         # Fast operation–Redis access
@@ -646,6 +651,12 @@ class AssistantQueryExecutor:
             logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed successfully in {total_elapsed:.3f}s")
         return response_dict
 
+    async def _get_action_names(self, query: BaseModel) -> dict[int, str | None]:
+        # The formatters label an action series by the action's current name, which only the database holds.
+        return await database_sync_to_async(get_action_names, thread_sensitive=False)(
+            self._team, query.model_dump(mode="json")
+        )
+
     async def _compress_results(
         self,
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
@@ -698,6 +709,7 @@ class AssistantQueryExecutor:
                         self._utc_now_datetime,
                         resolved_date_range=response.get("resolved_date_range"),
                         resolved_compare_date_range=response.get("resolved_compare_date_range"),
+                        action_names=await self._get_action_names(query),
                     ).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"
@@ -706,13 +718,17 @@ class AssistantQueryExecutor:
                 result = await database_sync_to_async(formatter.format, thread_sensitive=False)()
             elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
                 formatter_name = "LifecycleResultsFormatter"
-                result = LifecycleResultsFormatter(query, response["results"]).format()
+                result = LifecycleResultsFormatter(
+                    query, response["results"], action_names=await self._get_action_names(query)
+                ).format()
             elif isinstance(query, AssistantPathsQuery | PathsQuery):
                 formatter_name = "PathsResultsFormatter"
                 result = PathsResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
                 formatter_name = "StickinessResultsFormatter"
-                result = StickinessResultsFormatter(query, response["results"]).format()
+                result = StickinessResultsFormatter(
+                    query, response["results"], action_names=await self._get_action_names(query)
+                ).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
