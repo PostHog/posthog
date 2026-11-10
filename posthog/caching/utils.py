@@ -9,6 +9,8 @@ from posthog.interval_specs import INTERVAL_SPECS
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.team.team import Team
 
+WARMING_TRIGGER_PREFIX = "warming"
+
 
 def largest_teams(limit: int) -> set[int]:
     # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
