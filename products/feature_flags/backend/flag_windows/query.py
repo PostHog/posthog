@@ -330,6 +330,32 @@ class _FlagCalls:
             person_id=ast.Field(chain=["flag_evaluation_person_id"]),
         )
 
+    def actor_column(self, group_type_index: int | None) -> ast.Expr:
+        return self.person_id if group_type_index is None else _actor(group_type_index).expr
+
+
+def _edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple[int, WatchedEdit]]]:
+    """The edits with their position in `edits`, by the group type that their flag aggregates by."""
+    by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
+    for index, edit in enumerate(edits):
+        by_actor.setdefault(edit.group_type_index, []).append((index, edit))
+    return by_actor
+
+
+def _join_by_actor(table: ast.SelectQuery, alias: str, actor: _Actor) -> ast.JoinExpr:
+    return ast.JoinExpr(
+        join_type="LEFT JOIN",
+        table=table,
+        alias=alias,
+        constraint=ast.JoinConstraint(
+            expr=parse_expr(
+                "{joined_actor} = {actor}",
+                placeholders={"joined_actor": ast.Field(chain=[alias, "actor"]), "actor": actor.expr},
+            ),
+            constraint_type="ON",
+        ),
+    )
+
 
 def _reason_joins(
     team: Team, edits: Sequence[WatchedEdit], end: datetime
@@ -337,10 +363,11 @@ def _reason_joins(
     """The joins that tell, for each edit with watched conditions, whether the actor of an event sent a flag call
     with a watched reason after the edit, and the column of each edit. One join per kind of actor, so the query reads
     the flag calls once for all the edits of that kind."""
-    edits_by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
-    for index, edit in enumerate(edits):
-        if edit.conditions:
-            edits_by_actor.setdefault(edit.group_type_index, []).append((index, edit))
+    edits_by_actor = {
+        group_type_index: watched
+        for group_type_index, all_edits in _edits_by_actor(edits).items()
+        if (watched := [(index, edit) for index, edit in all_edits if edit.conditions])
+    }
     if not edits_by_actor:
         return [], {}
     calls = _FlagCalls.of(team)
@@ -352,7 +379,7 @@ def _reason_joins(
         reasons_by_edit = {edit.id: _watched_reasons(edit) for _, edit in watched}
         subquery = ast.SelectQuery(
             select=[
-                ast.Alias(alias="actor", expr=calls.person_id if group_type_index is None else actor.expr),
+                ast.Alias(alias="actor", expr=calls.actor_column(group_type_index)),
                 *[
                     ast.Alias(
                         alias=f"e{index}",
@@ -391,20 +418,7 @@ def _reason_joins(
                 ]
             ),
         )
-        joins.append(
-            ast.JoinExpr(
-                join_type="LEFT JOIN",
-                table=subquery,
-                alias=alias,
-                constraint=ast.JoinConstraint(
-                    expr=parse_expr(
-                        "{reasons_actor} = {actor}",
-                        placeholders={"reasons_actor": ast.Field(chain=[alias, "actor"]), "actor": actor.expr},
-                    ),
-                    constraint_type="ON",
-                ),
-            )
-        )
+        joins.append(_join_by_actor(subquery, alias, actor))
         for index, edit in watched:
             columns[edit.id] = ast.Field(chain=[alias, f"e{index}"])
     return joins, columns
@@ -441,9 +455,7 @@ def last_values(
 ) -> LastValues:
     """For each edit, the flag value on the actor's last event with the flag at or before each `counted_event` in
     `[start, end)`, from the edit on. One join per kind of actor reads the events of every edit of that kind once."""
-    edits_by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
-    for index, edit in enumerate(edits):
-        edits_by_actor.setdefault(edit.group_type_index, []).append((index, edit))
+    edits_by_actor = _edits_by_actor(edits)
     if not edits_by_actor:
         return LastValues(joins=(), by_edit={})
     calls = _FlagCalls.of(team)
@@ -466,36 +478,31 @@ def last_values(
                 },
             ),
         )
-        on_events = [(index, edit, read_flag(edit, {})) for index, edit in watched]
+        reads = [(index, edit, read_flag(edit, {})) for index, edit in watched]
         flag_values = _value_scan(
             actor_column=actor.expr,
             table=("events",),
-            values=[(index, edit, read.with_flag, read.exposed) for index, edit, read in on_events],
-            keep=ast.Or(exprs=[read.with_flag for _, _, read in on_events]),
-            actor=actor,
+            columns=[
+                _ValueColumns(index=index, edited_at=edit.edited_at, carried=read.with_flag, exposed=read.exposed)
+                for index, edit, read in reads
+            ],
+            keep=ast.Or(exprs=[read.with_flag for _, _, read in reads]),
+            present=actor.present,
             counted_actors=counted_actors,
             since=since,
             end=end,
         )
-        call_exposed = parse_expr(
-            "isNotNull({response}) AND {response} != 'false'", placeholders={"response": calls.response}
-        )
         flag_calls = _value_scan(
-            actor_column=calls.person_id if group_type_index is None else actor.expr,
+            actor_column=calls.actor_column(group_type_index),
             table=calls.table,
-            values=[
-                (
-                    index,
-                    edit,
-                    parse_expr(
-                        "{flag_key} = {key} AND isNotNull({response})",
-                        placeholders={
-                            "flag_key": calls.flag_key,
-                            "key": ast.Constant(value=edit.flag_key),
-                            "response": calls.response,
-                        },
+            columns=[
+                _ValueColumns(
+                    index=index,
+                    edited_at=edit.edited_at,
+                    carried=_call_carries(edit, calls),
+                    exposed=parse_expr(
+                        "isNotNull({response}) AND {response} != 'false'", placeholders={"response": calls.response}
                     ),
-                    call_exposed,
                 )
                 for index, edit in watched
             ],
@@ -507,7 +514,7 @@ def last_values(
                     "flag_keys": _constants(edit.flag_key for _, edit in watched),
                 },
             ),
-            actor=actor,
+            present=actor.present,
             counted_actors=counted_actors,
             since=since,
             end=end,
@@ -515,43 +522,16 @@ def last_values(
         subquery = ast.SelectQuery(
             select=[
                 ast.Field(chain=["actor"]),
-                *[
-                    ast.Alias(
-                        alias=f"v{index}",
-                        # Tuples sort by time, then by value, so of two values with the same time the exposed one is
-                        # last and wins.
-                        expr=parse_expr(
-                            "arraySort(groupArrayIf(tuple(timestamp, {exposed}), {carried}))",
-                            placeholders={
-                                "exposed": ast.Field(chain=[f"x{index}"]),
-                                "carried": ast.Field(chain=[f"w{index}"]),
-                            },
-                        ),
-                    )
-                    for index, _ in watched
-                ],
+                *[column for index, _ in watched for column in _value_changes(index)],
             ],
             select_from=ast.JoinExpr(
                 table=ast.SelectSetQuery.create_from_queries([flag_values, flag_calls], "UNION ALL")
             ),
             group_by=[ast.Field(chain=["actor"])],
         )
-        joins.append(
-            ast.JoinExpr(
-                join_type="LEFT JOIN",
-                table=subquery,
-                alias=alias,
-                constraint=ast.JoinConstraint(
-                    expr=parse_expr(
-                        "{values_actor} = {actor}",
-                        placeholders={"values_actor": ast.Field(chain=[alias, "actor"]), "actor": actor.expr},
-                    ),
-                    constraint_type="ON",
-                ),
-            )
-        )
+        joins.append(_join_by_actor(subquery, alias, actor))
         for index, edit in watched:
-            values = ast.Field(chain=[alias, f"v{index}"])
+            values = ast.Field(chain=[alias, f"values{index}"])
             by_edit[edit.id] = LastValue(
                 known=parse_expr(
                     "arrayExists(x -> x.1 <= events.timestamp, {values})", placeholders={"values": values}
@@ -563,35 +543,78 @@ def last_values(
     return LastValues(joins=tuple(joins), by_edit=by_edit)
 
 
+def _call_carries(edit: WatchedEdit, calls: _FlagCalls) -> ast.Expr:
+    if {"true", "false"} & set(edit.variants):
+        # A flag call's response is text, so a variant named "true" or "false" reads the same as a boolean value.
+        return ast.Constant(value=False)
+    # A call without a response tells no value, as an event without the flag doesn't.
+    return parse_expr(
+        "{flag_key} = {key} AND isNotNull({response})",
+        placeholders={"flag_key": calls.flag_key, "key": ast.Constant(value=edit.flag_key), "response": calls.response},
+    )
+
+
+def _value_changes(index: int) -> list[ast.Alias]:
+    """The (timestamp, exposed) pairs of an actor in time order, without a pair that repeats the value before it. The
+    join copies the array to every counted event of the actor, so it holds only the changes."""
+    return [
+        ast.Alias(
+            alias=f"sorted{index}",
+            # Tuples sort by time, then by value, so of two values with the same time the exposed one is last and wins.
+            expr=parse_expr(
+                "arraySort(groupArrayIf(tuple(timestamp, {exposed}), {carried}))",
+                placeholders={
+                    "exposed": ast.Field(chain=[f"exposed{index}"]),
+                    "carried": ast.Field(chain=[f"carried{index}"]),
+                },
+            ),
+        ),
+        ast.Alias(
+            alias=f"values{index}",
+            expr=parse_expr(
+                "arrayFilter((x, i) -> i = 1 OR x.2 != {sorted}[i - 1].2, {sorted}, arrayEnumerate({sorted}))",
+                placeholders={"sorted": ast.Field(chain=[f"sorted{index}"])},
+            ),
+        ),
+    ]
+
+
+@frozen
+class _ValueColumns:
+    index: int
+    edited_at: datetime
+    carried: ast.Expr
+    exposed: ast.Expr
+
+
 def _value_scan(
     *,
     actor_column: ast.Expr,
     table: tuple[str, ...],
-    values: Sequence[tuple[int, WatchedEdit, ast.Expr, ast.Expr]],
+    columns: Sequence[_ValueColumns],
     keep: ast.Expr,
-    actor: _Actor,
+    present: ast.Expr,
     counted_actors: ast.SelectQuery,
     since: datetime,
     end: datetime,
 ) -> ast.SelectQuery:
-    """One row per row of `table` that `keep` holds for. `values` holds, for each edit, its column index, whether the
-    row carries the flag, and whether that value is exposed."""
+    """One row per row of `table` that `keep` holds for, with whether it carries the flag of each edit, and the value."""
     return ast.SelectQuery(
         select=[
             ast.Alias(alias="actor", expr=actor_column),
             ast.Field(chain=["timestamp"]),
             *[
                 alias
-                for index, edit, carried, exposed in values
+                for column in columns
                 for alias in (
                     ast.Alias(
-                        alias=f"w{index}",
+                        alias=f"carried{column.index}",
                         expr=parse_expr(
                             "{carried} AND timestamp >= {edited_at}",
-                            placeholders={"carried": carried, "edited_at": ast.Constant(value=edit.edited_at)},
+                            placeholders={"carried": column.carried, "edited_at": ast.Constant(value=column.edited_at)},
                         ),
                     ),
-                    ast.Alias(alias=f"x{index}", expr=exposed),
+                    ast.Alias(alias=f"exposed{column.index}", expr=column.exposed),
                 )
             ],
         ],
@@ -601,7 +624,7 @@ def _value_scan(
             placeholders={
                 "since": ast.Constant(value=since),
                 "end": ast.Constant(value=end),
-                "present": actor.present,
+                "present": present,
                 "keep": keep,
                 "actor_column": actor_column,
                 "counted_actors": clone_expr(counted_actors),
