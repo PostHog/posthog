@@ -14,8 +14,10 @@ import { initKeaTests } from '~/test/init'
 import { SessionReplayWidget } from './SessionReplayWidget'
 
 jest.mock('scenes/session-recordings/playlist/SessionRecordingPreview', () => ({
-    SessionRecordingPreview: ({ recording }: { recording: { id: string } }): JSX.Element => (
-        <div data-attr="session-recording-preview">{recording.id}</div>
+    SessionRecordingPreview: ({ recording }: { recording: { id: string; viewed: boolean } }): JSX.Element => (
+        <div data-attr="session-recording-preview" data-viewed={String(recording.viewed)}>
+            {recording.id}
+        </div>
     ),
     SessionRecordingPreviewSkeleton: (): JSX.Element => <div data-attr="session-recording-preview-skeleton" />,
 }))
@@ -81,16 +83,24 @@ describe('SessionReplayWidget', () => {
         const getMatchingEvents = jest.spyOn(api.recordings, 'getMatchingEvents')
         sessionPlayerModalLogic.mount()
 
-        render(
+        const { rerender } = render(
             <SessionReplayWidget tileId={1} config={{ limit: 10 }} loading={false} result={{ results: [recording] }} />
         )
 
+        expect(screen.getByText('recording-1')).toHaveAttribute('data-viewed', 'false')
         fireEvent.click(screen.getByText('recording-1'))
 
         await waitFor(() =>
             expect(sessionPlayerModalLogic.values.activeSessionRecording).toEqual({ id: 'recording-1' })
         )
         expect(getMatchingEvents).not.toHaveBeenCalled()
+        // The cached widget result still says unwatched, so the row has to flip locally, and stay flipped
+        // when the tile re-renders with that same stale payload.
+        expect(screen.getByText('recording-1')).toHaveAttribute('data-viewed', 'true')
+        rerender(
+            <SessionReplayWidget tileId={1} config={{ limit: 10 }} loading={false} result={{ results: [recording] }} />
+        )
+        expect(screen.getByText('recording-1')).toHaveAttribute('data-viewed', 'true')
     })
 
     it('fetches matching events for the clicked session and opens the player with highlights', async () => {
