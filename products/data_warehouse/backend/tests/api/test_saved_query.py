@@ -468,6 +468,9 @@ class TestSavedQuery(APIBaseTest):
                 "description_changed": False,
                 "sync_frequency": None,
                 "soft_update": False,
+                "breaking_column_change_acknowledged": False,
+                "removed_column_count": 0,
+                "affected_downstream_view_count": 0,
             },
         )
 
