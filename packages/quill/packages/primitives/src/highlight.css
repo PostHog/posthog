@@ -76,6 +76,12 @@
         --quill-highlight-foreground: oklch(0.47 0.2 305deg);
     }
 
+    /* A pale tint disappears on a dark surface, so dark mode takes a much stronger share of the brand color. */
+    :is(.dark, [theme='dark']) .quill-highlight--color-orange {
+        --quill-highlight-background: color-mix(in oklab, var(--primary) 42%, var(--background));
+        --quill-highlight-foreground: color-mix(in oklab, var(--primary) 55%, white);
+    }
+
     :is(.dark, [theme='dark']) .quill-highlight--color-red {
         --quill-highlight-background: oklch(0.36 0.1 20deg / 70%);
         --quill-highlight-foreground: oklch(0.84 0.09 20deg);
