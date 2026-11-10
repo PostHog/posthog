@@ -443,6 +443,12 @@ class TestExternalDataSchema(APIBaseTest):
                     "nullable": True,
                     # Table has no index on `id`, so the warning UI will fire for this field.
                     "is_indexed": False,
+                    "recommended": True,
+                    "notes": [
+                        "Only marks new rows. Edits to existing rows don't sync.",
+                        "Not indexed, so each sync scans the whole table.",
+                        "Can be empty. Rows where it's empty never sync.",
+                    ],
                 },
                 # xmin is synthetic: advertised for any ordinary PG13+ table, unindexed by definition.
                 {

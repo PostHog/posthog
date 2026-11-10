@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
@@ -447,6 +448,7 @@ export class PluginServer implements NodeServer {
                     // it only leaves queued peers un-heartbeated behind a slow audience fetch until
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
+                    boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,
@@ -553,7 +555,10 @@ export class PluginServer implements NodeServer {
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub!,
+            new PostgresIntegrationSource(this.postgres!, encryptedFields)
+        )
         const internalCaptureService = new InternalCaptureService(this.config)
 
         return {

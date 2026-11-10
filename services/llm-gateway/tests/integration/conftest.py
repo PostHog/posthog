@@ -193,9 +193,13 @@ def run_gateway_server(configure_all_providers: bool = False, bedrock_region_nam
                 thread = threading.Thread(target=server.run, daemon=True)
                 thread.start()
 
-                time.sleep(0.5)
-
                 try:
+                    deadline = time.monotonic() + 10
+                    while not server.started:
+                        assert thread.is_alive(), "the gateway server exited"
+                        assert time.monotonic() < deadline, "the gateway server never started"
+                        # nosemgrep: no-fixed-sleeps-in-tests -- the server exposes a readiness flag, not an event
+                        time.sleep(0.01)
                     yield f"http://127.0.0.1:{port}"
                 finally:
                     server.should_exit = True

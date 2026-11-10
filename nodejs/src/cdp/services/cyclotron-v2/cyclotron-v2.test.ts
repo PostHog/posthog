@@ -1,4 +1,4 @@
-import { Pool } from 'pg'
+import { Client, Pool } from 'pg'
 import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -48,6 +48,7 @@ function createWorker(queueName = QUEUE, overrides?: Record<string, unknown>): C
         batchMaxSize: 100,
         pollDelayMs: 10,
         includeEmptyBatches: true,
+        boundedPolls: true,
         ...overrides,
     })
 }
@@ -169,6 +170,14 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 
     await worker.stopConsuming()
     return captured
+}
+
+async function backendsNamed(applicationName: string): Promise<number> {
+    const { rows } = await assertPool.query<{ n: number }>(
+        'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1',
+        [applicationName]
+    )
+    return rows[0].n
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -683,12 +692,17 @@ describe('Cyclotron V2', () => {
             })
         })
 
-        it('backpressure throws when queue depth exceeds limit', async () => {
+        it.each([
+            ['one queue', [QUEUE, 0], [QUEUE, 0]],
+            ['two queues and priority classes', [QUEUE, 1], ['other-queue', 2]],
+        ])('backpressure throws when queue depth exceeds limit across %s', async (_label, first, second) => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
             await smallManager.connect()
             try {
-                await smallManager.createJob({ teamId: 1, queueName: QUEUE })
-                await smallManager.createJob({ teamId: 1, queueName: QUEUE })
+                await smallManager.createJob({ teamId: 1, queueName: QUEUE, scheduled: new Date(Date.now() + 60_000) })
+                for (const [queueName, priority] of [first, second] as [string, number][]) {
+                    await smallManager.createJob({ teamId: 1, queueName, priority })
+                }
                 await expect(smallManager.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
             } finally {
                 await smallManager.disconnect()
@@ -1441,16 +1455,32 @@ describe('Cyclotron V2', () => {
             expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
         })
 
-        it('respects priority ordering (lower number = higher priority)', async () => {
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 2 })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 0 })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 1 })
+        it.each(
+            [
+                ['every due class fits in the batch', 100, [2, 0, 1], [0, 1, 2]],
+                ['the batch is smaller than the due rows', 3, [32000, 2, -5, 1, 0, 2], [-5, 0, 1]],
+            ].flatMap(([label, ...rest]) => [
+                [`${label}, bounded polls`, ...rest, true],
+                [`${label}, legacy polls`, ...rest, false],
+            ]) as [string, number, number[], number[], boolean][]
+        )(
+            'respects priority ordering (lower number = higher priority) when %s',
+            async (_label, batchMaxSize, priorities, expected, boundedPolls) => {
+                await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    priority: -10,
+                    scheduled: new Date(Date.now() + 60_000),
+                })
+                for (const priority of priorities) {
+                    await manager.createJob({ teamId: 1, queueName: QUEUE, priority })
+                }
 
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+                const jobs = await dequeueOneBatch(createWorker(QUEUE, { batchMaxSize, boundedPolls }))
 
-            expect(jobs.map((j) => j.priority)).toEqual([0, 1, 2])
-        })
+                expect(jobs.map((j) => j.priority)).toEqual(expected)
+            }
+        )
 
         it('skips future-scheduled jobs', async () => {
             const future = new Date(Date.now() + 60_000)
@@ -1693,10 +1723,46 @@ describe('Cyclotron V2', () => {
                         batchMaxSize: 100,
                         pollDelayMs: 10,
                         includeEmptyBatches: true,
+                        boundedPolls: true,
                         ...overrides,
                     },
                     getBatchLimit
                 )
+
+            const tokenBucket = (capacity: number) => {
+                let tokens = capacity
+                return {
+                    take: (requested: number): Promise<CyclotronV2BatchLimit> => {
+                        const granted = Math.min(requested, tokens)
+                        tokens -= granted
+                        return Promise.resolve({ limit: granted })
+                    },
+                    tokens: () => tokens,
+                }
+            }
+
+            async function firstBatchWithTokensLeft(
+                worker: CyclotronV2RateLimitedWorker,
+                bucket: ReturnType<typeof tokenBucket>
+            ): Promise<{ jobs: number; tokensLeft: number }> {
+                let timer: ReturnType<typeof setTimeout> | undefined
+                try {
+                    return await new Promise((resolve, reject) => {
+                        timer = setTimeout(() => reject(new Error('the worker dequeued no batch')), 2000)
+                        worker
+                            .connect((batch) => {
+                                if (batch.length > 0) {
+                                    resolve({ jobs: batch.length, tokensLeft: bucket.tokens() })
+                                }
+                                return Promise.resolve()
+                            })
+                            .catch(reject)
+                    })
+                } finally {
+                    clearTimeout(timer)
+                    await worker.disconnect()
+                }
+            }
 
             it('clamps the batch to the granted limit', async () => {
                 await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
@@ -1794,41 +1860,36 @@ describe('Cyclotron V2', () => {
                 expect(hookCalls).toBe(0)
             })
 
-            it('passes the visible row count to the limiter hook', async () => {
-                // Sparse-traffic regression guard. 3 ready rows + batchMaxSize=100
-                // → hook must be asked for 3 tokens, not 100. Without pre-sizing,
-                // a single trickle of jobs would drain the full bucket per send.
-                await manager.bulkCreateJobs(Array.from({ length: 3 }, () => ({ teamId: 1, queueName: QUEUE })))
+            it.each([
+                ['one priority class', [0, 0, 0]],
+                ['several priority classes', [2, 0, 1]],
+            ])('takes only as many tokens as rows are due across %s', async (_label, priorities) => {
+                await manager.bulkCreateJobs([
+                    ...priorities.map((priority) => ({ teamId: 1, queueName: QUEUE, priority })),
+                    { teamId: 1, queueName: QUEUE, priority: -1, scheduled: new Date(Date.now() + 60_000) },
+                ])
+                const bucket = tokenBucket(100)
 
-                const requestedHistory: number[] = []
-                const worker = createRateLimitedWorker((requested) => {
-                    requestedHistory.push(requested)
-                    return Promise.resolve({ limit: requested })
-                })
+                const firstBatch = await firstBatchWithTokensLeft(createRateLimitedWorker(bucket.take), bucket)
 
-                await dequeueOneBatch(worker)
-
-                // First (and only relevant) call: 3 rows visible → 3 requested.
-                expect(requestedHistory[0]).toBe(3)
+                expect(firstBatch).toEqual({ jobs: 3, tokensLeft: 97 })
             })
 
-            it('caps the visible row count at batchMaxSize', async () => {
-                // Backlog of 10 rows with batchMaxSize=4 should ask for 4
-                // (the batch ceiling), not 10.
-                await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
+            it.each([
+                ['one priority class', () => 0],
+                ['several priority classes', (i: number) => i % 3],
+            ])('takes no more tokens than batchMaxSize across %s', async (_label, priorityOf) => {
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 10 }, (_, i) => ({ teamId: 1, queueName: QUEUE, priority: priorityOf(i) }))
+                )
+                const bucket = tokenBucket(100)
 
-                const requestedHistory: number[] = []
-                const worker = createRateLimitedWorker(
-                    (requested) => {
-                        requestedHistory.push(requested)
-                        return Promise.resolve({ limit: requested })
-                    },
-                    { batchMaxSize: 4 }
+                const firstBatch = await firstBatchWithTokensLeft(
+                    createRateLimitedWorker(bucket.take, { batchMaxSize: 4 }),
+                    bucket
                 )
 
-                await dequeueOneBatch(worker)
-
-                expect(requestedHistory[0]).toBe(4)
+                expect(firstBatch).toEqual({ jobs: 4, tokensLeft: 96 })
             })
         })
 
@@ -2036,6 +2097,60 @@ describe('Cyclotron V2', () => {
             expect(new Set(allIds).size).toBe(10)
         })
 
+        it('leaves the due rows a dequeue does not claim to other workers', async () => {
+            const scheduled = new Date(Date.now() - 60_000)
+            for (const priority of [0, 1, 2]) {
+                await manager.createJob({ teamId: 1, queueName: QUEUE, priority, scheduled })
+            }
+            const heldWorker = 'cyclotron-held-claim'
+            const claimLock = 4242
+            await assertPool.query(`
+                CREATE OR REPLACE FUNCTION cyclotron_test_hold_claim() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF current_setting('application_name') = '${heldWorker}' THEN
+                        PERFORM pg_advisory_xact_lock(${claimLock});
+                    END IF;
+                    RETURN NEW;
+                END $$`)
+            await assertPool.query(
+                'CREATE TRIGGER cyclotron_test_hold_claim BEFORE UPDATE ON cyclotron_jobs FOR EACH ROW EXECUTE FUNCTION cyclotron_test_hold_claim()'
+            )
+            const gate = await assertPool.connect()
+            let heldBatch: Promise<CyclotronV2DequeuedJob[]> = Promise.resolve([])
+            try {
+                await gate.query('SELECT pg_advisory_lock($1)', [claimLock])
+                heldBatch = dequeueOneBatch(
+                    createWorker(QUEUE, {
+                        batchMaxSize: 1,
+                        pool: { dbUrl: `${DB_URL}?application_name=${heldWorker}` },
+                    })
+                )
+                await waitForExpect(
+                    async () => {
+                        const { rows } = await assertPool.query(
+                            `SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+                             WHERE a.application_name = $1 AND l.locktype = 'advisory' AND NOT l.granted`,
+                            [heldWorker]
+                        )
+                        expect(rows).toHaveLength(1)
+                    },
+                    2000,
+                    10
+                )
+
+                const other = await dequeueOneBatch(createWorker(QUEUE, { batchMaxSize: 1 }), 500)
+
+                expect(other.map((job) => job.priority)).toEqual([1])
+            } finally {
+                await gate.query('SELECT pg_advisory_unlock_all()')
+                gate.release()
+                await heldBatch
+                await assertPool.query('DROP TRIGGER cyclotron_test_hold_claim ON cyclotron_jobs')
+                await assertPool.query('DROP FUNCTION cyclotron_test_hold_claim()')
+            }
+            expect((await heldBatch).map((job) => job.priority)).toEqual([0])
+        })
+
         it('transition_count increments on dequeue', async () => {
             const { id, job } = await seedAndDequeue()
 
@@ -2056,6 +2171,178 @@ describe('Cyclotron V2', () => {
 
             expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
         })
+    })
+
+    describe('polling cost with a backlog scheduled for later', () => {
+        const PROBE_SCHEMA = 'polling_cost_probe'
+        const BACKLOG_QUEUE = 'future-backlog'
+        const BACKLOG_ROWS = 20_000
+        const BACKLOG_BUFFER_BUDGET = 30
+
+        type PlanMode = 'custom' | 'generic'
+
+        function sessionUrl(applicationName: string, mode: PlanMode): string {
+            const options = `-c search_path=${PROBE_SCHEMA} -c plan_cache_mode=force_${mode}_plan`
+            return `${DB_URL}?application_name=${applicationName}&options=${encodeURIComponent(options)}`
+        }
+
+        async function untilSessionStatsFlushed(applicationName: string): Promise<void> {
+            await waitForExpect(async () => expect(await backendsNamed(applicationName)).toBe(0), 2000, 10)
+        }
+
+        async function buffersTouched(): Promise<number> {
+            const { rows } = await assertPool.query<{ n: number }>(
+                `SELECT (COALESCE(heap_blks_hit, 0) + COALESCE(heap_blks_read, 0)
+                       + COALESCE(idx_blks_hit, 0) + COALESCE(idx_blks_read, 0))::int AS n
+                 FROM pg_statio_all_tables WHERE relid = $1::regclass`,
+                [`${PROBE_SCHEMA}.cyclotron_jobs`]
+            )
+            return rows[0].n
+        }
+
+        async function seed(dueJobs: number, backlogJobs: number): Promise<void> {
+            const applicationName = 'polling-cost-seed'
+            const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
+            await client.connect()
+            try {
+                await client.query('TRUNCATE cyclotron_jobs')
+                await client.query(
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                     SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
+                            CASE WHEN g <= $3 THEN NOW() - interval '1 minute'
+                                 ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
+                            NOW(), NOW()
+                     FROM generate_series(1, $2::int + $3::int) g`,
+                    [BACKLOG_QUEUE, backlogJobs, dueJobs]
+                )
+                await client.query('VACUUM ANALYZE cyclotron_jobs')
+            } finally {
+                await client.end()
+            }
+            await untilSessionStatsFlushed(applicationName)
+        }
+
+        beforeAll(async () => {
+            await assertPool.query(`DROP SCHEMA IF EXISTS ${PROBE_SCHEMA} CASCADE`)
+            await assertPool.query(`CREATE SCHEMA ${PROBE_SCHEMA}`)
+            await assertPool.query(
+                `CREATE TABLE ${PROBE_SCHEMA}.cyclotron_jobs (LIKE public.cyclotron_jobs INCLUDING ALL)
+                 WITH (autovacuum_enabled = false)`
+            )
+        })
+
+        afterAll(async () => {
+            await assertPool.query(`DROP SCHEMA ${PROBE_SCHEMA} CASCADE`)
+        })
+
+        async function pollOnce(
+            worker: CyclotronV2Worker,
+            polled: Promise<void>,
+            processBatch: () => Promise<void> = () => Promise.resolve()
+        ): Promise<void> {
+            let timer: ReturnType<typeof setTimeout> | undefined
+            try {
+                await worker.connect(processBatch)
+                await Promise.race([
+                    polled,
+                    new Promise<never>((_, reject) => {
+                        timer = setTimeout(() => reject(new Error('the worker did not finish a poll')), 1000)
+                    }),
+                ])
+            } finally {
+                clearTimeout(timer)
+                await worker.disconnect()
+            }
+        }
+
+        function pollSignal(): { polled: Promise<void>; markPolled: () => void } {
+            let markPolled: () => void = () => {}
+            const polled = new Promise<void>((resolve) => (markPolled = resolve))
+            return { polled, markPolled }
+        }
+
+        const PARAMETERIZED_SQL_PLANS: PlanMode[] = ['custom', 'generic']
+        const PLAIN_SQL_PLANS: PlanMode[] = ['custom']
+        const operations: [string, number, PlanMode[], (dbUrl: string) => Promise<void>][] = [
+            [
+                'the worker dequeue',
+                0,
+                PARAMETERIZED_SQL_PLANS,
+                async (dbUrl) => {
+                    const { polled, markPolled } = pollSignal()
+                    await pollOnce(createWorker(BACKLOG_QUEUE, { pool: { dbUrl } }), polled, () =>
+                        Promise.resolve(markPolled())
+                    )
+                },
+            ],
+            [
+                'the rate-limited worker count',
+                1,
+                PARAMETERIZED_SQL_PLANS,
+                async (dbUrl) => {
+                    const { polled, markPolled } = pollSignal()
+                    const worker = new CyclotronV2RateLimitedWorker(
+                        { pool: { dbUrl }, queueName: BACKLOG_QUEUE, pollDelayMs: 10, boundedPolls: true },
+                        () => {
+                            markPolled()
+                            return Promise.resolve({ limit: 0 })
+                        }
+                    )
+                    await pollOnce(worker, polled)
+                },
+            ],
+            [
+                'the manager depth check',
+                0,
+                PLAIN_SQL_PLANS,
+                async (dbUrl) => {
+                    const depthChecked = createManager({ pool: { dbUrl }, depthLimit: 0 })
+                    try {
+                        await expect(depthChecked.createJob({ teamId: 1, queueName: BACKLOG_QUEUE })).rejects.toThrow(
+                            'queue is full'
+                        )
+                    } finally {
+                        await depthChecked.disconnect()
+                    }
+                },
+            ],
+            [
+                'the janitor depth gauges',
+                0,
+                PLAIN_SQL_PLANS,
+                async (dbUrl) => {
+                    const janitor = createJanitor({ pool: { dbUrl } })
+                    try {
+                        await janitor.measureQueueDepths()
+                    } finally {
+                        await janitor.stop()
+                    }
+                },
+            ],
+        ]
+        const cases = operations.flatMap(([label, dueJobs, modes, operation]) =>
+            modes.map((mode) => [label, mode, dueJobs, operation] as const)
+        )
+
+        async function buffersReadBy(operation: (dbUrl: string) => Promise<void>, mode: PlanMode): Promise<number> {
+            const applicationName = 'polling-cost-operation'
+            const before = await buffersTouched()
+            await operation(sessionUrl(applicationName, mode))
+            await untilSessionStatsFlushed(applicationName)
+            return (await buffersTouched()) - before
+        }
+
+        it.each(cases)(
+            '%s does not read through a backlog scheduled for later under a %s plan',
+            async (_label, mode, dueJobs, operation) => {
+                await seed(dueJobs, 0)
+                const withoutBacklog = await buffersReadBy(operation, mode)
+                await seed(dueJobs, BACKLOG_ROWS)
+                const withBacklog = await buffersReadBy(operation, mode)
+
+                expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_BUFFER_BUDGET)
+            }
+        )
     })
 
     // ── Email fair dequeue ───────────────────────────────────────────
@@ -2985,10 +3272,29 @@ describe('Cyclotron V2', () => {
             expect(await gaugeValueForQueue('queue-drains', ageMetric)).toBe(0)
         })
 
-        it('measureQueueDepths returns correct counts per queue', async () => {
-            await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
-            await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
-            await insertRawJob({ id: uuidv7(), queue_name: 'queue-b', status: 'available' })
+        it('measureQueueDepths returns the count and oldest due age per queue across priority classes', async () => {
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-a',
+                status: 'available',
+                priority: 0,
+                scheduled: new Date(Date.now() - 50_000),
+            })
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-a',
+                status: 'available',
+                priority: 2,
+                scheduled: new Date(Date.now() - 10_000),
+            })
+            await insertRawJob({ id: uuidv7(), queue_name: 'queue-b', status: 'available', priority: 1 })
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-b',
+                status: 'available',
+                priority: 0,
+                scheduled: new Date(Date.now() + 60_000),
+            })
             // Running jobs should not be counted
             await insertRawJob({
                 id: uuidv7(),
@@ -3005,6 +3311,9 @@ describe('Cyclotron V2', () => {
 
             expect(result.depths.get('queue-a')).toBe(2)
             expect(result.depths.get('queue-b')).toBe(1)
+            const oldestAgeMs = await gaugeValueForQueue('queue-a', 'cdp_cyclotron_v2_queue_oldest_due_age_ms')
+            expect(oldestAgeMs).toBeGreaterThanOrEqual(50_000)
+            expect(oldestAgeMs).toBeLessThan(60_000)
         })
 
         it('sweeps expired conversion watchers and keeps live ones', async () => {

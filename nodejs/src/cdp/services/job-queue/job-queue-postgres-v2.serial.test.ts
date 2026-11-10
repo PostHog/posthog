@@ -39,6 +39,7 @@ describe('CyclotronJobQueuePostgresV2 on Postgres', () => {
             CYCLOTRON_SHARD_DEPTH_LIMIT: 1_000_000,
             CDP_CYCLOTRON_BATCH_DELAY_MS: 20,
             CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
+            CDP_CYCLOTRON_BOUNDED_POLLS: false,
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
