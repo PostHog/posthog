@@ -12,11 +12,11 @@ from products.workflows.backend.services.sandbox_email.provisioning import (
     SANDBOX_SENDER_INTEGRATION_ID,
     check_sandbox_sender_available,
     has_verified_own_sender,
-    is_verified_own_sender,
     provision_sandbox_sender,
     sandbox_adoption_enabled,
     sandbox_sender_status,
     set_up_sandbox_sender,
+    verified_own_sender_ids,
 )
 from products.workflows.backend.services.sandbox_email.validation import (
     ADOPTION_UNAVAILABLE,
@@ -35,7 +35,7 @@ __all__ = [
     "can_default_to_sandbox",
     "check_sandbox_sender_available",
     "has_verified_own_sender",
-    "is_verified_own_sender",
+    "verified_own_sender_ids",
     "own_only_settings",
     "provision_sandbox_sender",
     "sandbox_adoption_enabled",
