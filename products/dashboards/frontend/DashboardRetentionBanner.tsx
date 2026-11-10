@@ -9,14 +9,14 @@ import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/in
 export const DashboardRetentionBanner = (): JSX.Element | null => {
     const { showRetentionBanner, retentionPeriodLabel } = useValues(dashboardLogic)
     const { retentionBannerAction, nextDeletionLabel } = useValues(dataRetentionBannerLogic)
-    const { snooze } = useActions(dataRetentionBannerLogic)
+    const { dismiss } = useActions(dataRetentionBannerLogic)
 
     if (!showRetentionBanner || !retentionPeriodLabel) {
         return null
     }
 
     return (
-        <LemonBanner type="warning" className="mt-4 mb-2" onClose={snooze} action={retentionBannerAction ?? undefined}>
+        <LemonBanner type="warning" className="mt-4 mb-2" onClose={dismiss} action={retentionBannerAction ?? undefined}>
             Some insights on this dashboard have date ranges that go beyond your {retentionPeriodLabel} data retention,
             so events older than that aren't included.
             {nextDeletionLabel && <span>{` Those events will be deleted starting ${nextDeletionLabel}.`}</span>}

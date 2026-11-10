@@ -16,11 +16,11 @@ export function InsightRetentionBanner({ insightProps }: { insightProps: Insight
     const { shouldShowBanner, shouldShowDeletionBanner } = useValues(insightRetentionBannerLogic(insightProps))
     const { retentionPeriodLabel, retentionBannerAction, nextDeletionLabel, projectPeriodLabel } =
         useValues(dataRetentionBannerLogic)
-    const { snooze } = useActions(dataRetentionBannerLogic)
+    const { dismiss } = useActions(dataRetentionBannerLogic)
 
     if (shouldShowBanner && retentionPeriodLabel) {
         return (
-            <LemonBanner type="warning" onClose={snooze} action={retentionBannerAction ?? undefined}>
+            <LemonBanner type="warning" onClose={dismiss} action={retentionBannerAction ?? undefined}>
                 This insight's date range goes beyond your {retentionPeriodLabel} data retention, so events older than
                 that aren't included.
                 {nextDeletionLabel && <span>{` Those events will be deleted starting ${nextDeletionLabel}.`}</span>}
@@ -30,7 +30,7 @@ export function InsightRetentionBanner({ insightProps }: { insightProps: Insight
 
     if (shouldShowDeletionBanner && projectPeriodLabel) {
         return (
-            <LemonBanner type="warning" onClose={snooze}>
+            <LemonBanner type="warning" onClose={dismiss}>
                 <span>{`Events in this insight are older than your ${projectPeriodLabel} retention period and may be deleted soon. Adjust your retention period in `}</span>
                 <Link to={RETENTION_SETTINGS_URL} data-attr="insight-retention-deletion-settings">
                     Settings
