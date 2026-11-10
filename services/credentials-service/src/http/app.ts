@@ -1,20 +1,25 @@
-// HTTP surface. One functional route: the request scope lives entirely in the JWT, so
+// HTTP surface. For platform secrets the request scope lives entirely in the JWT, so
 // `resolve` takes no body (see auth/jwt.ts). It is a POST so no intermediary treats a
-// secret response as cacheable.
+// secret response as cacheable. The integration routes are in ./integrations.ts.
 
 import { Hono } from 'hono'
 
+import type { IntegrationVerifier } from '../auth/integrations'
 import { bearerToken, type JwtVerifier } from '../auth/jwt'
 import { AuthError } from '../auth/types'
+import type { IntegrationsService } from '../integrations/service'
 import { logger } from '../lib/logging'
 import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal } from '../metrics'
 import { resolveKeys } from '../resolve'
 import type { Lifecycle, MountedSecrets } from '../types'
+import { createIntegrationRoutes } from './integrations'
 
 export interface AppOptions {
     verifier: JwtVerifier
     lifecycle: Lifecycle
     secrets: () => MountedSecrets | null
+    /** Set only when the service has a database and a KMS. Without it the integration routes do not exist. */
+    integrations?: { verifier: IntegrationVerifier; service: IntegrationsService }
 }
 
 export function createApp(opts: AppOptions): Hono {
@@ -72,6 +77,10 @@ export function createApp(opts: AppOptions): Hono {
 
         return c.json(resolveKeys(identity, mounted))
     })
+
+    if (opts.integrations) {
+        app.route('/v1/integrations', createIntegrationRoutes(opts.integrations))
+    }
 
     return app
 }

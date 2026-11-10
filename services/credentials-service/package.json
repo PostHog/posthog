@@ -27,7 +27,8 @@
         "node-pg-migrate": "^9.0.0",
         "pg": "^8.23.1",
         "pino": "^8.21.0",
-        "prom-client": "^14.2.0"
+        "prom-client": "^14.2.0",
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@testcontainers/postgresql": "^12.2.1",

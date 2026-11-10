@@ -10,10 +10,15 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Pool } from 'pg'
 
+import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
 import { SigningKeyLoader } from './auth/registry'
+import { Envelope } from './crypto/envelope'
+import { createKms } from './crypto/kms'
 import { createPool, pingDatabase } from './db/pool'
-import { createApp } from './http/app'
+import { type AppOptions, createApp } from './http/app'
+import { AuditQueue } from './integrations/audit'
+import { IntegrationsService } from './integrations/service'
 import type { Config } from './lib/config'
 import { logger } from './lib/logging'
 import { register, shuttingDown } from './metrics'
@@ -66,6 +71,7 @@ export class CredentialsServer {
     private mount: SecretMount | undefined
     private signingKeys: SigningKeyLoader | undefined
     private pool: Pool | undefined
+    private audit: AuditQueue | undefined
     private secretsReady = false
     private databaseReady = false
     private cancelTimers: (() => void)[] = []
@@ -173,11 +179,27 @@ export class CredentialsServer {
             await this.connectDatabase(this.pool)
         }
 
-        const app = createApp({
+        const appOptions: AppOptions = {
             verifier: new JwtVerifier(signingKeys),
             lifecycle: this.lifecycle,
             secrets: () => mount.current(),
-        })
+        }
+        if (this.pool && config.kms) {
+            this.audit = new AuditQueue(this.pool)
+            this.audit.start()
+            appOptions.integrations = {
+                verifier: new IntegrationVerifier(signingKeys),
+                service: new IntegrationsService({
+                    pool: this.pool,
+                    envelope: new Envelope(createKms(config.kms)),
+                    audit: this.audit,
+                }),
+            }
+        } else if (this.pool || config.kms) {
+            // Integration routes need both. With one of them, the service serves platform secrets only.
+            logger.warn('integrations:disabled', { database: Boolean(this.pool), kms: Boolean(config.kms) })
+        }
+        const app = createApp(appOptions)
 
         if (!this.secretsReady) {
             logger.error('startup:no_secrets_on_mount', { source: source.description })
@@ -241,6 +263,7 @@ export class CredentialsServer {
             await Promise.race([new Promise<void>((resolve) => server.close(() => resolve())), sleep(DRAIN_TIMEOUT_MS)])
         }
         this.metricsServer?.close()
+        await this.audit?.stop()
         await this.pool?.end().catch((err: unknown) => {
             logger.warn('shutdown:pool_end_failed', { error: err instanceof Error ? err.message : String(err) })
         })

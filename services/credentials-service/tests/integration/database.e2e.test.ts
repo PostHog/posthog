@@ -4,6 +4,7 @@
 import { serve } from '@hono/node-server'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import { SignJWT } from 'jose'
+import { randomBytes } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,7 +21,7 @@ import {
     type NewIntegration,
 } from '@/db/integrations'
 import { runMigrations } from '@/db/migrate'
-import type { Config, DatabaseConfig } from '@/lib/config'
+import type { Config, DatabaseConfig, KmsConfig } from '@/lib/config'
 import { CredentialsServer } from '@/server'
 
 const MIGRATIONS = ['1794323815130_initial-schema']
@@ -239,7 +240,7 @@ describe('server readiness with a database', () => {
         await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
     })
 
-    async function boot(database: DatabaseConfig | undefined): Promise<number> {
+    async function boot(database: DatabaseConfig | undefined, kms?: KmsConfig): Promise<number> {
         const mountDir = await mkdtemp(join(tmpdir(), 'credentials-db-e2e-'))
         dirs.push(mountDir)
         await writeFile(join(mountDir, KEY), 'not-a-real-secret')
@@ -256,6 +257,9 @@ describe('server readiness with a database', () => {
         }
         if (database) {
             config.database = database
+        }
+        if (kms) {
+            config.kms = kms
         }
 
         let announce!: (port: number) => void
@@ -303,6 +307,19 @@ describe('server readiness with a database', () => {
         const port = await boot(database())
 
         expect((await fetch(`http://127.0.0.1:${port}/_readiness`)).status).toBe(readiness)
+        expect(await resolveStatus(port)).toBe(200)
+    })
+
+    // The integration routes need both a database and a KMS. With only one, the service serves
+    // platform secrets only, as before.
+    it.each([
+        ['a database and a KMS', true, 401],
+        ['a database and no KMS', false, 404],
+    ])('with %s, the integration routes answer %i', async (_label, withKms, status) => {
+        const kms: KmsConfig | undefined = withKms ? { provider: 'local', keys: [randomBytes(32)] } : undefined
+        const port = await boot({ url: container.getConnectionUri(), poolSize: 2 }, kms)
+
+        expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
         expect(await resolveStatus(port)).toBe(200)
     })
 })
