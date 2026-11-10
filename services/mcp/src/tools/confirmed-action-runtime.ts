@@ -337,6 +337,14 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
         )
     }
 
+    if (!options.inputSchema.safeParse(args).success) {
+        return refuse(
+            options.purpose,
+            'purpose_mismatch',
+            `${options.purpose} was not executed: ${DIFFERENT_ACTION_OR_VERSION}.`
+        )
+    }
+
     confirmedActionExecutesTotal.inc({ tool: options.purpose, status: 'ok' })
     return { ok: true, verifiedArgs: args as P }
 }
@@ -412,6 +420,9 @@ function interpolate(template: string, args: Record<string, unknown>): string {
     })
 }
 
+const DIFFERENT_ACTION_OR_VERSION =
+    'the confirmation was issued for a different action, or by a different version of this tool. Run the prepare step again'
+
 function reasonFor(err: SignedStateError): string {
     switch (err.kind) {
         case 'expired':
@@ -419,7 +430,7 @@ function reasonFor(err: SignedStateError): string {
         case 'user_mismatch':
             return 'the confirmation was issued for a different user'
         case 'purpose_mismatch':
-            return 'the confirmation was issued for a different action, or by a different version of this tool. Run the prepare step again'
+            return DIFFERENT_ACTION_OR_VERSION
         case 'bad_signature':
             return 'the confirmation signature is invalid'
         case 'malformed':

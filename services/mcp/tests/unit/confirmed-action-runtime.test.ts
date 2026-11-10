@@ -288,9 +288,20 @@ describe('executeConfirmedAction', () => {
     const sendSchemaWithCc = z.object({ to: z.string(), cc: z.array(z.string()).optional() })
 
     it.each([
-        ['another action', 'email-delete', sendSchema],
-        ['a build of this action whose input schema has a field this build lacks', 'email-send', sendSchemaWithCc],
-    ])('refuses a confirmation prepared by %s', async (_case, preparedPurpose, preparedSchema) => {
+        ['another action', 'email-delete', sendSchema, sendSchema],
+        [
+            'a build of this action whose input schema has a field this build lacks',
+            'email-send',
+            sendSchemaWithCc,
+            sendSchema,
+        ],
+        [
+            'a build of this action without a check this build adds',
+            'email-send',
+            sendSchemaWithCc,
+            sendSchemaWithCc.refine((args) => args.cc === undefined),
+        ],
+    ])('refuses a confirmation prepared by %s', async (_case, preparedPurpose, preparedSchema, executeSchema) => {
         const { codec, stash } = setup()
         const prep = await prepareConfirmedAction(makeContext('did-1'), {
             args: { to: 'jane@example.com', cc: ['joe@example.com'] },
@@ -305,7 +316,7 @@ describe('executeConfirmedAction', () => {
         const outcome = await executeConfirmedAction(makeContext('did-1'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: prep.confirmation_hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'email-send',
-            inputSchema: sendSchema,
+            inputSchema: executeSchema,
             codec,
             stash,
         })
