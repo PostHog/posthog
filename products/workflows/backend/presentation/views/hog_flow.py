@@ -1067,6 +1067,9 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
 
 
+SETS_UP_SANDBOX_SENDER = "sets_up_sandbox_sender"
+
+
 def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, context: dict) -> Any:
     actions = data.get("actions") if isinstance(data, dict) else None
     get_team = context.get("get_team")
@@ -1112,7 +1115,6 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
             moved = True
     if not moved:
         return data
-    provision_sandbox_sender(team, user)
     return {**data, "actions": converted}
 
 
@@ -3812,7 +3814,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        return super().to_internal_value(_with_new_email_steps_on_the_sandbox_sender(data, instance, self.context))
+        defaulted = _with_new_email_steps_on_the_sandbox_sender(data, instance, self.context)
+        if defaulted is not data:
+            self.context[SETS_UP_SANDBOX_SENDER] = True
+        return super().to_internal_value(defaulted)
 
     class Meta:
         fields = [
@@ -4310,6 +4315,12 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
 def _patched_sender_id(email_patch: Any) -> Any:
     sender = email_patch.get("from") if isinstance(email_patch, dict) else None
     return sender.get("integrationId") if isinstance(sender, dict) else None
+
+
+def _patched_sender_ids(email_patch: Any) -> list[Any]:
+    sender = email_patch.get("from") if isinstance(email_patch, dict) else None
+    rotation = (sender.get("integrationIds") if isinstance(sender, dict) else None) or []
+    return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
 
 
 def _locate_action_email_value(actions: list[dict], action_id: str) -> dict:
@@ -5855,6 +5866,7 @@ class HogFlowViewSet(
             team_id=self.team_id,
             user_id=self._actor_id(),
             validated_data=serializer.validated_data,
+            before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
         )
         serializer.instance = self._written_workflow(result)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
@@ -5921,6 +5933,7 @@ class HogFlowViewSet(
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
                 requested_exit_condition=serializer.initial_data.get("exit_condition"),
+                before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
@@ -6028,7 +6041,12 @@ class HogFlowViewSet(
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
             serializer.context["enforce_graph_structure"] = True
         serializer.is_valid(raise_exception=True)
+        self._set_up_defaulted_sandbox_sender(serializer)
         return serializer.validated_data
+
+    def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
+        if serializer.context.get(SETS_UP_SANDBOX_SENDER):
+            provision_sandbox_sender(self.team, cast(User, self.request.user))
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
@@ -6105,7 +6123,9 @@ class HogFlowViewSet(
         unlocked = self._edit_state()
         if sender == "sandbox":
             self._check_sandbox_sender_available(request)
-        if sender == "own" and not is_verified_own_sender(self.team.id, _patched_sender_id(email_patch)):
+        if sender == "own" and not all(
+            is_verified_own_sender(self.team.id, sender_id) for sender_id in _patched_sender_ids(email_patch)
+        ):
             raise exceptions.ValidationError(
                 {
                     "sender": "That sender's domain isn't verified yet. Verify it in the project's email settings, "
@@ -6879,6 +6899,7 @@ class HogFlowViewSet(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
         )
         serializer.is_valid(raise_exception=True)
+        self._set_up_defaulted_sandbox_sender(serializer)
 
         payload = dict(serializer.validated_data)
         if payload.pop("use_draft", False):

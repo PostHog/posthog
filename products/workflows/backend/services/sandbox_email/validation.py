@@ -4,7 +4,11 @@ from typing import Any
 from rest_framework.exceptions import ValidationError
 
 from products.cdp.backend.filters import RUNTIME_CONTRACT
-from products.cdp.backend.validation import generate_template_bytecode
+from products.cdp.backend.validation import (
+    build_html_wrap_design,
+    generate_template_bytecode,
+    html_wrap_design_needs_refresh,
+)
 
 _ACTION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
@@ -68,6 +72,10 @@ def validate_sandbox_email_action(
     if not isinstance(value, dict):
         raise ValidationError({"config": "The sandbox email needs a 'value' object."})
     _validate_email_value(value, require_complete=require_complete)
+    html = value.get("html")
+    if isinstance(html, str) and html and html_wrap_design_needs_refresh(html, value.get("design")):
+        value = {**value, "design": build_html_wrap_design(html)}
+        envelope["value"] = value
 
     if templating == "hog":
         envelope.update(_compile(value, is_dwh_source=is_dwh_source))

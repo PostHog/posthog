@@ -25,7 +25,8 @@ def own_only_settings(action: dict[str, Any]) -> list[str]:
     settings: list[str] = []
     if sender.get("email") or sender.get("name") or isinstance(value.get("from"), str) and value["from"]:
         settings.append(SENDER_OVERRIDE)
-    if len(sender.get("integrationIds") or []) > 1:
+    rotation = sender.get("integrationIds") or []
+    if not isinstance(rotation, list) or len(rotation) > 1:
         settings.append(SEVERAL_SENDERS)
     if value.get("replyTo"):
         settings.append(REPLY_TO)
