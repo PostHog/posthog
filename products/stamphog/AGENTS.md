@@ -300,7 +300,8 @@ T2-never with it, so it answers False for every PR it exists to catch.
 The engine records the checks it waited on in `classification.attestations`, and the server acts on that record, never on the policy.
 After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, the engine's own test for pending.
 It then queues a re-review through the same gates as the external re-review, the inbox exclusion included, and at most `_ATTESTATION_WAKES_PER_HEAD` times per head.
-Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll costs one request per waiting run.
+Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll asks GitHub for each pending check by name and App, one request per check.
+A run that no report can wake, an inbox run or one at the per-head cap, does not poll.
 A check that fails after an approval dismisses nothing, so that approval stands until the next head change.
 
 ## Temporal specifics

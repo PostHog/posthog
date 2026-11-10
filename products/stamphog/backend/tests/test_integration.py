@@ -51,6 +51,7 @@ from products.stamphog.backend.tasks.tasks import (
     process_inbox_pr_review,
     rereview_after_external_review,
     rereview_once_attestations_reported,
+    waits_on_attestations,
 )
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
@@ -2161,18 +2162,24 @@ def test_engine_context_after_the_wait_holds_the_review_posted_during_it(team, s
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "verdict, nudged_heads, live_head, enabled, earlier_wait, expected_new_runs",
+    "verdict, nudged_heads, live_head, enabled, earlier_verdict, expected_new_runs",
     [
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, False, 1, id="wait-on-the-head-reruns"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, None, 1, id="wait-on-the-head-reruns"),
         pytest.param(
-            ReviewVerdict.WAIT, ["sha123b", "sha123b"], "sha123b", True, False, 1, id="repeated-nudge-reruns-once"
+            ReviewVerdict.WAIT, ["sha123b", "sha123b"], "sha123b", True, None, 1, id="repeated-nudge-reruns-once"
         ),
         # The re-run waited again. The original WAIT it replaced must not count as covering the head.
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, True, 1, id="rerun-that-waited-again-reruns"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123a"], "sha123b", True, False, 0, id="nudge-for-an-older-head"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123c", True, False, 0, id="head-moved-since"),
-        pytest.param(ReviewVerdict.APPROVED, ["sha123b"], "sha123b", True, False, 0, id="approved-verdict"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", False, False, 0, id="disconnected-repo"),
+        pytest.param(
+            ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, ReviewVerdict.WAIT, 1, id="rerun-that-waited-again-reruns"
+        ),
+        # The WAIT replaced an older verdict at this head, so that verdict does not cover the head either.
+        pytest.param(
+            ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, ReviewVerdict.REFUSED, 1, id="wait-after-a-refusal-reruns"
+        ),
+        pytest.param(ReviewVerdict.WAIT, ["sha123a"], "sha123b", True, None, 0, id="nudge-for-an-older-head"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123c", True, None, 0, id="head-moved-since"),
+        pytest.param(ReviewVerdict.APPROVED, ["sha123b"], "sha123b", True, None, 0, id="approved-verdict"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", False, None, 0, id="disconnected-repo"),
     ],
 )
 def test_finished_external_review_reruns_only_a_waiting_verdict(
@@ -2182,7 +2189,7 @@ def test_finished_external_review_reruns_only_a_waiting_verdict(
     nudged_heads: list[str],
     live_head: str,
     enabled: bool,
-    earlier_wait: bool,
+    earlier_verdict: ReviewVerdict | None,
     expected_new_runs: int,
 ) -> None:
     # A WAIT keeps a PR unapproved until something runs stamphog again. Any other verdict, head or
@@ -2203,13 +2210,13 @@ def test_finished_external_review_reruns_only_a_waiting_verdict(
         verdict=verdict,
     )
     existing_ids = [waiting.id]
-    if earlier_wait:
+    if earlier_verdict is not None:
         earlier = ReviewRun.objects.for_team(team.id).create(
             team_id=team.id,
             pull_request=pull_request,
             head_sha="sha123b",
             status=ReviewRunStatus.COMPLETED,
-            verdict=ReviewVerdict.WAIT,
+            verdict=earlier_verdict,
         )
         ReviewRun.objects.for_team(team.id).filter(id=earlier.id).update(
             created_at=waiting.created_at - timedelta(minutes=10)
@@ -2337,6 +2344,35 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
     assert new_runs.count() == (0 if newer_run else expected_starts)
     assert start.call_count == expected_starts
     assert all(run.output.get("attestation_check_wake") for run in new_runs)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "output, earlier_wakes, expected",
+    [
+        pytest.param({}, 0, True, id="a-report-can-wake-it"),
+        pytest.param({}, 3, False, id="per-head-cap-reached"),
+        pytest.param({"inbox_review": {"trigger": "inbox"}}, 0, False, id="inbox-run"),
+    ],
+)
+def test_a_wait_polls_for_its_checks_only_while_a_report_can_wake_it(
+    team, output: dict, earlier_wakes: int, expected: bool
+) -> None:
+    # The workflow polls for up to an hour on this answer, and a report never wakes these runs.
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=_repo_config(team.id), pr_number=128, author_login="devex-dev"
+    )
+    wait = {"team_id": team.id, "pull_request": pull_request, "head_sha": "sha128b", "verdict": ReviewVerdict.WAIT}
+    for _ in range(earlier_wakes):
+        ReviewRun.objects.for_team(team.id).create(**wait, status=GATED, output={"attestation_check_wake": True})
+    waiting = ReviewRun.objects.for_team(team.id).create(
+        **wait,
+        status=GATED,
+        output=output,
+        gate_result={"final_verdict": "WAIT", "classification": {"attestations": {"pending": [_CHECK]}}},
+    )
+
+    assert waits_on_attestations(waiting) is expected
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

@@ -254,9 +254,13 @@ class GitHubRecorder:
                 200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}, "files": self.compare_files}
             )
         if method == "GET" and (m := _CHECK_RUNS_RE.match(path)):
-            return FakeResponse(
-                200, json_data={"check_runs": self.check_runs.get((m.group("repo"), m.group("sha")), [])}
-            )
+            check_runs = [
+                check_run
+                for check_run in self.check_runs.get((m.group("repo"), m.group("sha")), [])
+                if params.get("check_name") in (None, check_run.get("name"))
+                and params.get("app_id") in (None, (check_run.get("app") or {}).get("id"))
+            ]
+            return FakeResponse(200, json_data={"check_runs": check_runs})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
             permission = self.collaborator_permissions.get((m.group("repo"), m.group("username")), "write")
             return FakeResponse(200, json_data={"permission": permission})

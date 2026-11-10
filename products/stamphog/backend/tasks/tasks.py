@@ -1531,7 +1531,7 @@ def _queue_review_at_head(
     once the row commits. Errors propagate so the caller can retry or report them.
 
     ``revisit_wait`` stops a delivered WAIT at this head, engine or gated, from counting as covering
-    it, because the caller wants that verdict revisited. A live run at this head still counts, so
+    it, because the caller wants that verdict revisited. A newer run at this head still counts, so
     repeated requests collapse into one run.
     """
     team_id = repo_config.team_id
@@ -1555,11 +1555,16 @@ def _queue_review_at_head(
             .filter(pull_request=pr_obj, head_sha=head_sha)
             .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
         )
-        if revisit_wait:
-            covering_runs = covering_runs.exclude(
-                status__in=(ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED), verdict=ReviewVerdict.WAIT
-            )
         existing = covering_runs.order_by("-created_at").first()
+        # Only the newest run counts. An older verdict at this head, from before the WAIT, does not
+        # cover it either, because the WAIT replaced that verdict.
+        if (
+            revisit_wait
+            and existing is not None
+            and existing.verdict == ReviewVerdict.WAIT
+            and existing.status in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
+        ):
+            existing = None
         # A retarget changes the diff without moving the head, and in label mode no webhook run
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
         reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
@@ -1971,8 +1976,10 @@ def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
     ]
 
 
-def _waits_on_attestations(run: ReviewRun) -> bool:
-    if not pending_attestation_checks(run):
+def waits_on_attestations(run: ReviewRun) -> bool:
+    """Whether a check that reports may still queue a new review of ``run``'s head."""
+    # Inbox runs carry the self-driving carve-out, which only the inbox trigger paths may grant.
+    if not pending_attestation_checks(run) or (run.output or {}).get("inbox_review"):
         return False
     wakes = (
         ReviewRun.objects.for_team(run.team_id)
@@ -1983,8 +1990,10 @@ def _waits_on_attestations(run: ReviewRun) -> bool:
     return wakes < _ATTESTATION_WAKES_PER_HEAD
 
 
-def _has_reported(check_runs: list[dict], check: PendingCheck) -> bool:
+def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, check: PendingCheck) -> bool:
     # The engine's own test for a pending check, so the new review finds every check it waited for.
+    # GitHub filters by name and App, so a poll does not page through every check run of the head.
+    check_runs = client.get_check_runs(repository, head_sha, check_name=check.name, app_id=check.app_id)
     return any(
         check_run.get("name") == check.name
         and (check_run.get("app") or {}).get("id") == check.app_id
@@ -2015,11 +2024,11 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     )
     if latest.id != run.id and not stranded:
         return True
-    check_runs = StamphogGitHubClient(repo_config.installation_id).get_check_runs(repo_config.repository, run.head_sha)
-    if not all(_has_reported(check_runs, check) for check in pending):
+    client = StamphogGitHubClient(repo_config.installation_id)
+    if not all(_has_reported(client, repo_config.repository, run.head_sha, check) for check in pending):
         return False
     _rereview_waiting_run(
-        repo_config, pull_request.pr_number, run.head_sha, wake=_ATTESTATION_WAKE, waiting=_waits_on_attestations
+        repo_config, pull_request.pr_number, run.head_sha, wake=_ATTESTATION_WAKE, waiting=waits_on_attestations
     )
     return True
 

@@ -106,10 +106,10 @@ from products.stamphog.backend.logic.reviewer import (
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
-    pending_attestation_checks,
     queue_routing_after_verdict,
     request_rereview_after_external_review,
     rereview_once_attestations_reported,
+    waits_on_attestations,
 )
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
@@ -1983,7 +1983,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     return {
         "verdict": str(parsed.verdict),
         "waited_on_external_review": _waited_on_external_review(run),
-        "waits_on_attestations": bool(pending_attestation_checks(run)),
+        "waits_on_attestations": waits_on_attestations(run),
     }
 
 
