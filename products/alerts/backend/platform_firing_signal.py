@@ -32,6 +32,7 @@ from products.alerts.backend.platform_firing_signal_detail import (
     FIRING_SIGNAL_REQUESTED_KEY,
     FiringSignalRequest,
 )
+from products.alerts.backend.platform_insight_alert import insight_of
 from products.alerts_platform.backend.facade import api as platform
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -41,7 +42,6 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
-from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -180,14 +180,7 @@ def _firing_alert(request: FiringSignalRequest) -> tuple[FiringAlert, UUID | Non
         return None
     if not _records_firing(configuration, request):
         return None
-    insight_id = configuration.source_config.get("insight_id")
-    if insight_id is None:
-        return None
-    insight = (
-        Insight.objects.filter(team_id=request.team_id, id=insight_id, deleted=False)
-        .only("id", "name", "derived_name", "short_id")
-        .first()
-    )
+    insight = insight_of(request.team_id, configuration.source_config)
     if insight is None:
         return None
     condition = configuration.source_config.get(SOURCE_CONDITION_KEY) or {}
