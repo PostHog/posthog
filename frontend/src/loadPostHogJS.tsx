@@ -1,6 +1,7 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { redactDestinationSecretsInReplay } from 'lib/utils/destinationSecretRedaction'
 import { inStorybook } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import {
@@ -155,6 +156,7 @@ export function loadPostHogJS(): void {
                 dropInjectedScriptReferenceErrors,
                 dropWebMCPToolErrors,
                 redactMetricVariableUrls,
+                redactDestinationSecretsInReplay,
                 // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
                 // `register` would persist the property in storage the main window shares, so it is stamped per event.
                 ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : []),

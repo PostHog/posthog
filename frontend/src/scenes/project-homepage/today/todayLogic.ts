@@ -924,6 +924,9 @@ export const todayLogic = kea<todayLogicType>([
                     }
                 }
             },
+            loadTopReports: () => {
+                cache.topReportsStartedAt = performance.now()
+            },
             loadTopReportsSuccess: ({ topReports }) => {
                 if (values.useSampleData) {
                     return
@@ -934,6 +937,10 @@ export const todayLogic = kea<todayLogicType>([
                     report_count: topReports.results.length,
                     more_report_count: values.moreReportCount,
                     jump_back_ranking: 'recent-and-frequent-v1',
+                    duration_ms:
+                        cache.topReportsStartedAt != null
+                            ? Math.round(performance.now() - cache.topReportsStartedAt)
+                            : null,
                 })
             },
             loadMoreReports: () => {
