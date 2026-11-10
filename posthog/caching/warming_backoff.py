@@ -50,6 +50,7 @@ class WarmingBackoff:
     def clear(self) -> None:
         if not self._failures:
             return
+        self._failures, self._retry_at = 0, None
         try:
             caches[QUERY_CACHE_ALIAS].delete(self._key)
         except Exception:

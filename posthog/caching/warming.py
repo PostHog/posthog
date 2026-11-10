@@ -278,6 +278,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     with upgrade_insight(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
+        warmed = False
         try:
             tile = dashboard.tiles.filter(insight=insight).first() if dashboard is not None else None
             variables_override = (
@@ -301,6 +302,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
             )
 
             is_cached = results.is_cached
+            warmed = True
             backoff.clear()
 
             PRIORITY_INSIGHTS_COUNTER.labels(
@@ -330,8 +332,9 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         except RETRIABLE_WARMING_ERRORS:
             raise
         except Exception as e:
-            backoff.record_failure()
-            NOT_WARMED_INSIGHTS_COUNTER.labels(reason="error").inc()
+            if not warmed:
+                backoff.record_failure()
+                NOT_WARMED_INSIGHTS_COUNTER.labels(reason="error").inc()
             # A revoked creator's access error is a known limitation - report it as an event
             # rather than surfacing it in error tracking.
             if isinstance(e, (TableAccessDeniedError, UserNotOrganizationMemberError)) and creator_access_revoked(
