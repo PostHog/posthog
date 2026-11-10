@@ -61,8 +61,7 @@ class _MemoryStorage:
 
 class _Ingestion:
     def __init__(self) -> None:
-        # Ingestion deduplicates on the event ID and timestamp, so a copy sent again is stored once.
-        self.stored: dict[tuple[str, str], dict[str, Any]] = {}
+        self.stored_once_per_event_id_and_timestamp: dict[tuple[str, str], dict[str, Any]] = {}
         self.fails_once: dict[str, Literal["dropped", "unaccounted"]] = {}
 
     def capture(self, *, events: list[dict[str, Any]], **kwargs: Any) -> CaptureInternalResult:
@@ -71,12 +70,12 @@ class _Ingestion:
             failure = self.fails_once.pop(event["distinct_id"], None)
             if failure != "dropped":
                 timestamp = str(event.get("timestamp") or timezone.now())
-                self.stored.setdefault((event["event_uuid"], timestamp), event)
+                self.stored_once_per_event_id_and_timestamp.setdefault((event["event_uuid"], timestamp), event)
             getattr(result, failure or "ok").append(event["event_uuid"])
         return result
 
     def devices(self) -> list[str]:
-        return sorted(event["distinct_id"] for event in self.stored.values())
+        return sorted(event["distinct_id"] for event in self.stored_once_per_event_id_and_timestamp.values())
 
 
 @frozen(order=True)
@@ -251,10 +250,14 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
         assert result.unknown_person_devices == 1
         assert result.can_import_unknown_persons is True
 
+    def test_devices_kept_for_unknown_people_are_deleted_once_they_expire(self) -> None:
+        import_id = self._upload([f"nobody,{APNS_TOKEN}"]).id
         self.queue.advance(push_token_import.UNKNOWN_PERSON_DEVICES_KEPT_FOR)
-        assert get_push_token_import(self.team.id, started.id).can_import_unknown_persons is True
+        assert get_push_token_import(self.team.id, import_id).can_import_unknown_persons is True
+
         self.queue.advance(push_token_import.EXPIRY_MARGIN)
-        assert get_push_token_import(self.team.id, started.id).can_import_unknown_persons is False
+
+        assert get_push_token_import(self.team.id, import_id).can_import_unknown_persons is False
         assert self.storage.objects == {}
 
     def test_imports_the_devices_of_unknown_people_once_with_new_persons(self) -> None:
