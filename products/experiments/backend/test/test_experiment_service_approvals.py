@@ -13,6 +13,7 @@ from posthog.constants import AvailableFeature
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.testing import create_experiment
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -346,3 +347,95 @@ class TestCreatingALiveExperimentUnderALaunchPolicy(APIBaseTest):
 
         with self._scoped_by_owner(False), self.assertRaises(ApprovalRequired):
             self._create("pre-rollout-flag", start_date=datetime(2026, 1, 1, tzinfo=UTC))
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestExperimentFlagOwnershipTransitions(APIBaseTest):
+    """Deleting the last experiment on a flag releases the flag, and restoring it adopts the flag
+    again. Both move the flag between approval families, so both answer to the cover checks."""
+
+    _METRIC = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "uuid": "m1",
+        "source": {"kind": "EventsNode", "event": "$pageview"},
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+    def _policy(self, action_key: str) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    def _service(self) -> ExperimentService:
+        return ExperimentService(team=self.team, user=self.user)
+
+    def _create(self, key: str, name: str = "Transition") -> Experiment:
+        return self._service().create_experiment(
+            name=name,
+            feature_flag_key=key,
+            metrics=[self._METRIC],
+            primary_metrics_ordered_uuids=["m1"],
+            allow_unknown_events=True,
+        )
+
+    def _scoped_by_owner(self, enabled: bool):
+        return patch(
+            "products.approvals.backend.coverage.scope_by_owner_enabled",
+            return_value=enabled,
+        )
+
+    @parameterized.expand(
+        [
+            ("flag_family_has_no_policy", False, False, True),
+            ("flag_family_keeps_the_cover", True, False, False),
+            ("a_second_experiment_still_holds_the_flag", False, True, False),
+        ]
+    )
+    def test_delete_against_the_release_cover_check(
+        self, _mock_enabled, _name: str, flag_policy: bool, second_experiment: bool, refused: bool
+    ) -> None:
+        experiment = self._create("released-flag")
+        self._policy("experiment.update")
+        if flag_policy:
+            self._policy("feature_flag.update")
+        if second_experiment:
+            create_experiment(
+                team_id=self.team.id,
+                feature_flag_id=experiment.feature_flag.id,
+                name="sibling",
+            )
+
+        with self._scoped_by_owner(True):
+            if refused:
+                with self.assertRaises(ValidationError) as caught:
+                    self._service().update_experiment(experiment, {"deleted": True})
+                assert "need approval" in str(caught.exception)
+            else:
+                self._service().update_experiment(experiment, {"deleted": True})
+                experiment.refresh_from_db()
+                assert experiment.deleted is True
+
+    def test_restore_is_refused_when_it_takes_the_flag_out_of_review(self, _mock_enabled) -> None:
+        experiment = self._create("restored-flag")
+        self._policy("feature_flag.update")
+
+        with self._scoped_by_owner(True):
+            self._service().update_experiment(experiment, {"deleted": True})
+            experiment.refresh_from_db()
+
+            with self.assertRaises(ValidationError) as caught:
+                self._service().update_experiment(experiment, {"deleted": False})
+
+        assert "need approval" in str(caught.exception)

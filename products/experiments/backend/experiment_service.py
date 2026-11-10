@@ -123,6 +123,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
     ExposureFreezeBlocker,
     experiment_has_legacy_metrics,
+    live_experiments_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
@@ -154,6 +155,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, expe
 from products.feature_flags.backend.ownership import (
     FLAG_OWNER_EXPERIMENT,
     assert_flag_available_for,
+    assert_flag_releasable_by,
     flag_owner_kind,
     flag_owner_label,
 )
@@ -4150,7 +4152,10 @@ class ExperimentService:
         feature_flag_config: dict | None = None,
     ) -> None:
         """Validate update payload before any database mutations occur."""
-        if experiment.deleted and update_data.get("deleted") is False:
+        # `deleted` is nullable, so a restore is any write that leaves it not true. The flag API
+        # rejects a null before this point, but this service has callers of its own.
+        restoring = experiment.deleted and "deleted" in update_data and not update_data["deleted"]
+        if restoring:
             if feature_flag.deleted:
                 raise ValidationError(
                     "Cannot restore experiment: the linked feature flag has been deleted. "
@@ -4164,6 +4169,14 @@ class ExperimentService:
                     f"Cannot restore experiment: its feature flag {feature_flag.key} now belongs to "
                     f"{flag_owner_label(owner)}. Unlink the flag there first, then restore the experiment."
                 )
+            # The restore takes a flag that no product owns, which is an adoption and carries the
+            # same approval risk as every other one.
+            assert_flag_available_for(feature_flag, product=FLAG_OWNER_EXPERIMENT)
+
+        if not experiment.deleted and update_data.get("deleted") is True:
+            # This deletion releases the flag, unless a second experiment still holds it.
+            if not live_experiments_for_flag(feature_flag.id).exclude(pk=experiment.pk).exists():
+                assert_flag_releasable_by(feature_flag, product=FLAG_OWNER_EXPERIMENT)
 
         # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
         # run the same flag guards as the dedicated launch_experiment action: flag not
