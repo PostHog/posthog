@@ -14,15 +14,11 @@ def run_posthog_slack_inbox_onboarding_activity(inputs: PostHogSlackInboxOnboard
 def run_posthog_slack_inbox_onboarding(integration_id: int) -> None:
     """Create #posthog-inbox and DM the installer for a fresh Slack install. Plain function so it's
     callable outside the Temporal worker (and unit-testable without an activity environment)."""
-    from posthog.models.integration import Integration
-
     from products.slack_app.backend.onboarding import run_install_onboarding
+    from products.slack_app.backend.services.workspace_integrations import get_integration_by_id
 
-    try:
-        integration = Integration.objects.select_related("team", "team__organization").get(
-            id=integration_id, kind="slack"
-        )
-    except Integration.DoesNotExist:
+    integration = get_integration_by_id(integration_id)
+    if integration is None:
         logger.info("slack_app_inbox_onboarding_integration_gone", integration_id=integration_id)
         return
     run_install_onboarding(integration)
