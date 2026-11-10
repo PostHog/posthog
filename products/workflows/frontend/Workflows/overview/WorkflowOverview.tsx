@@ -13,7 +13,12 @@ import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
 import type { HogFlowBatchJob } from '../hogflows/types'
 import { workflowSuggestionsAvailabilityLogic } from '../suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowMetricCard } from '../WorkflowMetricCard'
-import { METRIC_COLORS, withDisplayName, workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
+import {
+    METRIC_COLORS,
+    buildSentSummarySeries,
+    withDisplayName,
+    workflowMetricsSummaryLogic,
+} from '../workflowMetricsSummaryLogic'
 import { WorkflowMessageLeaderboard } from './WorkflowMessageLeaderboard'
 import { WorkflowOverviewDetails } from './WorkflowOverviewDetails'
 import { WorkflowOverviewHealth } from './WorkflowOverviewHealth'
@@ -137,12 +142,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
 
     const sentFor = (previous?: boolean): AppMetricsTimeSeriesResponse | null =>
-        hasEmail && hasPush
-            ? byChannel(getSingleTrendSeries('email_sent', previous), getSingleTrendSeries('push_sent', previous), {
-                  email: 'Emails sent',
-                  push: 'Push notifications sent',
-              })
-            : withDisplayName(getSingleTrendSeries(hasPush ? 'push_sent' : 'email_sent', previous), sentSummaryLabel)
+        buildSentSummarySeries(getSingleTrendSeries, messagingChannels, sentSummaryLabel, previous)
     const openedFor = (previous?: boolean): AppMetricsTimeSeriesResponse | null =>
         hasEmail && hasPush
             ? byChannel(getSingleTrendSeries('email_opened', previous), getSingleTrendSeries('push_opened', previous), {

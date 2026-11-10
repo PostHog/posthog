@@ -481,7 +481,7 @@ const EMAIL_METRICS: EmailMetricName[] = [
 
 // A step on the sandbox sender records its sends under its own metric names. A step keeps its id
 // when it moves between senders, so the sandbox names add into the own-sender counts of that step.
-const SANDBOX_EMAIL_METRICS: Record<string, EmailMetricName> = {
+export const SANDBOX_EMAIL_METRICS: Record<string, EmailMetricName> = {
     email_sandbox_sent: 'email_sent',
     email_sandbox_delivered: 'email_delivered',
     email_sandbox_failed: 'email_failed',
@@ -1112,30 +1112,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 messagingChannels: { hasEmail: boolean; hasPush: boolean },
                 sentSummaryLabel: string
             ) =>
-                (previousPeriod: boolean = false): AppMetricsTimeSeriesResponse | null => {
-                    const emailSeries = sumSeries(
-                        EMAIL_SENT_METRIC_NAMES.map((name) => getSingleTrendSeries(name, previousPeriod)),
-                        'Emails sent'
-                    )
-                    const pushSeries = withDisplayName(
-                        getSingleTrendSeries('push_sent', previousPeriod),
-                        'Push notifications sent'
-                    )
-                    if (!messagingChannels.hasEmail || !messagingChannels.hasPush) {
-                        return withDisplayName(messagingChannels.hasPush ? pushSeries : emailSeries, sentSummaryLabel)
-                    }
-                    const source = emailSeries ?? pushSeries
-                    if (!source) {
-                        return null
-                    }
-                    return {
-                        ...source,
-                        series: [
-                            { name: 'Emails sent', values: emailSeries?.series[0]?.values ?? [] },
-                            { name: 'Push notifications sent', values: pushSeries?.series[0]?.values ?? [] },
-                        ],
-                    }
-                },
+                (previousPeriod: boolean = false): AppMetricsTimeSeriesResponse | null =>
+                    buildSentSummarySeries(getSingleTrendSeries, messagingChannels, sentSummaryLabel, previousPeriod),
         ],
 
         metricNameBySummaryMetric: [
@@ -1367,6 +1345,33 @@ function completedLogicKey(props: WorkflowMetricsSummaryLogicProps): string {
 
 function subtractSeriesValues(minuend: number[] | undefined, subtrahend: number[] | undefined, size: number): number[] {
     return Array.from({ length: size }, (_, index) => Math.max(0, (minuend?.[index] ?? 0) - (subtrahend?.[index] ?? 0)))
+}
+
+export function buildSentSummarySeries(
+    getSingleTrendSeries: (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null,
+    messagingChannels: { hasEmail: boolean; hasPush: boolean },
+    sentSummaryLabel: string,
+    previousPeriod?: boolean
+): AppMetricsTimeSeriesResponse | null {
+    const emailSeries = sumSeries(
+        EMAIL_SENT_METRIC_NAMES.map((name) => getSingleTrendSeries(name, previousPeriod)),
+        'Emails sent'
+    )
+    const pushSeries = withDisplayName(getSingleTrendSeries('push_sent', previousPeriod), 'Push notifications sent')
+    if (!messagingChannels.hasEmail || !messagingChannels.hasPush) {
+        return withDisplayName(messagingChannels.hasPush ? pushSeries : emailSeries, sentSummaryLabel)
+    }
+    const source = emailSeries ?? pushSeries
+    if (!source) {
+        return null
+    }
+    return {
+        ...source,
+        series: [
+            { name: 'Emails sent', values: emailSeries?.series[0]?.values ?? [] },
+            { name: 'Push notifications sent', values: pushSeries?.series[0]?.values ?? [] },
+        ],
+    }
 }
 
 export function withDisplayName(

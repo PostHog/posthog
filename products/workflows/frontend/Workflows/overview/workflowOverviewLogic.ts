@@ -18,6 +18,7 @@ import type { HogFlowInFlightApi } from '../../generated/api.schemas'
 import type { HogFlow, HogFlowAction } from '../hogflows/types'
 import { getOrderedActions } from '../templates/workflowTemplateDisplay'
 import { workflowLogic } from '../workflowLogic'
+import { SANDBOX_EMAIL_METRICS } from '../workflowMetricsSummaryLogic'
 
 export interface WorkflowOverviewLogicProps {
     id: string
@@ -41,6 +42,9 @@ const HEALTH_METRICS = [
     'push_failed',
 ] as const
 export type HealthMetric = (typeof HEALTH_METRICS)[number]
+const SANDBOX_HEALTH_METRICS = Object.keys(SANDBOX_EMAIL_METRICS).filter((name) =>
+    (HEALTH_METRICS as readonly string[]).includes(SANDBOX_EMAIL_METRICS[name])
+)
 
 export type StepReach = {
     action: HogFlowAction
@@ -378,7 +382,7 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                         appSource: 'hog_flow',
                         appSourceId: values.params.appSourceId ?? props.id,
                         breakdownBy: ['metric_name'],
-                        metricName: [...HEALTH_METRICS],
+                        metricName: [...HEALTH_METRICS, ...SANDBOX_HEALTH_METRICS],
                         dateFrom: dateRange.dateFrom.toISOString(),
                         dateTo: dateRange.dateTo.toISOString(),
                     }
@@ -386,7 +390,7 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                     await breakpoint(10)
                     const totals: Partial<Record<HealthMetric, number>> = {}
                     Object.values(response).forEach(({ total, breakdowns }) => {
-                        const metricName = breakdowns[0] as HealthMetric
+                        const metricName = (SANDBOX_EMAIL_METRICS[breakdowns[0]] ?? breakdowns[0]) as HealthMetric
                         totals[metricName] = (totals[metricName] ?? 0) + total
                     })
                     return totals

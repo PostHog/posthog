@@ -8,6 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { HogFlow, HogFlowAction } from './hogflows/types'
+import { workflowOverviewLogic } from './overview/workflowOverviewLogic'
 import { workflowLogic } from './workflowLogic'
 import {
     type EmailMetric,
@@ -425,7 +426,12 @@ describe('workflowMetricsSummaryLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': () => [200, servedWorkflow] } })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [200, servedWorkflow],
+                '/api/projects/:team_id/hog_flows/:id/in_flight/': () => [200, { total: 0, by_action: {} }],
+            },
+        })
     })
 
     afterEach(() => {
@@ -473,6 +479,7 @@ describe('workflowMetricsSummaryLogic', () => {
             ],
             emailsSent: 20,
             stepTotals: [{ id: 'sandbox-1', sent: 20, delivered: 17, bounced: 2, markedAsSpam: 1, sandboxBlocked: 0 }],
+            health: { email_sent: 20, email_bounced: 2, email_blocked: 1 },
         },
         {
             name: 'own and sandbox steps, and a step that moved between senders',
@@ -488,6 +495,7 @@ describe('workflowMetricsSummaryLogic', () => {
                 { id: 'email-1', sent: 105, delivered: 105, bounced: 0, markedAsSpam: 4, sandboxBlocked: 0 },
                 { id: 'sandbox-1', sent: 20, delivered: 20, bounced: 0, markedAsSpam: 0, sandboxBlocked: 0 },
             ],
+            health: { email_sent: 125, email_blocked: 4 },
         },
         {
             name: 'a sandbox block that is not a spam complaint',
@@ -498,20 +506,26 @@ describe('workflowMetricsSummaryLogic', () => {
             ],
             emailsSent: 6,
             stepTotals: [{ id: 'sandbox-1', sent: 6, delivered: 6, bounced: 0, markedAsSpam: 0, sandboxBlocked: 3 }],
+            health: { email_sent: 6 },
         },
-    ])('counts sandbox sender email for $name', async ({ steps, rows, emailsSent, stepTotals }) => {
+    ])('counts sandbox sender email for $name', async ({ steps, rows, emailsSent, stepTotals, health }) => {
         serveAppMetrics(rows)
         const logic = await mountMetrics(makeWorkflow(steps))
+        const overview = workflowOverviewLogic({ id: WORKFLOW_ID, logicKey: LOGIC_KEY })
+        overview.mount()
+        await expectLogic(overview).toDispatchActions(['loadHealthTotalsSuccess'])
 
         const sentTile = logic.values.getSentSummarySeries()
         expect({
             tile: sentTile?.series.map(({ name, values }) => [name, values]),
             chart: logic.values.workflowSummaryTrends?.series.find((s) => s.name === 'Emails sent')?.values,
             steps: logic.values.emailMetricsRows,
+            overviewHealth: overview.values.healthTotals,
         }).toEqual({
             tile: [['Emails sent', [emailsSent, 0]]],
             chart: [emailsSent, 0],
             steps: stepTotals.map((totals) => expect.objectContaining(totals)),
+            overviewHealth: health,
         })
     })
 
