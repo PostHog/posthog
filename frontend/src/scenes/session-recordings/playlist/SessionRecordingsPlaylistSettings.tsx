@@ -569,8 +569,8 @@ export function SessionRecordingsPlaylistTopSettings({
             'data-attr': 'mark-as-not-viewed',
         })
 
+        // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
         if (!isHobby) {
-            // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
             menuItems.push({
                 key: 'bulk-scan-recordings',
                 label: () => <BulkScanMenuItem />,

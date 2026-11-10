@@ -34,8 +34,9 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
 
 logger = structlog.get_logger(__name__)
 
-# Fallback monthly credit cap for orgs billing has never synced. Matches the free plan's allocation so
-# an unsynced org is never better off than a synced free-tier org.
+# Fallback monthly credit cap for orgs billing has never synced (self-hosted, sync gaps, malformed
+# limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
+# free-tier org.
 MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
 
 

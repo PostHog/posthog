@@ -86,6 +86,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.Settings]: sceneImport,
     Inbox: sceneImport,
     ScoutTrials: sceneImport,
+    ReplayVision: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
     [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
     [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
@@ -422,12 +423,27 @@ describe('sceneLogic', () => {
     })
 
     it.each([
-        ['sends a self-hosted install to the Move to PostHog Cloud page', false, urls.moveToPostHogCloud()],
-        ['keeps a cloud install on the scene', true, urls.replayVision()],
-    ])('cloud-only scene: %s', async (_, cloud, expectedPath) => {
+        ['sends a self-hosted install to the Move to PostHog Cloud page', false, false, urls.moveToPostHogCloud()],
+        [
+            'sends a self-hosted install away once preflight loads after the scene opened',
+            false,
+            true,
+            urls.moveToPostHogCloud(),
+        ],
+        ['keeps a cloud install on the scene', true, false, urls.replayVision()],
+        ['keeps a cloud install on the scene once preflight loads after it opened', true, true, urls.replayVision()],
+    ])('cloud-only scene: %s', async (_, cloud, preflightLoadsAfterOpen, expectedPath) => {
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-        preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, cloud, is_debug: false } as any)
+        const loadPreflight = (): void => {
+            preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, cloud, is_debug: false } as any)
+        }
+        if (!preflightLoadsAfterOpen) {
+            loadPreflight()
+        }
         router.actions.push(urls.replayVision())
+        if (preflightLoadsAfterOpen) {
+            loadPreflight()
+        }
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPath)
     })
