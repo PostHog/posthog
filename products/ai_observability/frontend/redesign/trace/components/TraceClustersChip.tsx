@@ -3,6 +3,7 @@ import { LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import { ChipButton } from './ChipButton'
+import { ChipTag } from './ChipTag'
 import { LabeledChipValue } from './LabeledChipValue'
 
 export interface ClusterChipItem {
@@ -36,9 +37,9 @@ export function TraceClustersChip({ first, others }: TraceClustersChipProps): JS
         <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
             <Tooltip title={<ClusterTooltip item={first} />}>
                 <Link to={first.href} subtle className="inline-flex min-w-0" data-attr="trace-view-cluster-chip">
-                    <LemonTag weight="normal" type={first.isOutlier ? 'caution' : 'default'} className="max-w-full">
+                    <ChipTag weight="normal" type={first.isOutlier ? 'caution' : 'default'} className="max-w-full">
                         <LabeledChipValue label="Cluster">{first.label}</LabeledChipValue>
-                    </LemonTag>
+                    </ChipTag>
                 </Link>
             </Tooltip>
             {others.length > 0 ? (
