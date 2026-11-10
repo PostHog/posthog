@@ -260,12 +260,14 @@ class TestTrafficTypeIntegration(BaseTest):
             if ":" in cidr
         )
         chatgpt_user_v4 = str(ip_network(BOT_IP_DEFINITIONS["openai-chatgpt-user"].networks[0]).network_address)
+        anthropic_v4 = str(ip_network(BOT_IP_DEFINITIONS["anthropic-claude"].networks[0]).network_address)
         cases = [
             # (case_id, properties, expected_is_bot, expected_traffic_type, expected_bot_name)
             ("google-v4", {"$raw_user_agent": renderer_ua, "$ip": "66.249.84.5"}, 1, "Bot", None),
             ("google-special-v4", {"$raw_user_agent": renderer_ua, "$ip": "74.125.150.10"}, 1, "Bot", None),
             ("google-v6", {"$raw_user_agent": renderer_ua, "$ip": google_v6}, 1, "Bot", None),
             ("openai-chatgpt-user", {"$raw_user_agent": renderer_ua, "$ip": chatgpt_user_v4}, 1, "AI Agent", None),
+            ("anthropic-claude", {"$raw_user_agent": renderer_ua, "$ip": anthropic_v4}, 1, "AI Agent", None),
             ("residential", {"$raw_user_agent": renderer_ua, "$ip": "203.0.113.7"}, 0, "Regular", ""),
             ("garbage-ip", {"$raw_user_agent": renderer_ua, "$ip": "not-an-ip"}, 0, "Regular", ""),
             ("missing-ip", {"$raw_user_agent": renderer_ua}, 0, "Regular", ""),
