@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 import pytest
@@ -20,6 +21,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import (
     CH_FEATURE_QUERY_TIMEOUT_S,
     DEFAULT_OF_CHUNKS,
     SCORE_CHUNK_HEARTBEAT_TIMEOUT,
+    SCORING_DISABLED_ENV_VAR,
     TARGET_CHUNK_SIZE,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
@@ -61,6 +63,19 @@ class TestListChunksActivity:
             await ActivityEnvironment().run(list_chunks_activity, ScoreSessionsBatchInputs())
 
         record_backlog_mock.assert_called_once_with(42 * DEFAULT_OF_CHUNKS)
+
+    @pytest.mark.asyncio
+    async def test_disabled_region_plans_no_chunks_and_skips_clickhouse_and_gauge(self) -> None:
+        with (
+            mock.patch.dict(os.environ, {SCORING_DISABLED_ENV_VAR: "true"}),
+            mock.patch(f"{ACTIVITIES_MODULE}._count_unscored_in_one_bucket") as count_mock,
+            mock.patch(f"{ACTIVITIES_MODULE}.record_backlog_estimate") as record_backlog_mock,
+        ):
+            result = await ActivityEnvironment().run(list_chunks_activity, ScoreSessionsBatchInputs())
+
+        assert result.chunks == []
+        count_mock.assert_not_called()
+        record_backlog_mock.assert_not_called()
 
 
 class TestBuildPartialRow:

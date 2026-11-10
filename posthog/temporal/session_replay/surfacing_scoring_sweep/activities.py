@@ -29,6 +29,7 @@ Idempotency guarantees:
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -51,6 +52,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import (
     DEFAULT_OF_CHUNKS,
     KAFKA_PRODUCE_FLUSH_TIMEOUT_S,
     SCORE_LOOKBACK_DAYS,
+    SCORING_DISABLED_ENV_VAR,
     TARGET_CHUNK_SIZE,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
@@ -68,6 +70,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.types import (
     ListChunksResult,
     ScoreSessionsBatchInputs,
 )
+from posthog.utils import str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -95,6 +98,12 @@ def _count_unscored_in_one_bucket(lookback_days: int, of_chunks: int) -> int:
 
 @activity.defn
 async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksResult:
+    # Return before the backlog gauge so a disabled region leaves the gauge absent and the
+    # not-draining alert stays quiet. The workflow still completes, so the stalled alert stays quiet too.
+    if str_to_bool(os.environ.get(SCORING_DISABLED_ENV_VAR)):
+        logger.warning("surfacing_scoring_sweep.disabled", env_var=SCORING_DISABLED_ENV_VAR)
+        return ListChunksResult()
+
     lookback_days = SCORE_LOOKBACK_DAYS
     of_chunks = DEFAULT_OF_CHUNKS
     chunk_size = TARGET_CHUNK_SIZE
