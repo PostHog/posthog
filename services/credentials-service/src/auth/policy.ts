@@ -115,7 +115,7 @@ const ROLES: Readonly<Record<string, IntegrationRole>> = {
 }
 
 export function roleFor(deployment: string): IntegrationRole | null {
-    return Object.hasOwn(ROLES, deployment) ? ROLES[deployment] : null
+    return Object.prototype.hasOwnProperty.call(ROLES, deployment) ? (ROLES[deployment] ?? null) : null
 }
 
 export function deploymentAllows(deployment: string, op: IntegrationOp): boolean {
