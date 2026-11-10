@@ -107,10 +107,15 @@ def render_body(report: Report) -> str:
         "A call assertion checks that a mock was called, how often, or with which arguments, "
         "such as `toHaveBeenCalledWith` or `assert_called_once_with`.",
         "",
-        "These tests break on every refactor, and they do not prove that a real receiver gets the result. "
+        "A call assertion on a collaborator inside the code under test breaks on every refactor, "
+        "and it does not prove that a real receiver gets the result. "
         "Assert on the observable outcome instead, such as the response, the stored row, or the delivered message, "
         "through a real dependency or a faithful fake. Stub a dependency only to inject a fault, "
         "and still assert on the outcome.",
+        "",
+        "When the mock is the unit's only real output, such as an outbound HTTP call, a produced message, "
+        "a queued job, or a callback the caller passes in, asserting on its calls is the outcome. "
+        "Leave those as they are.",
         "",
     ]
     if top:
