@@ -175,7 +175,9 @@ class TestServiceBackend(SimpleTestCase):
             assert claims["aud"] == "posthog:credentials_service:integrations"
             assert claims["exp"] - claims["iat"] == 60
             assert claims["caller"] == "integrations"
-            narrowed = {key: claims[key] for key in ("ops", "kinds", "refs", "user_id") if key in claims}
+            narrowed: dict[str, Any] = {
+                key: claims[key] for key in ("ops", "kinds", "refs", "user_id") if key in claims
+            }
             if "owner" in claims:
                 assert claims["owner"]["type"] == "team"
                 narrowed["owner"] = claims["owner"]["id"]
@@ -228,7 +230,7 @@ class TestServiceBackend(SimpleTestCase):
         assert raised.exception.code == code  # type: ignore[attr-defined]
 
     def test_a_row_without_a_legacy_id_raises(self) -> None:
-        record = {
+        record: dict[str, Any] = {
             "id": "00000000-0000-0000-0000-000000000001",
             "legacy_id": None,
             "reference": "00000000-0000-0000-0000-000000000001",
@@ -329,6 +331,37 @@ class TestServiceBackend(SimpleTestCase):
         # A write in this process is seen at once.
         accessor.update(TEAM, row_id, errors="here")
         assert accessor.get(TEAM, row_id).errors == "here"
+
+    def test_list_reads_secrets_again_when_the_cached_resolve_is_older_than_the_row(self) -> None:
+        row_id = self._seed("a")
+        accessor = IntegrationManager.github.oauth
+        accessor.get(TEAM, row_id)
+
+        # Another process changes the row, so the listed version is newer than the cached one.
+        patch = IntegrationPatch(errors="elsewhere", sensitive_config_patch={"access_token": "new"})
+        self.fake.update(_every_row(TEAM)[0], team_id=TEAM, id=row_id, patch=patch)
+        self.stub._bump(row_id)
+
+        [record] = accessor.list(TEAM)
+        assert (record.errors, record.access_token) == ("elsewhere", "new")
+
+    def test_a_resolve_that_started_before_an_invalidation_is_not_cached(self) -> None:
+        row_id = self._seed("a")
+        stub = self.stub
+
+        class InvalidatingSession:
+            # A write in another thread of this process lands while the resolve is in flight.
+            def request(self, method: str, url: str, *args: Any, **kwargs: Any) -> Any:
+                response = stub.request(method, url, *args, **kwargs)
+                if url.endswith("/resolve"):
+                    backend._cache.invalidate(TEAM, str(row_id))
+                return response
+
+        backend = self._use(InvalidatingSession())
+        IntegrationManager.github.oauth.get(TEAM, row_id)
+        IntegrationManager.github.oauth.get(TEAM, row_id)
+
+        assert len(self._calls("/resolve")) == 2
 
     @parameterized.expand(
         [

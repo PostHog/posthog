@@ -10,7 +10,7 @@ import uuid
 import hashlib
 import datetime as dt
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import jwt
@@ -189,7 +189,7 @@ class CredentialsServiceStub:
         if not ref.isdigit():
             raise StubError("validation")
         try:
-            return self.fake.get(EVERY_ROW, team_id=team_id, id=int(ref))  # type: ignore[return-value]
+            return cast(FrozenIntegrationRecord, self.fake.get(EVERY_ROW, team_id=team_id, id=int(ref)))
         except IntegrationNotFound:
             raise StubError("not_found")
 
@@ -229,7 +229,7 @@ class CredentialsServiceStub:
         after = self.fake.update(EVERY_ROW, team_id=row.team_id, id=row.id, patch=patch)
         if (after.config, after.errors, after.sensitive_config) != (row.config, row.errors, row.sensitive_config):
             self._bump(row.id)
-        return after  # type: ignore[return-value]
+        return cast(FrozenIntegrationRecord, after)
 
     def _new(self, owner: int, body: Mapping[str, Any]) -> NewIntegration:
         if body.get("auth_type") not in {"oauth", "token", "credentials"}:
@@ -298,7 +298,7 @@ class CredentialsServiceStub:
                 result["missing"].append(ref)
                 continue
             self._check_kind(claims, row)
-            secrets = row.sensitive_config
+            secrets: object = row.sensitive_config
             if not isinstance(secrets, Mapping):
                 result["errors"][ref] = {"code": "unreadable_secret", "message": "unreadable", "details": {}}
                 continue

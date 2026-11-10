@@ -1,7 +1,7 @@
 import time
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -66,7 +66,7 @@ class TestBackendsBehaveTheSame(BaseTest):
                 )
             )
             self.enterContext(
-                use_backend(ServiceBackend(session=CredentialsServiceStub(self.fake, SERVICE_SIGNING_KEY)))
+                use_backend(ServiceBackend(session=cast(Any, CredentialsServiceStub(self.fake, SERVICE_SIGNING_KEY))))
             )
         else:
             self.enterContext(

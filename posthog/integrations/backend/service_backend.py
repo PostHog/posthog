@@ -209,6 +209,12 @@ class _ResolveCache:
             maxsize=RESOLVE_CACHE_MAX_ROWS, ttl=RESOLVE_CACHE_TTL_SECONDS, timer=clock
         )
         self._lock = threading.Lock()
+        # Counts invalidations, so a resolve that started before one does not store what it read.
+        self._generation = 0
+
+    def generation(self) -> int:
+        with self._lock:
+            return self._generation
 
     def get(self, team_id: int, ref: str) -> _Resolved | None:
         with self._lock:
@@ -217,14 +223,16 @@ class _ResolveCache:
             return None
         return resolved
 
-    def put(self, team_id: int, ref: str, resolved: _Resolved) -> None:
+    def put(self, team_id: int, ref: str, resolved: _Resolved, generation: int) -> None:
         if resolved.expires_at is not None and resolved.expires_at <= self._clock():
             return
         with self._lock:
-            self._entries[(team_id, ref)] = resolved
+            if generation == self._generation:
+                self._entries[(team_id, ref)] = resolved
 
     def invalidate(self, team_id: int, ref: str) -> None:
         with self._lock:
+            self._generation += 1
             self._entries.pop((team_id, ref), None)
 
 
@@ -443,6 +451,7 @@ class ServiceBackend:
             else:
                 wanted.append(ref)
         for chunk in _chunks(wanted, MAX_REFS_PER_REQUEST):
+            generation = self._cache.generation()
             token = self._token(operation, team_id=team_id, refs=chunk)
             answer = self._json("POST", "/resolve", token, body={"refs": builtins.list(chunk)})
             resolved = {
@@ -458,7 +467,7 @@ class ServiceBackend:
                 for ref, record in (rows.get("records") or {}).items():
                     resolved[ref] = _Resolved(record=record, credentials=None, expires_at=None)
             for ref, item in resolved.items():
-                self._cache.put(team_id, ref, item)
+                self._cache.put(team_id, ref, item, generation)
             found.update(resolved)
         return found
 
@@ -476,12 +485,24 @@ class ServiceBackend:
             for team_id, refs in refs_by_team.items()
             for ref, item in self._resolve("resolve", team_id, refs).items()
         }
+        # A cached resolve older than the listed row holds old secrets. Read those rows again, and build
+        # each record from the resolve answer, so its metadata and secrets come from one version.
+        stale_by_team: dict[int, builtins.list[str]] = {}
+        for row in rows:
+            key = (int(row["team_id"]), str(row["reference"]))
+            if key in resolved and resolved[key].record.get("version") != row.get("version"):
+                stale_by_team.setdefault(key[0], []).append(key[1])
+        for team_id, refs in stale_by_team.items():
+            fresh = self._resolve("resolve", team_id, refs, use_cache=False)
+            for ref in refs:
+                resolved.pop((team_id, ref), None)
+            resolved.update({(team_id, ref): item for ref, item in fresh.items()})
         records: builtins.list[IntegrationRecord] = []
         for row in rows:
             item = resolved.get((int(row["team_id"]), str(row["reference"])))
             # A row that another process deleted after the list.
             if item is not None:
-                records.append(_to_record(row, self._secrets(item)))
+                records.append(_to_record(item.record, self._secrets(item)))
         return records
 
     # Reads

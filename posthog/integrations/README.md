@@ -164,11 +164,11 @@ The accessors hold the scope rules: the kinds, the auth types, the warehouse sou
 They send the storage work to one `StorageBackend` (`backend/protocol.py`), which `current_backend()` returns.
 The primitives take and return plain data (`RowScope`, `RowFilter`, `CrossTeamFilter`, `NewIntegration`, `IntegrationPatch`, records), so a backend can send them over HTTP.
 
-| Backend                       | Rows                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------ |
-| `DjangoBackend` (the default) | The `Integration` model. The only SDK code that queries it.                    |
-| `ServiceBackend`              | The credentials service, over HTTP. Returns `FrozenIntegrationRecord`s.        |
-| `FakeBackend` (tests)         | A dict in memory. Returns `FrozenIntegrationRecord`s.                          |
+| Backend                       | Rows                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `DjangoBackend` (the default) | The `Integration` model. The only SDK code that queries it.             |
+| `ServiceBackend`              | The credentials service, over HTTP. Returns `FrozenIntegrationRecord`s. |
+| `FakeBackend` (tests)         | A dict in memory. Returns `FrozenIntegrationRecord`s.                   |
 
 `INTEGRATIONS_STORAGE_BACKEND` (`django` or `service`) chooses the backend of a deployment. No deployment uses `service` yet.
 
