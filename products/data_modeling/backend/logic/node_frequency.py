@@ -13,7 +13,7 @@ from collections.abc import Collection, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.db.models import Max, Q, QuerySet
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 
 from posthog.dataclasses import frozen
 
@@ -42,6 +42,7 @@ from products.data_modeling.backend.logic.freshness import (
 from products.data_modeling.backend.logic.node_suspension import is_node_suspended, merged_suspension_state
 from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
@@ -660,25 +661,31 @@ def _latest_materialized_at(team_id: int, saved_queries: Mapping[str, Any]) -> d
     """Latest successful materialization per saved query id, in one query.
 
     The batched twin of `saved_query_materialized_at`: the newest completed ClickHouse job, or the
-    frozen v1 `last_run_at` when that is later. Queries that never ran are absent.
+    frozen v1 `last_run_at` when that is later. Queries that never ran are absent. Each query reads
+    its newest job through the `(saved_query, engine, -last_run_at)` index, so the cost does not
+    grow with a view's run history.
     """
-    latest_jobs = (
+    newest_job = (
         DataModelingJob.objects.filter(
-            team_id=team_id,
-            saved_query_id__in=saved_queries.keys(),
+            saved_query_id=OuterRef("pk"),
             status=DataModelingJobStatus.COMPLETED,
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
-        .order_by()
-        .values("saved_query_id")
-        .annotate(latest=Max("last_run_at"))
+        .order_by("-last_run_at")
+        .values("last_run_at")[:1]
     )
-    latest = {str(row["saved_query_id"]): row["latest"] for row in latest_jobs}
+    rows = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=saved_queries.keys())
+        .annotate(latest_job_at=Subquery(newest_job))
+        .values_list("id", "latest_job_at")
+    )
+    job_at = {str(query_id): latest for query_id, latest in rows}
+    result: dict[str, datetime] = {}
     for query_id, saved_query in saved_queries.items():
-        candidates = [ts for ts in (latest.get(query_id), saved_query.last_run_at) if ts is not None]
+        candidates = [ts for ts in (job_at.get(query_id), saved_query.last_run_at) if ts is not None]
         if candidates:
-            latest[query_id] = max(candidates)
-    return latest
+            result[query_id] = max(candidates)
+    return result
 
 
 def saved_query_schedules(team_id: int, saved_queries: Iterable[Any]) -> dict[str, SavedQuerySchedule]:
