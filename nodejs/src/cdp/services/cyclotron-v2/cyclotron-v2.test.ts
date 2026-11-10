@@ -1663,10 +1663,15 @@ describe('Cyclotron V2', () => {
                 expect(requestedHistory[0]).toBe(3)
             })
 
-            it('caps the visible row count at batchMaxSize', async () => {
+            it.each([
+                ['one priority class', () => 0],
+                ['several priority classes', (i: number) => i % 3],
+            ])('caps the visible row count at batchMaxSize across %s', async (_label, priorityOf) => {
                 // Backlog of 10 rows with batchMaxSize=4 should ask for 4
                 // (the batch ceiling), not 10.
-                await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 10 }, (_, i) => ({ teamId: 1, queueName: QUEUE, priority: priorityOf(i) }))
+                )
 
                 const requestedHistory: number[] = []
                 const worker = createRateLimitedWorker(
@@ -2055,12 +2060,14 @@ describe('Cyclotron V2', () => {
             return { polled, markPolled }
         }
 
+        // Only parameterized statements get a generic plan; the depth checks send plain SQL text.
         // The rate-limited worker consults its hook only when a job is due, so that case
         // seeds one due job and reads the hook call as the end of its poll.
-        const operations: [string, number, (dbUrl: string) => Promise<void>][] = [
+        const operations: [string, number, PlanMode[], (dbUrl: string) => Promise<void>][] = [
             [
                 'the worker dequeue',
                 0,
+                ['custom', 'generic'],
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
                     await pollOnce(createWorker(BACKLOG_QUEUE, { pool: { dbUrl } }), polled, () =>
@@ -2071,6 +2078,7 @@ describe('Cyclotron V2', () => {
             [
                 'the rate-limited worker count',
                 1,
+                ['custom', 'generic'],
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
                     const worker = new CyclotronV2RateLimitedWorker(
@@ -2086,6 +2094,7 @@ describe('Cyclotron V2', () => {
             [
                 'the manager depth check',
                 0,
+                ['custom'],
                 async (dbUrl) => {
                     const depthChecked = createManager({ pool: { dbUrl }, depthLimit: 0 })
                     try {
@@ -2100,6 +2109,7 @@ describe('Cyclotron V2', () => {
             [
                 'the janitor depth gauges',
                 0,
+                ['custom'],
                 async (dbUrl) => {
                     const janitor = createJanitor({ pool: { dbUrl } })
                     try {
@@ -2110,8 +2120,8 @@ describe('Cyclotron V2', () => {
                 },
             ],
         ]
-        const cases = operations.flatMap(([label, dueJobs, operation]) =>
-            (['custom', 'generic'] as const).map((mode) => [label, mode, dueJobs, operation] as const)
+        const cases = operations.flatMap(([label, dueJobs, modes, operation]) =>
+            modes.map((mode) => [label, mode, dueJobs, operation] as const)
         )
 
         async function buffersReadBy(operation: (dbUrl: string) => Promise<void>, mode: PlanMode): Promise<number> {
