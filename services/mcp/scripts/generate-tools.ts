@@ -1583,6 +1583,7 @@ function buildConfirmedActionFactories(args: {
 ${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
             args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
+            inputSchema: ${schemaName}(),
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
@@ -1597,8 +1598,8 @@ ${prepareScopeField}        })
 ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ${schemaName}>>>(context, {
             incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
+            inputSchema: ${schemaName}(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {

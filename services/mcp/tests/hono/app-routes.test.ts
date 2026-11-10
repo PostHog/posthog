@@ -470,14 +470,14 @@ describe('Hono App Routes', () => {
             const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
             const runtime = getConfirmedActionRuntime()
             expect(runtime.codec).toBeInstanceOf(Object)
-            expect(runtime.ledger).toBeInstanceOf(Object)
+            expect(runtime.stash).toBeInstanceOf(Object)
         })
 
         it('overwrites the singleton on each createApp call (latest wins)', async () => {
             // app.ts deliberately re-installs the runtime on every
             // createApp. Lock that behavior down so a future "guard
             // against re-install" change doesn't silently make the second
-            // app instance share the first app's Redis-bound ledger.
+            // app instance share the first app's Redis-bound stash.
             const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
             const redis1 = createMockRedis()
             createApp(redis1)
@@ -486,7 +486,7 @@ describe('Hono App Routes', () => {
             createApp(redis2)
             const second = getConfirmedActionRuntime()
             expect(second).not.toBe(first)
-            expect(second.ledger).not.toBe(first.ledger)
+            expect(second.stash).not.toBe(first.stash)
         })
 
         it('boots without a signing key — confirmed_action paradigm is disabled but the app still serves', async () => {

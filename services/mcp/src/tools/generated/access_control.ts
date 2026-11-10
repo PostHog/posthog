@@ -127,6 +127,7 @@ const accessControlDefaultRuleSetPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: { ...params, id },
             purpose: 'access-control-default-rule-set',
+            inputSchema: AccessControlDefaultRuleSetSchema(),
             actionLabel: 'change the default access rule',
             messageTemplate:
                 "About to set the default {resource} access rule in project {id} to {access_level}, for object {resource_id} (null means the whole tool; a null level clears the rule). A project level of `none` blocks access to the project and its resources. Reply 'confirm' to proceed.\n",
@@ -151,8 +152,8 @@ const accessControlDefaultRuleSetExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'access-control-default-rule-set',
+                inputSchema: AccessControlDefaultRuleSetSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { orgId: String(__scopeOrgId) },
             }
@@ -362,6 +363,7 @@ const accessControlMemberRuleSetPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: { ...params, id },
             purpose: 'access-control-member-rule-set',
+            inputSchema: AccessControlMemberRuleSetSchema(),
             actionLabel: "change a member's access rule",
             messageTemplate:
                 "About to set the {resource} access rule for member {member_id} in project {id} to {access_level}, for object {resource_id} (null means the whole tool; a null level clears the rule). Reply 'confirm' to proceed.\n",
@@ -386,8 +388,8 @@ const accessControlMemberRuleSetExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'access-control-member-rule-set',
+                inputSchema: AccessControlMemberRuleSetSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { orgId: String(__scopeOrgId) },
             }
@@ -612,6 +614,7 @@ const accessControlRoleRuleSetPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: { ...params, id },
             purpose: 'access-control-role-rule-set',
+            inputSchema: AccessControlRoleRuleSetSchema(),
             actionLabel: "change a role's access rule",
             messageTemplate:
                 "About to set the {resource} access rule for role {role_id} in project {id} to {access_level}, for object {resource_id} (null means the whole tool; a null level clears the rule). This affects every member of the role. Reply 'confirm' to proceed.\n",
@@ -636,8 +639,8 @@ const accessControlRoleRuleSetExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'access-control-role-rule-set',
+                inputSchema: AccessControlRoleRuleSetSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { orgId: String(__scopeOrgId) },
             }

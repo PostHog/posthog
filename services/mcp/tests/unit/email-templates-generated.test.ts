@@ -1,7 +1,32 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { z } from 'zod'
 
+import { ApiClient } from '@/api/client'
+import { PayloadStash, SignedStateCodec } from '@/lib/signed-state'
+import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import type { PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
+
+import { createTestContext, setActiveProjectAndOrg } from '../shared/test-utils'
+
+function inMemoryRedis(): ConstructorParameters<typeof PayloadStash>[0] {
+    const values = new Map<string, string>()
+    return {
+        set: async (key, value) => {
+            values.set(key, value)
+            return 'OK'
+        },
+        get: async (key) => values.get(key) ?? null,
+        del: async (...keys) => keys.filter((key) => values.delete(key)).length,
+        incrby: async (key, increment) => {
+            const next = Number(values.get(key) ?? 0) + increment
+            values.set(key, String(next))
+            return next
+        },
+        expire: async () => 1,
+        ttl: async () => 60,
+    }
+}
 
 describe('Generated email template tools', () => {
     const toolSchema = (name: string): z.ZodType => GENERATED_TOOL_MAP[name]!().schema
@@ -61,5 +86,37 @@ describe('Generated email template tools', () => {
         const input = createWithEmail({ design: editorDesign })
 
         expect(toolSchema('workflows-create-email-template').parse(input)).toMatchObject(input)
+    })
+
+    describe('a confirmed send', () => {
+        afterEach(() => setConfirmedActionRuntime(undefined))
+
+        it('sends the email the user confirmed', async () => {
+            setConfirmedActionRuntime({
+                codec: new SignedStateCodec(Buffer.alloc(32, 0x42)),
+                stash: new PayloadStash(inMemoryRedis()),
+            })
+            const context = createTestContext(
+                new ApiClient({ apiToken: 'test-token', baseUrl: 'https://us.posthog.test' })
+            )
+            await setActiveProjectAndOrg(context, '42', 'org-1')
+            const request = vi.spyOn(context.api, 'request').mockResolvedValue({ id: 'send-1' })
+            const confirmed = { ...codeSend, reply_to: 'support@example.com', capture_engagement: false }
+
+            const prepared = (await GENERATED_TOOL_MAP['workflows-send-email-prepare']!().handler(
+                context,
+                confirmed
+            )) as PrepareConfirmedActionResult
+            await GENERATED_TOOL_MAP['workflows-send-email-execute']!().handler(context, {
+                confirmation_hash: prepared.confirmation_hash,
+                confirmation: 'confirm',
+            })
+
+            expect(request).toHaveBeenCalledWith({
+                method: 'POST',
+                path: '/api/projects/42/messaging/send/email/',
+                body: confirmed,
+            })
+        })
     })
 })
