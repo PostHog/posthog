@@ -317,8 +317,6 @@ describe('executeConfirmedAction', () => {
     })
 
     it('refuses a confirmation prepared by a server that did not bind the input schema', async () => {
-        // Minted by the runtime before schema binding, with this file's codec settings. Accepting it
-        // again would let an executor drop arguments a newer build confirmed.
         const { codec, stash, store } = setup()
         const preSchemaBindingToken =
             'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik1DUC1TSUdORUQtU1RBVEUifQ.eyJwYXlsb2FkIjp7ImRpZ2VzdCI6ImRhYjc3ZjY1OTYxMGU3YjU3M2NhYzA5OTdiOGE0YjlmNDg5YzczOTM4ZjVkZGIwNWY5YmEyZjM2ZTQwZTYyOTgifSwic3ViIjoiZGlkLTEiLCJhdWQiOiJlbmZvcmNlLTJmYSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwMzAwLCJqdGkiOiJub25jZS1maXhlZCJ9.WHqe6xjbxV0JQs51c4f11lPoXjuVuklfg9dDyD279E8'
