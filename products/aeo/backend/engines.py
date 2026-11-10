@@ -26,7 +26,7 @@ from django.conf import settings
 import requests
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
+from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import (
     GENERIC_VALUE_MAX_LEN,
     sanitize_user_text,
@@ -558,6 +558,21 @@ class ClaudeWebSearchEngine:
         )
 
 
+def _post_gateway_responses(
+    gateway: AIGatewayConfig,
+    sessions: _ThreadSessions,
+    payload: dict[str, Any],
+    *,
+    trace_id: str,
+    custom_properties: dict[str, str],
+) -> dict[str, Any]:
+    headers = {
+        "Authorization": f"Bearer {gateway.api_key}",
+        **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
+    }
+    return gateway_post_json(sessions.get(), gateway.url.rstrip("/") + "/responses", headers, payload)
+
+
 class OpenAIWebSearchEngine:
     """An OpenAI model with its web search tool, via the AI gateway's /responses path."""
 
@@ -578,13 +593,9 @@ class OpenAIWebSearchEngine:
             "tools": [{"type": "web_search"}],
             "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
         }
-        headers = {
-            "Authorization": f"Bearer {self._gateway.api_key}",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
-        }
         try:
-            body = gateway_post_json(
-                self._sessions.get(), self._gateway.url.rstrip("/") + "/responses", headers, payload
+            body = _post_gateway_responses(
+                self._gateway, self._sessions, payload, trace_id=trace_id, custom_properties=custom_properties
             )
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
@@ -671,13 +682,9 @@ class PerplexityWebSearchEngine:
             "max_steps": 1,
             "max_output_tokens": MAX_ANSWER_TOKENS,
         }
-        headers = {
-            "Authorization": f"Bearer {self._gateway.api_key}",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
-        }
         try:
-            body = gateway_post_json(
-                self._sessions.get(), self._gateway.url.rstrip("/") + "/responses", headers, payload
+            body = _post_gateway_responses(
+                self._gateway, self._sessions, payload, trace_id=trace_id, custom_properties=custom_properties
             )
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
