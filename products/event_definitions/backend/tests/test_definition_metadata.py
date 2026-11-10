@@ -165,3 +165,14 @@ class TestDefinitionMetadataCopy(BaseTest):
                 run()
 
         assert copy.call_count == calls
+
+    def test_backfill_drops_the_connection_before_a_retry_outside_a_transaction(self):
+        EnterpriseEventDefinition.objects.create(team=self.team, name="signed_up")
+        command = "products.event_definitions.backend.management.commands.backfill_definition_metadata"
+        with (
+            patch(f"{command}.copy_definition_metadata", side_effect=[_django_deadlock_error(), 1]),
+            patch(f"{command}.connection", in_atomic_block=False) as command_connection,
+        ):
+            call_command("backfill_definition_metadata", kind="event", sleep_seconds=0, stdout=StringIO())
+
+        command_connection.close_if_unusable_or_obsolete.assert_called_once()
