@@ -535,7 +535,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 !objectsEqual(filters, loadedFilters),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         // Each change moves the row between status filters, so the page reloads rather than patching the row.
         archiveBroadcast: ({ broadcast }) => {
             if (values.currentProjectId) {
@@ -567,8 +567,11 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             // Best-effort per-row enrichment: batch jobs decide the status chip, metric totals fill
             // the engagement counts. The run is stored before its metrics load, so a slow or failed
             // metrics query can't leave the status unknown.
+            // A lookup can resolve after the list unmounts, when reading `values` throws. The manager is
+            // captured now because a remount puts a fresh one on the cache.
+            const { disposables } = cache
             const generation = values.listGeneration
-            const isCurrent = (): boolean => values.listGeneration === generation
+            const isCurrent = (): boolean => !disposables.isDisposed && values.listGeneration === generation
             for (const broadcast of broadcasts.results ?? []) {
                 void (async () => {
                     let latestBatchJob: HogFlowBatchJobApi | null
