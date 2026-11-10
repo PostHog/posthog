@@ -1,0 +1,36 @@
+import { Heading, Text } from '@posthog/quill'
+
+import type { HighlightExperimentResultApi } from 'products/today/frontend/generated/api.schemas'
+
+import { TodayChange } from './TodayChange'
+import {
+    experimentComparison,
+    experimentExposures,
+    experimentLiftDecimals,
+    experimentVerdict,
+} from './todayPulseExperiment'
+import type { TodayTone } from './todayTone'
+
+export function TodayPulseExperimentResult({
+    lift,
+    experiment,
+    tone,
+}: {
+    lift: number
+    experiment: HighlightExperimentResultApi
+    tone: TodayTone
+}): JSX.Element {
+    return (
+        <>
+            <div className="flex flex-wrap items-baseline gap-x-2">
+                <Heading size="xl" render={<span />} className="tabular-nums">
+                    <TodayChange change={lift} tone={tone} decimals={experimentLiftDecimals(lift)} />
+                </Heading>
+                <span className="text-sm text-muted-foreground">{experimentComparison(experiment)}</span>
+            </div>
+            <Text size="xs" variant="muted" render={<span />}>
+                {`${experimentVerdict(experiment)} · ${experimentExposures(experiment)}`}
+            </Text>
+        </>
+    )
+}

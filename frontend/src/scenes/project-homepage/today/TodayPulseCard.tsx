@@ -10,17 +10,20 @@ import type { HighlightMetricApi } from 'products/today/frontend/generated/api.s
 
 import { TodayChange } from './TodayChange'
 import { todayNumber } from './todayNumbers'
-import {
-    experimentComparison,
-    experimentLiftDecimals,
-    experimentExposures,
-    experimentVerdict,
-} from './todayPulseExperiment'
+import { TodayPulseExperimentResult } from './TodayPulseExperimentResult'
 import { pulseChange, pulsePeriodCaption, pulsePriorLabel } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import { TodayPulsePinButton } from './TodayPulsePinButton'
 import type { TodayTone } from './todayTone'
+
+function cardCaption(metric: HighlightMetricApi): string {
+    return metric.experiment ? metric.experiment.metric_name : pulsePeriodCaption(metric)
+}
+
+function suggestionText(metric: HighlightMetricApi): string {
+    return metric.experiment ? 'You run this experiment' : 'Suggested based on your usage'
+}
 
 function openLabel(metric: HighlightMetricApi): string {
     if (metric.experiment) {
@@ -61,27 +64,11 @@ export function TodayPulseCard({
                             {metric.name}
                         </Text>
                         <Text size="xs" variant="muted" render={<span />} className="shrink-0">
-                            {experiment ? experiment.metric_name : pulsePeriodCaption(metric)}
+                            {cardCaption(metric)}
                         </Text>
                     </div>
                     {experiment ? (
-                        <>
-                            <div className="flex flex-wrap items-baseline gap-x-2">
-                                <Heading size="xl" render={<span />} className="tabular-nums">
-                                    <TodayChange
-                                        change={metric.value}
-                                        tone={tone}
-                                        decimals={experimentLiftDecimals(metric.value)}
-                                    />
-                                </Heading>
-                                <span className="text-sm text-muted-foreground">
-                                    {experimentComparison(experiment)}
-                                </span>
-                            </div>
-                            <Text size="xs" variant="muted" render={<span />}>
-                                {`${experimentVerdict(experiment)} · ${experimentExposures(experiment)}`}
-                            </Text>
-                        </>
+                        <TodayPulseExperimentResult lift={metric.value} experiment={experiment} tone={tone} />
                     ) : (
                         <div className="flex flex-wrap items-baseline gap-x-2">
                             <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
@@ -110,7 +97,7 @@ export function TodayPulseCard({
                 {!pinned && (
                     <Text size="xs" variant="muted" render={<span />} className="inline-flex items-center gap-1">
                         <IconSparkles className="size-3 shrink-0" />
-                        {experiment ? 'You run this experiment' : 'Suggested based on your usage'}
+                        {suggestionText(metric)}
                     </Text>
                 )}
             </div>

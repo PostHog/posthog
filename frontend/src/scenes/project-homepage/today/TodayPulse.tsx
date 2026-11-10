@@ -18,13 +18,8 @@ import { TodayChange } from './TodayChange'
 import { pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
-import {
-    EXPERIMENT_PIN_REASON,
-    experimentComparison,
-    experimentLiftDecimals,
-    experimentTone,
-    experimentVerdict,
-} from './todayPulseExperiment'
+import { EXPERIMENT_PIN_REASON, experimentTone } from './todayPulseExperiment'
+import { TodayPulseExperimentValue } from './TodayPulseExperimentValue'
 import { pulseChange } from './todayPulseFacts'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
@@ -48,6 +43,32 @@ function metricTone(change: number | null, value: number): TodayTone {
         return 'neutral'
     }
     return change > 0 ? 'good' : 'risk'
+}
+
+function pulseTone(metric: HighlightMetricApi): TodayTone {
+    if (metric.experiment) {
+        return experimentTone(metric.experiment)
+    }
+    return metric.key.startsWith('insight:') ? 'neutral' : metricTone(metric.change_pct, metric.value)
+}
+
+function pulseLinkAttr(metric: HighlightMetricApi): string {
+    if (metric.experiment) {
+        return 'today-pulse-experiment'
+    }
+    return metric.key.startsWith('insight:') ? 'today-pulse-insight' : 'today-pulse-key-metric'
+}
+
+function pulseCardPinReason(
+    metric: HighlightMetricApi,
+    unavailableReason: string | null,
+    pinnedCount: number,
+    pinned: boolean
+): string | undefined {
+    if (metric.experiment) {
+        return EXPERIMENT_PIN_REASON
+    }
+    return unavailableReason ?? pulsePinLimitReason(pinnedCount, pinned)
 }
 
 const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
@@ -142,14 +163,9 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                     )
                 }
 
-                const isInsight = metric.key.startsWith('insight:')
                 const experiment = metric.experiment
                 const pinned = pulsePins.some((pin) => pin.key === metric.key)
-                const tone = experiment
-                    ? experimentTone(experiment)
-                    : isInsight
-                      ? 'neutral'
-                      : metricTone(metric.change_pct, metric.value)
+                const tone = pulseTone(metric)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
                 const change = pulseChange(metric)
                 const content = (
@@ -159,19 +175,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                             <span>{metric.name}</span>
                         </span>
                         {experiment ? (
-                            <>
-                                <span className="TodayPulse__row">
-                                    <span className="TodayPulse__value">
-                                        <TodayChange
-                                            change={metric.value}
-                                            tone={tone}
-                                            decimals={experimentLiftDecimals(metric.value)}
-                                        />
-                                    </span>
-                                    <span className="TodayChange">{experimentComparison(experiment)}</span>
-                                </span>
-                                <span className="TodayPulse__verdict">{experimentVerdict(experiment)}</span>
-                            </>
+                            <TodayPulseExperimentValue lift={metric.value} experiment={experiment} tone={tone} />
                         ) : (
                             <>
                                 <span className="TodayPulse__row">
@@ -210,12 +214,12 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                                     formatValue={metric.value_format ? formatValue : cardNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
                                     pinned={pinned}
-                                    pinDisabledReason={
-                                        experiment
-                                            ? EXPERIMENT_PIN_REASON
-                                            : (pulsePinsUnavailableReason ??
-                                              pulsePinLimitReason(pulsePins.length, pinned))
-                                    }
+                                    pinDisabledReason={pulseCardPinReason(
+                                        metric,
+                                        pulsePinsUnavailableReason,
+                                        pulsePins.length,
+                                        pinned
+                                    )}
                                     onTogglePin={() =>
                                         togglePulsePin(
                                             { key: metric.key, name: metric.name, dashboard_id: metric.dashboard_id },
@@ -231,13 +235,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                                 <LinkPrimitive
                                     to={metric.url}
                                     className="TodayPulse__link"
-                                    data-attr={
-                                        experiment
-                                            ? 'today-pulse-experiment'
-                                            : isInsight
-                                              ? 'today-pulse-insight'
-                                              : 'today-pulse-key-metric'
-                                    }
+                                    data-attr={pulseLinkAttr(metric)}
                                     {...pulseOpenHandlers(() => pulseMetricOpened(metric, position))}
                                 >
                                     {content}
