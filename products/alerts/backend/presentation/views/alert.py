@@ -1787,10 +1787,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # insight's data via check history, or via a PATCH that omits `insight` (skipping the
         # create-time check). Filtering here covers list, retrieve, update, delete, and the embedded
         # checks, since get_object() resolves detail routes from this queryset.
-        viewable_insights = self.user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team_id=self.team_id)
-        )
-        queryset = queryset.filter(insight_id__in=viewable_insights.values("id"))
+        queryset = queryset.filter(insight_id__in=self._viewable_insights().values("id"))
 
         # Read-side twin of the write-side metrics scope gate: a programmatic token without the
         # metrics data scope must not read metric alert results (last_value, check history, breach
@@ -1920,6 +1917,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             self.check_object_permissions(self.request, alert)
             return alert
 
+    def _viewable_insights(self) -> QuerySet[Insight]:
+        """The team's insights the user may view, which gate every alert read."""
+        return self.user_access_control.filter_queryset_by_access_level(Insight.objects.filter(team_id=self.team_id))
+
     def _native_alert(self) -> AlertConfiguration | None:
         try:
             alert_id = uuid.UUID(str(self.kwargs[self.lookup_url_kwarg or self.lookup_field]))
@@ -1930,10 +1931,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if alert is None:
             return None
         # The same read gates `safely_get_queryset` applies to a row.
-        viewable = self.user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team_id=self.team_id, id=alert.insight_id)
-        ).exists()
-        if not viewable:
+        if not self._viewable_insights().filter(id=alert.insight_id).exists():
             return None
         if _token_lacks_metrics_scope(self.request) and alert.insight.alertable_query_kind == NodeKind.METRICS_QUERY:
             return None
