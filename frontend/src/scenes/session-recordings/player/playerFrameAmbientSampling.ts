@@ -15,7 +15,7 @@ const MAX_BACKGROUND_IMAGE_LENGTH = 4096
 const FETCHABLE_PROTOCOLS = ['https:', 'http:', 'data:', 'blob:']
 const MAX_IMAGE_LOADS_PER_SAMPLE = 4
 const MAX_DECODED_PIXELS = 4096 * 4096
-const MAX_STACK_DEPTH = 8
+const MAX_STACK_DEPTH = 32
 const FALLBACK_COLOR: Rgba = [0, 0, 0, 255]
 const BLEND_TIME_CONSTANT_MS = 1500
 // Under a 40px blur a gap of two 8-bit steps is invisible, and waiting for less keeps repainting for seconds.
@@ -138,19 +138,22 @@ export class AmbientFrameSampler {
         if (cached !== undefined) {
             return cached
         }
-        if (
-            this.backgroundImages.size >= MAX_BACKGROUND_IMAGES ||
-            backgroundImage.length > MAX_BACKGROUND_IMAGE_LENGTH
-        ) {
+        if (backgroundImage.length > MAX_BACKGROUND_IMAGE_LENGTH) {
             return null
         }
+        const hasRoom = this.backgroundImages.size < MAX_BACKGROUND_IMAGES
         const url = backgroundImage.match(/url\(["']?([^"')]+)["']?\)/)?.[1]
         if (!url) {
             const gradient = averageColor(
                 [...backgroundImage.matchAll(/rgba?\([^)]*\)/g)].map((match) => opaque(parseCssColor(match[0])))
             )
-            this.backgroundImages.set(backgroundImage, gradient)
+            if (hasRoom) {
+                this.backgroundImages.set(backgroundImage, gradient)
+            }
             return gradient
+        }
+        if (!hasRoom) {
+            return null
         }
         // Computed styles resolve recorded URLs to absolute ones, so a relative URL here would only hit the app origin.
         if (this.imageLoadsThisSample >= MAX_IMAGE_LOADS_PER_SAMPLE) {

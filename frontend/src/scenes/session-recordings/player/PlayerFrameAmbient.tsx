@@ -35,6 +35,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
     useEffect(() => {
         blendRef.current = new AmbientBlend()
         samplerRef.current = new AmbientFrameSampler()
+        canvasRef.current?.style.setProperty('opacity', '0')
     }, [sessionRecordingId])
 
     useEffect(() => {
@@ -53,6 +54,8 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         let animationFrame = 0
         let rebuildFrame = 0
         let lastPaintTime = 0
+        // The blend outlives the canvas, so a canvas mounted by turning the setting back on starts empty.
+        let canvasSized = false
         const markDirty = (): void => {
             dirty = true
         }
@@ -132,6 +135,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             }
             if (!isBoxed(container, scaled)) {
                 canvas.style.opacity = '0'
+                lastLayout = ''
                 return
             }
             const layout = [container.width, container.height, recording.width, recording.height].join()
@@ -156,7 +160,8 @@ export function PlayerFrameAmbient(): JSX.Element | null {
                 height: container.height + 2 * overhang.y,
             })
             placeCanvas(extended.area)
-            if (blend.setTarget(extended.grid)) {
+            if (blend.setTarget(extended.grid) || !canvasSized) {
+                canvasSized = true
                 canvas.width = blend.columns
                 canvas.height = blend.rows
                 paint()
