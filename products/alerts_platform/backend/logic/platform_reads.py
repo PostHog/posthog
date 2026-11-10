@@ -6,6 +6,7 @@ outside the product, so they return views rather than rows and never change one.
 
 from collections.abc import Collection, Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
@@ -143,6 +144,21 @@ def native_configuration_keys(
     if created_by_uuid is not None:
         rows = rows.filter(created_by__uuid=created_by_uuid)
     return tuple(rows.order_by("-created_at", "-id").values_list("created_at", "id"))
+
+
+def native_configuration_ids(
+    *, team_id: int, source_kind: str, source_config_key: str, values: Collection[Any]
+) -> tuple[UUID, ...]:
+    """Ids of the team's configurations of a kind with no source row whose `source_config[key]` is one of `values`."""
+    return tuple(
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(
+            source_kind=source_kind,
+            legacy_configuration_id__isnull=True,
+            **{f"source_config__{source_config_key}__in": list(values)},
+        )
+        .values_list("id", flat=True)
+    )
 
 
 def count_configurations(
