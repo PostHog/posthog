@@ -278,6 +278,26 @@ uv run manage.py unenroll_unchosen_general_scouts --apply
 
 Idempotent. A switched-off row no longer matches.
 
+## Setting the pull request threshold for grandfathered organizations
+
+`backfill_grandfathered_autostart_priority` sets `SignalTeamConfig.default_autostart_priority` to P2 on projects that never chose a threshold and belong to an organization on the grandfathered self-driving plan.
+A project matches when automatic pull requests are on (`autostart_enabled` is null or true) and the threshold is still the P4 column default.
+It leaves a P4 that a person chose alone: one picked in the setup flow, or one the activity log shows a person set.
+An organization is grandfathered when it activated self-driving before the pricing launch and the `self-driving-ubp` flag answers off.
+It skips an organization whose billing cutover date is still ahead, and one for which the flag service gives no confirmed answer.
+Each row saves on its own under a row lock, so the activity log records the change.
+It prints a count per outcome and the first team ids.
+
+```bash
+# Dry run (the default): counts per outcome and the first team ids
+uv run manage.py backfill_grandfathered_autostart_priority
+
+# Write, optionally for one project
+uv run manage.py backfill_grandfathered_autostart_priority --apply --team-id 1
+```
+
+Idempotent. An updated row no longer matches.
+
 ## Reactivating report checks a paused scout retired
 
 Dispatch once treated a paused scout as a permanent refusal, so three ticks of a pause retired an `agent` check as `errored`.
