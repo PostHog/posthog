@@ -29,7 +29,10 @@ export const Default: Story = {
     },
 }
 
-export const Loading: Story = { args: { raw: { status: 'loading' } } }
+export const Loading: Story = {
+    args: { raw: { status: 'loading' } },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 
 export const Failed: Story = { args: { raw: { status: 'error', failure: 'failed' } } }
 
