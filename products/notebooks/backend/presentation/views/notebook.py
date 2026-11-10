@@ -407,7 +407,23 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     **validated_data,
                 )
         except IntegrityError:
-            if short_id and Notebook.objects.filter(team=team, short_id=short_id).exists():
+            existing_notebook = (
+                Notebook.objects.filter(team=team, short_id=short_id)
+                .only("id", "team_id", "created_by_id", "deleted")
+                .first()
+                if short_id
+                else None
+            )
+            if existing_notebook is not None:
+                access_control = self.user_access_control
+                if (
+                    existing_notebook.deleted
+                    or access_control is None
+                    or not access_control.check_access_level_for_object(existing_notebook, "viewer")
+                ):
+                    raise serializers.ValidationError(
+                        {"short_id": "This notebook ID is unavailable. Use a different ID."}
+                    )
                 raise serializers.ValidationError(
                     {"short_id": "A notebook with this ID already exists. Open the existing notebook."}, code="unique"
                 )
