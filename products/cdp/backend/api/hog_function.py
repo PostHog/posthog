@@ -991,10 +991,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
         entered = entered_secret_input_keys(self.requested_inputs)
         supplied = supplied_input_keys(self.requested_inputs)
-        staged_changes, staged_reentries = self._staged_secret_keys(instance, live_secrets)
+        staged = self._staged_secrets(instance, live_secrets)
         # A typed secret is an input change too, because the code can send one secret to an address another
         # one holds. A secret bound to platform auth is not, because the code never reads it.
-        typed = (supplied & (declared | secrets.keys())) | staged_changes
+        typed = (supplied & (declared | secrets.keys())) | staged.keys()
         typed -= {key for key, entry in (attrs.get("inputs") or {}).items() if has_bound_auth(entry)}
         if before == after and not typed:
             return
@@ -1002,9 +1002,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # A secret that is no longer declared secret is not encrypted again, so it passes only when the
         # request replaces the stored value, which `update` then drops.
         missing = sorted(
-            key
-            for key in legacy
-            if key not in staged_reentries and key not in (entered if key in declared else supplied)
+            key for key in legacy if not staged.get(key) and key not in (entered if key in declared else supplied)
         )
 
         stages_draft = bool(self.context.get("stages_draft"))
@@ -1024,18 +1022,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 {"inputs": dict.fromkeys(missing, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
             )
 
-    def _staged_secret_keys(self, instance: HogFunction, live_secrets: dict) -> tuple[set[str], set[str]]:
-        """The draft's secrets that differ from the live ones, and those among them that a draft test run or a
-        publish counts as entered again. Only the value is stored, so a value typed again unchanged does not count."""
+    def _staged_secrets(self, instance: HogFunction, live_secrets: dict) -> dict[str, bool]:
+        """The draft's secrets that differ from the live ones, each with whether a draft test run or a publish
+        counts it as entered again. Only the value is stored, so a value typed again unchanged does not count."""
         if not (self.context.get("use_draft") or "live_encrypted_inputs" in self.context):
-            return set(), set()
+            return {}
         staged = {
             key: (entry.get("value"), (live_secrets.get(key) or {}).get("value"))
             for key, entry in (instance.draft_encrypted_inputs or {}).items()
             if isinstance(entry, dict)
         }
-        changed = {key for key, (value, live) in staged.items() if value != live}
-        return changed, {key for key in changed if replaces_stored_value(*staged[key])}
+        return {key: replaces_stored_value(value, live) for key, (value, live) in staged.items() if value != live}
 
     def _enforces_secret_binding(self, team: Team) -> bool:
         if self.context.get("view") is None:
