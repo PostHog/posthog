@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -545,6 +547,84 @@ describe('dataQualityCheckEditorLogic', () => {
 
         expect(logic.values.checkFormErrors.lookbackHours).toBeUndefined()
         expect(dataQualityChecksCreate).toHaveBeenCalledWith('1', expect.objectContaining({ config: {} }))
+    })
+
+    it('keeps the advanced options open while the person fixes the error that opened them', async () => {
+        await mountLogic()
+        await openWith(buildCheck({ name: 'orders_not_null', severity: 'warn' }))
+
+        expect(logic.values.advancedOptionsSetCount).toEqual(2)
+        expect(logic.values.advancedOptionsOpen).toBe(false)
+
+        logic.actions.setCheckFormValues({ name: 'not a valid name' })
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.advancedOptionsOpen).toBe(true)
+
+        logic.actions.setCheckFormValues({ name: 'a_valid_name' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.advancedOptionsOpen).toBe(true)
+    })
+
+    it('opens a starter check with its query and fills in the metric columns once they load', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic()
+
+        logic.actions.openEditorWithStarter({ subjectType: 'metric', subjectId: 'metric-1' }, 'no_sharp_drop')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm.checkType).toEqual('custom_sql')
+        expect(logic.values.checkForm.customSql).toContain('lagInFrame(signups) OVER (ORDER BY day)')
+        expect(logic.values.checkFormChanged).toBe(false)
+        expect(capture).toHaveBeenCalledWith(
+            'data quality starter check picked',
+            expect.objectContaining({ template_key: 'no_sharp_drop' })
+        )
+    })
+
+    it('keeps a starter query the person edited before the metric columns arrive', async () => {
+        let resolveSchema: (schema: unknown) => void = () => {}
+        ;(dataQualityChecksOutputSchemaRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveSchema = resolve
+            })
+        )
+        ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic()
+
+        logic.actions.openEditorWithStarter({ subjectType: 'metric', subjectId: 'metric-1' }, 'no_sharp_drop')
+        logic.actions.setCheckFormValues({ customSql: 'SELECT * FROM {metric} WHERE signups < 10' })
+        resolveSchema({ columns: [{ name: 'signups', type: 'UInt64' }] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm.customSql).toEqual('SELECT * FROM {metric} WHERE signups < 10')
+    })
+
+    it('keeps unsaved edits flagged when the metric columns arrive after them', async () => {
+        let resolveSchema: (schema: unknown) => void = () => {}
+        ;(dataQualityChecksOutputSchemaRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveSchema = resolve
+            })
+        )
+        ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic()
+
+        logic.actions.openEditorWithStarter({ subjectType: 'metric', subjectId: 'metric-1' }, 'no_sharp_drop')
+        logic.actions.setCheckFormValues({ name: 'signups_drop' })
+        resolveSchema({ columns: [{ name: 'signups', type: 'UInt64' }] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm.customSql).toContain('lagInFrame(signups)')
+        expect(logic.values.checkForm.name).toEqual('signups_drop')
+        expect(logic.values.checkFormChanged).toBe(true)
     })
 
     it('creates the check once when the form is submitted twice', async () => {

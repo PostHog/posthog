@@ -124,7 +124,12 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
                 call(
                     distinct_id=self.user.distinct_id,
                     event="membership level changed",
-                    properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
+                    properties={
+                        "new_level": 15,
+                        "previous_level": 1,
+                        "$set": mock.ANY,
+                        "$update_person_last_seen_at": False,
+                    },
                     groups=mock.ANY,
                 ),
                 call(

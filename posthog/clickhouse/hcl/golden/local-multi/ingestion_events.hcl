@@ -1204,6 +1204,8 @@ FROM
       dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
     AND
       (person_mode != 'propertyless')
+    AND
+      (JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false')
   )
 WHERE notEmpty(group_key)
 GROUP BY

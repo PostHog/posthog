@@ -94,6 +94,8 @@ import {
     IconSelfDriving,
     IconStamphog,
 } from 'lib/lemon-ui/icons'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
 import {
@@ -618,6 +620,19 @@ export const getDefaultTreeData = (): FileSystemImport[] =>
     [...getTreeItemsMetadata()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export function hiddenProductHrefs(featureFlags: FeatureFlagsSet): Set<string> {
+    const items = [...getDefaultTreeProducts(), ...getDefaultTreeData()]
+    const shownHrefs = new Set(
+        items.filter((item) => isFileSystemImportShown(item, featureFlags)).map((item) => item.href)
+    )
+    return new Set(items.flatMap((item) => (item.href && !shownHrefs.has(item.href) ? [item.href] : [])))
+}
+
+export function isHiddenProductShortcut(shortcut: FileSystemEntry, hiddenHrefs: Set<string>): boolean {
+    return shortcut.type !== 'folder' && !shortcut.ref && !!shortcut.href && hiddenHrefs.has(shortcut.href)
+}
+
 let sidebarProductsByHref: Map<string, FileSystemImport> | undefined
 
 /** The sidebar product an href points to, so a starred link to it shows that product's current name and icon. */

@@ -5904,6 +5904,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
+        assert mock_client.capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
     @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
     def test_capture_event_skips_group_identify_without_group_properties(self, mock_is_cloud: MagicMock) -> None:
@@ -5914,10 +5915,11 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             pha_client=mock_client,
             name="test event",
             organization_id=str(organization.id),
-            properties={"prop1": "val1"},
+            properties={"prop1": "val1", "$update_person_last_seen_at": True},
         )
 
         mock_client.group_identify.assert_not_called()
+        assert mock_client.capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

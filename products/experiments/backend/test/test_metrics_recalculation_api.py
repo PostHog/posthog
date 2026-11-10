@@ -10,7 +10,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_V2_FLAG,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -22,6 +25,7 @@ from products.experiments.backend.recalculation import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
 )
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -37,7 +41,9 @@ def _mean_metric(uuid: str) -> dict:
 def _calculation_key(experiment: Experiment, metric_uuid: str, *, other_version: bool = False) -> str:
     calculation_config = get_metric_calculation_config(experiment, metric_uuid)
     assert calculation_config is not None
-    return calculation_config.key_for_version(2) if other_version else calculation_config.calculation_key()
+    if other_version:
+        return calculation_config.key_for_version(3 - calculation_config.settings.key_version)
+    return calculation_config.calculation_key()
 
 
 class TestMetricsRecalculationAPI(APIBaseTest):
@@ -85,10 +91,11 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, activity queue flag outcome, expected activity_task_queue
-            ("activity_queue_flag_off", False, None),
-            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE),
-            ("activity_queue_flag_error", RuntimeError("flags down"), None),
+            # name, activity queue flag outcome, expected activity_task_queue, calculation key version of the team
+            ("activity_queue_flag_off", False, None, 1),
+            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE, 1),
+            ("activity_queue_flag_error", RuntimeError("flags down"), None, 1),
+            ("key_version_2", False, None, 2),
         ]
     )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
@@ -98,6 +105,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         _name: str,
         flag_outcome: bool | Exception,
         expected_activity_task_queue: str | None,
+        key_version: int,
         mock_run,
         mock_connect,
     ):
@@ -109,8 +117,14 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             return flag_outcome
 
         exp = self._launched_experiment()
-        with mock.patch(
-            "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+        with (
+            mock.patch(
+                "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+            ),
+            mock.patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == CALCULATION_KEY_V2_FLAG and key_version == 2,
+            ),
         ):
             resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
@@ -123,6 +137,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ExperimentMetricsRecalculationWorkflowInputs(
                 recalculation_id=body["id"],
                 activity_task_queue=expected_activity_task_queue,
+                calculation_key_version=key_version,
             ),
             id=f"experiment-metrics-recalculation-{body['id']}",
             task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -255,6 +270,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert latest["id"] == body["id"]
         assert latest["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
         assert [(r["metric_uuid"], r["result"]) for r in latest["results"]] == [("m1", {"ok": True})]
+        assert (latest["completed_metrics"], latest["failed_metrics"]) == (1, 0)
+        assert latest["exceeds_recalculation_age_limit"] is True
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
@@ -328,15 +345,28 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("current_keys", ("current", "current")),
+            # name, active key version, key family of each row, expected configuration status of each result
+            ("current_keys", 1, ("current", "current"), ("current", "current")),
             # A run under the other key version. On page load the frontend starts a run when a completed
             # run leaves a metric uncovered, so those rows must cover every metric of it.
-            ("run_under_the_other_key_version", ("other_version", "other_version")),
-            ("run_partly_recomputed_under_the_current_key", ("other_version", "current")),
+            ("run_under_the_other_key_version", 1, ("other_version", "other_version"), ("current", "current")),
+            ("run_partly_recomputed_under_the_current_key", 1, ("other_version", "current"), ("current", "current")),
+            ("version_1_run_after_activation", 2, ("other_version", "other_version"), ("unknown", "unknown")),
+            ("run_partly_recomputed_after_activation", 2, ("other_version", "current"), ("unknown", "current")),
         ]
     )
     def test_get_latest_returns_most_recent_completed_with_results(
-        self, _name: str, key_families: tuple[str, str]
+        self,
+        _name: str,
+        key_version: int,
+        key_families: tuple[str, str],
+        expected_statuses: tuple[str, str],
+    ) -> None:
+        with patch_calculation_key_version(key_version):
+            self._assert_latest_returns_the_run_rows(key_families, expected_statuses)
+
+    def _assert_latest_returns_the_run_rows(
+        self, key_families: tuple[str, str], expected_statuses: tuple[str, str]
     ) -> None:
         exp = self._launched_experiment()
         exp.metrics = [_mean_metric("m1"), _mean_metric("m2")]
@@ -377,6 +407,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ("m1", {"ok": "m1"}),
             ("m2", {"ok": "m2"}),
         ]
+        assert tuple(result["configuration_status"] for result in body["results"]) == expected_statuses
         assert body.get("active_run") is None
 
     # ------------------------------------------------------------------

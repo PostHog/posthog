@@ -4,6 +4,7 @@
 import gc
 import os
 import sys
+import faulthandler
 from pathlib import Path
 
 # Add common/ to path so migration_utils module is importable (used by custom migrate command)
@@ -12,7 +13,22 @@ if _common_path not in sys.path:
     sys.path.insert(0, _common_path)
 
 
+def start_stack_dumps() -> None:
+    try:
+        faulthandler.dump_traceback_later(
+            float(os.environ.get("POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS", "60")), repeat=True
+        )
+    except (ValueError, OverflowError):
+        faulthandler.dump_traceback_later(60, repeat=True)
+
+
 def main():
+    if (
+        os.environ.get("POSTHOG_COMMAND_DIAGNOSTICS") == "1"
+        and "--check" in sys.argv[2:]
+        and sys.argv[1] in ("migrate", "migrate_clickhouse")
+    ):
+        start_stack_dumps()
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
     try:
         from django.core.management import execute_from_command_line

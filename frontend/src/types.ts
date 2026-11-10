@@ -5056,6 +5056,8 @@ export interface GroupType {
     name_plural?: string | null
     detail_dashboard?: number | null
     default_columns?: string[]
+    /** When ingestion auto-created this group type. Null for types created before this was recorded. */
+    created_at?: string | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>

@@ -32,6 +32,7 @@ from posthog.tasks.email import (
     send_async_migration_errored_email,
     send_batch_export_run_failure,
     send_canary_email,
+    send_code_based_verification,
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_sending_reputation_finding,
@@ -527,7 +528,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     @patch("posthog.tasks.email.ph_scoped_capture")
     def test_send_wizard_pr_ready_email_uses_customer_io_context(
-        self, _mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+        self, mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard@posthog.com")
@@ -553,6 +554,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         send_wizard_pr_ready_email(str(run.id))
 
+        capture = mock_ph_scoped_capture.return_value.__enter__.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "wizard pr ready email sent"
+        assert capture.call_args.kwargs["distinct_id"] == user.distinct_id
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         call_kwargs = MockEmailMessage.call_args.kwargs
@@ -654,11 +660,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mock_scoped_capture.return_value.__enter__.return_value.assert_called_once_with(
             event="verification code sent",
             distinct_id=user.distinct_id,
+            properties={"$update_person_last_seen_at": False},
             groups={"organization": str(user.current_organization_id)},
         )
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    @patch("posthog.tasks.email.posthoganalytics.capture")
+    def test_send_code_based_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
+        MockEmailMessage.return_value.send.return_value = False
+
+        send_code_based_verification(self.user.id, "123456")
+
+        mock_capture.assert_called_once_with(
+            event="login verification code sent",
+            distinct_id=str(self.user.distinct_id),
+            properties={"$update_person_last_seen_at": False},
+            groups={"organization": str(self.user.current_organization_id)},
+        )
 
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -2130,7 +2150,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.tasks.email.get_client")
     @patch("posthog.tasks.email.check_and_cache_login_device")
     def test_login_from_new_device_notification(
-        self, mock_check_device: MagicMock, _mock_get_client: MagicMock, MockEmailMessage: MagicMock
+        self, mock_check_device: MagicMock, mock_get_client: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mock_check_device.return_value = True  # Simulate new device
@@ -2152,6 +2172,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert html_body
         assert "Canada" in html_body
         assert "Google OAuth" in html_body
+        capture = mock_get_client.return_value.capture
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+        assert capture.call_args.kwargs["event"] == "login notification sent"
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
     @patch("posthog.tasks.email.get_client")
     @patch("posthog.tasks.email.check_and_cache_login_device")
