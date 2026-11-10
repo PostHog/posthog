@@ -50,11 +50,12 @@ describe('createSetupDetectionLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
     })
 
-    // An outage, a 403, a route a deploy has not rolled out yet, or a bodiless 4xx answers null
+    // An outage, a 401, a 403, a route a deploy has not rolled out yet, or a bodiless 4xx answers null
     // instead of failing, so it does not file an error tracking issue per product. Other failures
     // still reach the failure path.
     it.each([
         ['a 500', new ApiError('A server error occurred.', 500), 'detectStatusSuccess'],
+        ['a 401', new ApiError('Authentication credentials were not provided.', 401), 'detectStatusSuccess'],
         ['a 403', new ApiError('You do not have permission.', 403), 'detectStatusSuccess'],
         ['a dropped connection', new NetworkError('network', new TypeError('Failed to fetch')), 'detectStatusSuccess'],
         [
@@ -155,6 +156,7 @@ describe('createSetupDetectionLogic', () => {
             new ApiError('Project not found.', 404, undefined, { detail: 'Project not found.' }),
         ],
         ['403s on a resource the user cannot read', new ApiError('You do not have permission.', 403)],
+        ['401s after the session has ended', new ApiError('Authentication credentials were not provided.', 401)],
     ] as const)('stops polling once a request %s', async (_, error) => {
         jest.useFakeTimers()
         const detect = jest

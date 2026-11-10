@@ -290,9 +290,9 @@ async function detectOrNull(detect: () => Promise<ProductSetupStatus | null>): P
     }
 }
 
-// A 5xx, a dropped connection or a 403 says nothing about setup, and the gate treats null as
-// "cannot answer". Throwing would file one error tracking issue per product for each failure.
-// A 403 does not clear on retry, so it also stops the poll.
+// A 5xx, a dropped connection, a 401 or a 403 says nothing about setup, and the gate treats null
+// as "cannot answer". Throwing would file one error tracking issue per product for each failure.
+// A 403 does not clear on retry and a 401 means the session has ended, so both also stop the poll.
 async function detectOrNullOnOutageOrForbidden(
     detect: () => Promise<ProductSetupStatus | null>,
     onForbidden: () => void
@@ -300,7 +300,7 @@ async function detectOrNullOnOutageOrForbidden(
     try {
         return await detect()
     } catch (error) {
-        if (error instanceof ApiError && error.status === 403) {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
             onForbidden()
             return null
         }
