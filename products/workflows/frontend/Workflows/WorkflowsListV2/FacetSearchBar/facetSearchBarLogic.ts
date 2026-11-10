@@ -48,7 +48,6 @@ export type FacetSuggestion =
       })
     | (SuggestionRow & {
           kind: 'value'
-          /** The pill to add. */
           filter: FacetFilter
           /** The text typed before the value, kept as the search text. */
           rest: string
