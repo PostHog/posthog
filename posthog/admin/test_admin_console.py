@@ -339,7 +339,15 @@ class TestAdminConsoleViews(BaseTest):
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
         organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing", "Deletion", "Managed warehouse", "Legal documents"):
+        for title in (
+            "Overview",
+            "Teams",
+            "Billing",
+            "Personal API keys",
+            "Deletion",
+            "Managed warehouse",
+            "Legal documents",
+        ):
             assert title in organization_content
         assert f"/admin/console/teams/{self.team.pk}/" in organization_content
 
@@ -1411,15 +1419,16 @@ class TestAdminConsoleApiKeys(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def _personal_key(self) -> PersonalAPIKey:
+    def _personal_key(self, **fields: object) -> PersonalAPIKey:
         token = generate_random_token_personal()
-        return PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Leaked key",
-            secure_value=hash_key_value(token),
-            mask_value=mask_key_value(token),
-            scopes=["*"],
-        )
+        defaults: dict[str, object] = {
+            "user": self.user,
+            "label": "Leaked key",
+            "secure_value": hash_key_value(token),
+            "mask_value": mask_key_value(token),
+            "scopes": ["*"],
+        }
+        return PersonalAPIKey.objects.create(**{**defaults, **fields})
 
     @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
     def test_rolling_a_personal_api_key_notifies_the_user(self, exposed: MagicMock) -> None:
@@ -1438,6 +1447,53 @@ class TestAdminConsoleApiKeys(BaseTest):
         exposed.assert_called_once_with(
             self.user.id, key.id, old_mask_value, "This key was detected at https://example.com/leak."
         )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_an_organization_operation_changes_only_the_keys_that_reach_the_organization(
+        self, operation: str, exposed: MagicMock
+    ) -> None:
+        other = Organization.objects.create(name="Another organization")
+        self.user.join(organization=other)
+        outsider = User.objects.create_and_join(other, "outsider@example.com", None)
+        unscoped = self._personal_key(label="Unscoped key")
+        scoped_here = self._personal_key(label="Scoped here key", scoped_organizations=[str(self.organization.pk)])
+        out_of_reach = [
+            self._personal_key(label="Scoped elsewhere key", scoped_organizations=[str(other.pk)]),
+            self._personal_key(label="Outsider key", user=outsider),
+        ]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        tool = self.client.get(
+            f"/admin/console/tools/organization-personal-api-keys/?organization={self.organization.pk}"
+        )
+        preview = self.client.post(url, {"exposed_at": "https://example.com/leak", "reason": "Keys leaked"})
+        assert preview.status_code == 200
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert "Unscoped key" in tool.content.decode() and "Outsider key" not in tool.content.decode()
+        table = next(block for block in preview.context["page"].blocks if isinstance(block, Table))
+        assert {(row.cells[0].text, row.cells[3].text) for row in table.rows if isinstance(row, Row)} == {
+            ("Unscoped key", "Other organizations too"),
+            ("Scoped here key", "This organization only"),
+        }
+        assert set(
+            PersonalAPIKey.objects.filter(pk__in=[key.pk for key in out_of_reach]).values_list(
+                "secure_value", flat=True
+            )
+        ) == {key.secure_value for key in out_of_reach}
+        in_reach = PersonalAPIKey.objects.filter(pk__in=[unscoped.pk, scoped_here.pk])
+        if operation == "revoke-all":
+            assert not in_reach.exists()
+            exposed.delay.assert_not_called()
+        else:
+            old_values = {unscoped.secure_value, scoped_here.secure_value}
+            assert len(set(in_reach.values_list("secure_value", flat=True)) - old_values) == 2
+            assert exposed.delay.call_count == 2
+            exposed.delay.assert_any_call(
+                self.user.id, unscoped.id, unscoped.mask_value, "This key was detected at https://example.com/leak."
+            )
 
     @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
