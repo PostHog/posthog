@@ -1,7 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
@@ -11,27 +11,34 @@ import { sandboxSenderLogic } from '../../../../Channels/sandboxSenderLogic'
 import { workflowLogic } from '../../../workflowLogic'
 import { StepSchemaErrors } from '../components/StepSchemaErrors'
 import { WorkflowAutoSaveIndicator } from '../components/WorkflowAutoSaveIndicator'
-import { EmailSenderControl } from './EmailSenderControl'
-import { SandboxEmailAction, sandboxRecipient, withSandboxEmail } from './emailStepVariants'
+import { emailSenderControlLogic } from './emailSenderControlLogic'
+import { SandboxEmailAction, withSandboxEmail } from './emailStepVariants'
+import { SandboxSenderChoiceProvider } from './SandboxSenderChoiceProvider'
 
 export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmailAction> }): JSX.Element {
-    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const { setWorkflowAction } = useActions(workflowLogic)
-    const { sandboxStatus, provisioning, provisionError } = useValues(sandboxSenderLogic)
+    const { provisioning, provisionError } = useValues(sandboxSenderLogic)
     const { provisionSandboxSender } = useActions(sandboxSenderLogic)
-
     const action = node.data
+    const { chooseSender } = useActions(
+        emailSenderControlLogic({ workflowLogicProps: logicProps, actionId: action.id })
+    )
+
     const email = action.config.inputs.email
     const emailErrors = actionValidationErrorsById[action.id]?.emailErrors
-    const editEmail = (edit: Record<string, any>): void => setWorkflowAction(action.id, withSandboxEmail(action, edit))
-    const fromLine = sandboxStatus?.from_address
-        ? `${sandboxStatus.display_name} <${sandboxStatus.from_address}>`
-        : null
+    const editEmail = (edit: Record<string, any>): void => {
+        const integrationId = edit.from?.integrationId
+        if (typeof integrationId === 'number') {
+            chooseSender(integrationId)
+            return
+        }
+        setWorkflowAction(action.id, withSandboxEmail(action, edit))
+    }
 
     return (
         <>
             <StepSchemaErrors />
-            <EmailSenderControl actionId={action.id} />
             {provisionError && (
                 <LemonBanner
                     type="error"
@@ -44,45 +51,33 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
                     {provisionError}
                 </LemonBanner>
             )}
-            <LemonField.Pure label="From">
-                <span className="text-secondary truncate" translate="no" title={fromLine ?? undefined}>
-                    {fromLine ?? 'Sandbox sender'}
-                </span>
-            </LemonField.Pure>
-            <LemonField.Pure
-                label="To"
-                help="Only verified members of your organization receive sandbox email."
-                error={emailErrors?.to}
-            >
-                <LemonInput
-                    value={sandboxRecipient(action)}
-                    onChange={(value) => editEmail({ to: { ...email.value.to, email: value } })}
-                    placeholder="{{ person.properties.email }}"
-                    data-attr="workflow-sandbox-email-to"
-                />
-            </LemonField.Pure>
-            <EmailTemplater
-                key={action.id}
-                type="native_email_template"
-                value={
-                    {
-                        ...email.value,
-                        to: sandboxRecipient(action),
-                        from: '',
-                    } as Partial<EmailTemplate> as EmailTemplate
-                }
-                onChange={editEmail}
-                templating={email.templating}
-                onChangeTemplating={(templating) =>
-                    setWorkflowAction(action.id, {
-                        ...action,
-                        config: { ...action.config, inputs: { email: { ...email, templating } } },
-                    })
-                }
-                liveChanges
-                saveIndicator={<WorkflowAutoSaveIndicator />}
-                fieldErrors={emailErrors}
-            />
+            <SandboxSenderChoiceProvider actionId={action.id}>
+                <LemonField.Pure label="Email message">
+                    <EmailTemplater
+                        key={action.id}
+                        type="native_email_sandbox"
+                        value={
+                            // Like an own step's input, this form keeps To as { email, name } rather than the type's string.
+                            {
+                                ...email.value,
+                                to: { email: '', ...email.value.to },
+                                from: {},
+                            } as unknown as EmailTemplate
+                        }
+                        onChange={editEmail}
+                        templating={email.templating}
+                        onChangeTemplating={(templating) =>
+                            setWorkflowAction(action.id, {
+                                ...action,
+                                config: { ...action.config, inputs: { email: { ...email, templating } } },
+                            })
+                        }
+                        liveChanges
+                        saveIndicator={<WorkflowAutoSaveIndicator />}
+                        fieldErrors={emailErrors}
+                    />
+                </LemonField.Pure>
+            </SandboxSenderChoiceProvider>
         </>
     )
 }

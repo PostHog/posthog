@@ -6,7 +6,7 @@ import { AiTaskInstructionsCompare } from './components/AiTaskInstructionsCompar
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { OptOutOfMessagesConfiguration } from './components/OptOutOfMessagesConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { EmailSenderControl } from './email/EmailSenderControl'
+import { SandboxSenderChoiceProvider } from './email/SandboxSenderChoiceProvider'
 import { StepFunctionNode } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
@@ -18,10 +18,25 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
     const inputs = node.data.config.inputs
     const mappings = 'mappings' in node.data.config ? node.data.config.mappings : undefined
 
+    const functionConfiguration = (
+        <HogFlowFunctionConfiguration
+            // Remount per node: the input renderer snapshots its values on mount, so switching to
+            // another step of the same template must remount to show the newly selected node's inputs.
+            key={node.id}
+            templateId={templateId}
+            inputs={inputs}
+            setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
+            mappings={mappings}
+            setMappings={(mappings) => partialSetWorkflowActionConfig(node.id, { mappings })}
+            errors={validationResult?.errors}
+            warnings={validationResult?.warnings}
+            emailFieldErrors={validationResult?.emailErrors}
+        />
+    )
+
     return (
         <>
             <StepSchemaErrors />
-            {node.data.type === 'function_email' && <EmailSenderControl actionId={node.id} />}
             {templateId === 'template-posthog-create-task' && <AiTaskInstructionsCompare actionId={node.id} />}
             {templateId === 'template-posthog-opt-out-of-messages' && (
                 <OptOutOfMessagesConfiguration
@@ -36,20 +51,10 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                     setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
                     error={validationResult?.errors?.cohort_id}
                 />
+            ) : node.data.type === 'function_email' ? (
+                <SandboxSenderChoiceProvider actionId={node.id}>{functionConfiguration}</SandboxSenderChoiceProvider>
             ) : (
-                <HogFlowFunctionConfiguration
-                    // Remount per node: the input renderer snapshots its values on mount, so switching to
-                    // another step of the same template must remount to show the newly selected node's inputs.
-                    key={node.id}
-                    templateId={templateId}
-                    inputs={inputs}
-                    setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
-                    mappings={mappings}
-                    setMappings={(mappings) => partialSetWorkflowActionConfig(node.id, { mappings })}
-                    errors={validationResult?.errors}
-                    warnings={validationResult?.warnings}
-                    emailFieldErrors={validationResult?.emailErrors}
-                />
+                functionConfiguration
             )}
         </>
     )

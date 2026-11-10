@@ -1,11 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode, useMemo } from 'react'
 
-import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import {
+    SandboxSenderChoice,
+    SandboxSenderChoiceContext,
+} from 'scenes/hog-functions/email-templater/SandboxSenderChoiceContext'
 
 import { workflowLogic } from '../../../workflowLogic'
-import { SenderChoice, emailSenderControlLogic } from './emailSenderControlLogic'
+import { emailSenderControlLogic } from './emailSenderControlLogic'
 import { OwnOnlySetting } from './emailStepVariants'
 
 const DROPPED_SETTING_LABELS: Record<OwnOnlySetting, string> = {
@@ -17,35 +21,30 @@ const DROPPED_SETTING_LABELS: Record<OwnOnlySetting, string> = {
     utm_tags: 'UTM tags on links',
 }
 
-/** Chooses between the project's verified senders and the sandbox sender. Hidden unless the sandbox sender is on offer. */
-export function EmailSenderControl({ actionId }: { actionId: string }): JSX.Element | null {
+export function SandboxSenderChoiceProvider({
+    actionId,
+    children,
+}: {
+    actionId: string
+    children: ReactNode
+}): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     const logic = emailSenderControlLogic({ workflowLogicProps: logicProps, actionId })
-    const { ownSenders, selectedSender, showSandboxOption, pendingSwitch } = useValues(logic)
+    const { action, showSandboxOption, sandboxStatus, pendingSwitch } = useValues(logic)
     const { chooseSender, confirmSwitch, cancelSwitch } = useActions(logic)
 
-    if (!showSandboxOption) {
-        return null
-    }
+    const selected = action?.type === 'email_sandbox'
+    const fromLine = sandboxStatus?.from_address
+        ? `${sandboxStatus.display_name} <${sandboxStatus.from_address}>`
+        : null
+    const choice = useMemo<SandboxSenderChoice | null>(
+        () => (showSandboxOption ? { selected, fromLine, onSelect: () => chooseSender('sandbox') } : null),
+        [showSandboxOption, selected, fromLine, chooseSender]
+    )
 
     return (
-        <>
-            <LemonField.Pure
-                label="Sender"
-                help="The sandbox sender works before you verify a domain. It only delivers to verified members of your organization."
-            >
-                <LemonSelect<SenderChoice>
-                    fullWidth
-                    value={selectedSender ?? undefined}
-                    onChange={chooseSender}
-                    placeholder="Choose a sender"
-                    options={[
-                        ...ownSenders.map((sender) => ({ value: sender.id, label: sender.display_name })),
-                        { value: 'sandbox' as const, label: 'Sandbox sender' },
-                    ]}
-                    data-attr="workflow-email-sender-control"
-                />
-            </LemonField.Pure>
+        <SandboxSenderChoiceContext.Provider value={choice}>
+            {children}
             <LemonModal
                 isOpen={!!pendingSwitch}
                 onClose={cancelSwitch}
@@ -72,6 +71,6 @@ export function EmailSenderControl({ actionId }: { actionId: string }): JSX.Elem
                     ))}
                 </ul>
             </LemonModal>
-        </>
+        </SandboxSenderChoiceContext.Provider>
     )
 }

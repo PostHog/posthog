@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useContext, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
@@ -48,6 +48,7 @@ import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { withInertLinks } from './emailPreviewHtml'
 import { EmailSenderSummary } from './EmailSenderSummary'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
@@ -246,6 +247,10 @@ function DestinationEmailTemplaterForm({
     )
 }
 
+// Below every integration ID, so it can't collide with a real sender.
+const SANDBOX_SENDER_VALUE = -2
+const SANDBOX_SENDER_LABEL = 'Sandbox sender'
+
 export function NativeEmailIntegrationChoice({
     label,
     onChange,
@@ -259,6 +264,7 @@ export function NativeEmailIntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
+    const sandbox = useContext(SandboxSenderChoiceContext)
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
@@ -275,10 +281,18 @@ export function NativeEmailIntegrationChoice({
             window.open(urls.workflows('channels'), '_blank')
             return
         }
+        if (integrationId === SANDBOX_SENDER_VALUE) {
+            sandbox?.onSelect()
+            return
+        }
         onChange({ ...value, integrationId, integrationIds: undefined })
     }
 
     const onChangeIntegrations = (integrationIds: number[]): void => {
+        if (integrationIds.includes(SANDBOX_SENDER_VALUE)) {
+            sandbox?.onSelect()
+            return
+        }
         if (integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS) {
             return
         }
@@ -289,7 +303,20 @@ export function NativeEmailIntegrationChoice({
         })
     }
 
-    if (!integrationsLoading && integrationsOfKind?.length === 0) {
+    const sandboxOption = {
+        label: SANDBOX_SENDER_LABEL,
+        value: SANDBOX_SENDER_VALUE,
+        labelInMenu: (
+            <div className="flex flex-col py-1">
+                <span>{SANDBOX_SENDER_LABEL}</span>
+                <span className="text-xs text-secondary">
+                    Works before you verify a domain. Delivers only to verified members of your organization.
+                </span>
+            </div>
+        ),
+    }
+
+    if (!sandbox && !integrationsLoading && integrationsOfKind?.length === 0) {
         return (
             <div className="flex gap-2 justify-between items-center">
                 {label}
@@ -314,18 +341,29 @@ export function NativeEmailIntegrationChoice({
         <div className="flex flex-col">
             <div className="flex gap-2 items-center">
                 {label}
-                {senderRotationEnabled ? (
+                {senderRotationEnabled && !sandbox?.selected ? (
                     <div className="flex flex-col flex-1">
                         <LemonInputSelect<number>
                             className="m-1 flex-1"
                             mode="multiple"
                             placeholder="Choose email senders"
                             loading={integrationsLoading}
-                            options={(integrationsOfKind || []).map((integration) => ({
-                                key: String(integration.id),
-                                label: integration.display_name,
-                                value: integration.id,
-                            }))}
+                            options={[
+                                ...(integrationsOfKind || []).map((integration) => ({
+                                    key: String(integration.id),
+                                    label: integration.display_name,
+                                    value: integration.id,
+                                })),
+                                ...(sandbox
+                                    ? [
+                                          {
+                                              key: String(SANDBOX_SENDER_VALUE),
+                                              label: SANDBOX_SENDER_LABEL,
+                                              value: SANDBOX_SENDER_VALUE,
+                                          },
+                                      ]
+                                    : []),
+                            ]}
                             value={selectedIntegrationIds}
                             size="small"
                             fullWidth
@@ -357,6 +395,7 @@ export function NativeEmailIntegrationChoice({
                                     value: integration.id,
                                 })),
                             },
+                            ...(sandbox ? [{ title: 'PostHog', options: [sandboxOption] }] : []),
                             {
                                 options: [
                                     {
@@ -367,14 +406,14 @@ export function NativeEmailIntegrationChoice({
                                 ],
                             },
                         ]}
-                        value={value?.integrationId}
+                        value={sandbox?.selected ? SANDBOX_SENDER_VALUE : value?.integrationId}
                         size="small"
                         fullWidth
                         onChange={onChangeIntegration}
                         data-attr="workflow-email-sender-select"
                     />
                 )}
-                {!overridesVisible && (
+                {!overridesVisible && !sandbox?.selected && (
                     <LemonButton
                         size="xsmall"
                         type="secondary"
@@ -388,6 +427,12 @@ export function NativeEmailIntegrationChoice({
                     </LemonButton>
                 )}
             </div>
+            {sandbox?.selected && (
+                <span className="px-2 pb-1 text-xs text-muted">
+                    {sandbox.fromLine ? `Sends as ${sandbox.fromLine}. ` : ''}Only verified members of your organization
+                    receive sandbox email.
+                </span>
+            )}
             {overridesVisible && (
                 <>
                     <div className="flex gap-2 items-center border-t">
@@ -912,6 +957,7 @@ function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fie
         case 'native_email_template':
         case 'native_email_transactional_template':
         case 'native_email':
+        case 'native_email_sandbox':
             return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
     }
 }
