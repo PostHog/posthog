@@ -2,6 +2,7 @@ import { Counter, Histogram } from 'prom-client'
 
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
+import { METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS } from '~/ingestion/pipelines/metrics/services/metrics-redis'
 import { MetricsIngestionMessage } from '~/ingestion/pipelines/metrics/types'
 
 const msToSeconds = (ms: number): number => Math.round(ms / 1000)
@@ -29,6 +30,25 @@ export type MetricsRateLimiterConfig = Pick<
     | 'METRICS_LIMITER_TTL_SECONDS'
     | 'METRICS_LIMITER_FAIL_OPEN'
 >
+
+// ioredis holds a command in its offline queue while it reconnects, and commandTimeout does not start
+// for a queued command. Without this bound, a Redis outage stalls the batch instead of failing open.
+const withFailOpenTimeout = async <T>(pending: Promise<T>): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined
+    try {
+        return await Promise.race([
+            pending,
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                    () => reject(new Error('Metrics rate limiter Redis call timed out')),
+                    METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS
+                )
+            }),
+        ])
+    } finally {
+        clearTimeout(timer)
+    }
+}
 
 export const BASE_REDIS_KEY =
     process.env.NODE_ENV == 'test' ? '@posthog-test/metrics-rate-limiter' : '@posthog/metrics-rate-limiter'
@@ -136,11 +156,12 @@ export class MetricsRateLimiterService {
     public async rateLimitMany(idCosts: [string, number, number][]): Promise<[string, MetricsRateLimit][]> {
         let res: Awaited<ReturnType<RedisV2['usePipeline']>>
         try {
-            res = await this.redis.usePipeline({ name: 'metrics-rate-limiter', failOpen: true }, (pipeline) => {
+            const pending = this.redis.usePipeline({ name: 'metrics-rate-limiter', failOpen: true }, (pipeline) => {
                 idCosts.forEach(([id, cost, nowSeconds]) => {
                     pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost, nowSeconds))
                 })
             })
+            res = this.config.METRICS_LIMITER_FAIL_OPEN ? await withFailOpenTimeout(pending) : await pending
         } catch (error) {
             if (!this.config.METRICS_LIMITER_FAIL_OPEN) {
                 throw error
