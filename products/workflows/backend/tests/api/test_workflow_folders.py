@@ -401,14 +401,32 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("file_system_scopes_only", ["file_system:read", "file_system:write"], 403, 200),
-            ("with_workflow_write_scope", ["file_system:read", "file_system:write", "hog_flow:write"], 200, 404),
+            ("workflow_file_system_scopes_only", "hog_flows", ["file_system:read", "file_system:write"], 403, 200),
+            ("workflow_with_write_scope", "hog_flows", ["file_system:write", "hog_flow:write"], 200, 404),
+            (
+                "template_file_system_scopes_only",
+                "messaging_templates",
+                ["file_system:read", "file_system:write"],
+                403,
+                200,
+            ),
+            ("template_with_write_scope", "messaging_templates", ["file_system:write", "hog_flow:write"], 200, 404),
         ]
     )
-    def test_tree_delete_of_a_workflow_needs_the_workflow_write_scope(
-        self, _name: str, scopes: list[str], delete_status: int, workflow_status: int
+    def test_tree_delete_of_a_workflow_object_needs_the_workflow_write_scope(
+        self, _name: str, endpoint: str, scopes: list[str], delete_status: int, object_status: int
     ) -> None:
-        workflow_id, file = self._workflow_file_in_folder("archived")
+        if endpoint == "hog_flows":
+            object_id, file = self._workflow_file_in_folder("archived")
+        else:
+            object_id = self.client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/",
+                {"name": "Scoped email", "type": "email"},
+                format="json",
+            ).json()["id"]
+            file = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/", {"type": "message_template", "ref": object_id}
+            ).json()["results"][0]
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
@@ -418,8 +436,8 @@ class TestWorkflowFolders(APIBaseTest):
 
         self.assertEqual(deleted.status_code, delete_status, deleted.content)
         self.client.force_login(self.user)
-        workflow = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/")
-        self.assertEqual(workflow.status_code, workflow_status, workflow.content)
+        stored = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/{object_id}/")
+        self.assertEqual(stored.status_code, object_status, stored.content)
 
     def test_deleting_workflow_through_the_project_tree_records_activity(self) -> None:
         workflow_id, file = self._workflow_file_in_folder("archived")
