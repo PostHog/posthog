@@ -87,6 +87,14 @@ BILLING_EXEMPT_SCOUT_SKILLS: dict[str, str] = {
     "signals-scout-health-checks": SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
 }
 
+# Scout skills whose own runs never bill. This is a superset of `BILLING_EXEMPT_SCOUT_SKILLS`:
+# inbox-validation is seeded enabled for every team to re-check PostHog's resolved reports, so no
+# person chooses to run it. Its follow-up reports are about the team's own product, so they and
+# their implementation PRs stay billable, which is why it is not in `BILLING_EXEMPT_SCOUT_SKILLS`.
+BILLING_EXEMPT_SCOUT_RUN_SKILLS: frozenset[str] = frozenset(BILLING_EXEMPT_SCOUT_SKILLS) | {
+    "signals-scout-inbox-validation",
+}
+
 # Same policy for the signal channel: sources owned by PostHog systems (e.g. the temporal
 # health-checks pipeline, `posthog/temporal/health_checks/signal_emitter.py`). Per-signal
 # source_product never reaches Postgres, so this map is enforced where the report row is
