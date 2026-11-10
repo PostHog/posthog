@@ -249,7 +249,7 @@ export interface workflowFoldersLogicMeta {
             matchesText: MatchesText<WorkflowListRow>
         ) => WorkflowListRow[]
         hasActiveQuery: (value: FacetSearchValue) => boolean
-        showsAutomationSetup: (hasNoAutomations: any, folderDraft: WorkflowFolderDraft | null) => boolean
+        showsAutomationSetup: (hasNoAutomations: boolean, folderDraft: WorkflowFolderDraft | null) => boolean
         matchingTemplates: (
             folderSearchItems: WorkflowFolderFileRow[],
             value: FacetSearchValue,
