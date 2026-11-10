@@ -9,6 +9,8 @@ from collections.abc import Collection
 from typing import Final
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.alerts_platform.backend.facade.api import set_subscriber_destinations
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
@@ -45,9 +47,15 @@ def _sync_alerts(alert_ids: Collection[UUID]) -> None:
         sync_subscriber_destinations(alert)
 
 
-def backfill_subscriber_destinations(*, team_id: int | None = None) -> tuple[int, int]:
-    """Writes every insight alert's subscribers onto its platform copy, or one team's. Returns how many
-    alerts it wrote and how many had no copy. Safe to run again, because each write replaces."""
+@frozen
+class SubscriberBackfillCounts:
+    written: int
+    without_copy: int
+
+
+def backfill_subscriber_destinations(*, team_id: int | None = None) -> SubscriberBackfillCounts:
+    """Writes every insight alert's subscribers onto its platform copy, or one team's. Safe to run
+    again, because each write replaces."""
     alerts = AlertConfiguration.objects.select_related("insight")
     if team_id is not None:
         alerts = alerts.filter(team_id=team_id)
@@ -58,4 +66,4 @@ def backfill_subscriber_destinations(*, team_id: int | None = None) -> tuple[int
             written += 1
         else:
             without_copy += 1
-    return written, without_copy
+    return SubscriberBackfillCounts(written=written, without_copy=without_copy)

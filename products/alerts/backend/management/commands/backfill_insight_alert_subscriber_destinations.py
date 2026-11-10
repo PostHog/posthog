@@ -15,5 +15,7 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", type=int, help="Only this team's alerts.")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        written, without_copy = backfill_subscriber_destinations(team_id=options["team_id"])
-        self.stdout.write(f"Wrote subscribers for {written} alerts. {without_copy} alerts have no platform copy.")
+        counts = backfill_subscriber_destinations(team_id=options["team_id"])
+        self.stdout.write(
+            f"Wrote subscribers for {counts.written} alerts. {counts.without_copy} alerts have no platform copy."
+        )
