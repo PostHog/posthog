@@ -136,8 +136,7 @@ pub struct VerifyCounts {
     pub missing: u64,
     pub newer_in_slatedb: u64,
     pub rejected: u64,
-    /// Snapshot rows of a team listed as deleted; the erasure removed their keys, so they are
-    /// not judged.
+    /// Rows of a team listed as deleted, not judged since the erasure removed their keys.
     pub erased_team: u64,
     /// Deleted teams that still have keys in SlateDB.
     pub deleted_teams_present: u64,
@@ -466,8 +465,7 @@ impl Verifier<'_> {
         Ok(total)
     }
 
-    /// The teams the erasure removes, from the live database when one is given: a team deleted
-    /// after the snapshot is listed only there.
+    /// From the live database when given: a team deleted after the snapshot is listed only there.
     async fn deleted_teams(&self) -> Result<Vec<i64>, BackfillError> {
         let pool = self.live_pool.unwrap_or(self.pool);
         let teams: Vec<i32> =

@@ -1098,7 +1098,6 @@ async fn an_erasure_on_a_slow_store_advances_by_smaller_batches() {
     );
     slow.assign(&sole_partition(), 2, 1, || true).await.unwrap();
 
-    // Twenty blocks at this pace take four seconds, past the deadline; the scan keeps what it reached.
     let erased = slow
         .erase_team_in_batches(7, 100, Duration::from_secs(3))
         .await;
