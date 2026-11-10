@@ -104,6 +104,7 @@ from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
 from products.workflows.backend.facade.testing import create_workflow_for_test
@@ -7686,6 +7687,23 @@ class TestIntegrationDeletionHogFunctionGuard:
         content = response.content.decode()
         assert "Test batch export" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_blocked_when_a_warehouse_destination_writes_through_the_integration(self, client: HttpClient):
+        destination = ExternalDataDestination.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="private_destination_name",
+            integration_id=self.integration.id,
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "data warehouse destinations: 1" in content
+        assert "private_destination_name" not in content
+        destination.refresh_from_db()
+        assert destination.integration_id == self.integration.id
 
 
 class TestIntegrationRequestAccessAPI(APIBaseTest):

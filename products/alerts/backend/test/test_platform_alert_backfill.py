@@ -65,7 +65,9 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         real_time = self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value)
         quarter_hourly = self._alert(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)
         hourly = self._alert(calculation_interval=AlertCalculationInterval.HOURLY.value, schedule_start_time="09:30")
-        daily = self._alert(schedule_start_time="09:30", created_by=self.user)
+        daily = self._alert(
+            schedule_start_time="09:30", created_by=self.user, skip_weekend=True, evaluation_delay_intervals=2
+        )
         detector = self._alert(detector_config={"type": "zscore"})
         ai_detector = self._alert(detector_config={"type": "llm"})
         unparseable = self._alert(schedule_start_time="25:99")
@@ -97,6 +99,13 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             "threshold": THRESHOLD,
             "comparison": {"type": "absolute_value"},
             "detector": None,
+        }
+        assert {
+            key: copies[daily.id].source_config[key] for key in ("config", "skip_weekend", "evaluation_delay_intervals")
+        } == {
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "skip_weekend": True,
+            "evaluation_delay_intervals": 2,
         }
         assert copies[detector.id].source_config["condition"]["detector"] == {"type": "zscore"}
         assert (copies[daily.id].created_by_id, copies[detector.id].created_by_id) == (self.user.id, None)

@@ -71,6 +71,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_Q,
     GitHubInstallRequest,
+    ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
 )
@@ -359,6 +360,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         # GitHubRateLimitError as the team integration endpoints — same 429 mapping.
         if isinstance(exc, GitHubRateLimitError):
             return github_rate_limited_response(exc)
+        if isinstance(exc, ReauthorizationRequired):
+            exc = exceptions.PermissionDenied("Your GitHub connection has expired. Reconnect GitHub in settings.")
         return super().handle_exception(exc)
 
     def _get_user(self) -> User:
@@ -576,6 +579,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         integration = self._get_connected_github_integration(installation_id)
 
         github = UserGitHubIntegration(integration, source="github_branch_picker", priority=Priority.CRITICAL)
+        if not github.user_can_open_repository(repo):
+            raise exceptions.NotFound("Repository not found for this GitHub connection.")
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,

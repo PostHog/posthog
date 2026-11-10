@@ -220,6 +220,7 @@ export const notebooksModel = kea<notebooksModelType>([
             [] as NotebookListItemType[],
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
+                    const notebooks = values.notebooks
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
@@ -245,7 +246,7 @@ export const notebooksModel = kea<notebooksModelType>([
                         intent_context: ProductIntentContext.NOTEBOOK_CREATED,
                     })
 
-                    return [notebook, ...values.notebooks]
+                    return [notebook, ...notebooks]
                 },
 
                 deleteNotebook: async ({ shortId, title }) => {

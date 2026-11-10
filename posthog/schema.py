@@ -6051,6 +6051,12 @@ class ExperimentStatsBase(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
+    quantile_grid: list[float] | None = Field(
+        default=None,
+        description=(
+            "For quantile metrics: the quantile, then the lower and upper bound for each reference sample size."
+        ),
+    )
     step_counts: list[int] | None = None
     step_sessions: list[list[SessionData]] | None = None
     sum: float
@@ -6069,6 +6075,12 @@ class ExperimentStatsBaseValidated(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
+    quantile_grid: list[float] | None = Field(
+        default=None,
+        description=(
+            "For quantile metrics: the quantile, then the lower and upper bound for each reference sample size."
+        ),
+    )
     step_counts: list[int] | None = None
     step_sessions: list[list[SessionData]] | None = None
     sum: float
@@ -6091,6 +6103,12 @@ class ExperimentVariantResultBayesian(BaseModel):
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
+    quantile_grid: list[float] | None = Field(
+        default=None,
+        description=(
+            "For quantile metrics: the quantile, then the lower and upper bound for each reference sample size."
+        ),
+    )
     significant: bool | None = None
     step_counts: list[int] | None = None
     step_sessions: list[list[SessionData]] | None = None
@@ -6114,6 +6132,12 @@ class ExperimentVariantResultFrequentist(BaseModel):
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     p_value: float | None = None
+    quantile_grid: list[float] | None = Field(
+        default=None,
+        description=(
+            "For quantile metrics: the quantile, then the lower and upper bound for each reference sample size."
+        ),
+    )
     significant: bool | None = None
     step_counts: list[int] | None = None
     step_sessions: list[list[SessionData]] | None = None
@@ -6812,6 +6836,13 @@ class MCPToolFailureItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cause: str = Field(
+        ...,
+        description=(
+            "$mcp_error_message with ids and numbers masked; the grouping key within a"
+            " type. Empty when no message was captured."
+        ),
+    )
     error_status: str = Field(
         ...,
         description=("Raw $mcp_error_status as a string; empty when the bucket has no HTTP status."),
@@ -6836,6 +6867,7 @@ class MCPToolFailureItem(BaseModel):
         ),
     )
     occurrences: int
+    sample_message: str = Field(..., description="Newest raw error message in this group.")
 
 
 class MCPToolNeighborItem(BaseModel):
@@ -19608,6 +19640,14 @@ class ExperimentApiMetric(BaseModel):
             " thresholds."
         ),
     )
+    quantile: confloat(ge=0.01, le=0.99) | None = Field(
+        default=None,
+        description=(
+            "For quantile metrics: the quantile level, for example 0.9 for p90. The"
+            " metric takes this quantile of `source.math_property` over all qualifying"
+            " events of a variant."
+        ),
+    )
     retention_window_end: int | None = None
     retention_window_start: int | None = None
     retention_window_unit: FunnelConversionWindowTimeUnit | None = None
@@ -19615,7 +19655,10 @@ class ExperimentApiMetric(BaseModel):
         default=None,
         description="For funnel metrics: array of EventsNode/ActionsNode steps.",
     )
-    source: ExperimentApiEventSource | None = Field(default=None, description="For mean metrics: event source.")
+    source: ExperimentApiEventSource | None = Field(
+        default=None,
+        description=("For mean and quantile metrics: event source. Quantile metrics need `math_property`."),
+    )
     start_event: ExperimentApiRetentionStart | None = Field(
         default=None,
         description=(
@@ -32810,6 +32853,13 @@ class MCPToolFailureOccurrencesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cause: str | None = Field(
+        default=None,
+        description=(
+            "When set, only events whose masked message equals this failures-table"
+            ' `cause` match; "" selects events without a message.'
+        ),
+    )
     dateRange: DateRange | None = None
     errorStatus: str | None = Field(
         default=None,
@@ -35855,6 +35905,19 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     series: list[Annotated[EventsNode | ActionsNode | ExperimentDataWarehouseNode, Field(discriminator="kind")]]
 
 
+class ExperimentQuantileMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric_type: Literal["quantile"] = "quantile"
+    quantile: confloat(ge=0.01, le=0.99) = Field(..., description="Quantile level, for example 0.9 for p90.")
+    source: EventsNode | ActionsNode = Field(
+        ...,
+        description=("Must set `math_property`, the numeric property to take the quantile of. `math` is ignored."),
+        discriminator="kind",
+    )
+
+
 class ExperimentRatioMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -36393,6 +36456,31 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     )
 
 
+class ExperimentQuantileMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownFilter: BreakdownFilter | None = None
+    conversion_window: int | None = None
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
+    fingerprint: str | None = None
+    goal: ExperimentMetricGoal | None = None
+    isSharedMetric: bool | None = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["quantile"] = "quantile"
+    name: str | None = None
+    quantile: confloat(ge=0.01, le=0.99) = Field(..., description="Quantile level, for example 0.9 for p90.")
+    response: dict[str, Any] | None = None
+    sharedMetricId: float | None = None
+    source: EventsNode | ActionsNode = Field(
+        ...,
+        description=("Must set `math_property`, the numeric property to take the quantile of. `math` is ignored."),
+        discriminator="kind",
+    )
+    uuid: str | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ExperimentRetentionMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -36798,6 +36886,7 @@ class ExperimentMetricTypeProps(
         | ExperimentFunnelMetricTypeProps
         | ExperimentRatioMetricTypeProps
         | ExperimentRetentionMetricTypeProps
+        | ExperimentQuantileMetricTypeProps
     ]
 ):
     root: (
@@ -36805,6 +36894,7 @@ class ExperimentMetricTypeProps(
         | ExperimentFunnelMetricTypeProps
         | ExperimentRatioMetricTypeProps
         | ExperimentRetentionMetricTypeProps
+        | ExperimentQuantileMetricTypeProps
     )
 
 
@@ -36952,11 +37042,21 @@ class EndpointRequest(BaseModel):
 
 
 class ExperimentMetric(
-    RootModel[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric]
+    RootModel[
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentQuantileMetric
+    ]
 ):
-    root: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
+    root: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentQuantileMetric
+    ) = Field(..., discriminator="metric_type")
 
 
 class ExperimentQuery(BaseModel):
@@ -36965,9 +37065,13 @@ class ExperimentQuery(BaseModel):
     )
     experiment_id: int | None = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentQuantileMetric
+    ) = Field(..., discriminator="metric_type")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     precomputation_mode: PrecomputationMode | None = None
@@ -37025,9 +37129,13 @@ class NamedArgs2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentQuantileMetric
+    ) = Field(..., discriminator="metric_type")
 
 
 class IsExperimentFunnelMetric(BaseModel):
@@ -37035,6 +37143,10 @@ class IsExperimentFunnelMetric(BaseModel):
 
 
 class IsExperimentMeanMetric(BaseModel):
+    namedArgs: NamedArgs2 | None = None
+
+
+class IsExperimentQuantileMetric(BaseModel):
     namedArgs: NamedArgs2 | None = None
 
 

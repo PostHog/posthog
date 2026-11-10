@@ -5909,6 +5909,33 @@ export interface ExperimentRetentionMetricApi {
     version?: number | null
 }
 
+export type ExperimentQuantileMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentQuantileMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type?: 'quantile'
+    name?: string | null
+    /**
+     * Quantile level, for example 0.9 for p90.
+     * @minimum 0.01
+     * @maximum 0.99
+     */
+    quantile: number
+    response?: ExperimentQuantileMetricApiResponse
+    sharedMetricId?: number | null
+    /** Must set `math_property`, the numeric property to take the quantile of. `math` is ignored. */
+    source: EventsNodeApi | ActionsNodeApi
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type PrecomputationModeApi = (typeof PrecomputationModeApi)[keyof typeof PrecomputationModeApi]
 
 export const PrecomputationModeApi = {
@@ -5941,6 +5968,8 @@ export interface ExperimentStatsBaseValidatedApi {
     key: string
     number_of_samples: number
     numerator_denominator_sum_product?: number | null
+    /** For quantile metrics: the quantile, then the lower and upper bound for each reference sample size. */
+    quantile_grid?: number[] | null
     step_counts?: number[] | null
     step_sessions?: SessionDataApi[][] | null
     sum: number
@@ -5960,6 +5989,8 @@ export interface ExperimentVariantResultFrequentistApi {
     number_of_samples: number
     numerator_denominator_sum_product?: number | null
     p_value?: number | null
+    /** For quantile metrics: the quantile, then the lower and upper bound for each reference sample size. */
+    quantile_grid?: number[] | null
     significant?: boolean | null
     step_counts?: number[] | null
     step_sessions?: SessionDataApi[][] | null
@@ -5980,6 +6011,8 @@ export interface ExperimentVariantResultBayesianApi {
     method?: 'bayesian'
     number_of_samples: number
     numerator_denominator_sum_product?: number | null
+    /** For quantile metrics: the quantile, then the lower and upper bound for each reference sample size. */
+    quantile_grid?: number[] | null
     significant?: boolean | null
     step_counts?: number[] | null
     step_sessions?: SessionDataApi[][] | null
@@ -6019,6 +6052,7 @@ export interface ExperimentQueryApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
+        | ExperimentQuantileMetricApi
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     name?: string | null
@@ -9358,12 +9392,14 @@ export interface PaginatedInsightListApi {
 
 /**
  * * `time_series` - Time series
+ * * `funnel_steps` - Funnel steps
  */
 export type ChartExplanationShapeEnumApi =
     (typeof ChartExplanationShapeEnumApi)[keyof typeof ChartExplanationShapeEnumApi]
 
 export const ChartExplanationShapeEnumApi = {
     TimeSeries: 'time_series',
+    FunnelSteps: 'funnel_steps',
 } as const
 
 export interface StorySeriesResultApi {
@@ -9382,6 +9418,19 @@ export interface StorySeriesResultApi {
      * @maxItems 5000
      */
     days?: string[]
+}
+
+export interface StoryFunnelStepApi {
+    /**
+     * The step's name.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * How many reached the step.
+     * @minimum 0
+     */
+    count: number
 }
 
 /**
@@ -9549,21 +9598,30 @@ export interface StoryChapterApi {
 }
 
 /**
- * The insight query the explanation follows.
+ * The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.
  */
 export type ExplainChartDataApiQuery = { [key: string]: unknown }
 
 export interface ExplainChartDataApi {
     /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
      *
-     * * `time_series` - Time series */
+     * * `time_series` - Time series
+     * * `funnel_steps` - Funnel steps */
     shape?: ChartExplanationShapeEnumApi
-    /** The insight query the explanation follows. */
+    /** The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps. */
     query: ExplainChartDataApiQuery
-    /** Every series on the chart when it was explained. */
-    results: StorySeriesResultApi[]
+    /** Every series on the chart when it was explained. Time series only. */
+    results?: StorySeriesResultApi[]
+    /** The followed breakdown value's steps when it was explained. Funnel steps only. */
+    steps?: StoryFunnelStepApi[]
     /**
-     * The index in `results` the explanation follows.
+     * Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only.
+     * @maxItems 1000
+     * @items.maxLength 400
+     */
+    breakdowns?: string[]
+    /**
+     * The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.
      * @minimum 0
      */
     seriesIndex: number
@@ -9573,8 +9631,8 @@ export interface ExplainChartDataApi {
      * @nullable
      */
     insightName: string | null
-    /** Whether the last point's period had not ended yet. */
-    lastPointInProgress: boolean
+    /** Whether the last point's period had not ended yet. Time series only. */
+    lastPointInProgress?: boolean
     /**
      * One sentence a person could read in place of the whole explanation.
      * @maxLength 300
