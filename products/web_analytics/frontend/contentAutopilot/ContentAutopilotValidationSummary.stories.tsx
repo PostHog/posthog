@@ -8,7 +8,7 @@ const meta: Meta<typeof ContentAutopilotValidationSummary> = {
     title: 'Products/Web Analytics/Content autopilot/Validation summary',
     component: ContentAutopilotValidationSummary,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
     },
 }
 

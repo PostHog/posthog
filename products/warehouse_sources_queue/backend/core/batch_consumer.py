@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import time
 import random
 import signal
@@ -246,6 +247,23 @@ def _is_executor_shutdown_error(error: BaseException) -> bool:
     return isinstance(error, RuntimeError) and _EXECUTOR_SHUTDOWN_ERROR_MARKER in str(error).lower()
 
 
+# libpq's bare English "Connection refused": the TCP connect to the queue DB was refused outright
+# because nothing is listening yet — a pod restarting during a deploy or failover, or a managed
+# Postgres instance mid-failover before the new primary's listener comes up. The connect fails
+# before any protocol handshake, so nothing was sent and nothing to roll back. Self-healing, like
+# the other startup/failover shapes above: the listener comes back within seconds, so this
+# shouldn't crash the consumer or page anyone. Distinct from the source-side postgres connector's
+# treatment of the same bare wording (sources/postgres/postgres.py): that host/port is customer
+# supplied, so a refusal there is a permanent misconfiguration rather than our own infra blipping.
+_CONNECTION_REFUSED_ERROR_MARKER = "connection refused"
+
+
+def _is_connection_refused_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return _CONNECTION_REFUSED_ERROR_MARKER in str(error).lower()
+
+
 def _is_transient_queue_db_error(error: BaseException) -> bool:
     """Whether `error` is the queue DB being briefly unavailable rather than a bug.
 
@@ -260,6 +278,7 @@ def _is_transient_queue_db_error(error: BaseException) -> bool:
         or _is_connection_dropped_error(error)
         or _is_pooler_query_wait_timeout_error(error)
         or _is_pooler_login_retry_cached_error(error)
+        or _is_connection_refused_error(error)
     )
 
 
@@ -580,6 +599,7 @@ class BatchConsumer:
         # batch_id -> the attempt this consumer wrote as 'executing', for the shutdown marker.
         self._executing: dict[str, ExecutingAttempt] = {}
         self._last_stuck_log_monotonic = 0.0
+        self._stack_dumped_batch_id: str | None = None
         # Consecutive failed polls, for the poll-failure liveness trip.
         self._consecutive_poll_failures = 0
         self._last_poll_failure_log_monotonic = 0.0
@@ -2011,10 +2031,16 @@ class BatchConsumer:
             now = time.monotonic()
             oldest_id, oldest_started = min(self._inflight_started.items(), key=lambda kv: kv[1])
             if now - oldest_started > timeout:
+                progress = self._inflight_progress.get(oldest_id)
+                phase, phase_seconds = progress.snapshot() if progress is not None else ("unknown", 0.0)
+                if self._stack_dumped_batch_id != oldest_id:
+                    # Worker threads can hang in native code while the event loop stays alive, so the
+                    # timer-based stall dump never fires. Dump once per stuck batch before the pod restarts.
+                    self._stack_dumped_batch_id = oldest_id
+                    logger.error(self._event("stuck_batch_stack_dump"), batch_id=oldest_id, phase=phase)
+                    faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
                 if now - self._last_stuck_log_monotonic > 60:
                     self._last_stuck_log_monotonic = now
-                    progress = self._inflight_progress.get(oldest_id)
-                    phase, phase_seconds = progress.snapshot() if progress is not None else ("unknown", 0.0)
                     logger.error(
                         self._event("stuck_batch_watchdog_tripped"),
                         batch_id=oldest_id,

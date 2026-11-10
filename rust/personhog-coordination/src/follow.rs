@@ -13,15 +13,33 @@ use tracing::info;
 
 use crate::changelog::{watch_changelog_config_loop, CHANGELOG_RECONCILE_INTERVAL};
 use crate::store::PersonhogStore;
-use crate::types::{ChangelogConfig, DrainReport};
+use crate::types::{ChangelogConfig, ClusterEndpoint, DrainReport};
 
 /// How often a consumer on a sealed generation re-checks its group's drain.
 /// Each check reads every partition of the generation under a probe group.
 pub const DRAIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
+pub const REBIND_LOG: &str =
+    "the next changelog generation lives on another cluster; restarting to subscribe there";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FollowTarget {
+    pub topic: String,
+    pub cluster: Option<ClusterEndpoint>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum FollowStep {
+    Stayed,
+    Moved(String),
+    /// The next topic lives on another cluster; the process restarts to subscribe there.
+    Rebind(FollowTarget),
+}
+
 /// The consumer side of a followed subscription.
 pub trait ChangelogSubscription {
     fn topic(&self) -> String;
+    fn cluster(&self) -> Option<ClusterEndpoint>;
     /// Only called once the group has drained the current topic.
     fn resubscribe(&self, topic: &str) -> Result<(), String>;
     fn set_draining(&self, draining: bool);
@@ -43,9 +61,9 @@ impl Follower {
         &mut self,
         changelog: &ChangelogConfig,
         drained: F,
-    ) -> Result<String, String>
+    ) -> Result<FollowTarget, String>
     where
-        F: Fn(String) -> Fut,
+        F: Fn(FollowTarget) -> Fut,
         Fut: Future<Output = Result<bool, String>>,
     {
         let mut generations = changelog.draining.clone();
@@ -54,52 +72,67 @@ impl Follower {
             if self.drained.contains(&generation.topic) {
                 continue;
             }
-            if !drained(generation.topic.clone()).await? {
-                return Ok(generation.topic);
+            let target = FollowTarget {
+                topic: generation.topic.clone(),
+                cluster: generation.cluster.clone(),
+            };
+            if !drained(target.clone()).await? {
+                return Ok(target);
             }
             self.unreported.push(generation.topic.clone());
             self.drained.insert(generation.topic);
         }
-        Ok(changelog.topic.clone())
+        Ok(FollowTarget {
+            topic: changelog.topic.clone(),
+            cluster: changelog.cluster.clone(),
+        })
     }
 
-    /// One pass of the follow loop; returns the topic it moved off, if it moved.
-    /// The draining flag follows the config before the subscription is touched,
-    /// so it holds whether or not the subscription moved.
+    /// One pass of the follow loop. The draining flag follows the config
+    /// before the subscription is touched, so it holds whether or not the
+    /// subscription moved.
     pub async fn follow_once<S, F, Fut>(
         &mut self,
         subscription: &S,
         changelog: &ChangelogConfig,
         drained: F,
-    ) -> Result<Option<String>, String>
+    ) -> Result<FollowStep, String>
     where
         S: ChangelogSubscription + ?Sized,
-        F: Fn(String) -> Fut,
+        F: Fn(FollowTarget) -> Fut,
         Fut: Future<Output = Result<bool, String>>,
     {
         let wanted = self.select_topic(changelog, &drained).await?;
         let subscribed = subscription.topic();
         // A generation can leave the config before this group drains it, when
         // retire stops waiting on the group; finish reading it before moving on.
-        if subscribed != wanted
+        if subscribed != wanted.topic
             && subscribed != changelog.topic
             && !self.drained.contains(&subscribed)
         {
-            if !drained(subscribed.clone()).await? {
+            let current = FollowTarget {
+                topic: subscribed.clone(),
+                cluster: subscription.cluster(),
+            };
+            if !drained(current).await? {
                 subscription.set_draining(true);
-                return Ok(None);
+                return Ok(FollowStep::Stayed);
             }
             self.drained.insert(subscribed.clone());
         }
-        subscription.set_draining(wanted != changelog.topic);
-        if wanted == subscribed {
-            return Ok(None);
+        subscription.set_draining(wanted.topic != changelog.topic);
+        if wanted.topic == subscribed {
+            return Ok(FollowStep::Stayed);
+        }
+        // Every move follows a proven drain, so nothing is left to commit on the old cluster.
+        if wanted.cluster != subscription.cluster() {
+            return Ok(FollowStep::Rebind(wanted));
         }
         subscription
-            .resubscribe(&wanted)
-            .map_err(|e| format!("re-subscribe to {wanted}: {e}"))?;
-        info!(from = %subscribed, to = %wanted, "moved the subscription");
-        Ok(Some(subscribed))
+            .resubscribe(&wanted.topic)
+            .map_err(|e| format!("re-subscribe to {}: {e}", wanted.topic))?;
+        info!(from = %subscribed, to = %wanted.topic, "moved the subscription");
+        Ok(FollowStep::Moved(subscribed))
     }
 
     /// Writes a drain report for every generation proven drained since the
@@ -159,9 +192,10 @@ pub async fn follow_changelog<S, F, Fut, M>(
     reporter: Reporter,
     on_move: M,
     cancel: CancellationToken,
-) where
+) -> Option<FollowTarget>
+where
     S: ChangelogSubscription + ?Sized,
-    F: Fn(String) -> Fut,
+    F: Fn(FollowTarget) -> Fut,
     Fut: Future<Output = Result<bool, String>>,
     M: Fn(&str, &str),
 {
@@ -185,8 +219,18 @@ pub async fn follow_changelog<S, F, Fut, M>(
                 .follow_once(subscription.as_ref(), &current, &drained)
                 .await
             {
-                Ok(Some(from)) => on_move(&from, &subscription.topic()),
-                Ok(None) => {}
+                Ok(FollowStep::Moved(from)) => on_move(&from, &subscription.topic()),
+                Ok(FollowStep::Stayed) => {}
+                Ok(FollowStep::Rebind(next)) => {
+                    // Reports first, so the drain this move rests on is recorded before the restart.
+                    follower.report(&store, &reporter).await;
+                    tracing::warn!(
+                        topic = %next.topic,
+                        cluster = ?next.cluster.as_ref().map(|c| &c.name),
+                        "{REBIND_LOG}"
+                    );
+                    return Some(next);
+                }
                 Err(e) => tracing::warn!(
                     error = %e,
                     "could not follow the changelog config; keeping the subscription"
@@ -201,7 +245,7 @@ pub async fn follow_changelog<S, F, Fut, M>(
             tokio::select! {
                 changed = config_rx.changed() => {
                     if changed.is_err() {
-                        return;
+                        return None;
                     }
                 }
                 _ = tokio::time::sleep(poll) => {}
@@ -209,9 +253,9 @@ pub async fn follow_changelog<S, F, Fut, M>(
         }
     };
     tokio::select! {
-        _ = cancel.cancelled() => {}
-        _ = watch => {}
-        _ = follow => {}
+        _ = cancel.cancelled() => None,
+        _ = watch => None,
+        next = follow => next,
     }
 }
 
@@ -224,12 +268,17 @@ mod tests {
 
     struct Subscription {
         topic: Mutex<String>,
+        cluster: Option<ClusterEndpoint>,
         draining: AtomicBool,
     }
 
     impl ChangelogSubscription for Subscription {
         fn topic(&self) -> String {
             self.topic.lock().unwrap().clone()
+        }
+
+        fn cluster(&self) -> Option<ClusterEndpoint> {
+            self.cluster.clone()
         }
 
         fn resubscribe(&self, topic: &str) -> Result<(), String> {
@@ -250,6 +299,7 @@ mod tests {
     async fn a_generation_retired_before_the_group_drained_it_is_read_to_the_end() {
         let subscription = Subscription {
             topic: Mutex::new("old".to_string()),
+            cluster: None,
             draining: AtomicBool::new(true),
         };
         let live = ChangelogConfig::new("new", 8);
@@ -259,7 +309,7 @@ mod tests {
             .follow_once(&subscription, &live, |_| async { Ok(false) })
             .await
             .unwrap();
-        assert_eq!(moved, None);
+        assert_eq!(moved, FollowStep::Stayed);
         assert_eq!(subscription.topic(), "old");
         assert!(subscription.is_draining());
 
@@ -267,8 +317,61 @@ mod tests {
             .follow_once(&subscription, &live, |_| async { Ok(true) })
             .await
             .unwrap();
-        assert_eq!(moved, Some("old".to_string()));
+        assert_eq!(moved, FollowStep::Moved("old".to_string()));
         assert_eq!(subscription.topic(), "new");
         assert!(!subscription.is_draining());
+    }
+
+    #[tokio::test]
+    async fn a_successor_on_another_cluster_rebinds_instead_of_resubscribing() {
+        let subscription = Subscription {
+            topic: Mutex::new("old".to_string()),
+            cluster: None,
+            draining: AtomicBool::new(true),
+        };
+        let mut live = ChangelogConfig::new("new", 8);
+        let dedicated = ClusterEndpoint {
+            name: "dedicated".to_string(),
+            hosts: "dedicated:9092".to_string(),
+            tls: false,
+        };
+        live.cluster = Some(dedicated.clone());
+        // The subscription predates the recorded cluster, so the probe must use the generation's.
+        let ingestion = ClusterEndpoint {
+            name: "ingestion".to_string(),
+            hosts: "ingestion:9092".to_string(),
+            tls: false,
+        };
+        live.draining.push(crate::types::Generation {
+            topic: "old".to_string(),
+            partitions: 4,
+            epoch: 1,
+            cluster: Some(ingestion.clone()),
+        });
+        let probed = Mutex::new(Vec::new());
+        let mut follower = Follower::default();
+
+        let step = follower
+            .follow_once(&subscription, &live, |target| {
+                probed.lock().unwrap().push(target);
+                async { Ok(true) }
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            step,
+            FollowStep::Rebind(FollowTarget {
+                topic: "new".to_string(),
+                cluster: Some(dedicated),
+            })
+        );
+        assert_eq!(subscription.topic(), "old");
+        assert_eq!(
+            probed.lock().unwrap().first(),
+            Some(&FollowTarget {
+                topic: "old".to_string(),
+                cluster: Some(ingestion),
+            })
+        );
     }
 }

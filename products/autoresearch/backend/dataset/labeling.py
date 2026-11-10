@@ -52,7 +52,7 @@ from posthog.hogql.property import action_to_expr
 
 from posthog.dataclasses import frozen
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -711,7 +711,7 @@ def build_target_condition(
         # Scope the lookup to the pipeline's project so a foreign action id can't leak across
         # tenants. Actions live on the project's root team, so a team match would miss them
         # from any other environment of the same project.
-        action = Action.objects.get(id=action_id, team__project_id=team.project_id, deleted=False)
+        action = get_action(action_id=action_id, project_id=team.project_id, include_deleted=False)
         if not action.steps:
             # action_to_expr compiles an empty step list to a constant true, which would label
             # every event in the horizon a positive.

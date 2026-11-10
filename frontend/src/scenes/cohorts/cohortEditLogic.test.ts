@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
@@ -33,6 +34,7 @@ import {
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
+    PropertyType,
     TimeUnitType,
 } from '~/types'
 
@@ -1243,6 +1245,79 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('CSV upload', () => {
+        const savedCohort = {
+            ...mockCohort,
+            id: 1,
+            name: 'Saved name',
+            description: 'Saved description',
+            is_static: true,
+        }
+
+        it('uploads only the CSV, preserves unsaved cohort details and closes the modal', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockResolvedValue(savedCohort)
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({
+                    ...savedCohort,
+                    name: 'Unsaved name',
+                    description: 'Unsaved description',
+                    csv,
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['setCohort', 'uploadCohortCsv', 'saveCohort', 'saveCohortSuccess'])
+
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+            const formData = updateSpy.mock.calls[0][1] as FormData
+            expect([...formData.keys()]).toEqual(['csv'])
+            expect(formData.get('csv')).toBe(csv)
+            expect(logic.values.cohort.name).toBe('Unsaved name')
+            expect(logic.values.cohort.description).toBe('Unsaved description')
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+
+            updateSpy.mockRestore()
+        })
+
+        it('keeps the modal open when the upload fails', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockRejectedValue({ detail: 'Upload failed' })
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...savedCohort, csv })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['uploadCohortCsv', 'saveCohort', 'saveCohortSuccess'])
+
+            // The loader catch path keeps the csv on the cohort, which keeps the modal open for a retry.
+            expect(logic.values.csvUploadModalOpen).toBe(true)
+            expect(logic.values.cohort.csv).toBe(csv)
+
+            updateSpy.mockRestore()
+        })
+
+        it('does not start the upload when the CSV exceeds the size limit', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockResolvedValue(savedCohort)
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+            Object.defineProperty(csv, 'size', { value: logic.values.csvMaxBytes + 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...savedCohort, csv })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['uploadCohortCsv'])
+
+            expect(updateSpy).not.toHaveBeenCalled()
+            expect(logic.values.csvUploadModalOpen).toBe(true)
+
+            updateSpy.mockRestore()
+        })
+    })
+
     describe('manual person selection for static cohort creation', () => {
         it('keeps the display name so it can be shown in the selected list, and forgets it on remove', async () => {
             await initCohortLogic({ id: 'new' })
@@ -1265,6 +1340,45 @@ describe('cohortEditLogic', () => {
         beforeEach(async () => {
             await initCohortLogic({ id: 1 })
         })
+
+        it.each([
+            ['email', PropertyOperator.IsSet, PropertyOperator.IsSet],
+            ['birth_date', PropertyOperator.IsDateBefore, PropertyOperator.IsDateBefore],
+            ['email', PropertyOperator.IContains, PropertyOperator.IsDateExact],
+        ])(
+            'switching a %s row on %s to a DateTime property leaves the operator %s',
+            async (startKey, startOperator, expectedOperator) => {
+                propertyDefinitionsModel.mount()
+                propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                    'person/email': { id: 'email', name: 'email', property_type: PropertyType.String },
+                    'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
+                    'person/signup_date': {
+                        id: 'signup_date',
+                        name: 'signup_date',
+                        property_type: PropertyType.DateTime,
+                    },
+                })
+                logic.actions.setCriteria(
+                    {
+                        type: BehavioralFilterKey.Person,
+                        value: BehavioralEventType.HaveProperty,
+                        key: startKey,
+                        operator: startOperator,
+                    },
+                    0,
+                    0
+                )
+
+                await expectLogic(logic, () => {
+                    logic.actions.setCriteria({ key: 'signup_date' }, 0, 0)
+                }).toFinishAllListeners()
+
+                const group = logic.values.cohort.filters.properties.values[0] as CohortCriteriaGroupFilter
+                expect(group.values[0]).toEqual(
+                    expect.objectContaining({ key: 'signup_date', operator: expectedOperator })
+                )
+            }
+        )
 
         it('duplicate group', async () => {
             const expectedGroupValue = partial({

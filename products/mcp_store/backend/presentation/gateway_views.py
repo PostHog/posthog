@@ -65,7 +65,13 @@ from ..models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
+from ..policy import (
+    GatewayCaller,
+    PolicyContext,
+    is_destructive_tool,
+    is_policy_state_allowed,
+    is_read_only_connector_tool,
+)
 from .visibility import slack_dev_mcp_ui_enabled
 
 logger = structlog.get_logger(__name__)
@@ -492,6 +498,9 @@ class ResolvedToolPolicySerializer(serializers.Serializer):
     input_schema = MCPToolInputSchemaField(help_text="JSON Schema describing the tool's input arguments.")
     is_destructive = serializers.BooleanField(
         help_text="Whether the canonical gateway heuristic treats this tool as destructive."
+    )
+    is_read_only = serializers.BooleanField(
+        help_text="Whether the tool only reads data: the server marks it readOnlyHint and its name starts with a read verb and has no write or destructive verb."
     )
     policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="Effective state for the scope.")
     team_state = serializers.ChoiceField(
@@ -1165,6 +1174,7 @@ class MCPGatewayServerViewSet(
                     "description": description,
                     "input_schema": input_schema,
                     "is_destructive": is_destructive_tool(tool_name, annotations),
+                    "is_read_only": is_read_only_connector_tool(tool_name, annotations),
                     "policy_state": resolved.state,
                     "team_state": resolved.team_state,
                     "locked": resolved.locked or (scope_type != "team" and resolved.team_state == "do_not_use"),

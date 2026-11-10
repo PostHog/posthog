@@ -14,13 +14,16 @@ from posthog.schema import (
 from posthog.dataclasses import frozen
 
 StatsMethod = Literal["bayesian", "frequentist"]
+VariantResult = ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist
 
 _INTERVAL_KEYS = ("credible_interval", "confidence_interval")
 
-_BASELINE_FIELDS = frozenset(ExperimentStatsBaseValidated.model_fields)
+# A funnel's stored stats carry sample sessions per step, which can be large, and no reader of a stored row needs them.
+_UNREAD_FIELDS = frozenset({"step_sessions"})
+_BASELINE_FIELDS = frozenset(ExperimentStatsBaseValidated.model_fields) - _UNREAD_FIELDS
 _VARIANT_FIELDS_BY_METHOD = {
-    "bayesian": frozenset(ExperimentVariantResultBayesian.model_fields),
-    "frequentist": frozenset(ExperimentVariantResultFrequentist.model_fields),
+    "bayesian": frozenset(ExperimentVariantResultBayesian.model_fields) - _UNREAD_FIELDS,
+    "frequentist": frozenset(ExperimentVariantResultFrequentist.model_fields) - _UNREAD_FIELDS,
 }
 
 
@@ -39,8 +42,16 @@ def _declared_variant_fields_only(variant: object) -> object:
     return variant if fields is None else _declared_fields_only(variant, fields)
 
 
-def _mean(total: float, number_of_samples: int) -> float | None:
-    return total / number_of_samples if number_of_samples else None
+def _mean(
+    stats: ExperimentStatsBaseValidated | ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist,
+    *,
+    is_quantile: bool,
+) -> float | None:
+    if is_quantile:
+        # A quantile metric stores the count of events at or below the quantile in sum, so its value is the
+        # quantile itself. A variant without qualifying events has no grid, and its quantile is undefined.
+        return stats.quantile_grid[0] if stats.quantile_grid else None
+    return stats.sum / stats.number_of_samples if stats.number_of_samples else None
 
 
 def _is_finite_interval(value: object) -> bool:
@@ -58,6 +69,28 @@ def _without_non_finite_intervals(variant: object) -> object:
         key: None if key in _INTERVAL_KEYS and not _is_finite_interval(value) else value
         for key, value in variant.items()
     }
+
+
+def parse_stored_response(raw: object) -> ExperimentQueryResponse | None:
+    """The baseline and variant results of a stored result row, or None when the row does not parse."""
+    if not isinstance(raw, Mapping):
+        return None
+    # A stored row is a full response dump in the schema of its write time. It can carry keys that the
+    # current schema forbids: the cache fields of a cached response at the top level, and fields that a
+    # later schema renamed or removed inside the baseline and the variants. The models reject unknown
+    # keys, so keep only the keys that they declare. Schema drift then does not discard the row.
+    baseline = _declared_fields_only(raw.get("baseline"), _BASELINE_FIELDS)
+    variant_results = raw.get("variant_results")
+    if isinstance(variant_results, list):
+        # sanitize_non_finite stores an overflowed interval bound as null, which the schema rejects.
+        # Drop such an interval so that the counts and means of the day still render.
+        variant_results = [
+            _without_non_finite_intervals(_declared_variant_fields_only(variant)) for variant in variant_results
+        ]
+    try:
+        return ExperimentQueryResponse.model_validate({"baseline": baseline, "variant_results": variant_results})
+    except ValidationError:
+        return None
 
 
 @frozen
@@ -78,11 +111,11 @@ class BaselineStats:
     mean: float | None
 
     @classmethod
-    def from_schema(cls, baseline: ExperimentStatsBaseValidated) -> Self:
+    def from_schema(cls, baseline: ExperimentStatsBaseValidated, *, is_quantile: bool) -> Self:
         return cls(
             key=baseline.key,
             number_of_samples=baseline.number_of_samples,
-            mean=_mean(baseline.sum, baseline.number_of_samples),
+            mean=_mean(baseline, is_quantile=is_quantile),
         )
 
 
@@ -97,7 +130,7 @@ class VariantStats:
     significant: bool | None
 
     @classmethod
-    def from_schema(cls, variant: ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist) -> Self:
+    def from_schema(cls, variant: VariantResult, *, is_quantile: bool) -> Self:
         chance_to_win: float | None = None
         p_value: float | None = None
         if isinstance(variant, ExperimentVariantResultBayesian):
@@ -109,7 +142,7 @@ class VariantStats:
         return cls(
             key=variant.key,
             number_of_samples=variant.number_of_samples,
-            mean=_mean(variant.sum, variant.number_of_samples),
+            mean=_mean(variant, is_quantile=is_quantile),
             interval=None if bounds is None else Interval(low=bounds[0], high=bounds[1]),
             chance_to_win=chance_to_win,
             p_value=p_value,
@@ -124,40 +157,22 @@ class MetricResultStats:
     variants: tuple[VariantStats, ...]
 
     @classmethod
-    def from_response(cls, response: ExperimentQueryResponse) -> Self | None:
+    def from_response(cls, response: ExperimentQueryResponse, *, is_quantile: bool) -> Self | None:
+        """is_quantile comes from the metric definition, because a stored row does not record its metric type."""
         if response.baseline is None:
             return None
         variant_results = response.variant_results or []
         return cls(
             method=variant_results[0].method if variant_results else None,
-            baseline=BaselineStats.from_schema(response.baseline),
-            variants=tuple(VariantStats.from_schema(variant) for variant in variant_results),
+            baseline=BaselineStats.from_schema(response.baseline, is_quantile=is_quantile),
+            variants=tuple(VariantStats.from_schema(variant, is_quantile=is_quantile) for variant in variant_results),
         )
 
     @classmethod
-    def from_stored(cls, raw: object) -> Self | None:
+    def from_stored(cls, raw: object, *, is_quantile: bool) -> Self | None:
         """Return None instead of raising when the row does not parse or has no baseline."""
-        if not isinstance(raw, Mapping):
-            return None
-        # A stored row is a full response dump in the schema of its write time. It can carry keys that the
-        # current schema forbids: the cache fields of a cached response at the top level, and fields that a
-        # later schema renamed or removed inside the baseline and the variants. The models reject unknown
-        # keys, so keep only the keys that they declare. Schema drift then does not discard the row.
-        baseline = _declared_fields_only(raw.get("baseline"), _BASELINE_FIELDS)
-        variant_results = raw.get("variant_results")
-        if isinstance(variant_results, list):
-            # sanitize_non_finite stores an overflowed interval bound as null, which the schema rejects.
-            # Drop such an interval so that the counts and means of the day still render.
-            variant_results = [
-                _without_non_finite_intervals(_declared_variant_fields_only(variant)) for variant in variant_results
-            ]
-        try:
-            response = ExperimentQueryResponse.model_validate(
-                {"baseline": baseline, "variant_results": variant_results}
-            )
-        except ValidationError:
-            return None
-        return cls.from_response(response)
+        response = parse_stored_response(raw)
+        return cls.from_response(response, is_quantile=is_quantile) if response is not None else None
 
     def variant(self, key: str) -> VariantStats | None:
         return next((variant for variant in self.variants if variant.key == key), None)
@@ -175,11 +190,13 @@ class MetricTimeseries:
     days: tuple[TimeseriesDay, ...]
 
     @classmethod
-    def from_stored(cls, *, status: str, timeseries: Mapping[str, object]) -> Self:
+    def from_stored(cls, *, status: str, timeseries: Mapping[str, object], is_quantile: bool) -> Self:
         return cls(
             status=status,
             days=tuple(
-                TimeseriesDay(date=date, result=MetricResultStats.from_stored(timeseries[date]))
+                TimeseriesDay(
+                    date=date, result=MetricResultStats.from_stored(timeseries[date], is_quantile=is_quantile)
+                )
                 for date in sorted(timeseries)
             ),
         )

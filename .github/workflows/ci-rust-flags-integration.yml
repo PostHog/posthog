@@ -53,6 +53,8 @@ env:
 
 jobs:
     rust-flags-integration:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         name: Rust /flags Integration Tests (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
@@ -84,10 +86,21 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              if: github.event_name == 'pull_request'
+              # A shallow checkout avoids a separate lazy fetch of every source file.
+              # Fetch the original SHA with --depth because GitHub can replace the PR merge ref.
+              run: |
+                  for attempt in 1 2 3; do
+                      if git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep 10
+                      fi
+                  done
+                  exit 1
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -205,11 +218,11 @@ jobs:
                   # The default shell is `bash -e`, so without this psql's exit code hides a failed
                   # gunzip and a truncated dump commits as a half-primed schema.
                   set -o pipefail
+                  # The dump is schema-only. The migrate in the next step seeds the rows that
+                  # data migrations write, after it adds any column the dump predates.
                   prime() {
                       gunzip -c schema.sql.gz \
                           | psql -q -v ON_ERROR_STOP=1 --single-transaction test_posthog || return 1
-                      # The dump is schema-only, so rows written by data migrations are absent.
-                      python manage.py ensure_migration_defaults || return 1
                   }
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::schema cache miss, so migrate runs from scratch"

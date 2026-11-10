@@ -93,9 +93,7 @@ def dispatch_error_tracking_alert_deliveries(team_id: int, notifications: list[d
     ignore_result=True,
     max_retries=0,
 )
-@with_team_scope()
-def generate_error_tracking_issue_summary(team_id: int, issue_id: str) -> None:
-    # The generator imports the LLM client and HogQL, so keep them off every worker's boot path.
-    from products.error_tracking.backend.logic.issue_summaries import get_or_generate_issue_summary  # noqa: PLC0415
-
-    get_or_generate_issue_summary(team_id, issue_id)
+def generate_error_tracking_issue_summary(team_id: int, issue_id: str, queued_at: float | None = None) -> None:
+    # A no-op that keeps the task name registered. Web pods from the previous release queue this task until the deploy
+    # replaces them, and a worker logs an error for each task name it does not know. Delete it after that deploy.
+    pass

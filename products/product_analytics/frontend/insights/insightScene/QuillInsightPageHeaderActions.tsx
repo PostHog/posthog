@@ -11,7 +11,6 @@ import {
 } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -20,7 +19,7 @@ import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSecondaryActions } from '~/layout/scenes/components/SceneTitleSecondaryActions'
-import { isBIVisualizationNode } from '~/queries/utils'
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
@@ -28,6 +27,7 @@ import { urlForSubscriptions } from 'products/subscriptions/frontend/components/
 
 import { InsightShareMenu, useInsightShareItems } from './InsightShareMenu'
 import { openInsightEditor } from './openInsightEditor'
+import { QuillInsightMonitorButton } from './QuillInsightMonitorButton'
 import { QuillInsightSaveButton } from './QuillInsightSaveButton'
 
 export function QuillInsightPageHeaderActions({
@@ -140,7 +140,7 @@ export function QuillInsightPageHeaderActions({
                         <IconPlus />
                         Add to dashboard
                     </Button>
-                    <InsightSubscribeProminentButton
+                    <QuillInsightMonitorButton
                         insightShortId={insight.short_id!}
                         canCreateAlert={canCreateAlertForInsight}
                     />

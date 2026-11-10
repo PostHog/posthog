@@ -855,6 +855,11 @@
             "description": "The build number for the app.",
             "label": "App build"
         },
+        "$app_language": {
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+            "label": "App language"
+        },
         "$app_name": {
             "description": "The name of the app.",
             "label": "App name"
@@ -3321,6 +3326,10 @@
             "description": "Fires when the status of a support conversation ticket changes.",
             "label": "Conversation ticket status changed"
         },
+        "$conversation_ticket_tag_added": {
+            "description": "Fires when a tag is added to a support conversation ticket.",
+            "label": "Conversation ticket tag added"
+        },
         "$copy_autocapture": {
             "description": "Selected text automatically captured when a user copies or cuts.",
             "ignored_in_assistant": true,
@@ -4807,6 +4816,11 @@
         "$app_build": {
             "description": "The build number for the app. Data from the last time this user was seen.",
             "label": "Latest app build"
+        },
+        "$app_language": {
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+            "label": "App language"
         },
         "$app_name": {
             "description": "The name of the app. Data from the last time this user was seen.",

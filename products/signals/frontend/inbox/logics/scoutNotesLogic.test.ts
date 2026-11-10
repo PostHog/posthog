@@ -48,4 +48,27 @@ describe('scoutNotesLogic', () => {
         expect(logic.values.notesLoadFailed).toBe(false)
         expect(logic.values.notesLoading).toBe(true)
     })
+
+    it('counts only the notes addressed to this scout as told', async () => {
+        const note = (id: string, skill_name: string): Record<string, unknown> => ({
+            id,
+            content: 'A note',
+            origin: 'report_discussion',
+            skill_name,
+            created_by_name: null,
+            created_at: '2026-08-20T10:00:00Z',
+            expires_at: null,
+        })
+        useMocks({
+            get: {
+                [NOTES_URL]: [note('own', SKILL_NAME), note('fleet-1', ''), note('fleet-2', '')],
+            },
+        })
+
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.fleetWideNotes).toHaveLength(2)
+        expect(logic.values.toldCount).toEqual(1)
+    })
 })

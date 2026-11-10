@@ -12,6 +12,8 @@ Products detectable from event definitions also declare a `setupProbe` in their 
 
 To review an empty state on a project that already has data, add `?empty_state=1` to the scene URL. It forces the `needs-setup` screen past detection and past a local skip, `?empty_state=waiting-for-data` forces the other mode, and dropping the param gives the real scene back. Use it for design review and screenshots instead of clearing a project.
 
+Products can provide a `FooterActions` component for contextual help beside "Read the docs". It receives the standard footer links as `children` so it can place help on either side, and can use the product's own hooks to control visibility. Always render `children`, including when the contextual help is hidden.
+
 **To adopt this for your product, follow the `building-product-empty-states` skill** (`.agents/skills/building-product-empty-states/SKILL.md`). Reference adoption: `products/mcp_analytics/frontend/emptyState/`.
 
 ## ProductEmptyState or ProductIntroduction?

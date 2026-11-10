@@ -1,0 +1,11 @@
+{# The blocks of a console Page. `page` is a Page from posthog/admin/console/tools.py. #}
+<div class="flex flex-col gap-4">
+    {% for block in page.blocks %}
+        {% if block.kind == "live" %}
+            {% url 'admin_console_tool_live' tool_key=tool.key live_key=block.key as live_path %}
+            {% include "admin_console/_live.html" with live=block live_url=live_path|add:query_suffix %}
+        {% else %}
+            {% include "admin_console/_block.html" %}
+        {% endif %}
+    {% endfor %}
+</div>

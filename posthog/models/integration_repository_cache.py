@@ -18,7 +18,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
 from django.db import models
@@ -317,7 +317,7 @@ class GitHubRepositoryFullCache:
         else:
             entry, _ = IntegrationRepositoryCacheEntry.objects.update_or_create(
                 full_name=full_name,
-                integration=self.integration,
+                integration=cast(Integration, self.integration),
                 defaults=defaults,
             )
         return entry

@@ -527,7 +527,7 @@ async def _handle_anthropic_messages(
     user: RateLimitedUser,
     request: Request,
     breaker: AnthropicCircuitBreaker | None,
-    product: str = "llm_gateway",
+    product: str,
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
     data = normalize_disabled_thinking(data)
@@ -624,7 +624,7 @@ async def _handle_count_tokens(
     user: RateLimitedUser,
     request: Request,
     breaker: AnthropicCircuitBreaker | None,
-    product: str = "llm_gateway",
+    product: str,
 ) -> dict[str, Any]:
     data = normalize_disabled_thinking(
         _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
@@ -871,16 +871,6 @@ async def _bedrock_count_tokens_impl(
         ).observe(time.monotonic() - start_time)
 
 
-@anthropic_router.post("/v1/messages/count_tokens", response_model=None)
-async def anthropic_count_tokens(
-    body: AnthropicCountTokensRequest,
-    user: RateLimitedUser,
-    request: Request,
-    breaker: AnthropicCircuitBreakerDep,
-) -> dict[str, Any]:
-    return await _handle_count_tokens(body, user, request, breaker)
-
-
 @anthropic_router.post("/{product}/v1/messages/count_tokens", response_model=None)
 async def anthropic_count_tokens_with_product(
     body: AnthropicCountTokensRequest,
@@ -891,17 +881,6 @@ async def anthropic_count_tokens_with_product(
 ) -> dict[str, Any]:
     validate_product(product)
     return await _handle_count_tokens(body, user, request, breaker, product=product)
-
-
-@anthropic_router.post("/v1/messages", response_model=None)
-async def anthropic_messages(
-    body: AnthropicMessagesRequest,
-    user: RateLimitedUser,
-    request: Request,
-    breaker: AnthropicCircuitBreakerDep,
-) -> dict[str, Any] | StreamingResponse:
-    apply_posthog_context_from_headers(request)
-    return await _handle_anthropic_messages(body, user, request, breaker)
 
 
 @anthropic_router.post("/{product}/v1/messages", response_model=None)

@@ -24,7 +24,7 @@ _DEFAULT_MIN_FREE_GIB = 20.0
 _DEFAULT_MAX_WORKTREES = 3
 _MIN_FREE_GIB_ENV = "HOGLI_WORKTREE_DISK_MIN_FREE_GIB"
 _MAX_WORKTREES_ENV = "HOGLI_WORKTREE_DISK_MAX_WORKTREES"
-_CLEAN_PREVIEW_COMMAND = "hogli worktrees:clean --before 7d --mode deps --dry-run"
+_CLEAN_PREVIEW_COMMAND = "hogli worktrees:clean --before 7d --mode deps,build --dry-run"
 
 
 def _migrations_precheck(check: dict, yes: bool) -> bool | None:

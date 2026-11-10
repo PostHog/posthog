@@ -20,6 +20,37 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const AccountNotesListSchema = () => {
+    const AccountNotesListQueryParams = orvalSchemas.AccountNotesListQueryParams()
+    return AccountNotesListQueryParams
+}
+
+const accountNotesList = (): ToolBase<
+    ReturnType<typeof AccountNotesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAccountNoteList>
+> => ({
+    name: 'account-notes-list',
+    schema: AccountNotesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountNotesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountNoteList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_notes/`,
+            query: {
+                account_id: params.account_id,
+                assigned_to: params.assigned_to,
+                created_by: params.created_by,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
+                tags: params.tags,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
 const AccountRelationshipDefinitionsCreateSchema = () => {
     const AccountRelationshipDefinitionsCreateBody = orvalSchemas.AccountRelationshipDefinitionsCreateBody()
     return AccountRelationshipDefinitionsCreateBody
@@ -98,6 +129,7 @@ const accountRelationshipDefinitionsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                pagination: params.pagination,
             },
         })
         const filtered = {
@@ -401,6 +433,9 @@ const accountsNotebooksCreate = (): ToolBase<
         if (params.text_content !== undefined) {
             body['text_content'] = params.text_content
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.AccountNotebook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
@@ -446,13 +481,44 @@ const accountsNotebooksList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
             query: {
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
                 search: params.search,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const AccountsNotebooksPartialUpdateSchema = () => {
+    const AccountsNotebooksPartialUpdateBody = orvalSchemas.AccountsNotebooksPartialUpdateBody()
+    const AccountsNotebooksPartialUpdateParams = orvalSchemas.AccountsNotebooksPartialUpdateParams()
+    return AccountsNotebooksPartialUpdateParams.omit({ project_id: true }).extend(
+        AccountsNotebooksPartialUpdateBody.shape
+    )
+}
+
+const accountsNotebooksPartialUpdate = (): ToolBase<
+    ReturnType<typeof AccountsNotebooksPartialUpdateSchema>,
+    Schemas.AccountNotebook
+> => ({
+    name: 'accounts-notebooks-partial-update',
+    schema: AccountsNotebooksPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsNotebooksPartialUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.AccountNotebook>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -690,6 +756,7 @@ const announcementsCreatePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'announcements-create',
+            inputSchema: AnnouncementsCreateSchema(),
             actionLabel: 'send announcement',
             messageTemplate:
                 "About to send this announcement as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
@@ -709,8 +776,8 @@ const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchema
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof AnnouncementsCreateSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'announcements-create',
+            inputSchema: AnnouncementsCreateSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -869,6 +936,7 @@ const customPropertyDefinitionsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                pagination: params.pagination,
             },
         })
         const filtered = {
@@ -1319,12 +1387,6 @@ const customerTasksPartialUpdate = (): ToolBase<
         if (params.account_id !== undefined) {
             body['account_id'] = params.account_id
         }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
         if (params.assigned_to_id !== undefined) {
             body['assigned_to_id'] = params.assigned_to_id
         }
@@ -1333,6 +1395,12 @@ const customerTasksPartialUpdate = (): ToolBase<
         }
         if (params.status !== undefined) {
             body['status'] = params.status
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         const result = await context.api.request<Schemas.CustomerTask>({
             method: 'PATCH',
@@ -2301,6 +2369,7 @@ const usageMetricsRetrieve = (): ToolBase<ReturnType<typeof UsageMetricsRetrieve
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'account-notes-list': accountNotesList,
     'account-relationship-definitions-create': accountRelationshipDefinitionsCreate,
     'account-relationship-definitions-destroy': accountRelationshipDefinitionsDestroy,
     'account-relationship-definitions-list': accountRelationshipDefinitionsList,
@@ -2315,6 +2384,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-notebooks-create': accountsNotebooksCreate,
     'accounts-notebooks-destroy': accountsNotebooksDestroy,
     'accounts-notebooks-list': accountsNotebooksList,
+    'accounts-notebooks-partial-update': accountsNotebooksPartialUpdate,
     'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
     'accounts-relationships-create': accountsRelationshipsCreate,

@@ -1,7 +1,9 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,6 +21,7 @@ import {
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
@@ -29,6 +32,7 @@ import {
     formatIntervalPercent,
     formatMetricValue,
     formatPValue,
+    formatQuantileLevel,
     getIntervalLabel,
     isBayesianResult,
     isFrequentistResult,
@@ -46,30 +50,45 @@ function SqlCollapsible({
     showClickhouseSql: boolean
     embedded?: boolean
 }): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
     const [activeTab, setActiveTab] = useState<'hogql' | 'clickhouse'>('hogql')
 
+    const hogqlSnippet = hogql ? (
+        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+            {hogql}
+        </CodeSnippet>
+    ) : (
+        <div className="text-xs text-secondary">No HogQL available</div>
+    )
+
     return (
-        <LemonCollapse
-            embedded={embedded}
-            panels={[
-                {
-                    key: 'sql',
-                    header: 'SQL',
-                    content: showClickhouseSql ? (
+        <div className={embedded ? 'px-2 py-1' : undefined}>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                // One glyph rotated rather than a chevron pair: IconChevronRight is drawn three times
+                // taller than IconChevronDown in this set, so the two states would change size.
+                icon={
+                    <IconChevronDown className={clsx('text-secondary transition-transform', !isOpen && '-rotate-90')} />
+                }
+                onClick={() => setIsOpen(!isOpen)}
+                aria-expanded={isOpen}
+                data-attr="experiment-result-sql-toggle"
+            >
+                <span className="text-secondary font-normal">SQL</span>
+            </LemonButton>
+            {isOpen && (
+                <div className="mt-1">
+                    {showClickhouseSql ? (
                         <LemonTabs
+                            size="small"
                             activeKey={activeTab}
                             onChange={setActiveTab}
                             tabs={[
                                 {
                                     key: 'hogql',
                                     label: 'HogQL',
-                                    content: hogql ? (
-                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
-                                            {hogql}
-                                        </CodeSnippet>
-                                    ) : (
-                                        <div className="text-muted">No HogQL available</div>
-                                    ),
+                                    content: hogqlSnippet,
                                 },
                                 {
                                     key: 'clickhouse',
@@ -79,21 +98,17 @@ function SqlCollapsible({
                                             {clickhouseSql}
                                         </CodeSnippet>
                                     ) : (
-                                        <div className="text-muted">No SQL available</div>
+                                        <div className="text-xs text-secondary">No SQL available</div>
                                     ),
                                 },
                             ]}
                         />
-                    ) : hogql ? (
-                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
-                            {hogql}
-                        </CodeSnippet>
                     ) : (
-                        <div className="text-muted">No SQL available</div>
-                    ),
-                },
-            ]}
-        />
+                        hogqlSnippet
+                    )}
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -132,13 +147,26 @@ export function ResultDetails({
                 "Exposures counted by this metric's query, so the count can differ from the Exposures panel. With 'Require completed conversion or retention window' enabled, users whose window hasn't elapsed are excluded.",
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
+        ...(isExperimentQuantileMetric(metric)
+            ? [
+                  {
+                      key: 'events',
+                      title: 'Events',
+                      tooltip: 'Events with a value for the property. The percentile is taken over these events.',
+                      render: (_: unknown, item: ExperimentVariantResult & { key: string }) =>
+                          humanFriendlyNumber(item.denominator_sum ?? 0),
+                  },
+              ]
+            : []),
         {
             key: 'value',
             title: isExperimentMeanMetric(metric)
                 ? 'Mean'
                 : isExperimentRatioMetric(metric)
                   ? 'Ratio'
-                  : 'Conversion rate',
+                  : isExperimentQuantileMetric(metric)
+                    ? formatQuantileLevel(metric.quantile)
+                    : 'Conversion rate',
             render: (_, item) => formatMetricValue(item, metric),
         },
         {

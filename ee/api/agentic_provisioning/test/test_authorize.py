@@ -10,13 +10,14 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationMembership, Project, Team
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import (
-    TEST_PARTNER_CLIENT_SECRET,
+    TEST_PARTNER_JWKS_URI,
     TEST_PARTNER_SCOPES,
     ProvisioningTestBase,
     provisioning_config,
@@ -65,8 +66,9 @@ class AuthorizeTestBase(ProvisioningTestBase):
         return OAuthApplication.objects.create(
             client_id="authorize-skip-consent-partner",
             name="Skip Consent Partner",
-            client_secret=TEST_PARTNER_CLIENT_SECRET,
+            client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris=PARTNER_CALLBACK,
             algorithm="RS256",
@@ -215,7 +217,7 @@ class TestAgenticAuthorize(AuthorizeTestBase):
                 "grant_type": "authorization_code",
                 "code": code,
                 "code_verifier": verifier,
-                **self._client_credentials(partner),
+                **self._client_auth(partner),
             },
         )
         assert token_res.status_code == 200
@@ -284,6 +286,43 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert code_data["team_id"] == self.team2.id
         assert code_data["org_id"] == str(self.org2.id)
         assert not OrganizationProvisioning.objects.exists()
+
+    @parameterized.expand(
+        [
+            (paid, ip, expected)
+            for paid in (False, True)
+            for ip, expected in (("203.0.113.7", 200), ("198.51.100.7", 403))
+        ]
+    )
+    def test_confirm_applies_the_resolved_organizations_ip_policy(self, paid: bool, ip: str, expected: int) -> None:
+        if paid:
+            self.partner.update_provisioning(pays_for_customers=True)
+            target = self._partner_organization()
+        else:
+            target = self.org2
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(organization=target, ip_restrictions=["203.0.113.0/24"])
+        self._set_pending_auth("state_ip_policy", self.user.email)
+        organization_count = Organization.objects.count()
+        team_count = Team.objects.count()
+        response = self._post_api(
+            "/api/agentic/authorize/confirm/",
+            {
+                "state": "state_ip_policy",
+                "team_id": self.team2.id,
+                "pays_for_customers": paid,
+                "partner_organization_id": str(target.id) if paid else None,
+            },
+            REMOTE_ADDR=ip,
+        )
+        assert response.status_code == expected, response.content
+        if expected == 403:
+            assert response.json()["code"] == "ip_not_allowed"
+            assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_ip_policy") is not None
+            assert Organization.objects.count() == organization_count
+            assert Team.objects.count() == team_count
+        else:
+            assert self._code_data(response)["org_id"] == str(target.id)
 
     def _code_data(self, res) -> dict:
         code = res.json()["redirect_url"].split("code=")[1].split("&")[0]

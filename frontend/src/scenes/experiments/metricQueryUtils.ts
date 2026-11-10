@@ -1,5 +1,6 @@
 import { match } from 'ts-pattern'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -14,6 +15,7 @@ import {
     isWarehouseSeriesNode,
 } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -25,6 +27,8 @@ import type {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricTypeProps,
+    ExperimentQuantileMetricSource,
+    ExperimentWarehouseNativeNode,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -33,8 +37,7 @@ import type {
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { ExperimentMetricType, ExperimentWarehouseNativeMathType, NodeKind } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType } from '~/types'
 
@@ -97,6 +100,9 @@ const convertSourceToQueryNode = (source: ExperimentMetricSource): EventsNode | 
                 id_field: dataWarehouse.data_warehouse_join_key,
             })
         )
+        .with({ kind: NodeKind.ExperimentWarehouseNativeNode }, () => {
+            throw new Error('Warehouse-native sources cannot be shown as an insight yet')
+        })
         .exhaustive()
 }
 
@@ -121,6 +127,11 @@ const getDefaultDateRange = (): DateRange => ({
  * returns the math properties for the source
  */
 export const getMathProperties = (source: ExperimentMetricSource): MathProperties => {
+    if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+        return source.math === ExperimentWarehouseNativeMathType.Sum
+            ? { math: ExperimentMetricMathType.Sum, math_property: source.math_property }
+            : { math: ExperimentMetricMathType.TotalCount, math_property: undefined }
+    }
     if (!source.math || source.math === ExperimentMetricMathType.TotalCount) {
         return { math: ExperimentMetricMathType.TotalCount, math_property: undefined }
     }
@@ -174,6 +185,10 @@ export const getQuery =
 
                 // Return undefined if this is not an EventsNode and has no math specified
                 if (!isEventMetricSource(source) && !source.math) {
+                    return undefined
+                }
+                // An insight cannot read a warehouse-native query
+                if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
                     return undefined
                 }
 
@@ -253,16 +268,32 @@ const getFunnelSeries = (
     )
 
 /**
+ * The series editor has rows for events, actions and synced warehouse tables only. A
+ * warehouse-native source has its own fields in the metric form, so it must never reach this editor.
+ */
+export function metricSourcesToSeries(sources: ExperimentMetricSource[]): SeriesNode[] {
+    return sources.map((source) => {
+        if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+            throw new Error('Warehouse-native sources cannot be edited in the series editor')
+        }
+        return source
+    })
+}
+
+/**
  * The picker mirrors a warehouse table's name onto `id`, which `ExperimentDataWarehouseNode` does
  * not accept, so a table keeps only `table_name`. A group has no experiment equivalent and gives null.
  */
-const toExperimentSourceNode = (node: SeriesNode): ExperimentMetricSource | null => {
+/** The sources the series picker can produce. A warehouse-native source has no picker row. */
+type PickedMetricSource = Exclude<ExperimentMetricSource, ExperimentWarehouseNativeNode>
+
+const toExperimentSourceNode = (node: SeriesNode): PickedMetricSource | null => {
     if (isEventsSeriesNode(node) || isActionsSeriesNode(node)) {
         return node
     }
     if (isWarehouseSeriesNode(node)) {
         const { id: _id, ...warehouseNode } = node as SeriesNode & { id?: string }
-        return { ...warehouseNode, kind: NodeKind.ExperimentDataWarehouseNode } as ExperimentMetricSource
+        return { ...warehouseNode, kind: NodeKind.ExperimentDataWarehouseNode } as PickedMetricSource
     }
     return null
 }
@@ -271,7 +302,7 @@ const toExperimentSourceNode = (node: SeriesNode): ExperimentMetricSource | null
  * Turns the series a single-source picker emits into a metric source, with total count as the
  * default math. Returns null when the picker holds no event, action or table.
  */
-export function seriesToMetricSource(series: SeriesNode[]): ExperimentMetricSource | null {
+export function seriesToMetricSource(series: SeriesNode[]): PickedMetricSource | null {
     const [node] = cleanSeriesNodes(series.slice(0, 1), MathAvailability.All)
     const source = node ? toExperimentSourceNode(node) : null
     if (source?.kind === NodeKind.EventsNode) {
@@ -279,6 +310,33 @@ export function seriesToMetricSource(series: SeriesNode[]): ExperimentMetricSour
         return { ...source, event: source.event || source.name }
     }
     return source
+}
+
+const QUANTILE_PROPERTY_TYPES: (string | undefined)[] = [
+    undefined,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.NumericalEventProperties,
+]
+
+/**
+ * The source of a percentile metric made from another metric's source, or null when the source can't carry over.
+ * The percentile query reads `properties.<name>` from each event, so a session or person property is dropped.
+ */
+export function toQuantileSource(source: ExperimentMetricSource): ExperimentQuantileMetricSource | null {
+    if (source.kind !== NodeKind.EventsNode && source.kind !== NodeKind.ActionsNode) {
+        return null
+    }
+    const isEventProperty =
+        source.math_property !== '$session_duration' && QUANTILE_PROPERTY_TYPES.includes(source.math_property_type)
+    return {
+        ...source,
+        math: undefined,
+        math_hogql: undefined,
+        math_group_type_index: undefined,
+        math_multiplier: undefined,
+        math_property_type: undefined,
+        math_property: isEventProperty ? source.math_property : undefined,
+    }
 }
 
 /**

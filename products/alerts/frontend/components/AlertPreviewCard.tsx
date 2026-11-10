@@ -2,6 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { LineChart, ReferenceLines, useChartTheme } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
@@ -15,7 +16,6 @@ import {
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
 import { AlertThresholdLine, shouldUseLogScale, thresholdReferenceLines } from './AlertPreviewCard.utils'

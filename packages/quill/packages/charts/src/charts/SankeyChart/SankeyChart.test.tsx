@@ -47,8 +47,8 @@ describe('SankeyChart', () => {
                 config={{ columnLabels: ['Init', '1st tool', 'Outcome', 'unused'], showNodeValues: true }}
             />
         )
-        expect(chart.sankeyNodeLabels()).toEqual(['Start 12', 'Tool A 12', 'Completed 12'])
-        expect(chart.sankeyColumnLabels()).toEqual(['Init', '1st tool', 'Outcome'])
+        expect(chart.sankey.nodeLabels()).toEqual(['Start 12', 'Tool A 12', 'Completed 12'])
+        expect(chart.sankey.columnLabels()).toEqual(['Init', '1st tool', 'Outcome'])
         expect(chart.canvas.getAttribute('aria-label')).toBe('Sankey chart with 3 nodes and 2 links')
     })
 
@@ -72,7 +72,7 @@ describe('SankeyChart', () => {
                 config={{ nodePadding: 0 }}
             />
         )
-        expect(chart.sankeyNodeLabels()).toEqual(['Start', 'Big', 'Thin'])
+        expect(chart.sankey.nodeLabels()).toEqual(['Start', 'Big', 'Thin'])
     })
 
     it('shows the hovered node in the tooltip, reports it once, and fires onNodeClick for it', async () => {
@@ -85,8 +85,7 @@ describe('SankeyChart', () => {
                 theme={THEME}
                 onNodeClick={onNodeClick}
                 onHoverChange={onHoverChange}
-            />,
-            { nativeTooltip: true }
+            />
         )
         await waitFor(() => {
             fireEvent.mouseMove(chart.element, nodeCenter('a'))
@@ -138,6 +137,21 @@ describe('SankeyChart', () => {
         expect(onNodeClick).not.toHaveBeenCalled()
     })
 
+    it('does not repaint the static canvas on hover', async () => {
+        const { chart } = renderChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />)
+        let paints = 0
+        const observer = new MutationObserver((records) => (paints += records.length))
+        observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
+        await waitFor(() => {
+            fireEvent.mouseMove(chart.element, nodeCenter('a'))
+            expect(getChartTooltip()?.textContent).toContain('Tool A')
+        })
+        fireEvent.mouseMove(chart.element, nodeCenter('done'))
+        expect(getChartTooltip()?.textContent).toContain('Completed')
+        expect(paints + observer.takeRecords().length).toBe(0)
+        observer.disconnect()
+    })
+
     it('shows the tooltip on a first tap, fires onNodeClick on the second, and clears on an empty tap', async () => {
         const onNodeClick = jest.fn()
         const onHoverChange = jest.fn()
@@ -148,8 +162,7 @@ describe('SankeyChart', () => {
                 theme={THEME}
                 onNodeClick={onNodeClick}
                 onHoverChange={onHoverChange}
-            />,
-            { nativeTooltip: true }
+            />
         )
         // A tap sends no mousemove first, so nothing is hovered when the click arrives. jsdom has
         // no PointerEvent, so the pointer type rides on a MouseEvent React reads it from.
@@ -215,8 +228,7 @@ describe('SankeyChart', () => {
         const { chart } = renderChart(
             <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick}>
                 <button data-hog-charts-interactive-overlay>overlay</button>
-            </SankeyChart>,
-            { nativeTooltip: true }
+            </SankeyChart>
         )
         await waitFor(() => {
             fireEvent.mouseMove(chart.element, nodeCenter('a'))
@@ -277,9 +289,7 @@ describe('SankeyChart', () => {
     })
 
     it('shows the node tooltip when the pointer is over its label, not the ribbon under it', async () => {
-        const { chart } = renderChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />, {
-            nativeTooltip: true,
-        })
+        const { chart } = renderChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />)
         // Right of the Start node, inside its label and over the Start -> Tool A ribbon.
         const start = nodeCenter('start')
         await waitFor(() => {

@@ -860,6 +860,7 @@ export const DatasetItemsListParams = () => zod.object({
 })
 
 export const datasetItemsListQueryArchivedDefault = false
+export const datasetItemsListQueryLimitMax = 25
 
 export const DatasetItemsListQueryParams = () => zod.object({
     archived: zod
@@ -867,7 +868,7 @@ export const DatasetItemsListQueryParams = () => zod.object({
         .default(datasetItemsListQueryArchivedDefault)
         .describe('Return archived items instead of active items.'),
     dataset: zod.string().describe('Dataset whose items should be returned.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(datasetItemsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     revision: zod.number().min(1).optional().describe('Return the exact dataset snapshot at this revision.'),
 })
@@ -1054,8 +1055,14 @@ export const DatasetItemsVersionsListParams = () => zod.object({
         ),
 })
 
+export const datasetItemsVersionsListQueryLimitMax = 100
+
 export const DatasetItemsVersionsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(datasetItemsVersionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -1073,6 +1080,8 @@ export const DatasetsListParams = () => zod.object({
 export const datasetsListQueryArchivedDefault = false
 export const datasetsListQueryIdInMax = 100
 
+export const datasetsListQueryLimitMax = 100
+
 export const datasetsListQueryOrderByDefault = `-created_at`
 
 export const datasetsListQueryTagMatchDefault = `any`
@@ -1088,7 +1097,7 @@ export const DatasetsListQueryParams = () => zod.object({
         .max(datasetsListQueryIdInMax)
         .optional()
         .describe('Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(datasetsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -1240,8 +1249,14 @@ export const DatasetsRevisionsListParams = () => zod.object({
         ),
 })
 
+export const datasetsRevisionsListQueryLimitMax = 100
+
 export const DatasetsRevisionsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(datasetsRevisionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -1435,6 +1450,13 @@ export const EvaluationsCreateBody = () => zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -1910,6 +1932,13 @@ export const EvaluationsPartialUpdateBody = () => zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod

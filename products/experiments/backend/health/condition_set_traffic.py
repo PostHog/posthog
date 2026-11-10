@@ -81,7 +81,7 @@ _SCANNED_PROPERTIES = frozenset(
 _LOCALLY_EVALUATED_REASON = "Evaluated locally"
 # Part of the cache key. Raise it when the fields of `ConditionSetTraffic` change, because an answer cached with
 # other fields can't be read back into it.
-_ANSWER_SHAPE = 2
+_ANSWER_SHAPE = 3
 _MAX_CONDITION_SETS = 1000
 _SCAN_LOCK_SECONDS = QUERY_TIMEOUT_SECONDS + 5
 _WAIT_FOR_SCAN_SECONDS = QUERY_TIMEOUT_SECONDS + 1
@@ -217,6 +217,7 @@ def query_condition_set_traffic(
         people_assigned_outside += int(set_assigned_outside)
     return ConditionSetTraffic(
         since=window_start,
+        until=window_end,
         team_timezone=team.timezone,
         people_by_set=people_by_set,
         calls=calls,
@@ -233,10 +234,10 @@ def _reads_exposure_copies(organization_id: UUID) -> bool:
 
 
 def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> ConditionSetTraffic | None:
-    launched_at = experiment.start_date
-    if launched_at is None or experiment.feature_flag.version is None:
+    start_date = experiment.start_date
+    if start_date is None or experiment.feature_flag.version is None:
         return None
-    cache_key = _cache_key(experiment, launched_at)
+    cache_key = _cache_key(experiment, start_date)
     hit, traffic = _cached(cache_key)
     if hit:
         return traffic
@@ -248,21 +249,21 @@ def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> C
     hit, traffic = _cached(cache_key)
     if hit:
         return traffic
-    return _scan(experiment, ctx, cache_key, launched_at)
+    return _scan(experiment, ctx, cache_key, start_date)
 
 
 def _scan(
-    experiment: Experiment, ctx: HealthContext, cache_key: str, launched_at: datetime
+    experiment: Experiment, ctx: HealthContext, cache_key: str, start_date: datetime
 ) -> ConditionSetTraffic | None:
     flag = experiment.feature_flag
     now = timezone.now()
-    window_start = max(launched_at, flag.updated_at or launched_at, now - TRAFFIC_WINDOW)
+    window_start = max(start_date, flag.updated_at or start_date, now - TRAFFIC_WINDOW)
     try:
         traffic = query_condition_set_traffic(experiment, window_start=window_start, window_end=now)
     except Exception as error:
         cache_failed_scan(cache_key, error)
         return None
-    asked_again_sooner = has_too_few_people(ctx, traffic) or outside_assignment_unsettled(ctx, traffic, now=now)
+    asked_again_sooner = has_too_few_people(ctx, traffic) or outside_assignment_unsettled(ctx, traffic)
     cache.set(
         cache_key, asdict(traffic), _TOO_FEW_PEOPLE_CACHE_SECONDS if asked_again_sooner else _ANSWER_CACHE_SECONDS
     )
@@ -288,13 +289,13 @@ def _wait_for_scan(cache_key: str) -> ConditionSetTraffic | None:
     return None
 
 
-def _cache_key(experiment: Experiment, launched_at: datetime) -> str:
+def _cache_key(experiment: Experiment, start_date: datetime) -> str:
     flag = experiment.feature_flag
     # Every input of the query except the end of the window, which moves with the clock.
     inputs = json.dumps(
         [
             _ANSWER_SHAPE,
-            launched_at.isoformat(),
+            start_date.isoformat(),
             flag.key,
             flag.version,
             flag.updated_at.isoformat() if flag.updated_at else None,

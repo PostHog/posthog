@@ -1,16 +1,17 @@
 """Start a single external-data-job run outside the schema's Temporal schedule.
 
 The schedule's stored input is always billable, so a run that must not be charged, or that must
-stage a reset first, cannot go through it. Operators reach this from Django admin's "Trigger sync"; a bulk cleanup
+stage a reset first, cannot go through it. Operators reach this from "Trigger sync" in PostHog Admin; a bulk cleanup
 reaches it from the `resync_schemas_non_billable` management command. Those two share the sequence
 here so they cannot drift.
 
-The partition-tuning admin actions still hold their own copy in `_pause_save_and_resync`. They stage
+The partition-tuning staff actions still hold their own copy in `SchemaStaffActions._pause_save_and_resync`. They stage
 arbitrary partition keys and skip the CDC re-snapshot, so folding them in would change their
 behavior rather than just their shape.
 """
 
 import time
+import uuid
 from typing import Any
 
 from django.conf import settings
@@ -22,7 +23,12 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.dataclasses import frozen
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
+from products.data_warehouse.backend.facade.api import (
+    a_unpause_external_data_schedule,
+    pause_external_data_schedule,
+    unpause_external_data_schedule,
+)
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
     ExternalDataSchema,
@@ -131,8 +137,11 @@ def trigger_ad_hoc_sync(
             updates["cdc_mode"] = "snapshot"
             removes.append("cdc_last_log_position")
             extra_model_fields["initial_sync_complete"] = False
-    if paused_now:
-        updates["admin_unpause_schedule_after_run"] = True
+    workflow_id = f"{schema.id}-{workflow_id_prefix}-{int(time.time())}"
+    # A schedule that an earlier ad-hoc run paused carries its marker, so this run takes it over.
+    # Otherwise only the earlier run could resume the schedule, and that run already ended.
+    if paused_now or config_before.get("admin_unpause_schedule_after_run"):
+        updates["admin_unpause_schedule_after_run"] = workflow_id
     staged = bool(updates or removes or extra_model_fields)
     if staged:
         # Merged under the row lock: capture writes this config concurrently, and saving the copy
@@ -153,7 +162,6 @@ def trigger_ad_hoc_sync(
         billable=billable,
         reset_pipeline=None,
     )
-    workflow_id = f"{schema.id}-{workflow_id_prefix}-{int(time.time())}"
     try:
         start_external_data_workflow(client, workflow_id, inputs)
     except Exception as e:
@@ -184,3 +192,30 @@ def trigger_ad_hoc_sync(
         raise WorkflowStartError(str(e)) from e
 
     return AdHocSyncTrigger(workflow_id=workflow_id, schedule_paused_now=paused_now)
+
+
+def resume_schedule_after_ad_hoc_run(schema_id: str | uuid.UUID, team_id: int, job_id: str | uuid.UUID) -> bool:
+    """Unpause the schedule that an ad-hoc run paused, and return whether it did.
+
+    Call this only after the job commits its Completed status. Any other outcome keeps the schedule
+    paused, so a person looks at the schema before syncs resume. It is safe to repeat: unpausing a
+    running schedule does nothing, and the marker goes only after the unpause succeeds.
+    """
+    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).only("sync_type_config").first()
+    marker = (schema.sync_type_config or {}).get("admin_unpause_schedule_after_run") if schema else None
+    if not marker:
+        return False
+    # The marker holds the ad-hoc workflow id, so a run that was already loading when the pause landed
+    # cannot resume the schedule and hand the staged reset to the next billable scheduled run. A
+    # legacy `True` marker has no id and matches any run.
+    if isinstance(marker, str):
+        job_workflow_id = (
+            ExternalDataJob.objects.filter(id=job_id, team_id=team_id).values_list("workflow_id", flat=True).first()
+        )
+        if job_workflow_id != marker:
+            return False
+    # The async variant connects and unpauses in one coroutine, so the Temporal client stays on the
+    # event loop that created it. The sync variant runs those two steps on separate loops.
+    async_to_sync(a_unpause_external_data_schedule)(str(schema_id))
+    update_sync_type_config_keys(schema_id, team_id, removes=["admin_unpause_schedule_after_run"])
+    return True

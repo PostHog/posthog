@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.db.models import Max, Min, QuerySet
 
@@ -31,7 +32,7 @@ def reserved_scout_name_error(name: str) -> str | None:
     that mint a scout — so both refuse the same set.
     """
     if name in SYSTEM_SCOUT_NAMES:
-        return "This scout is managed by Self-Driving onboarding."
+        return "This scout is managed by Self-driving onboarding."
     if name.lower() in RESERVED_SCOUT_NAMES:
         return (
             f"'{name}' is reserved by the inbox and cannot be a scout name. "
@@ -303,7 +304,7 @@ def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
     if not people:
         return []
 
-    def to_author(person: dict, role: Literal["creator", "editor"]) -> SkillAuthor:
+    def to_author(person: Mapping[str, Any], role: Literal["creator", "editor"]) -> SkillAuthor:
         # Collapse whitespace so a multi-line display name can't break out of the prompt's
         # one-line list-item structure.
         name = " ".join(f"{person['created_by__first_name']} {person['created_by__last_name']}".split())

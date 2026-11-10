@@ -19,6 +19,8 @@ from enum import StrEnum
 
 from django.db import transaction
 
+from pydantic import ValidationError
+
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_DISCUSSION,
@@ -29,7 +31,7 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     TaskRunArtefact,
 )
-from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
+from products.signals.backend.billing import mark_report_billing_exempt, report_has_implementation_pr
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_assignments import ReportClaimConflict, claim_report_for_task, release_claim
 from products.signals.backend.report_claims import get_active_claim, is_user_claim_of, is_user_claim_of_task_creator
@@ -339,7 +341,40 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     claim = _implementation_slot_claim(team_id=team_id, report_id=report_id, exclude_task_id=task_id)
     if claim is not None:
         raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
-    claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+    claim_report_for_task(
+        team_id=team_id,
+        report_id=report_id,
+        task_id=task_id,
+        for_task_creator=implementation_started_by_person(team_id=team_id, report_id=report_id, task_id=task_id),
+    )
+
+
+def implementation_started_by_person(*, team_id: int, report_id: str, task_id: str) -> bool:
+    """Whether a person started this implementation task by hand, rather than auto-start.
+
+    Auto-start stamps its generated branch on the run artefact of every run it starts, and the
+    manual start-task API leaves it unset. One stamped run makes the task automatic, because
+    auto-start runs a task as a suggested reviewer who never took the work on. A row that does not
+    parse also counts as automatic, so that no claim names a person without evidence.
+    """
+    rows = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.TASK_RUN,
+        task_id=task_id,
+    ).values_list("content", flat=True)
+    found = False
+    for content in rows:
+        try:
+            artefact = TaskRunArtefact.model_validate_json(content)
+        except ValidationError:
+            return False
+        if artefact.type != TASK_RUN_TYPE_IMPLEMENTATION:
+            continue
+        if artefact.automation_branch is not None:
+            return False
+        found = True
+    return found
 
 
 def record_implementation_task(
@@ -387,7 +422,12 @@ def record_implementation_task(
         attribution=ArtefactAttribution.from_task(task_id),
     )
     try:
-        claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+        claim_report_for_task(
+            team_id=team_id,
+            report_id=report_id,
+            task_id=task_id,
+            for_task_creator=implementation_started_by_person(team_id=team_id, report_id=report_id, task_id=task_id),
+        )
     except ReportClaimConflict as error:
         raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=str(error)) from error
     return artefact
@@ -416,22 +456,10 @@ def record_report_task(
 
 
 def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
-    """Remove a quota-cancelled implementation's auto-start records so its report can be
-    implemented again by a later cycle.
+    """Remove implementation gates so a quota-cancelled report can run again.
 
-    A run the quota gate cancels mid-flight never shipped its PR, but its `SignalReportTask` gate
-    row and implementation `task_run` artefact would keep `associated_task_runs` reporting a
-    started implementation and permanently block re-implementation. Deleting both restores the
-    report to "never implemented"; a system `note` artefact records for the report timeline why
-    the run stopped. Locks each report row (the same lock auto-start creation takes) so the
-    removal serializes with a concurrent auto-start evaluation. Returns the affected report ids
-    (empty when the task has no implementation link).
-
-    Reports that already shipped a billable PR are skipped entirely: the cancel decision is
-    run-scoped but this delete is task-scoped, and a sibling run of the same task may have
-    shipped the PR that billed the report. Its `SignalReportTask` row is billing's evidence —
-    the `billed_earlier` dedup and refund eligibility both resolve through it — so deleting it
-    would re-bill the report on its next implementation and strand the paid charge unrefundable.
+    Preserve shipped PRs, including those from sibling runs. Lock reports to serialize
+    cleanup with auto-start, and return the affected report IDs.
     """
     report_ids = list(
         SignalReportTask.objects.filter(
@@ -444,10 +472,7 @@ def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> lis
             report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
             if report is None:
                 continue
-            if first_billable_pr_run_at(report_id) is not None:
-                # A sibling run already shipped this report's billable PR. These records are
-                # billing's evidence for that charge — deleting them would double-bill the next
-                # implementation — and the report needs no release: it *is* implemented.
+            if report_has_implementation_pr(report_id, team_id=team_id):
                 continue
             assignment = get_active_claim(team_id=team_id, report_id=report_id)
             if assignment is not None and assignment.actor_kind == "task" and str(assignment.actor_task_id) == task_id:

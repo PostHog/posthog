@@ -13,7 +13,8 @@ import { isStringDateRegex } from 'lib/utils/dateFilters'
 import { calculateDays } from 'lib/utils/durations'
 import { isNumeric } from 'lib/utils/guards'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
-import { isOperatorDate } from 'lib/utils/operators'
+import { isOperatorDate, isOperatorSemver } from 'lib/utils/operators'
+import { isStrictSemverValue, isValidSemverValue } from 'lib/utils/semver'
 import {
     BEHAVIORAL_TYPE_TO_LABEL,
     CRITERIA_VALIDATIONS,
@@ -226,6 +227,12 @@ function hasPositiveCriterion(group: CohortCriteriaGroupFilter | AnyCohortCriter
     return (group.values as AnyCohortCriteriaType[]).filter((g) => !isCohortCriteriaGroup(g)).some((c) => !c.negation)
 }
 
+const SEMVER_RANGE_OPERATORS: ReadonlySet<PropertyOperator> = new Set([
+    PropertyOperator.SemverTilde,
+    PropertyOperator.SemverCaret,
+    PropertyOperator.SemverWildcard,
+])
+
 export function validateGroup(
     group: CohortCriteriaGroupFilter | AnyCohortCriteriaType,
     // The outer ("Match all/any criteria") operator and the other groups in the cohort. When the
@@ -344,6 +351,28 @@ export function validateGroup(
             return {
                 values: betweenErrors,
             }
+        }
+    }
+
+    const semverErrors: DeepPartialMap<CohortCriteriaType, ValidationErrorType>[] = criteria.map((c) => {
+        if (!c.operator || !isOperatorSemver(c.operator)) {
+            return {}
+        }
+        const rawValue = 'value_property' in c ? c.value_property : null
+        // Older cohorts can store one value as a one-item list; the API unwraps it on save.
+        const value = Array.isArray(rawValue) && rawValue.length === 1 ? rawValue[0] : rawValue
+        const isValid =
+            typeof value === 'string' &&
+            (SEMVER_RANGE_OPERATORS.has(c.operator)
+                ? isValidSemverValue(value, { allowWildcard: c.operator === PropertyOperator.SemverWildcard })
+                : isStrictSemverValue(value))
+        return isValid
+            ? {}
+            : { id: CohortClientErrors.InvalidSemverValue, value_property: CohortClientErrors.InvalidSemverValue }
+    }) as DeepPartialMap<CohortCriteriaType, ValidationErrorType>[]
+    if (semverErrors.some((e) => e.value_property)) {
+        return {
+            values: semverErrors,
         }
     }
 
@@ -774,6 +803,10 @@ export function personOperatorOptionsType(propertyType?: PropertyType | null): F
         : FieldOptionsType.CohortMathOperators
 }
 
+export function isPersonOperatorShown(operator: PropertyOperator, propertyType?: PropertyType | null): boolean {
+    return operator in FIELD_VALUES[personOperatorOptionsType(propertyType)].values
+}
+
 export type PropertyDefinitionLookup = (
     key: string,
     type: PropertyDefinitionType
@@ -795,8 +828,7 @@ export function isRecentPersonFilterUnsupported(
     if (isOperatorDate(operator) && typeof value === 'string' && isStringDateRegex.test(value)) {
         return true
     }
-    const isOperatorShownFor = (propertyType?: PropertyType): boolean =>
-        operator in FIELD_VALUES[personOperatorOptionsType(propertyType)].values
+    const isOperatorShownFor = (propertyType?: PropertyType): boolean => isPersonOperatorShown(operator, propertyType)
     const definition = lookupDefinition(filter.key, propertyFilterTypeToPropertyDefinitionType(filter.type))
     if (typeof definition === 'object' && definition !== null) {
         return !isOperatorShownFor(definition.property_type)

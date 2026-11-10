@@ -3,6 +3,7 @@ import { urls } from 'scenes/urls'
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
+    PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
 } from './generated/api.schemas'
@@ -11,24 +12,44 @@ export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled
 
 interface SourceKind {
     label: string
-    // The source product's own page for the alert, reached through the legacy configuration id.
-    alertUrl?: (legacyConfigurationId: string) => string
+    // The source product's own page for the alert, or null when the configuration cannot reach it.
+    alertUrl: (configuration: PlatformAlertConfigurationApi) => string | null
+}
+
+function legacyAlertUrl(url: (legacyConfigurationId: string) => string): SourceKind['alertUrl'] {
+    return ({ legacy_configuration_id }) => (legacy_configuration_id ? url(legacy_configuration_id) : null)
 }
 
 export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, SourceKind> = {
     [PlatformAlertConfigurationSourceKindEnumApi.Logs]: {
         label: 'Logs',
-        alertUrl: (legacyConfigurationId) => urls.logsAlertDetail(legacyConfigurationId),
+        alertUrl: legacyAlertUrl(urls.logsAlertDetail),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Insight]: {
         label: 'Insight',
-        alertUrl: (legacyConfigurationId) => urls.alert(legacyConfigurationId),
+        alertUrl: legacyAlertUrl(urls.alert),
+    },
+    // A warehouse alert has no page of its own, so it links to the page that lists what it watches.
+    [PlatformAlertConfigurationSourceKindEnumApi.WarehouseSource]: {
+        label: 'Warehouse source',
+        alertUrl: () => urls.sources(),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.WarehouseDestination]: {
+        label: 'Warehouse destination',
+        alertUrl: () => urls.warehouseDestinations(),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.Metrics]: {
+        label: 'Metrics',
+        alertUrl: () => urls.metrics(),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.Traces]: {
+        label: 'Traces',
+        alertUrl: () => urls.tracing(),
     },
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {
-    const { alertUrl } = SOURCE_KINDS[configuration.source_kind]
-    return alertUrl && configuration.legacy_configuration_id ? alertUrl(configuration.legacy_configuration_id) : null
+    return SOURCE_KINDS[configuration.source_kind].alertUrl(configuration)
 }
 
 // Most urgent first, so a configuration shows the state that needs attention.
@@ -81,3 +102,48 @@ export function describeQuietHours(configuration: PlatformAlertConfigurationApi)
     const windows = configuration.schedule_restriction?.blocked_windows ?? []
     return windows.length ? windows.map((window) => `${window.start}-${window.end}`).join(', ') : 'None'
 }
+
+// Logs alerts group by these columns. Any other key is a log attribute the user typed, so it shows as written.
+const LABEL_NAMES: Record<string, string> = {
+    service_name: 'Service',
+    severity_text: 'Severity',
+}
+
+export interface GroupLabel {
+    key: string
+    name: string
+    value: string
+}
+
+/** A group's labels in the order the alert groups by, with readable names. */
+export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly string[]): GroupLabel[] {
+    // Label keys are user-typed attributes, so a key like `constructor` must not resolve through the prototype.
+    const known = groupingKeys.filter((key) => Object.hasOwn(alert.labels, key))
+    const rest = Object.keys(alert.labels)
+        .filter((key) => !groupingKeys.includes(key))
+        .sort()
+    return [...known, ...rest].map((key) => ({
+        key,
+        name: Object.hasOwn(LABEL_NAMES, key) ? LABEL_NAMES[key] : key,
+        value: alert.labels[key],
+    }))
+}
+
+export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
+    const count = configuration.overflowed_groups
+    if (count <= 0) {
+        return null
+    }
+    const groups = count === 1 ? 'group' : 'groups'
+    return `At its group limit: ${configuration.overflow_is_lower_bound ? 'at least ' : ''}${count} ${groups} not tracked`
+}
+
+export function describeOverflowDetail(configuration: PlatformAlertConfigurationApi): string {
+    const limit = configuration.grouping.max_instances
+    return `The last check found more groups than this alert's limit${
+        limit !== undefined ? ` of ${limit}` : ''
+    }, so it left the new ones out. To track them, raise the group limit or narrow the alert so fewer groups match.`
+}
+
+export const GROUP_SNOOZE_EXPLANATION =
+    'The group keeps being checked, and a firing group stays firing. Only its notifications are held.'

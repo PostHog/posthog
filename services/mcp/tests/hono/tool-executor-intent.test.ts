@@ -34,7 +34,6 @@ import { toolCallsTotal } from '@/hono/metrics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { getPostHogClient } from '@/lib/posthog'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
 
@@ -199,16 +198,11 @@ describe('ToolExecutor analytics capture', () => {
     })
 
     it.each(['direct', 'exec'])(
-        'keeps a %s switch-project call on the project its variant was evaluated for',
+        'keeps a %s switch-project call on the project its flags were evaluated for',
         async (mode) => {
             const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
-            const source = { organizationId: 'org-1', projectId: '1', projectUuid: 'uuid-1', projectHasData: false }
-            const destination = {
-                organizationId: 'org-1',
-                projectId: '2',
-                projectUuid: 'uuid-2',
-                projectHasData: false,
-            }
+            const source = { organizationId: 'org-1', projectId: '1', projectUuid: 'uuid-1' }
+            const destination = { organizationId: 'org-1', projectId: '2', projectUuid: 'uuid-2' }
             let active = source
             const tool = {
                 name: 'switch-project',
@@ -233,8 +227,6 @@ describe('ToolExecutor analytics capture', () => {
                 useSingleExec: mode === 'exec',
                 suppressAnalytics: false,
                 analyticsContext: source,
-                projectHasData: source.projectHasData,
-                toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: 'warn' },
                 reqCtx: { ...baseState.reqCtx, safelyGetAnalyticsContext: vi.fn(async () => active) } as any,
             })
 
@@ -253,12 +245,128 @@ describe('ToolExecutor analytics capture', () => {
             expect(event.groups).toEqual({ organization: 'org-1', project: 'uuid-1' })
             expect(event.properties).toMatchObject({
                 $mcp_project_id: '1',
-                mcp_project_has_data: false,
-                mcp_no_data_action: 'none',
-                [`$feature/${MCP_NO_DATA_INSTALL_NOTICE_FLAG}`]: 'warn',
             })
+            expect(event.parameters).toEqual({ projectId: 2 })
+            expect(event.response).toBe('Switched to project 2')
         }
     )
+
+    it.each(['direct', 'exec'])('redacts a credential the %s result returns', async (mode) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const tool = {
+            name: 'switch-project',
+            title: 'Create token',
+            description: 'Synthetic credential tool',
+            scopes: [],
+            annotations: { readOnlyHint: false },
+            schema: z.object({}),
+            handler: async () => ({ id: 1, scim_bearer_token: 'canary-secret' }),
+        }
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+            build: () => tool,
+            meta: undefined,
+            rawInputSchema: undefined,
+            definition: undefined,
+        })
+        const state = makeToolExecutorState([tool], { useSingleExec: mode === 'exec', suppressAnalytics: false })
+
+        await executor.handleToolCall(
+            mode === 'exec'
+                ? { name: 'exec', arguments: { command: 'call switch-project {}' } }
+                : { name: tool.name, arguments: {} },
+            state
+        )
+
+        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
+        expect(capture.mock.calls[0]![0].response).toEqual({ id: 1, scim_bearer_token: '[redacted]' })
+        capture.mockRestore()
+    })
+
+    it.each(['direct', 'exec'])('captures only the arguments the %s handler received', async (mode) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const tool = {
+            name: 'switch-project',
+            title: 'Switch project',
+            description: 'Synthetic switch',
+            scopes: [],
+            annotations: { readOnlyHint: false },
+            schema: z.object({ projectId: z.number() }),
+            handler: async () => 'Switched',
+        }
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+            build: () => tool,
+            meta: undefined,
+            rawInputSchema: undefined,
+            definition: undefined,
+        })
+        const state = makeToolExecutorState([tool], { useSingleExec: mode === 'exec', suppressAnalytics: false })
+        const args = { projectId: 2, data: '{"password":"canary-secret"}' }
+
+        await executor.handleToolCall(
+            mode === 'exec'
+                ? { name: 'exec', arguments: { command: `call switch-project ${JSON.stringify(args)}` } }
+                : { name: tool.name, arguments: args },
+            state
+        )
+
+        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
+        expect(capture.mock.calls[0]![0].parameters).toEqual({ projectId: 2 })
+        capture.mockRestore()
+    })
+
+    it.each(['direct', 'exec'])('sends no arguments for a %s call its schema rejects', async (mode) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const tool = {
+            name: 'switch-project',
+            title: 'Switch project',
+            description: 'Synthetic switch',
+            scopes: [],
+            annotations: { readOnlyHint: false },
+            schema: z.object({ projectId: z.number() }),
+            handler: async () => 'unreachable',
+        }
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+            build: () => tool,
+            meta: undefined,
+            rawInputSchema: undefined,
+            definition: undefined,
+        })
+        const state = makeToolExecutorState([tool], { useSingleExec: mode === 'exec', suppressAnalytics: false })
+        const projectId = '{"password":"canary-secret"}'
+
+        await executor.handleToolCall(
+            mode === 'exec'
+                ? { name: 'exec', arguments: { command: `call switch-project ${JSON.stringify({ projectId })}` } }
+                : { name: tool.name, arguments: { projectId } },
+            state
+        )
+
+        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
+        expect(capture.mock.calls[0]![0].isError).toBe(true)
+        expect(capture.mock.calls[0]![0].parameters).toBeUndefined()
+        capture.mockRestore()
+    })
+
+    it.each([
+        ['an unknown tool', 'call no-such-tool {"password":"canary-secret"}'],
+        ['a disconnected vendor tool', 'call linear__create_issue {"description":"canary-secret"}'],
+        ['malformed arguments', 'call switch-project {"password":"canary-secret"'],
+        ['an unknown verb', 'bogus {"password":"canary-secret"}'],
+    ])('sends no arguments or result for exec with %s', async (_case, command) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = makeToolExecutorState([{ name: 'switch-project' }], {
+            useSingleExec: true,
+            suppressAnalytics: false,
+        })
+
+        await executor.handleToolCall({ name: 'exec', arguments: { command } }, state)
+
+        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
+        const event = capture.mock.calls[0]![0]
+        expect(event.parameters).toBeUndefined()
+        expect(event.response).toBeUndefined()
+        capture.mockRestore()
+    })
 
     it.each([true, false])('isolates intent descriptions with single exec=%s', async (useSingleExec) => {
         const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
@@ -282,7 +390,7 @@ describe('ToolExecutor analytics capture', () => {
         expect(properties).toHaveProperty('context')
         expect(properties).toHaveProperty('llm_model')
         expect(entry.inputSchema.required).toContain('context')
-        expect(entry.inputSchema.required).toContain('llm_model')
+        expect(entry.inputSchema.required).not.toContain('llm_model')
         expect(treatment.tools[0]!.inputSchema.properties?.context).toMatchObject({ description: prompt })
         expect(other.tools[0]!.inputSchema.properties?.context).toEqual(properties.context)
         expect(properties.context).not.toEqual(treatment.tools[0]!.inputSchema.properties?.context)

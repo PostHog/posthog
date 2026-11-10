@@ -11,6 +11,7 @@ import json
 import base64
 import hashlib
 import secrets
+import dataclasses
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -28,12 +29,14 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
+from posthog.llm import gateway_internal_client
+from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.storage.team_llm_gateway_policy_cache import update_team_llm_gateway_policy_cache
 
 from .facade.contracts import (
     DevTeamUsage,
@@ -43,8 +46,15 @@ from .facade.contracts import (
     DevTokenUsage,
     DevUserUsage,
     MintedDevToken,
+    TeamAccessChange,
+    TeamCreditAdded,
+    TeamCreditRefused,
+    TeamCreditTopUp,
+    TeamWallet,
+    TeamWalletEntry,
+    TeamWalletUnavailable,
 )
-from .facade.enums import DevTokenClient, DevTokenStatus
+from .facade.enums import DevTokenClient, DevTokenStatus, TeamAccessAction
 from .models import DevGatewayToken
 
 logger = structlog.get_logger(__name__)
@@ -527,3 +537,157 @@ def exchange_cli_code(code: str, code_verifier: str) -> MintedDevToken:
     if refusal is not None:
         raise refusal
     return mint(user, DevTokenClient.CLI)
+
+
+# Upper bound on a single staff top-up, to catch fat-fingered amounts.
+MAX_TEAM_CREDIT_USD = Decimal("1000000")
+TEAM_CREDIT_SCOPE = "AIGatewayCredit"
+
+_ACCESS_FIELDS: dict[TeamAccessAction, tuple[str, bool]] = {
+    TeamAccessAction.ENABLE: ("llm_gateway_enabled_at", True),
+    TeamAccessAction.UNENABLE: ("llm_gateway_enabled_at", False),
+    TeamAccessAction.REVOKE: ("llm_gateway_revoked_at", True),
+    TeamAccessAction.UNREVOKE: ("llm_gateway_revoked_at", False),
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class TeamCreditActivityContext(ActivityContextBase):
+    amount_usd: str
+    reason: str
+    balance_usd: str
+
+
+def change_team_access(team_id: int, action: TeamAccessAction) -> TeamAccessChange:
+    team = Team.objects.get(pk=team_id)
+    field, set_now = _ACCESS_FIELDS[action]
+    previous_at = getattr(team, field)
+    changed = (previous_at is None) == set_now
+    if changed:
+        setattr(team, field, timezone.now() if set_now else None)
+        team.save()
+    # Sync write: the post_save signal's Celery task races the caller, and a no-op skips team.save(), so the
+    # signal never fires for it.
+    update_team_llm_gateway_policy_cache(team)
+    return TeamAccessChange(team_id=team.id, action=action, changed=changed, previous_at=previous_at)
+
+
+def add_team_credit(
+    team_id: int, amount_usd: Decimal, reason: str, form_nonce: str, actor: User, was_impersonated: bool
+) -> TeamCreditAdded:
+    reason = reason.strip()
+    if not reason:
+        raise TeamCreditRefused("Reason is required")
+    # is_finite() rejects NaN/sNaN/±Inf before `amount_usd <= 0`, which raises on NaN.
+    if not amount_usd.is_finite() or amount_usd <= 0:
+        raise TeamCreditRefused("Amount must be a positive number")
+    if amount_usd > MAX_TEAM_CREDIT_USD:
+        raise TeamCreditRefused(f"Amount exceeds the ${MAX_TEAM_CREDIT_USD:,} per-top-up limit")
+    team = Team.objects.get(pk=team_id)
+    # Bind the key to the amount and reason, so editing the amount after a submit makes a new key instead of
+    # replaying the earlier top-up, while a double submit of the same form reuses it.
+    idempotency_key = hashlib.sha256(f"{form_nonce}:{amount_usd}:{reason}".encode()).hexdigest()
+    try:
+        result = gateway_internal_client.add_credit(team.id, str(amount_usd), reason, idempotency_key)
+    except gateway_internal_client.AIGatewayInternalError as exc:
+        logger.warning(
+            "ai_gateway_team_credit_failed",
+            team_id=team.id,
+            amount_usd=str(amount_usd),
+            error=str(exc),
+            triggered_by=actor.email,
+        )
+        raise TeamCreditRefused(f"Failed to add credit: {exc}") from exc
+    logger.info(
+        "ai_gateway_team_credit_added",
+        team_id=team.id,
+        amount_usd=str(amount_usd),
+        entry_id=result.entry_id,
+        duplicate=result.duplicate,
+        triggered_by=actor.email,
+    )
+    _record_team_credit(team, result.entry_id, result.amount_usd, result.balance_usd, reason, actor, was_impersonated)
+    return TeamCreditAdded(
+        entry_id=result.entry_id,
+        amount_usd=result.amount_usd,
+        balance_usd=result.balance_usd,
+        duplicate=result.duplicate,
+    )
+
+
+def _record_team_credit(
+    team: Team,
+    entry_id: str,
+    amount_usd: str,
+    balance_usd: str,
+    reason: str,
+    actor: User,
+    was_impersonated: bool,
+) -> None:
+    # The audit is keyed by the ledger entry_id, so it is written whenever one is missing: a replay backfills the
+    # audit if an earlier attempt lost it after the money moved. The credit and this record cannot share a
+    # transaction, and the credit already succeeded, so an audit failure is logged and swallowed. The existence
+    # check dedupes best-effort.
+    try:
+        if ActivityLog.objects.filter(scope=TEAM_CREDIT_SCOPE, team_id=team.id, item_id=entry_id).exists():
+            return
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=actor,
+            was_impersonated=was_impersonated,
+            item_id=entry_id,
+            scope=TEAM_CREDIT_SCOPE,
+            activity="credit_added",
+            detail=Detail(
+                name=f"AI gateway credit — ${amount_usd}",
+                type="admin_add_credit",
+                context=TeamCreditActivityContext(amount_usd=amount_usd, reason=reason, balance_usd=balance_usd),
+            ),
+        )
+    except Exception:
+        logger.warning(
+            "ai_gateway_team_credit_audit_failed",
+            team_id=team.id,
+            entry_id=entry_id,
+            triggered_by=actor.email,
+            exc_info=True,
+        )
+
+
+def recent_team_credits(team_id: int, limit: int) -> list[TeamCreditTopUp]:
+    entries = (
+        ActivityLog.objects.filter(scope=TEAM_CREDIT_SCOPE, team_id=team_id, activity="credit_added")
+        .select_related("user")
+        .order_by("-created_at")[:limit]
+    )
+    top_ups = []
+    for entry in entries:
+        context = (entry.detail or {}).get("context") or {}
+        top_ups.append(
+            TeamCreditTopUp(
+                created_at=entry.created_at,
+                amount_usd=str(context.get("amount_usd", "?")),
+                reason=str(context.get("reason", "")),
+                actor_email=entry.user.email if entry.user else None,
+            )
+        )
+    return top_ups
+
+
+def team_wallet(team_id: int) -> TeamWallet:
+    try:
+        wallet = gateway_internal_client.get_wallet(team_id)
+    except gateway_internal_client.AIGatewayNotConfigured as exc:
+        raise TeamWalletUnavailable("The AI gateway internal API is not configured in this region.") from exc
+    except gateway_internal_client.AIGatewayInternalError as exc:
+        raise TeamWalletUnavailable(f"The wallet is unavailable: {exc}") from exc
+    return TeamWallet(
+        known=wallet.known,
+        has_ledger=wallet.has_ledger,
+        balance_usd=wallet.balance,
+        recent=[
+            TeamWalletEntry(when=entry.when, kind=entry.kind, amount=entry.amount, reference=entry.reference)
+            for entry in wallet.recent
+        ],
+    )
