@@ -19,6 +19,17 @@ describe('destination secret redaction', () => {
             { inputs: { webhookUrl: { value: WEBHOOK }, channel: { value: '#alerts' } } },
             { inputs: { webhookUrl: 'redacted', channel: { value: '#alerts' } } },
         ],
+        [
+            'the URL input of a webhook destination',
+            {
+                template_id: 'template-webhook',
+                inputs: { url: { value: WEBHOOK }, body: { value: { insight_url: '{project.url}/insights/1' } } },
+            },
+            {
+                template_id: 'template-webhook',
+                inputs: { url: 'redacted', body: { value: { insight_url: '{project.url}/insights/1' } } },
+            },
+        ],
     ])('masks %s', (_name, body, expected) => {
         expect(JSON.parse(redactDestinationSecrets(JSON.stringify(body)) as string)).toEqual(expected)
     })

@@ -6,14 +6,28 @@ const REDACTED_BODY = '[SessionRecording] body redacted as might contain a desti
 // The path of a Slack, Teams, Discord or generic webhook URL is the credential, and a PagerDuty routing key
 // lets anyone open incidents. The SDK body scrubbing only matches words like "token" and "secret", so it misses both.
 const SECRET_FIELD = /webhook[_-]?url|routing[_-]?key/i
+// Only the webhook destination templates define a `url` input, so `inputs.url` of a destination is its webhook URL.
+const MAY_HOLD_SECRET = /webhook[_-]?url|routing[_-]?key|"inputs"/i
 
 function redactArray(value: unknown[]): unknown[] {
     const redacted = value.map(redactSecretFields)
     return redacted.some((item, index) => item !== value[index]) ? redacted : value
 }
 
+function redactUrlInput(inputs: unknown): unknown {
+    if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) {
+        return inputs
+    }
+    const { url } = inputs as Record<string, unknown>
+    return url === undefined || url === null ? inputs : { ...inputs, url: REDACTED }
+}
+
 function redactField(key: string, item: unknown): unknown {
-    return SECRET_FIELD.test(key) && item !== null && item !== '' ? REDACTED : redactSecretFields(item)
+    if (SECRET_FIELD.test(key) && item !== null && item !== '') {
+        return REDACTED
+    }
+    const redacted = redactSecretFields(item)
+    return key === 'inputs' ? redactUrlInput(redacted) : redacted
 }
 
 function redactObject(value: Record<string, unknown>): Record<string, unknown> {
@@ -29,7 +43,7 @@ function redactSecretFields(value: unknown): unknown {
 }
 
 export function redactDestinationSecrets(body: unknown): unknown {
-    if (typeof body !== 'string' || !SECRET_FIELD.test(body)) {
+    if (typeof body !== 'string' || !MAY_HOLD_SECRET.test(body)) {
         return body
     }
     // A deeply nested body overflows the stack during traversal. The SDK drops the whole $snapshot event
