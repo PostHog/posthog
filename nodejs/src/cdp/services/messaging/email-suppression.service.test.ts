@@ -1,5 +1,8 @@
+import { Client } from 'pg'
+
+import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
@@ -426,28 +429,42 @@ describe('EmailSuppressionService', () => {
             ['shadow', false],
             ['enforce', true],
         ] as const)(
-            'in %s mode, a failed global read holds the send until a retry reads the list: %s',
+            'in %s mode, a global list read that times out holds the send until a retry reads the list: %s',
             async (mode, enforce) => {
                 const email = `unread-${mode}-${team.id}@example.com`
                 await bounceForAnotherTeam(email)
-                const service = newService(enforce)
-                const realQuery = hub.postgres.query.bind(hub.postgres)
-                const failGlobalRead = jest
-                    .spyOn(hub.postgres, 'query')
-                    .mockImplementation(((...args: Parameters<typeof realQuery>) =>
-                        args[3] === 'loadGlobalHardBounces'
-                            ? Promise.reject(new Error('relation does not exist'))
-                            : realQuery(...args)) as typeof realQuery)
+                const databaseUrl = new URL(defaultConfig.DATABASE_URL)
+                databaseUrl.searchParams.set('options', '-c lock_timeout=100')
+                const reader = new PostgresRouter({
+                    ...defaultConfig,
+                    DATABASE_URL: databaseUrl.toString(),
+                    DATABASE_READONLY_URL: '',
+                })
+                const service = new EmailSuppressionService(reader, {
+                    ...emailSuppressionConfigFromEnv(),
+                    globalHardBounceEnforce: enforce,
+                })
+                const lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
+                lockHolder.on('error', () => undefined)
+                await lockHolder.connect()
+                try {
+                    await lockHolder.query('BEGIN')
+                    await lockHolder.query(`SET LOCAL idle_in_transaction_session_timeout = '10s'`)
+                    await lockHolder.query('LOCK TABLE posthog_emailhardbounce IN ACCESS EXCLUSIVE MODE')
 
-                const lookup = service.isSuppressed(team.id, email, { transactional: true })
-                if (enforce) {
-                    await expect(lookup).rejects.toBeInstanceOf(SuppressionLookupError)
-                } else {
-                    await expect(lookup).resolves.toBe(false)
+                    const lookup = service.isSuppressed(team.id, email, { transactional: true })
+                    if (enforce) {
+                        await expect(lookup).rejects.toBeInstanceOf(SuppressionLookupError)
+                    } else {
+                        await expect(lookup).resolves.toBe(false)
+                    }
+
+                    await lockHolder.query('COMMIT')
+                    expect(await service.isSuppressed(team.id, email, { transactional: true })).toBe(enforce)
+                } finally {
+                    await lockHolder.end()
+                    await reader.end()
                 }
-
-                failGlobalRead.mockRestore()
-                expect(await service.isSuppressed(team.id, email, { transactional: true })).toBe(enforce)
             }
         )
 

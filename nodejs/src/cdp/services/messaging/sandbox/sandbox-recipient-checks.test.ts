@@ -1,15 +1,24 @@
 import { Client } from 'pg'
 
+import { createExampleInvocation } from '~/cdp/_tests/fixtures'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { defaultConfig } from '~/common/config/config'
+import { RedisV2 } from '~/common/redis/redis-v2'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { Hub } from '~/types'
 
 import { MessageOptOutRecord } from '../../../types'
+import { RecipientsManagerService } from '../../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { EmailSuppressionService } from '../email-suppression.service'
-import { FrequencyCapCheck } from '../recipient-preferences.service'
+import { createFrequencyCapValkeyPool } from '../frequency-cap-valkey-pool'
+import { FrequencyCapCheck, RecipientPreferencesService } from '../recipient-preferences.service'
 import {
+    MAX_PENDING_FREQUENCY_CAP_CHECKS,
     SandboxRecipientCheckDependencies,
     SandboxRecipientCheckRequest,
     checkSandboxRecipient,
@@ -17,6 +26,8 @@ import {
 } from './sandbox-recipient-checks'
 
 describe('checkSandboxRecipient', () => {
+    let hub: Hub
+    let valkey: RedisV2
     let postgres: PostgresRouter
     let unreachable: PostgresRouter
     let suppressionList: EmailSuppressionService
@@ -49,7 +60,9 @@ describe('checkSandboxRecipient', () => {
             'test:store-recipient-preferences'
         )
 
-    beforeAll(() => {
+    beforeAll(async () => {
+        hub = await createHub()
+        valkey = createFrequencyCapValkeyPool(defaultConfig)!
         postgres = new PostgresRouter(defaultConfig)
         unreachable = new PostgresRouter({
             ...defaultConfig,
@@ -59,7 +72,7 @@ describe('checkSandboxRecipient', () => {
     })
 
     afterAll(async () => {
-        await Promise.all([postgres.end(), unreachable.end()])
+        await Promise.all([postgres.end(), unreachable.end(), closeHub(hub)])
     })
 
     beforeEach(async () => {
@@ -184,5 +197,78 @@ describe('checkSandboxRecipient', () => {
     ])('lets through %s', async (_case, arrange, request) => {
         await arrange()
         expect(await check(request)).toEqual({ ok: true })
+    })
+
+    describe('with the marketing frequency cap read behind a lock', () => {
+        const marketingEmail: Extract<HogFlowAction, { type: 'function_email' }> = {
+            id: 'email',
+            name: 'Send email',
+            description: '',
+            type: 'function_email',
+            filters: null,
+            config: { template_id: 'template-email', message_category_type: 'marketing', inputs: {} },
+            created_at: 0,
+            updated_at: 0,
+        }
+        let lockHolder: Client
+
+        const realFrequencyCap = (): (() => Promise<FrequencyCapCheck>) => {
+            const preferences = new RecipientPreferencesService(
+                new RecipientsManagerService(postgres),
+                new EmailSuppressionService(postgres, suppressionConfig),
+                {
+                    teamWorkflowsConfig: new TeamWorkflowsConfigService(postgres, hub.pubSub),
+                    valkey,
+                    persons: {
+                        getCyclotronPerson: () => Promise.reject(new Error('an email cap check reads the run person')),
+                    },
+                }
+            )
+            return () => preferences.checkFrequencyCap(createExampleInvocation({ team_id: teamId }), marketingEmail)
+        }
+
+        beforeEach(async () => {
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, marketing_frequency_cap_max_messages,
+                     marketing_frequency_cap_window_days)
+                 VALUES ($1, false, 'off', '', 1, 7)`,
+                [teamId],
+                'test:cap-one-marketing-email-a-week'
+            )
+            expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({ ok: true })
+            expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({
+                ok: false,
+                reason: 'frequency_capped',
+            })
+
+            lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
+            lockHolder.on('error', () => undefined)
+            await lockHolder.connect()
+            await lockHolder.query('BEGIN')
+            await lockHolder.query(`SET LOCAL idle_in_transaction_session_timeout = '10s'`)
+            await lockHolder.query('LOCK TABLE workflows_teamworkflowsconfig IN ACCESS EXCLUSIVE MODE')
+            reads = sandboxRecipientReads(postgres, suppressionConfig, 200)
+        })
+
+        afterEach(async () => {
+            await lockHolder.end()
+        })
+
+        it('lets the send through once the cap check passes its deadline', async () => {
+            expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({ ok: true })
+        })
+
+        it('skips the cap check while earlier checks past their deadline still wait for it', async () => {
+            const stalled = Array.from({ length: MAX_PENDING_FREQUENCY_CAP_CHECKS }, () =>
+                check({ frequencyCap: realFrequencyCap() })
+            )
+            expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
+
+            frequencyCap = { capped: true, nextSlotAt: 0, holdHours: null }
+            expect(await check()).toEqual({ ok: true })
+        })
     })
 })

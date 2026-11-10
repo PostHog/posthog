@@ -8,10 +8,14 @@ import { FrequencyCapCheck } from '../recipient-preferences.service'
 import { readerBeforeDeadline } from './sandbox-authorization'
 
 export const RECIPIENT_READ_TIMEOUT_MS = 2_000
+export const MAX_PENDING_FREQUENCY_CAP_CHECKS = 8
+
+type FrequencyCapRunner = (check: () => Promise<FrequencyCapCheck>) => Promise<FrequencyCapCheck>
 
 export type SandboxRecipientCheckDependencies = {
     suppression: Pick<EmailSuppressionService, 'isSuppressed'>
     recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'>
+    frequencyCapBeforeDeadline: FrequencyCapRunner
 }
 
 export function sandboxRecipientReads(
@@ -23,6 +27,36 @@ export function sandboxRecipientReads(
     return {
         suppression: new EmailSuppressionService(reader, suppressionConfig),
         recipients: new RecipientsManagerService(reader),
+        frequencyCapBeforeDeadline: frequencyCapRunner(timeoutMs),
+    }
+}
+
+function frequencyCapRunner(timeoutMs: number): FrequencyCapRunner {
+    let pending = 0
+    return async (check) => {
+        if (pending >= MAX_PENDING_FREQUENCY_CAP_CHECKS) {
+            logger.warn('Skipped the sandbox frequency cap check', { reason: `${pending} checks are still waiting` })
+            return { capped: false }
+        }
+        pending += 1
+        const running = check().finally(() => {
+            pending -= 1
+        })
+        let timer: NodeJS.Timeout | undefined
+        const deadline = new Promise<FrequencyCapCheck>((resolve) => {
+            timer = setTimeout(() => {
+                logger.warn('Skipped the sandbox frequency cap check', { reason: `no answer in ${timeoutMs} ms` })
+                resolve({ capped: false })
+            }, timeoutMs)
+        })
+        try {
+            return await Promise.race([running, deadline])
+        } catch (error) {
+            logger.warn('Skipped the sandbox frequency cap check', { reason: String(error) })
+            return { capped: false }
+        } finally {
+            clearTimeout(timer)
+        }
     }
 }
 
@@ -41,7 +75,7 @@ export type SandboxRecipientCheck =
     | { ok: false; reason: 'suppressed' | 'opted_out' | 'frequency_capped' | 'authorization_unavailable' }
 
 export async function checkSandboxRecipient(
-    { suppression, recipients }: SandboxRecipientCheckDependencies,
+    { suppression, recipients, frequencyCapBeforeDeadline }: SandboxRecipientCheckDependencies,
     { teamId, address, categoryId, categoryType, optOuts, isTest, frequencyCap }: SandboxRecipientCheckRequest
 ): Promise<SandboxRecipientCheck> {
     const transactional = categoryType === 'transactional'
@@ -59,7 +93,7 @@ export async function checkSandboxRecipient(
         logger.warn('Could not read sandbox recipient suppression or preferences', { teamId, error: String(error) })
         return { ok: false, reason: 'authorization_unavailable' }
     }
-    if (!isTest && (await frequencyCap()).capped) {
+    if (!isTest && (await frequencyCapBeforeDeadline(frequencyCap)).capped) {
         return { ok: false, reason: 'frequency_capped' }
     }
     return { ok: true }
