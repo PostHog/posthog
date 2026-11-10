@@ -44,7 +44,6 @@ export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: 
     )
 
     const definition = METRIC_CHART_DEFINITIONS[metric]
-    // Series order matches the logic's query: chosen metric, traces.
     const [result, traces] = (response as TrendsQueryResponse | null)?.results ?? []
     const traceCounts: number[] | undefined = traces?.data
     const labels = useMemo<string[]>(() => result?.days ?? [], [result])
