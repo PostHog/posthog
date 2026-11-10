@@ -109,7 +109,7 @@ class TestAgentInsightReads(BaseTest):
     def test_the_limit_counts_only_insights_read_on_enough_days_in_the_window(self) -> None:
         def read(short_id: str, days: list[date]) -> None:
             insight = Insight.objects.create(team=self.team, saved=True, short_id=short_id)
-            InsightAgentRead.objects.create(
+            InsightAgentRead.objects.for_team(self.team.id).create(
                 team=self.team,
                 user=self.user,
                 insight=insight,
@@ -134,7 +134,7 @@ class TestAgentInsightReads(BaseTest):
 
         record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
 
-        self.assertEqual(InsightAgentRead.objects.filter(insight=insight).count(), 1)
+        self.assertEqual(InsightAgentRead.objects.for_team(self.team.id).filter(insight=insight).count(), 1)
 
 
 class TestInsightReads(BaseTest):

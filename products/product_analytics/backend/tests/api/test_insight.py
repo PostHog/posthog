@@ -1821,7 +1821,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.get(path, **headers)
 
         self.assertEqual(
-            InsightAgentRead.objects.filter(team=self.team, user=self.user, insight_id=insight_id).count(), recorded
+            InsightAgentRead.objects.for_team(self.team.id).filter(user=self.user, insight_id=insight_id).count(),
+            recorded,
         )
 
     @patch("products.product_analytics.backend.presentation.insight.report_user_action")

@@ -16,6 +16,7 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
@@ -502,7 +503,7 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboa
         raise
 
 
-class InsightAgentRead(models.Model):
+class InsightAgentRead(TeamScopedRootMixin):
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
     )

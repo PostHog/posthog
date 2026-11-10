@@ -78,12 +78,17 @@ def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) ->
 
 def _save_agent_read(*, team: "Team", user_id: int, insight_id: int, read_at: datetime, day: date) -> None:
     oldest = day - timedelta(days=AGENT_READ_DAYS_KEPT)
+    team_id = team.parent_team_id or team.id
     with transaction.atomic():
-        read, created = InsightAgentRead.objects.select_for_update().get_or_create(
-            team_id=team.id,
-            user_id=user_id,
-            insight_id=insight_id,
-            defaults={"last_read_at": read_at, "read_days": [day]},
+        read, created = (
+            InsightAgentRead.objects.for_team(team_id, canonical=True)
+            .select_for_update()
+            .get_or_create(
+                team_id=team_id,
+                user_id=user_id,
+                insight_id=insight_id,
+                defaults={"last_read_at": read_at, "read_days": [day]},
+            )
         )
         if not created:
             read.read_days = sorted({*(kept for kept in read.read_days if kept > oldest), day})
@@ -95,11 +100,9 @@ def insight_reads_by_agents(
     *, team_id: int, user_id: int, since: datetime, min_days: int, limit: int
 ) -> list[tuple[str, list[date]]]:
     rows = (
-        InsightAgentRead.objects.annotate(
-            day_count=Func(F("read_days"), Value(1), function="array_length", output_field=IntegerField())
-        )
+        InsightAgentRead.objects.for_team(team_id)
+        .annotate(day_count=Func(F("read_days"), Value(1), function="array_length", output_field=IntegerField()))
         .filter(
-            team_id=team_id,
             user_id=user_id,
             last_read_at__gte=since,
             day_count__gte=min_days,
@@ -119,8 +122,13 @@ def insight_reads_by_agents(
     return found
 
 
+AGENT_READ_DELETE_BATCH = 10_000
+
+
 def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
-    InsightAgentRead.objects.filter(team_id__in=team_ids).delete()
+    reads = InsightAgentRead.objects.unscoped().filter(team_id__in=team_ids)
+    while batch := list(reads.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
+        InsightAgentRead.objects.unscoped().filter(id__in=batch).delete()
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
