@@ -211,12 +211,11 @@
       matchUpdateTypes: ['minor', 'patch'],
       dependencyDashboardApproval: false,
     },
-    // Renovate reads `[tool.uv.sources]` and looks up every torch pin on the PyTorch CPU index.
+    // Renovate looks up a package on the PyTorch CPU index when `[tool.uv.sources]` routes it there.
     // That index lists `+cpu` versions, which cannot be written into a `~=` specifier, and it has
-    // no release dates for the 7-day cooldown. PyPI publishes the same releases with dates
+    // no release dates for `minimumReleaseAge` to check. PyPI publishes the same releases with dates
     {
-      matchManagers: ['pep621'],
-      matchPackageNames: ['torch'],
+      matchRegistryUrls: ['https://download.pytorch.org/whl/cpu'],
       registryUrls: ['https://pypi.org/pypi/'],
     },
   ],
