@@ -96,6 +96,7 @@ class TestGetRows:
         assert result.saved_states == [
             EasypostResumeConfig(before_id=None, window_end=_ts(NOW)),
             EasypostResumeConfig(before_id="shp_2", window_end=_ts(NOW)),
+            EasypostResumeConfig(before_id=None, window_end=_ts(NOW - timedelta(days=1))),
         ]
 
     @time_machine.travel(NOW, tick=False)

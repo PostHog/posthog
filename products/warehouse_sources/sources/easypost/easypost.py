@@ -242,6 +242,12 @@ def get_rows(
                 cursor_id = items[-1]["id"]
 
             cursor_id = None
+            if window.start is not None and window.end is not None:
+                # Most old windows are empty, so mark each finished window as a point the run can stop at.
+                resumable_source_manager.save_state(
+                    EasypostResumeConfig(path_value=path_value, window_end=_format_datetime(window.start))
+                )
+                resumable_source_manager.safe_point()
 
 
 def easypost_source(
