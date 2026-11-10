@@ -42,7 +42,6 @@ export function MetricsTableDrilldownModal({
     onClose,
 }: {
     config: MetricsTableWidgetConfig
-    /** The shown name of each row to chart. */
     names: string[]
     dashboardFilters?: MetricsTableDrilldownDashboardFilters | null
     /** The label values of each row in `names`, in the order of the config's group-by labels. */

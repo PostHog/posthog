@@ -76,8 +76,6 @@ function drilldownFilterSets(labels: string[], rows: string[][]): MetricsQueryFi
     return [...byPrefix.values()].map((group) => rowsFilters(labels, group))
 }
 
-/** How many series the filter sets can match: every combination of the values in each set. Past the clause
- * limit this is more than the selected rows. */
 function matchedSeriesCount(filterSets: MetricsQueryFilter[][], labels: string[], rows: string[][]): number {
     if (filterSets.length !== 1) {
         return rows.length

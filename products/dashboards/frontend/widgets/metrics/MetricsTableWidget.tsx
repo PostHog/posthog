@@ -26,7 +26,6 @@ export type MetricsTableResultColumn = {
     unit?: string | null
 }
 
-/** The label values joined with ` · `, e.g. `POST · upload`. */
 export function metricsTableRowName(row: MetricsTableResultRow): string {
     return row.labels?.join(' · ') ?? row.key
 }
