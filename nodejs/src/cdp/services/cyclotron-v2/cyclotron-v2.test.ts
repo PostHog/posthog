@@ -1309,6 +1309,14 @@ describe('Cyclotron V2', () => {
             ],
             ['the plain worker without a cap', 'backoff-plain-default', createWorker, {}, false, [10, 10, 10]],
             [
+                'the plain worker with a cap that is not a number',
+                'backoff-plain-nan',
+                createWorker,
+                { pollDelayMaxMs: NaN },
+                false,
+                [10, 10, 10],
+            ],
+            [
                 'the rate-limited worker without a cap',
                 'backoff-limited-default',
                 rateLimitedWorker,

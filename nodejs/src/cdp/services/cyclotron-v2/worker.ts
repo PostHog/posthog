@@ -252,7 +252,10 @@ export class CyclotronV2Worker {
         this.batchMaxSize = config.batchMaxSize ?? 100
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
-        this.pollDelayMaxMs = Math.max(config.pollDelayMaxMs ?? this.pollDelayMs, this.pollDelayMs)
+        const pollDelayMaxMs = config.pollDelayMaxMs ?? this.pollDelayMs
+        this.pollDelayMaxMs = Number.isFinite(pollDelayMaxMs)
+            ? Math.max(pollDelayMaxMs, this.pollDelayMs)
+            : this.pollDelayMs
         this.assertBackOffFitsHeartbeat()
         this.nextPollDelayMs = this.pollDelayMs
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
