@@ -24,7 +24,7 @@ from django.utils import timezone
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
-from products.aeo.backend import catalog, gaps, rankings, suggestions
+from products.aeo.backend import catalog, gaps, keywords, rankings, suggestions
 from products.aeo.backend.brand import brand_names, mention_filter
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
@@ -38,6 +38,10 @@ from products.aeo.backend.facade.contracts import (
     BrandUpdate,
     CitationGap,
     CitationRunSummary,
+    Keyword,
+    KeywordCreateResult,
+    KeywordModifierReport,
+    KeywordReport,
     Prompt,
     PromptAuthor,
     PromptCheck,
@@ -669,6 +673,42 @@ def _to_brand(brand: AEOBrand) -> Brand:
         created_at=brand.created_at,
         updated_at=brand.updated_at,
     )
+
+
+def list_keywords(team_id: int) -> list[Keyword]:
+    """The project's whole keyword list, by keyword. It is capped, so it is never paged."""
+    return keywords.list_keywords(team_id)
+
+
+def get_keyword(team_id: int, keyword_id: str) -> Keyword:
+    """Raises KeywordNotFoundError when the project has no such keyword."""
+    return keywords.get_keyword(team_id, keyword_id)
+
+
+def create_keywords(team_id: int, texts: list[str]) -> KeywordCreateResult:
+    """Raises KeywordLimitError when the new keywords would take the project past its cap."""
+    return keywords.create_keywords(team_id, texts)
+
+
+def delete_keyword(team_id: int, keyword_id: str) -> None:
+    """Raises KeywordNotFoundError when the project has no such keyword."""
+    keywords.delete_keyword(team_id, keyword_id)
+
+
+def get_keyword_report(team_id: int, *, timezone_name: str, days: int) -> KeywordReport:
+    """How each keyword shows up in the prompts, the engines' searches and the answers over the last
+    `days` days in the team's timezone."""
+    return keywords.get_keyword_report(
+        team_id, target_domains=settings.AEO_TARGET_DOMAINS, timezone_name=timezone_name, days=days
+    )
+
+
+def get_keyword_modifiers(
+    team_id: int, *, timezone_name: str, days: int, keyword: str | None = None
+) -> KeywordModifierReport:
+    """The words the engines added to their searches beyond the prompt over the last `days` days,
+    optionally only in answers whose searches contain `keyword`."""
+    return keywords.get_keyword_modifiers(team_id, timezone_name=timezone_name, days=days, keyword=keyword)
 
 
 def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
