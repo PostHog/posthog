@@ -2,6 +2,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
@@ -377,6 +380,31 @@ describe('todayLogic', () => {
             created_after: '2026-10-21T12:00:00.000Z',
             limit: String(TOP_REPORT_COUNT),
         })
+    })
+
+    it('asks for the personalized order with the personalized sort flag, and keeps its ranking for later pages', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+            [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+        })
+        listResponse = [200, { results: [makeReport({ id: 'a' })], count: 5, ranking_id: 'ranking-1' }]
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listParams!.get('sort')).toBe('personal')
+
+        listResponse = [200, { results: [makeReport({ id: 'b' })], count: 5, ranking_id: 'ranking-1' }]
+        await expectLogic(logic, () => {
+            logic.actions.loadMoreReports()
+        }).toDispatchActions(['loadMoreReportsSuccess'])
+        expect(Object.fromEntries(listParams!.entries())).toMatchObject({
+            sort: 'personal',
+            ranking_id: 'ranking-1',
+            exclude: 'a',
+        })
+        featureFlagLogic.actions.setFeatureFlags([], {})
     })
 
     it('pages through the reports past the list without the ones it shows, and starts over when the list shows other reports', async () => {
