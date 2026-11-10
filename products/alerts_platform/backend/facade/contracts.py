@@ -1049,6 +1049,19 @@ class NativeConfigurationMatch:
 
 
 @frozen
+class EnabledNativeConfiguration:
+    """One enabled alert of a kind with no source row, with what a source's own readers of its
+    enabled alerts need, such as the insight an insight alert watches."""
+
+    id: UUID
+    team_id: int
+    name: str
+    created_at: datetime
+    created_by_id: int | None
+    source_config: dict[str, Any]
+
+
+@frozen
 class PlatformAlertConfigurationView:
     """One configuration and its instances, as a reader outside this product sees them.
 

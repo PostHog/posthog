@@ -16,6 +16,7 @@ from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
 
 from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
+    EnabledNativeConfiguration,
     Grouping,
     InstanceCheckState,
     NativeConfigurationMatch,
@@ -179,6 +180,47 @@ def native_configuration_matches(
         for row_id, created_at, created_by_id, source_config, is_exact, score in searched.values_list(
             "id", "created_at", "created_by_id", "source_config", "_is_exact", "_search_score"
         )
+    )
+
+
+def enabled_native_configurations(
+    *, team_ids: Collection[int], source_kind: str, created_by_id: int | None = None
+) -> tuple[EnabledNativeConfiguration, ...]:
+    """The enabled configurations of a kind with no source row in these teams, newest first. With
+    `created_by_id`, only the ones that user created."""
+    if not team_ids:
+        return ()
+    # The caller names the teams, as a source's readers of its own rows across teams do.
+    rows = PlatformAlertConfiguration.objects.unscoped().filter(
+        team_id__in=list(team_ids), source_kind=source_kind, legacy_configuration_id__isnull=True, enabled=True
+    )
+    if created_by_id is not None:
+        rows = rows.filter(created_by_id=created_by_id)
+    return tuple(
+        EnabledNativeConfiguration(
+            id=row_id,
+            team_id=team_id,
+            name=name,
+            created_at=created_at,
+            created_by_id=row_created_by_id,
+            source_config=source_config,
+        )
+        for row_id, team_id, name, created_at, row_created_by_id, source_config in rows.order_by(
+            "-created_at", "-id"
+        ).values_list("id", "team_id", "name", "created_at", "created_by_id", "source_config")
+    )
+
+
+def native_configuration_team_id(*, configuration_id: UUID, source_kind: str) -> int | None:
+    """The team of a configuration of a kind with no source row, or None when there is none. For a
+    caller with no team yet, such as a click on a button in a message, which then checks access
+    against the team this returns."""
+    # nosemgrep: idor-lookup-without-team — resolves the team only; the caller authorizes against it
+    return (
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(id=configuration_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
+        .values_list("team_id", flat=True)
+        .first()
     )
 
 
