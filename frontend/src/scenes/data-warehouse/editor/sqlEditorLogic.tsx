@@ -116,6 +116,7 @@ import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { openOverwriteMetricDialog } from 'products/data_catalog/frontend/openOverwriteMetricDialog'
 import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
+import { saveAsViewDisabledReason, viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
@@ -421,7 +422,7 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
 }
 
 export function viewHasLineage(view: DataWarehouseSavedQuery): boolean {
-    return view.engine?.capabilities.lineage.available ?? true
+    return viewEngine(view).capabilities.lineage.available
 }
 
 function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
@@ -719,6 +720,7 @@ export interface sqlEditorLogicValues {
     queryModifiers: HogQLQueryModifiers | null
     rejectText: string
     saveAsMetricModal: SaveAsMetricModalState | null
+    saveAsViewDisabledReason: string | null
     savingMetricAs: MetricSaveAction | null
     selectedConnectionId: string | undefined
     selectedConnectionSupportsHogQL: boolean
@@ -1322,6 +1324,7 @@ export interface sqlEditorLogicMeta {
         ) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
+        saveAsViewDisabledReason: (sourceQuery: DataVisualizationNode) => string | null
         selectedSchemaConnectionId: (
             sourceQuery: DataVisualizationNode,
             selectedConnectionId: string | undefined
@@ -2577,6 +2580,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+                if (values.saveAsViewDisabledReason) {
+                    lemonToast.error(values.saveAsViewDisabledReason)
+                    return
+                }
                 const isStaff = values.user?.is_staff ?? false
                 const candidates = resolveSaveCandidates()
                 const selectedRef = {
@@ -3505,6 +3512,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!view) {
                     return
                 }
+                if (values.saveAsViewDisabledReason) {
+                    lemonToast.error(values.saveAsViewDisabledReason)
+                    return
+                }
                 // The data node is bound inside the editor, so the response is read from the mounted instance.
                 const response = dataNodeLogic.findMounted({ key: values.dataLogicKey })?.values.response
                 actions.reviewViewUpdate({
@@ -3846,6 +3857,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ? sourceQuery.source.connectionId
                     : undefined
             },
+        ],
+        saveAsViewDisabledReason: [
+            (s) => [s.sourceQuery],
+            (sourceQuery: DataVisualizationNode): string | null => saveAsViewDisabledReason(sourceQuery.source),
         ],
         selectedSchemaConnectionId: [
             (s) => [s.sourceQuery, s.selectedConnectionId],
