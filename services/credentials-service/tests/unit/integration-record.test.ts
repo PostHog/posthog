@@ -44,9 +44,9 @@ describe('tokenExpiresAt', () => {
 })
 
 describe('exposedCredentials', () => {
-    it('drops refresh tokens and client secrets and keeps everything else', () => {
+    it('drops refresh tokens and client secrets of an oauth row and keeps everything else', () => {
         expect(
-            exposedCredentials('hubspot', {
+            exposedCredentials('oauth', {
                 access_token: 'fake-access',
                 refresh_token: 'fake-refresh',
                 client_secret: 'fake-client-secret',
@@ -58,6 +58,16 @@ describe('exposedCredentials', () => {
             api_key: 'fake-key',
             nested: { refresh_token: 'kept-only-when-nested' },
         })
+    })
+
+    it('keeps the client secret of a credentials row, which needs it to authenticate', () => {
+        expect(
+            exposedCredentials('credentials', {
+                client_id: 'fake-client-id',
+                client_secret: 'fake-client-secret',
+                refresh_token: 'fake-refresh',
+            })
+        ).toEqual({ client_id: 'fake-client-id', client_secret: 'fake-client-secret' })
     })
 })
 

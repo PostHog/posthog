@@ -173,7 +173,7 @@ beforeAll(async () => {
     audit = new AuditQueue(pool, { flushIntervalMs: 60_000 })
     app = buildApp(new LocalKms([randomBytes(32)]))
     for (const level of ['debug', 'info', 'warn', 'error'] as const) {
-        vi.spyOn(logger, level).mockImplementation((event, fields) => {
+        vi.spyOn(logger, level).mockImplementation((event: string, fields?: Record<string, unknown>) => {
             logLines.push(JSON.stringify({ event, fields }))
         })
     }

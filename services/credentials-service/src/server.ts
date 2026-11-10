@@ -30,6 +30,8 @@ import type { Lifecycle } from './types'
 
 /** How long a drain may take once the prestop window has passed. */
 const DRAIN_TIMEOUT_MS = 10_000
+// Rows still queued when this runs out fail against the ended pool and count as dropped.
+const AUDIT_DRAIN_TIMEOUT_MS = 5_000
 
 /** How often to try the database again when it was unreachable at boot. */
 const DATABASE_RETRY_MS = 5_000
@@ -286,7 +288,9 @@ export class CredentialsServer {
             await Promise.race([new Promise<void>((resolve) => server.close(() => resolve())), sleep(DRAIN_TIMEOUT_MS)])
         }
         this.metricsServer?.close()
-        await this.audit?.stop()
+        if (this.audit) {
+            await Promise.race([this.audit.stop(), sleep(AUDIT_DRAIN_TIMEOUT_MS)])
+        }
         await this.pool?.end().catch((err: unknown) => {
             logger.warn('shutdown:pool_end_failed', { error: err instanceof Error ? err.message : String(err) })
         })
