@@ -698,9 +698,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         [
             ("copy_whose_production_alert_is_gone", {"legacy_configuration_id": UUID(int=404)}),
             ("alert_whose_insight_is_gone", {"source_config": {"insight_id": 0}}),
+            ("alert_whose_insight_was_deleted", None),
         ]
     )
-    def test_an_alert_with_nothing_left_to_check_is_disabled(self, _name: str, overrides: dict[str, Any]) -> None:
+    def test_an_alert_with_nothing_left_to_check_is_disabled(
+        self, _name: str, overrides: dict[str, Any] | None
+    ) -> None:
+        if overrides is None:
+            insight = self._alert().insight
+            insight.deleted = True
+            insight.save()
+            overrides = {"source_config": {"insight_id": insight.id}}
         outcome, query = self._evaluate(self._copy(None, **overrides))
 
         query.assert_not_called()
