@@ -178,8 +178,17 @@ class EmailIntegration:
         ses_mail_from_subdomain = get_ses_mail_from_subdomain(self.integration.config["domain"])
         if not ses_mail_from_subdomain or ses_mail_from_subdomain == stored_mail_from_subdomain:
             return
-        patch = IntegrationPatch(config_patch={"mail_from_subdomain": ses_mail_from_subdomain})
-        self.integration = model.integration_model(row_writes.update_row(self.integration, patch))
+        with transaction.atomic():
+            sender = (
+                model.Integration.objects.select_for_update()
+                .filter(team_id=self.integration.team_id, id=self.integration.id)
+                .first()
+            )
+            if sender is None or sender.config.get("mail_from_subdomain", "feedback") != stored_mail_from_subdomain:
+                return
+            sender.config["mail_from_subdomain"] = ses_mail_from_subdomain
+            sender.save()
+        self.integration = model.integration_model(row_writes.reread_row(self.integration))
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")

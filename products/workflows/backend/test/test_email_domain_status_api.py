@@ -331,6 +331,32 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
         assert Integration.objects.get(id=sender).config["mail_from_subdomain"] == "bounce"
 
+    def test_an_edit_of_the_sender_that_lands_during_its_verify_is_kept(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].mail_from_domain = f"bounce.{DOMAIN}"
+        read_mail_from = self.world.ses._get_identity_mail_from_domain_attributes
+        reads = 0
+
+        # Verify reads MAIL FROM three times, the last right before it stores the subdomain on the sender.
+        def the_sender_is_edited_after_the_last_read(*, Identities: list[str]) -> dict:
+            nonlocal reads
+            reads += 1
+            attributes = read_mail_from(Identities=Identities)
+            if reads == 3:
+                EmailIntegration(Integration.objects.get(id=sender)).update_native_integration(
+                    {"mail_from_subdomain": "returns"}, team_id=self.team.id
+                )
+            return attributes
+
+        with patch.object(
+            self.world.ses, "_get_identity_mail_from_domain_attributes", the_sender_is_edited_after_the_last_read
+        ):
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert reads == 3
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"returns.{DOMAIN}"
+        assert Integration.objects.get(id=sender).config["mail_from_subdomain"] == "returns"
+
     def test_a_sender_of_another_organization_is_not_found(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
         foreign_sender = Integration.objects.create(
