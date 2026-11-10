@@ -5199,61 +5199,116 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_only", [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}]),
+            (
+                "flag_only",
+                [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
             (
                 "flag_mixed_with_person",
                 [
                     {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
                     {"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"},
                 ],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "unfinished_person_filter_in_group",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
+                                {"key": "plan", "type": "person", "operator": "exact"},
+                            ],
+                        }
+                    ],
+                },
+                "An audience filter is incomplete. Finish it or remove it.",
             ),
         ]
     )
-    def test_hog_flow_user_blast_radius_rejects_flag_condition(self, _name, properties):
-        # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
-        # the condition reaches the blast-radius query (where it would otherwise 500).
+    def test_hog_flow_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
+        # Conditions that can't be sized get a clean 400 before the blast-radius query. A flag would
+        # 500 there, and an unfinished filter would be dropped, so the count covered a wider audience.
         with patch(
             "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
         ) as mock_get_person_audience_count:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
                 {"filters": {"properties": properties}},
+                format="json",
             )
 
         assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("detail", "")
+        assert message in response.json().get("detail", "")
         mock_get_person_audience_count.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "flag",
+                [{"key": "my-other-flag", "type": "flag", "value": "true"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+        ]
+    )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_rejects_flag_condition(self):
+    def test_internal_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
         with patch(
             "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
         ) as mock_get_person_audience_count:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
-                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                {"filters": {"properties": properties}},
                 format="json",
                 headers={"x-internal-api-secret": "test-secret-123"},
             )
 
         assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
+        assert message in response.json().get("error", "")
         mock_get_person_audience_count.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "flag",
+                [{"key": "my-other-flag", "type": "flag", "value": "true"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+        ]
+    )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
+    def test_internal_user_blast_radius_persons_rejects_unusable_condition(self, _name, properties, message):
         with patch(
             "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids"
         ) as mock_get_batch_audience_person_ids:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                {"filters": {"properties": properties}},
                 format="json",
                 headers={"x-internal-api-secret": "test-secret-123"},
             )
 
         assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
+        assert message in response.json().get("error", "")
         mock_get_batch_audience_person_ids.assert_not_called()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
