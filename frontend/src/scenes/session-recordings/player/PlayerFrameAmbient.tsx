@@ -14,6 +14,7 @@ import { getPlayerFrameScale } from 'scenes/session-recordings/player/playerFram
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const CHECK_INTERVAL_MS = 1000
+const MIN_PAINT_INTERVAL_MS = 50
 // Stylesheet changes replay through the CSSOM, which the mutation observer cannot see.
 const STYLESHEET_SOURCES = [
     IncrementalSource.StyleSheetRule,
@@ -23,8 +24,18 @@ const STYLESHEET_SOURCES = [
 const OVERHANG = 0.1
 
 export function PlayerFrameAmbient(): JSX.Element | null {
-    const { player, showAmbientBackground, maskingWindow } = useValues(sessionRecordingPlayerLogic)
+    const { player, showAmbientBackground, maskingWindow, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    // These outlive the player, because it is rebuilt several times while one recording loads.
+    const blendRef = useRef(new AmbientBlend())
+    const samplerRef = useRef(new AmbientFrameSampler())
+    const maskedRef = useRef(maskingWindow)
+    maskedRef.current = maskingWindow
+
+    useEffect(() => {
+        blendRef.current = new AmbientBlend()
+        samplerRef.current = new AmbientFrameSampler()
+    }, [sessionRecordingId])
 
     useEffect(() => {
         const replayer = player?.replayer
@@ -33,26 +44,34 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         if (!showAmbientBackground || !replayer || !canvas || !context) {
             return
         }
-        const sampler = new AmbientFrameSampler()
-        const blend = new AmbientBlend()
+        const sampler = samplerRef.current
+        const blend = blendRef.current
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
         let dirty = true
         let observedDocument: Document | null = null
         let lastLayout = ''
         let animationFrame = 0
-        let lastFrameTime = 0
+        let rebuildFrame = 0
+        let lastPaintTime = 0
         const markDirty = (): void => {
             dirty = true
         }
         const observer = new MutationObserver(markDirty)
 
         const paint = (): void => {
-            context.putImageData(new ImageData(blend.pixels(), blend.columns, blend.rows), 0, 0)
+            context.putImageData(blend.imageData(), 0, 0)
         }
 
         const animate = (time: number): void => {
-            const settled = blend.step(time - lastFrameTime)
-            lastFrameTime = time
-            paint()
+            if (time - lastPaintTime < MIN_PAINT_INTERVAL_MS) {
+                animationFrame = requestAnimationFrame(animate)
+                return
+            }
+            lastPaintTime = time
+            const { changed, settled } = blend.step(time)
+            if (changed) {
+                paint()
+            }
             animationFrame = settled ? 0 : requestAnimationFrame(animate)
         }
 
@@ -93,6 +112,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             const container = replayer.wrapper.ownerDocument.body.getBoundingClientRect()
             if (
                 document.hidden ||
+                maskedRef.current ||
                 !recordedDocument ||
                 !(recording.width >= 1 && recording.height >= 1) ||
                 !(container.width >= 1 && container.height >= 1)
@@ -102,11 +122,13 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             observe(recordedDocument)
             // Computed as PlayerFrame does, because the wrapper's measured size lags until its scale applies.
             const { scale } = getPlayerFrameScale(container, recording)
+            const width = recording.width * scale
+            const height = recording.height * scale
             const scaled = {
-                width: recording.width * scale,
-                height: recording.height * scale,
-                left: (container.width - recording.width * scale) / 2,
-                top: (container.height - recording.height * scale) / 2,
+                width,
+                height,
+                left: (container.width - width) / 2,
+                top: (container.height - height) / 2,
             }
             if (!isBoxed(container, scaled)) {
                 canvas.style.opacity = '0'
@@ -138,8 +160,10 @@ export function PlayerFrameAmbient(): JSX.Element | null {
                 canvas.width = blend.columns
                 canvas.height = blend.rows
                 paint()
+            } else if (reducedMotion) {
+                blend.snap()
+                paint()
             } else if (!animationFrame) {
-                lastFrameTime = performance.now()
                 animationFrame = requestAnimationFrame(animate)
             }
             canvas.style.opacity = '1'
@@ -150,26 +174,31 @@ export function PlayerFrameAmbient(): JSX.Element | null {
                 dirty = true
             }
         }
+        // rrweb applies the events up to a seek target in the same task, so the sample waits for the next frame.
         const sampleAfterRebuild = (): void => {
             dirty = true
-            update()
+            rebuildFrame ||= requestAnimationFrame(() => {
+                rebuildFrame = 0
+                update()
+            })
         }
         replayer.on('event-cast', markDirtyOnStyleChange as Handler)
         replayer.on('fullsnapshot-rebuilded', sampleAfterRebuild as Handler)
         sampler.onBackgroundImageLoad = markDirty
         update()
         const interval = setInterval(update, CHECK_INTERVAL_MS)
-        // The canvas keeps its colors on cleanup, because the player is rebuilt several times while a recording loads.
         return () => {
             clearInterval(interval)
             cancelAnimationFrame(animationFrame)
+            cancelAnimationFrame(rebuildFrame)
             replayer.off('event-cast', markDirtyOnStyleChange as Handler)
             replayer.off('fullsnapshot-rebuilded', sampleAfterRebuild as Handler)
+            sampler.onBackgroundImageLoad = null
             observer.disconnect()
             observedDocument?.removeEventListener('scroll', markDirty, true)
             observedDocument?.removeEventListener('load', markDirty, true)
         }
-    }, [player, showAmbientBackground])
+    }, [player, showAmbientBackground, sessionRecordingId])
 
     if (!showAmbientBackground) {
         return null

@@ -9,6 +9,7 @@ const MIN_OPAQUE_ALPHA = 0.5
 const EDGE_INSET_PX = 3
 const MAX_EXTENDED_CELLS = 256
 const THUMBNAIL_WIDTH = 16
+const THUMBNAIL_HEIGHT = 32
 const MAX_BACKGROUND_IMAGES = 200
 const MAX_BACKGROUND_IMAGE_LENGTH = 4096
 const FETCHABLE_PROTOCOLS = ['https:', 'http:', 'data:', 'blob:']
@@ -17,7 +18,8 @@ const MAX_DECODED_PIXELS = 4096 * 4096
 const MAX_STACK_DEPTH = 8
 const FALLBACK_COLOR: Rgba = [0, 0, 0, 255]
 const BLEND_TIME_CONSTANT_MS = 1500
-const THUMBNAIL_HEIGHT = 32
+// Under a 40px blur a gap of two 8-bit steps is invisible, and waiting for less keeps repainting for seconds.
+const BLEND_SETTLE_DELTA = 2
 
 export type Rgba = [number, number, number, number]
 
@@ -204,9 +206,7 @@ export class AmbientFrameSampler {
 
     private draw(source: HTMLImageElement | HTMLCanvasElement): Uint8ClampedArray | null {
         const [width, height] =
-            source instanceof HTMLCanvasElement || source.tagName === 'CANVAS'
-                ? [(source as HTMLCanvasElement).width, (source as HTMLCanvasElement).height]
-                : [(source as HTMLImageElement).naturalWidth, (source as HTMLImageElement).naturalHeight]
+            'naturalWidth' in source ? [source.naturalWidth, source.naturalHeight] : [source.width, source.height]
         if (width * height > MAX_DECODED_PIXELS) {
             return null
         }
@@ -264,42 +264,57 @@ export function extendGrid(grid: AmbientGrid, recording: Rect, area: Rect): { gr
 }
 
 export class AmbientBlend {
-    private current: Float32Array | null = null
-    private target: Uint8ClampedArray | null = null
+    private current = new Float32Array(0)
+    private target = new Uint8ClampedArray(0)
+    private lastStepTime: number | null = null
+    private image: ImageData | null = null
     columns = 0
     rows = 0
+    pixels = new Uint8ClampedArray(0)
 
     setTarget(grid: AmbientGrid): boolean {
         this.target = grid.pixels
-        if (this.current && grid.columns === this.columns && grid.rows === this.rows) {
+        this.lastStepTime = null
+        if (grid.columns === this.columns && grid.rows === this.rows && this.current.length) {
             return false
         }
         this.columns = grid.columns
         this.rows = grid.rows
         this.current = Float32Array.from(grid.pixels)
+        this.pixels = new Uint8ClampedArray(grid.pixels)
         return true
     }
 
-    step(elapsedMs: number): boolean {
-        if (!this.current || !this.target) {
-            return true
-        }
-        const fraction = 1 - Math.exp(-Math.max(elapsedMs, 0) / BLEND_TIME_CONSTANT_MS)
+    snap(): void {
+        this.current = Float32Array.from(this.target)
+        this.pixels.set(this.target)
+    }
+
+    step(now: number): { changed: boolean; settled: boolean } {
+        const elapsed = this.lastStepTime === null ? 0 : now - this.lastStepTime
+        this.lastStepTime = now
+        const fraction = 1 - Math.exp(-Math.max(elapsed, 0) / BLEND_TIME_CONSTANT_MS)
+        let changed = false
         let settled = true
         for (let index = 0; index < this.current.length; index++) {
             const next = this.current[index] + (this.target[index] - this.current[index]) * fraction
-            if (Math.abs(this.target[index] - next) < 0.5) {
-                this.current[index] = this.target[index]
-            } else {
-                this.current[index] = next
-                settled = false
+            const done = Math.abs(this.target[index] - next) < BLEND_SETTLE_DELTA
+            this.current[index] = done ? this.target[index] : next
+            settled &&= done
+            const byte = Math.round(this.current[index])
+            if (this.pixels[index] !== byte) {
+                this.pixels[index] = byte
+                changed = true
             }
         }
-        return settled
+        return { changed, settled }
     }
 
-    pixels(): Uint8ClampedArray<ArrayBuffer> {
-        return Uint8ClampedArray.from(this.current ?? [])
+    imageData(): ImageData {
+        if (this.image?.data !== this.pixels) {
+            this.image = new ImageData(this.pixels as Uint8ClampedArray<ArrayBuffer>, this.columns, this.rows)
+        }
+        return this.image
     }
 }
 

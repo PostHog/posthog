@@ -1,5 +1,6 @@
 import {
     AmbientBlend,
+    type AmbientGrid,
     averageColor,
     edgeAligned,
     extendGrid,
@@ -72,7 +73,7 @@ describe('playerFrameAmbientSampling', () => {
     })
 
     it('shows the first colors at once, then eases toward new ones without jumping', () => {
-        const grid = (value: number): { columns: number; rows: number; pixels: Uint8ClampedArray<ArrayBuffer> } => ({
+        const grid = (value: number): AmbientGrid => ({
             columns: 1,
             rows: 1,
             pixels: new Uint8ClampedArray([value, value, value, 255]),
@@ -80,15 +81,16 @@ describe('playerFrameAmbientSampling', () => {
         const blend = new AmbientBlend()
 
         expect(blend.setTarget(grid(200))).toBe(true)
-        expect(Array.from(blend.pixels())).toEqual([200, 200, 200, 255])
+        expect(Array.from(blend.pixels)).toEqual([200, 200, 200, 255])
 
         expect(blend.setTarget(grid(0))).toBe(false)
-        expect(blend.step(100)).toBe(false)
-        const afterShortStep = blend.pixels()[0]
+        blend.step(1000)
+        expect(blend.step(1100)).toEqual({ changed: true, settled: false })
+        const afterShortStep = blend.pixels[0]
         expect(afterShortStep).toBeGreaterThan(150)
         expect(afterShortStep).toBeLessThan(200)
 
-        expect(blend.step(60_000)).toBe(true)
-        expect(Array.from(blend.pixels())).toEqual([0, 0, 0, 255])
+        expect(blend.step(61_100)).toEqual({ changed: true, settled: true })
+        expect(Array.from(blend.pixels)).toEqual([0, 0, 0, 255])
     })
 })
