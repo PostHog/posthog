@@ -16,7 +16,9 @@
                 "backend/providers/ses.py",
                 "backend/migrations/**",
                 "backend/scopes.py",
-                "backend/apps.py"
+                "backend/apps.py",
+                "backend/services/hog_flow_activity.py",
+                "backend/services/template_file_guard.py"
             ],
             "outputs": [],
             "cache": true
