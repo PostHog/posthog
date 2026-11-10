@@ -67,6 +67,7 @@ import {
     mergeAiBlobPointersFanIn,
 } from './steps/offload-ai-blobs-step'
 import { createProcessAiEventStep } from './steps/process-ai-event-step'
+import { createRecordAiOverageUsageStep } from './steps/record-ai-overage-usage-step'
 import { createSplitAiEventsStep } from './steps/split-ai-events-step'
 import { createStampAiEventBytesStep } from './steps/stamp-ai-event-bytes-step'
 import { createValidateAiEventTokensStep } from './steps/validate-ai-event-tokens'
@@ -268,6 +269,7 @@ export function createAiIngestionPipeline<
                 retry: { tries: 5, sleepMs: 100, name: 'readonly_process_groups' },
             })
             .pipe(createRecordEventUsageStep(resolveAiUsageKey))
+            .pipe(createRecordAiOverageUsageStep())
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
             // Double-write to events + ai_events outputs.
             .pipe(createSplitAiEventsStep())

@@ -215,6 +215,25 @@ describe('AiIngestionPipeline', () => {
         expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })
 
+    it('reports the bytes above the included allowance as an ai_overage_bytes record', async () => {
+        const message = createMessage('$ai_generation', { $ai_input: 'x'.repeat(150_000) })
+        const receivedBytes = Buffer.byteLength(parseJSON(message.value!.toString()).data, 'utf8')
+
+        await runPipeline([message])
+
+        expect(ingestedUsage).toHaveLength(2)
+        const [eventRecord, overageRecord] = ingestedUsage
+        expect(eventRecord.usageKey).toBe('ai_events')
+        expect(overageRecord).toEqual({
+            teamId: team.id,
+            usageKey: 'ai_overage_bytes',
+            recordId: `${eventRecord.recordId}:${receivedBytes}`,
+            quantity: receivedBytes - 100_000,
+            unit: 'bytes',
+            timestampMs: eventRecord.timestampMs,
+        })
+    })
+
     it('double-writes AI events to both the events and ai_events outputs', async () => {
         await runPipeline([createMessage('$ai_generation')])
 
