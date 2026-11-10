@@ -34,6 +34,7 @@ from posthog.rate_limit import EmailForwardingChallengeThrottle, EmailSendTestTh
 from products.conversations.backend.mailgun import (
     MailgunDnsRecords,
     MailgunDomainConflict,
+    MailgunDomainLimitReached,
     MailgunDomainNotRegistered,
     MailgunError,
     MailgunNotConfigured,
@@ -79,6 +80,9 @@ MAILGUN_DOMAIN_CONFLICT_ERROR = (
 MAILGUN_DOMAIN_CHECK_FAILED_ERROR = (
     "PostHog could not check the existing Mailgun registration for {domain}. Try again. "
     "If it keeps happening, contact PostHog support."
+)
+MAILGUN_DOMAIN_LIMIT_ERROR = (
+    "PostHog can't register new sending domains right now. Contact PostHog support to finish setting up {domain}."
 )
 
 FORWARDING_CHALLENGE_BASE_COOLDOWN_SECONDS = 30
@@ -549,6 +553,7 @@ class EmailConnectView(APIView):
             403: OpenApiResponse(response=EmailChannelErrorSerializer),
             409: OpenApiResponse(response=EmailChannelErrorSerializer),
             502: OpenApiResponse(response=EmailChannelErrorSerializer),
+            503: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
     def post(self, request: Request, *args, **kwargs) -> Response:
@@ -656,6 +661,9 @@ class EmailConnectView(APIView):
                             status=response_status,
                         )
                     dns_records = reclaim_result
+                except MailgunDomainLimitReached:
+                    logger.exception("email_connect_mailgun_domain_limit_reached", team_id=team.id, domain=domain)
+                    return Response({"error": MAILGUN_DOMAIN_LIMIT_ERROR.format(domain=domain)}, status=503)
                 except Exception:
                     logger.exception("email_connect_mailgun_add_domain_failed", team_id=team.id, domain=domain)
                     return Response(
@@ -773,6 +781,9 @@ class EmailVerifyDomainView(APIView):
             mg_result = mailgun_verify_domain(config.domain)
         except MailgunNotConfigured:
             return Response({"error": "Mailgun API key not configured"}, status=400)
+        except MailgunDomainLimitReached:
+            logger.exception("email_verify_mailgun_domain_limit_reached", team_id=team.id, domain=config.domain)
+            return Response({"error": MAILGUN_DOMAIN_LIMIT_ERROR.format(domain=config.domain)}, status=503)
         except Exception:
             logger.exception("email_verify_domain_failed", team_id=team.id, domain=config.domain)
             return Response({"error": "Failed to verify domain with Mailgun"}, status=502)

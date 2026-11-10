@@ -21,6 +21,7 @@ from posthog.models.user import User
 from products.conversations.backend.api.tests.mailgun_signing import MailgunWebhookTestMixin, post_mailgun
 from products.conversations.backend.mailgun import (
     MailgunDomainConflict,
+    MailgunDomainLimitReached,
     MailgunDomainNotRegistered,
     MailgunNotConfigured,
     MailgunPermanentError,
@@ -1076,6 +1077,28 @@ class TestEmailMultiConfig(BaseTest):
             assert "already registered with Mailgun" in response.json()["error"]
             assert not EmailChannel.objects.filter(team=self.team).exists()
             mock_delete.assert_not_called()
+
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_add_domain",
+        side_effect=MailgunDomainLimitReached("Mailgun refused to register example.com: Forbidden"),
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_reports_mailgun_domain_limit(self, _mock_setting: MagicMock, _mock_mailgun_add: MagicMock):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 503
+        assert response.json()["error"] == (
+            "PostHog can't register new sending domains right now. "
+            "Contact PostHog support to finish setting up example.com."
+        )
+        assert not EmailChannel.objects.filter(team=self.team).exists()
 
     @patch(
         "products.conversations.backend.api.email_settings.mailgun_get_domain",

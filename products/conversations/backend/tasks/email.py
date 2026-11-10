@@ -1,8 +1,10 @@
-"""Email outbox send, retry, and periodic flush."""
+"""Email outbox send, retry, periodic flush, and Mailgun domain cleanup."""
 
 import html as html_mod
-from datetime import timedelta
-from email.utils import formataddr
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
+from email.utils import formataddr, parsedate_to_datetime
+from typing import Any
 from uuid import UUID
 
 from django.core import mail
@@ -23,10 +25,18 @@ from products.conversations.backend.mailgun import (
     MailgunNotConfigured,
     MailgunPermanentError,
     MailgunTransientError,
+    delete_domain,
+    list_unverified_domains,
     mime_bytes_with_crlf,
     send_mime,
 )
-from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
+    EmailMessageMapping,
+    EmailOutboxMessage,
+    Ticket,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +49,9 @@ EMAIL_OUTBOX_BACKOFF_BASE_SECONDS = 60
 EMAIL_OUTBOX_BACKOFF_MAX_SECONDS = 3600  # cap retry spacing at ~1h during a long outage
 EMAIL_OUTBOX_MAX_AGE = timedelta(days=5)  # give up past this (comfortably > a Fri-Mon block)
 EMAIL_OUTBOX_FLUSH_BATCH_SIZE = 100
+
+# A support domain that stays unverified this long gives its Mailgun slot back.
+UNVERIFIED_EMAIL_DOMAIN_MAX_AGE = timedelta(days=30)
 
 
 def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: str) -> None:
@@ -328,3 +341,73 @@ def flush_pending_email_replies() -> None:
         _process_outbox_row(outbox)
 
     logger.info("flush_pending_email_replies_completed", count=len(batch))
+
+
+def _registered_before(mailgun_domain: dict[str, Any], cutoff: datetime) -> bool:
+    try:
+        registered_at = parsedate_to_datetime(mailgun_domain["created_at"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if registered_at.tzinfo is None:
+        registered_at = registered_at.replace(tzinfo=UTC)
+    return registered_at < cutoff
+
+
+def _support_domains_in_use(domains: Iterable[str], cutoff: datetime) -> set[str]:
+    return set(
+        EmailChannel.objects.filter(kind=EmailChannelKind.SUPPORT, domain__in=domains)
+        .filter(models.Q(domain_verified=True) | models.Q(created_at__gte=cutoff))
+        .values_list("domain", flat=True)
+    )
+
+
+@shared_task(
+    name="products.conversations.backend.tasks.prune_unverified_email_domains",
+    ignore_result=True,
+)
+@skip_team_scope_audit
+def prune_unverified_email_domains() -> None:
+    """Delete the Mailgun registrations of support domains that never verified.
+
+    Each support domain holds a slot in our shared Mailgun account, and the account has a
+    domain limit. Without this cleanup, abandoned setups fill the account and Mailgun
+    refuses every new domain. The channel row stays: a later verify registers the domain
+    again with fresh DNS records. Domains that no support channel references stay too,
+    because the account can hold domains that this product does not own.
+    """
+    cutoff = timezone.now() - UNVERIFIED_EMAIL_DOMAIN_MAX_AGE
+    try:
+        mailgun_domains = list_unverified_domains()
+    except MailgunNotConfigured:
+        return
+
+    candidates = {
+        domain["name"]
+        for domain in mailgun_domains
+        if isinstance(domain.get("name"), str) and _registered_before(domain, cutoff)
+    }
+    if not candidates:
+        return
+    referenced = set(
+        EmailChannel.objects.filter(kind=EmailChannelKind.SUPPORT, domain__in=candidates).values_list(
+            "domain", flat=True
+        )
+    )
+    stale = referenced - _support_domains_in_use(candidates, cutoff)
+
+    pruned = 0
+    failed = 0
+    for domain in sorted(stale):
+        # A verify or a new connect since the first read keeps the domain.
+        if _support_domains_in_use([domain], cutoff):
+            continue
+        try:
+            delete_domain(domain)
+        except Exception:
+            failed += 1
+            logger.exception("prune_unverified_email_domain_failed", domain=domain)
+            continue
+        pruned += 1
+        logger.info("unverified_email_domain_pruned", domain=domain)
+
+    logger.info("prune_unverified_email_domains_completed", pruned=pruned, failed=failed)
