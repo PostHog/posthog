@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 import subprocess
 from pathlib import Path
 
@@ -9,12 +12,10 @@ from .matcher import SEP
 from .resolver import GitRefSource, OwnersResolver
 
 
-def _git(repo_root: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True, text=True, check=True).stdout
-
-
-def _listed(repo_root: Path, *flags: str) -> set[str]:
-    return {path for path in _git(repo_root, "ls-files", "-z", *flags).split("\0") if path}
+def _git(repo_root: Path, *args: str, index: str | None = None) -> str:
+    env = {**os.environ, "GIT_INDEX_FILE": index} if index else None
+    command = ["git", "-C", str(repo_root), *args]
+    return subprocess.run(command, capture_output=True, text=True, check=True, env=env).stdout
 
 
 def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False) -> list[str]:
@@ -28,17 +29,22 @@ def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False
     ``committed_only`` reads HEAD and not the worktree, for a check on what a push carries.
     """
     merge_base = _git(repo_root, "merge-base", against, "HEAD").strip()
-    diff = _git(
-        repo_root, "diff", "--name-status", "-z", "--find-renames", merge_base, *(["HEAD"] if committed_only else [])
-    )
+    diff_args = ("diff", "--name-status", "-z", "--find-renames", "--relative", merge_base)
     if committed_only:
         head_source = GitRefSource(repo_root)
-        head, files = OwnersResolver(repo_root, source=head_source), sorted(head_source.files)
+        head, files = OwnersResolver(repo_root, source=head_source), head_source.files
+        diff = _git(repo_root, *diff_args, "HEAD")
     else:
         head = OwnersResolver(repo_root)
-        untracked = _listed(repo_root, "--others", "--exclude-standard")
-        files = sorted((set(head.tracked_files()) | untracked) - _listed(repo_root, "--deleted"))
-        diff += "".join(f"A\0{path}\0" for path in sorted(untracked))
+        # Git pairs a moved file with its old path only when the index holds the new path. A copy
+        # of the index takes the untracked files, so the index of the repository does not change.
+        with tempfile.TemporaryDirectory() as scratch:
+            index = shutil.copy(
+                _git(repo_root, "rev-parse", "--path-format=absolute", "--git-path", "index").strip(), scratch
+            )
+            _git(repo_root, "add", "--all", "--intent-to-add", ".", index=index)
+            diff = _git(repo_root, *diff_args, index=index)
+            files = frozenset(_git(repo_root, "ls-files", "-z", index=index).split("\0")) - {""}
 
     path_at_base: dict[str, str | None] = {}
     reowned_directories: set[str] = set()
@@ -60,7 +66,7 @@ def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False
     # directories keeps the owners it had.
     candidates = [
         path
-        for path in files
+        for path in sorted(files)
         if path in path_at_base
         or any(not directory or path.startswith(directory + SEP) for directory in reowned_directories)
     ]

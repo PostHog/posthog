@@ -300,9 +300,11 @@ class GitRefSource:
     def _cat(self, paths: list[str]) -> dict[str, str]:
         """One ``git cat-file --batch`` per file name. The resolver asks for an ownership file per
         directory, and a ``git show`` for each takes seconds on this repo."""
+        # `./` starts the path at the repo root. Without it git starts at its top level, which is a
+        # different directory when the repo root is below it.
         batch = subprocess.run(
             [*self._git, "cat-file", "--batch"],
-            input="".join(f"{self.ref}:{path}\n" for path in paths).encode(),
+            input="".join(f"{self.ref}:./{path}\n" for path in paths).encode(),
             capture_output=True,
             check=True,
         ).stdout

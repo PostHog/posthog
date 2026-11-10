@@ -1266,28 +1266,42 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True)
 
 
+_OWNERS_WITH_A_GAP = """\
+version: 1
+owners: []
+rules:
+  - match: '/owned/'
+    owners: team-a
+  - match: '/person/'
+    owners: '@alice'
+"""
+
+
 @pytest.fixture
-def repo_with_a_gap(tmp_path: Path) -> Path:
-    _write(tmp_path, "owners.yaml", "version: 1\nowners: []\nrules:\n  - match: '/owned/'\n    owners: team-a\n")
-    _write(tmp_path, "owned/a.py", "a = 1\n")
-    _write(tmp_path, "gap/b.py", "b = 2\n")
+def repo_with_a_gap(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
+    repo = tmp_path / getattr(request, "param", "")
+    _write(repo, "owners.yaml", _OWNERS_WITH_A_GAP)
+    _write(repo, "owned/a.py", "a = 1\n")
+    _write(repo, "gap/b.py", "b = 2\n")
     _git(tmp_path, "init", "-q")
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "commit", "-q", "-m", "init")
-    return tmp_path
+    return repo
 
 
-def _change(repo: Path, moves: dict[str, str], writes: dict[str, str]) -> None:
+def _change(repo: Path, moves: dict[str, str], writes: dict[str, str], *, staged: bool = True) -> None:
     for old, new in moves.items():
-        _git(repo, "mv", old, new)
+        (repo / old).rename(repo / new)
     for rel, text in writes.items():
         _write(repo, rel, text)
-    _git(repo, "add", "-A")
+    if staged:
+        _git(repo, "add", "-A")
 
 
 _CHANGES = [
     pytest.param({}, {"gap/new.py": "new = 1\n"}, ["gap/new.py"], id="new-file-in-a-gap"),
     pytest.param({}, {"owned/new.py": "new = 1\n"}, [], id="new-file-with-owners"),
+    pytest.param({}, {"person/new.py": "new = 1\n"}, [], id="new-file-a-person-owns"),
     pytest.param({"gap/b.py": "gap/renamed.py"}, {}, [], id="moved-file-that-had-no-owners"),
     pytest.param({"owned/a.py": "gap/a.py"}, {}, ["gap/a.py"], id="file-moved-away-from-its-owners"),
     pytest.param({}, {"owners.yaml": "version: 1\nowners: []\n"}, ["owned/a.py"], id="rule-removed"),
@@ -1300,11 +1314,20 @@ _CHANGES = [
 ]
 
 
+@pytest.mark.parametrize(
+    ("repo_with_a_gap", "staged"),
+    [
+        pytest.param("", True, id="staged"),
+        pytest.param("", False, id="unstaged"),
+        pytest.param("below-the-git-root", True, id="below-the-git-root"),
+    ],
+    indirect=["repo_with_a_gap"],
+)
 @pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
 def test_unowned_against_lists_only_what_the_worktree_leaves_unowned(
-    repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
+    repo_with_a_gap: Path, staged: bool, moves: dict[str, str], writes: dict[str, str], expected: list[str]
 ) -> None:
-    _change(repo_with_a_gap, moves, writes)
+    _change(repo_with_a_gap, moves, writes, staged=staged)
 
     result = CliRunner().invoke(main, ["unowned", "--against", "HEAD", "--repo-root", str(repo_with_a_gap)])
 
