@@ -21,8 +21,8 @@
         "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
         "typescript:check": "tsc --noEmit -p .",
         "test": "jest --runInBand --forceExit",
-        "lint": "oxlint -c .oxlintrc.json .",
-        "lint:fix": "oxlint -c .oxlintrc.json . --fix",
+        "lint": "oxlint -c .oxlintrc.nodejs.json .",
+        "lint:fix": "oxlint -c .oxlintrc.nodejs.json . --fix",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "prepublishOnly": "pnpm build"
