@@ -183,7 +183,9 @@
         pointer-events: none;
         content: '';
         border: 1px solid var(--quill-button-edge);
-        border-radius: var(--radius-sm);
+
+        /* Follow the button's own corners: squared ones inside a ButtonGroup, a pill or a circle from a consumer. */
+        border-radius: inherit;
     }
 
     .quill-button--variant-primary::before {
