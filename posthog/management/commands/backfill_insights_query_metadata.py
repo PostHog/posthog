@@ -117,8 +117,7 @@ class Command(BaseCommand):
         while True:
             batch_start_time = time.time()
 
-            # Read without row locks. Extraction takes up to a second per batch, and a lock held for that
-            # long makes every save of those insights wait for it.
+            # No row locks: extraction is slow, and saves of these insights would wait for the lock.
             insights = list(
                 base_query.filter(id__gt=last_id)
                 .order_by("id")
@@ -155,9 +154,7 @@ class Command(BaseCommand):
                     batch_updated += 1
                     continue
 
-                # Write only while the row still needs metadata and its query is the one read above. A save
-                # between the read and this write has already stored metadata for its own query, and this
-                # write must not replace it. Each update commits on its own, so it locks one row briefly.
+                # A save since the read changed the row or its query, so the filter skips it and the save wins.
                 batch_updated += Insight.objects_including_soft_deleted.filter(
                     needs_metadata, id=insight.id, query=query_at_read
                 ).update(query_metadata=insight.query_metadata)
