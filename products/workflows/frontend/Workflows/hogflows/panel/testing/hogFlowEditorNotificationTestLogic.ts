@@ -548,13 +548,13 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         })),
                     }
 
-                    actions.setTestResult(result)
                     reportSandboxTest(testedWorkflow, testedActionId, result)
-                    actions.setNextActionId(
-                        result.nextActionId && result.nextActionId !== values.selectedNodeId
-                            ? result.nextActionId
-                            : null
-                    )
+                    if (values.selectedNodeId === testedActionId) {
+                        actions.setTestResult(result)
+                        actions.setNextActionId(
+                            result.nextActionId && result.nextActionId !== testedActionId ? result.nextActionId : null
+                        )
+                    }
 
                     return values.testInvocation
                 } catch (error: any) {

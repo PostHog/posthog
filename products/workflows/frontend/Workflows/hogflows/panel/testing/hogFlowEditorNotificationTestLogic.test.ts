@@ -614,7 +614,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             expect(logic.values.testRecipientDisabledReason).toEqual('Loading verified members')
         })
 
-        it('records a sandbox test send for the tested step after the selection moves on', async () => {
+        it('records a sandbox test send for the tested step after the selection moves on, and shows no result on the next step', async () => {
             const events: { event: string; properties: unknown }[] = []
             jest.mocked(posthog.capture).mockImplementation((event, properties) => {
                 events.push({ event, properties })
@@ -643,6 +643,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             expect(events.filter(({ event }) => event.startsWith('workflows sandbox'))).toEqual([
                 { event: 'workflows sandbox test sent', properties: { status: 'accepted', reason: null } },
             ])
+            expect(logic.values.testResult).toBeNull()
         })
     })
 })
