@@ -32,7 +32,7 @@ describe('todayProductsLogic', () => {
         ])
     })
 
-    it('leaves Persons, Customer analytics and Support to the People pane', () => {
+    it('lists every product of the current navigation but Home, People pane products included', () => {
         useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': { results: [] } } })
         initKeaTests()
         const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }
@@ -41,10 +41,19 @@ describe('todayProductsLogic', () => {
         logic.mount()
 
         const hrefs = logic.values.products.map((item) => item.href)
-        expect(hrefs).not.toContain(urls.persons())
-        expect(hrefs).not.toContain(urls.customerAnalytics())
-        expect(hrefs).not.toContain(urls.supportTickets())
-        expect(hrefs).toContain(urls.replay(ReplayTabs.Home))
+        expect(hrefs).toEqual(
+            getNavProductItems(flags)
+                .map((item) => item.href)
+                .filter((href) => href !== urls.projectRoot())
+        )
+        expect(hrefs).toEqual(
+            expect.arrayContaining([
+                urls.persons(),
+                urls.customerAnalytics(),
+                urls.supportTickets(),
+                urls.replay(ReplayTabs.Home),
+            ])
+        )
     })
 
     // Cohorts and groups are not products in the Products pane, so the rule is tested on the paths.

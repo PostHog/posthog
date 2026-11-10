@@ -517,6 +517,57 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
         })
 
+        // Each card reads its own flag, so a reducer that marks the wrong loader puts the error on
+        // the wrong card, and one that never clears leaves a card stuck after a successful retry.
+        it.each([
+            ['periodTotals', 'loadPeriodTotals', (node: any) => node.query?.includes('current_users')],
+            ['harnessRows', 'loadHarnessRows', (node: any) => node.kind === 'MCPHarnessBreakdownQuery'],
+            ['activityRows', 'loadActivityRows', (node: any) => node.kind === 'MCPToolCallsAndErrorsQuery'],
+            ['toolDailyRows', 'loadToolDailyRows', (node: any) => node.kind === 'MCPToolCallBreakdownQuery'],
+        ] as const)('flags only %s when its query fails, and clears it on retry', async (loader, retry, isFailing) => {
+            mockApi.query.mockImplementation(async (node: any) => {
+                if (isFailing(node)) {
+                    throw { status: 504, detail: 'Query timed out' }
+                }
+                return { results: [] } as any
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(Object.entries(logic.values.failedLoads).filter(([, failed]) => failed)).toEqual([[loader, true]])
+            expect(logic.values.feedbackLoadFailed).toBe(true)
+
+            mockApi.query.mockResolvedValue({ results: [] } as any)
+            await expectLogic(logic, () => {
+                logic.actions[retry]()
+            }).toFinishAllListeners()
+
+            expect(logic.values.failedLoads[loader]).toBe(false)
+            expect(logic.values.feedbackLoadFailed).toBe(false)
+        })
+
+        it('ignores a failure from a request that a newer load already replaced', async () => {
+            let rejectFirst: (error: unknown) => void = () => {}
+            let periodTotalsCalls = 0
+            mockApi.query.mockImplementation((node: any) => {
+                if (node.query?.includes('current_users') && ++periodTotalsCalls === 1) {
+                    return new Promise((_, reject) => (rejectFirst = reject)) as any
+                }
+                return Promise.resolve({ results: [] }) as any
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-30d', null)
+            }).toDispatchActions(['loadPeriodTotalsSuccess'])
+
+            rejectFirst({ status: 504, detail: 'Query timed out' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.failedLoads.periodTotals).toBeFalsy()
+        })
+
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
@@ -540,6 +591,63 @@ describe('mcpDashboardOverviewLogic', () => {
             const usersTile = reloads.find((call) => call.query?.includes('current_users'))
             expect(usersTile?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(usersTile?.filters.dateRange.date_from).isValid()).toBe(true)
+        })
+
+        // The server caches a query by its exact filters, so a window that moves with the clock makes
+        // every load recompute the two slowest tiles.
+        it.each(['-7d', '-24h', '-90d'])('keeps the comparison window stable between %s loads', async (dateFrom) => {
+            jest.useFakeTimers({ now: new Date('2026-11-06T14:23:41.517Z'), advanceTimers: true })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            const windowOf = (callIndex: number): string[] =>
+                reloadCallsSince(callIndex)
+                    .filter((call) => call.query?.includes('AS bucket') || call.query?.includes('current_users'))
+                    .map((call) => call.filters.dateRange.date_from)
+
+            await expectLogic(logic, () => logic.actions.setDateFilter(dateFrom, null)).toFinishAllListeners()
+            const first = windowOf(mockApi.query.mock.calls.length - 9)
+            jest.setSystemTime(new Date('2026-11-06T14:23:58.004Z'))
+            const callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+            jest.useRealTimers()
+
+            expect(first).toHaveLength(2)
+            expect(windowOf(callsBefore)).toEqual(first)
+        })
+
+        // A previous period longer than the selected one makes flat traffic read as a drop. Sub-day ranges
+        // keep the bounded skew documented on the period totals loader, so only whole-day ranges are pinned.
+        it.each(['-7d', '-90d'])('compares %s against a previous period of the same length', async (dateFrom) => {
+            jest.useFakeTimers({ now: new Date('2026-11-06T00:59:59.900Z'), advanceTimers: true })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            const callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => logic.actions.setDateFilter(dateFrom, null)).toFinishAllListeners()
+            const now = dayjs()
+            jest.useRealTimers()
+
+            const reloads = reloadCallsSince(callsBefore)
+            const totals = reloads.find((call) => call.query?.includes('current_users'))
+            const selectedStart = dayjs.utc(totals.query.match(/toDateTime\('([^']+)'/)[1])
+            const previousMs = selectedStart.diff(dayjs(totals.filters.dateRange.date_from))
+            expect(Math.abs(previousMs - now.diff(selectedStart))).toBeLessThan(60_000)
+        })
+
+        // Rounding a window shorter than one bucket would reach into the selected period's first bucket and
+        // count events from before the selected start as current.
+        it('leaves a window shorter than one bucket where it starts', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () =>
+                logic.actions.setDateFilter('2026-11-06T14:00:00Z', '2026-11-06T14:30:00Z')
+            ).toFinishAllListeners()
+
+            const windows = reloadCallsSince(callsBefore)
+                .filter((call) => call.query?.includes('AS bucket') || call.query?.includes('current_users'))
+                .map((call) => dayjs(call.filters.dateRange.date_from).toISOString())
+            expect(windows).toEqual(['2026-11-06T13:30:00.000Z', '2026-11-06T13:30:00.000Z'])
         })
 
         it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {

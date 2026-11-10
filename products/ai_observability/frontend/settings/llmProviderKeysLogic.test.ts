@@ -153,4 +153,71 @@ describe('llmProviderKeysLogic', () => {
             expect(toast.mock.calls).toEqual(expectedToasts)
         })
     })
+
+    describe('offering back the evaluations a key turned off', () => {
+        const key = makeKey('anthropic')
+        let logic: ReturnType<typeof llmProviderKeysLogic.build>
+        let patched: string[]
+
+        const evaluation = (id: string, enabled: boolean, status_reason: string | null): Record<string, unknown> => ({
+            id,
+            name: `Evaluation ${id}`,
+            model_configuration_id: 'config-1',
+            enabled,
+            status_reason,
+        })
+
+        beforeEach(() => {
+            patched = []
+            useMocks({
+                get: {
+                    '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [key] },
+                    '/api/environments/:teamId/llm_analytics/evaluation_config/': { active_provider_key: null },
+                    '/api/environments/:teamId/llm_analytics/provider_keys/:id/dependent_configs/': {
+                        evaluations: [
+                            evaluation('by-key', false, 'provider_key_quota_exceeded'),
+                            evaluation('by-person', false, null),
+                            evaluation('running', true, null),
+                        ],
+                        alternative_keys: [],
+                        active_key_evaluations: [
+                            { ...evaluation('by-active-key', false, 'provider_key_quota_exceeded') },
+                        ],
+                    },
+                },
+                post: {
+                    '/api/environments/:teamId/llm_analytics/provider_keys/:id/validate/': { ...key, state: 'ok' },
+                },
+                patch: {
+                    '/api/projects/:teamId/evaluations/:id/': ({ params }) => {
+                        patched.push(params.id as string)
+                        return [200, {}]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = llmProviderKeysLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('offers only the evaluations a key problem turned off, and turns them back on', async () => {
+            await expectLogic(logic, () => logic.actions.validateProviderKey({ id: key.id }))
+                .toDispatchActions(['validateProviderKeySuccess', 'loadTurnedOffEvaluationsSuccess'])
+                .toFinishAllListeners()
+            expect(logic.values.turnedOffEvaluations?.evaluations.map((turnedOff) => turnedOff.id)).toEqual([
+                'by-key',
+                'by-active-key',
+            ])
+
+            await expectLogic(logic, () => logic.actions.turnEvaluationsBackOn())
+                .toDispatchActions(['turnEvaluationsBackOnSuccess'])
+                .toFinishAllListeners()
+            expect(patched.sort()).toEqual(['by-active-key', 'by-key'])
+            expect(logic.values.turnedOffEvaluations).toBeNull()
+        })
+    })
 })

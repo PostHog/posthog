@@ -31,6 +31,7 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
     # Recreate org/team/user per test: TransactionTestCase flushes the DB between tests, which would
     # otherwise leave class-level fixture data dangling.
     CLASS_DATA_LEVEL_SETUP = False
+    databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
 
     def setUp(self):
         super().setUp()

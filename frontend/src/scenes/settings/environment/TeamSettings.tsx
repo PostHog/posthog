@@ -169,6 +169,7 @@ export function TeamAuthorizedURLs(): JSX.Element {
             allowAdd={canEdit}
             allowDelete={canEdit}
             displaySuggestions={canEdit}
+            showLaunch={false}
         />
     )
 }

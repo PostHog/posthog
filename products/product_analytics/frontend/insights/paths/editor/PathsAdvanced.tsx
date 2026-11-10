@@ -3,8 +3,10 @@ import { useState } from 'react'
 
 import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
+import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -14,11 +16,17 @@ import { pathsDataLogic } from 'products/product_analytics/frontend/insights/pat
 
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 
+const SHOW_FULL_URLS_INFO =
+    'Display complete URLs instead of truncated versions. Useful for comparing paths side-by-side.'
+const STRIP_QUERY_STRING_INFO =
+    'Treat page views that differ only in the query string as the same step. For example, /products?color=red and /products both count as /products.'
+
 export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { edgeLimit, minEdgeWeight, maxEdgeWeight, showFullUrls, stripQueryString } = pathsFilter || {}
 
@@ -122,34 +130,46 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
             </PayGateMini>
 
             {/* Show full URLs toggle - outside paywall */}
-            <div>
-                <LemonSwitch
+            {todayRailNav ? (
+                <QuillChartOptionSwitch
+                    label="Show full URLs"
+                    info={SHOW_FULL_URLS_INFO}
                     checked={!!showFullUrls}
                     onChange={(checked) => updateInsightFilter({ showFullUrls: checked })}
-                    label="Show full URLs"
-                    bordered
-                    fullWidth
                 />
-                <div className="text-muted text-xs mt-1">
-                    Display complete URLs instead of truncated versions. Useful for comparing paths side-by-side.
-                </div>
-            </div>
-
-            {(featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING] || stripQueryString) && (
+            ) : (
                 <div>
                     <LemonSwitch
-                        checked={!!stripQueryString}
-                        onChange={(checked) => updateInsightFilter({ stripQueryString: checked })}
-                        label="Ignore URL query strings"
+                        checked={!!showFullUrls}
+                        onChange={(checked) => updateInsightFilter({ showFullUrls: checked })}
+                        label="Show full URLs"
                         bordered
                         fullWidth
                     />
-                    <div className="text-muted text-xs mt-1">
-                        Treat page views that differ only in the query string as the same step. For example,
-                        /products?color=red and /products both count as /products.
-                    </div>
+                    <div className="text-muted text-xs mt-1">{SHOW_FULL_URLS_INFO}</div>
                 </div>
             )}
+
+            {(featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING] || stripQueryString) &&
+                (todayRailNav ? (
+                    <QuillChartOptionSwitch
+                        label="Ignore URL query strings"
+                        info={STRIP_QUERY_STRING_INFO}
+                        checked={!!stripQueryString}
+                        onChange={(checked) => updateInsightFilter({ stripQueryString: checked })}
+                    />
+                ) : (
+                    <div>
+                        <LemonSwitch
+                            checked={!!stripQueryString}
+                            onChange={(checked) => updateInsightFilter({ stripQueryString: checked })}
+                            label="Ignore URL query strings"
+                            bordered
+                            fullWidth
+                        />
+                        <div className="text-muted text-xs mt-1">{STRIP_QUERY_STRING_INFO}</div>
+                    </div>
+                ))}
         </div>
     )
 }

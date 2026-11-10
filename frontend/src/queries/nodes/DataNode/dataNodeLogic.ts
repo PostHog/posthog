@@ -184,6 +184,8 @@ export const QUERY_SCAN_POLL_DEADLINE_MS = 600000
 // Loading and error states render the query id, so a random id per load
 // makes Storybook visual regression captures differ on every run
 const STORYBOOK_QUERY_ID = '00000000-0000-4000-8000-000000000000'
+// A measured query duration differs on every Storybook run; 180 ms matches what several stories pinned by hand.
+const STORYBOOK_ELAPSED_TIME_MS = 180
 
 const VALID_REFRESH_TYPES: ReadonlySet<RefreshType> = new Set([
     'async',
@@ -1097,7 +1099,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number, serverDurationMs: number | null = null) => ({
-            elapsedTime,
+            elapsedTime: inStorybook() || inStorybookTestRunner() ? STORYBOOK_ELAPSED_TIME_MS : elapsedTime,
             serverDurationMs,
         }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),

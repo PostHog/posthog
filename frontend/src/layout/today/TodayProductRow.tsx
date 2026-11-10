@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-import { TodayPaneRow } from './TodayPaneRow'
 import { productPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayProductStarButton } from './TodayProductStarButton'
@@ -32,7 +32,7 @@ export function TodayProductRow({
     const preview = useMemo(() => productPreview(label, product), [label, product])
     return (
         <TodayPreviewTrigger payload={preview}>
-            <TodayPaneRow
+            <SidebarRow
                 value={value}
                 label={label}
                 icon={<NavProductIcon item={product} />}

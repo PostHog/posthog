@@ -181,13 +181,20 @@ def describe_jwks(jwks_uri: str) -> list[str]:
     return [key.key_id or "(no kid)" for key in key_set.keys]
 
 
-def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
+def _jwks_cache_key(jwks_uri: str, max_keys: int) -> str:
+    # One entry per cap, so a client that registers a provider's JWKS URI can't cache a rejection for it.
+    return (
+        f"{JWKS_CACHE_PREFIX}{jwks_uri}" if max_keys == JWKS_MAX_KEYS else f"{JWKS_CACHE_PREFIX}{max_keys}:{jwks_uri}"
+    )
+
+
+def load_jwks(jwks_uri: str, *, force_refresh: bool = False, max_keys: int = JWKS_MAX_KEYS) -> PyJWKSet:
     """Return the client's key set, cached, so a token exchange doesn't fetch on every call.
 
     Failures are cached too (briefly), so a client with a broken or hostile jwks_uri can't
     turn each of its requests into an outbound fetch.
     """
-    cache_key = f"{JWKS_CACHE_PREFIX}{jwks_uri}"
+    cache_key = _jwks_cache_key(jwks_uri, max_keys)
     cached = None if force_refresh else cache.get(cache_key)
     if cached is not None:
         if cached == "error":
@@ -195,7 +202,7 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
         return PyJWKSet.from_dict(cached)
 
     try:
-        parsed = _fetch_jwks_document(jwks_uri)
+        parsed = _fetch_jwks_document(jwks_uri, max_keys=max_keys)
     except ClientAssertionError:
         cache.set(cache_key, "error", timeout=JWKS_NEGATIVE_CACHE_TTL_SECONDS)
         raise
@@ -204,7 +211,7 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
     return PyJWKSet.from_dict(parsed)
 
 
-def _fetch_jwks_document(jwks_uri: str) -> dict:
+def _fetch_jwks_document(jwks_uri: str, *, max_keys: int = JWKS_MAX_KEYS) -> dict:
     """Fetch and validate the JWKS, raising ClientAssertionError on any rejection so the
     caller has a single place to record the negative cache entry."""
     try:
@@ -222,8 +229,8 @@ def _fetch_jwks_document(jwks_uri: str) -> dict:
     # Capping the key count keeps a hostile JWKS from making each verification walk a huge
     # set. Everything else about the document's shape is PyJWKSet's own validation.
     keys = parsed.get("keys")
-    if isinstance(keys, list) and len(keys) > JWKS_MAX_KEYS:
-        raise ClientAssertionError(f"JWKS must not contain more than {JWKS_MAX_KEYS} keys")
+    if isinstance(keys, list) and len(keys) > max_keys:
+        raise ClientAssertionError(f"JWKS must not contain more than {max_keys} keys")
     if isinstance(keys, list) and any(isinstance(key, dict) and key.get("kty") == "oct" for key in keys):
         raise ClientAssertionError('JWKS contains a symmetric key (kty "oct"). Publish only RSA or EC public keys.')
 
@@ -258,7 +265,7 @@ def _select_key(key_set: PyJWKSet, assertion: str) -> PyJWK:
     raise ClientAssertionError("Client assertion must carry a kid when the JWKS holds several keys")
 
 
-def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
+def select_signing_key(jwks_uri: str, assertion: str, *, max_keys: int = JWKS_MAX_KEYS) -> PyJWK:
     """Select the assertion's signing key, re-fetching the JWKS once when the key is unknown.
 
     A client that rotates keys signs with the new ``kid`` while our cached copy of its key
@@ -266,7 +273,7 @@ def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
     expires. The marker caps forced re-fetches at one per interval per URI.
     """
     try:
-        return _select_key(load_jwks(jwks_uri), assertion)
+        return _select_key(load_jwks(jwks_uri, max_keys=max_keys), assertion)
     except UnknownSigningKeyError:
         marker = f"{JWKS_CACHE_PREFIX}rotation-refresh:{jwks_uri}"
         if not cache.add(marker, True, timeout=JWKS_ROTATION_REFRESH_MIN_INTERVAL_SECONDS):
@@ -275,8 +282,8 @@ def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
         # path writes the negative sentinel over the cached set: one assertion naming a bogus
         # kid while the client's JWKS endpoint is down would then lock out every assertion
         # signed with an already-cached key for the negative-cache window.
-        parsed = _fetch_jwks_document(jwks_uri)
-        cache.set(f"{JWKS_CACHE_PREFIX}{jwks_uri}", parsed, timeout=JWKS_CACHE_TTL_SECONDS)
+        parsed = _fetch_jwks_document(jwks_uri, max_keys=max_keys)
+        cache.set(_jwks_cache_key(jwks_uri, max_keys), parsed, timeout=JWKS_CACHE_TTL_SECONDS)
         return _select_key(PyJWKSet.from_dict(parsed), assertion)
 
 

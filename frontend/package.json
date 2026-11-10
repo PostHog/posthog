@@ -160,6 +160,7 @@
         "@posthog/products-tasks": "workspace:*",
         "@posthog/products-today": "workspace:*",
         "@posthog/products-tracing": "workspace:*",
+        "@posthog/products-ui-customization": "workspace:*",
         "@posthog/products-uptime-monitoring": "workspace:*",
         "@posthog/products-visual-review": "workspace:*",
         "@posthog/products-warehouse-sources": "workspace:*",

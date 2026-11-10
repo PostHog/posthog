@@ -4,8 +4,8 @@ import json
 import uuid
 import asyncio
 import dataclasses
-from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from datetime import datetime, timedelta
+from typing import cast
 from urllib import parse
 
 from django.conf import settings
@@ -13,11 +13,10 @@ from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import UploadedFile
 from django.forms import ModelForm, ValidationError
-from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.http import HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
-from django.urls import NoReverseMatch, path, reverse
-from django.utils.dateparse import parse_datetime
+from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
@@ -40,17 +39,8 @@ from posthog.models.events_retention_config import (
     TeamEventsRetentionConfig,
     describe_months_range,
 )
-from posthog.models.group_type_mapping import invalidate_group_types_cache
-from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.team import DEPRECATED_ATTRS
-from posthog.personhog_client.client import get_personhog_client
-from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
-from posthog.personhog_client.proto import (
-    GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByTeamIdRequest,
-    UpdateGroupTypeMappingRequest,
-)
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
 from posthog.tasks.email import send_email_sending_suspended, send_email_sending_unsuspended
 from posthog.temporal.common.client import sync_connect
@@ -80,15 +70,6 @@ from products.workflows.backend.facade.api import (
 )
 
 logger = get_logger()
-
-
-def _format_group_type_created_at(value: datetime | None) -> str:
-    """Millisecond precision, matching the RPC, so the overview and the edit form agree.
-
-    The edit form prefills from this, so dropping the sub-second part here would make an
-    untouched save rewrite created_at.
-    """
-    return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if value else ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -195,10 +176,6 @@ class TeamAdmin(admin.ModelAdmin):
         # Inlines other apps registered for Team, so a product can show a panel on
         # this page without core importing it. See posthog.admin.inline_registry.
         return [*super().get_inlines(request, obj), *extra_inlines_for(Team)]
-
-    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
-        self._current_request = request
-        return super().changeform_view(request, object_id, form_url, extra_context)
 
     fieldsets = [
         (
@@ -389,192 +366,7 @@ class TeamAdmin(admin.ModelAdmin):
     def group_type_mappings_display(self, team: Team):
         if not team.pk:
             return "-"
-        client = get_personhog_client()
-        if client is None:
-            return mark_safe("<em>personhog client not configured</em>")
-        try:
-            resp = client.get_group_type_mappings_by_team_id(GetGroupTypeMappingsByTeamIdRequest(team_id=team.id))
-            mappings_raw = sorted(
-                [proto_group_type_mapping_to_dict(m) for m in resp.mappings],
-                key=lambda d: d["group_type_index"],
-            )
-        except Exception as exc:
-            logger.warning("admin_group_type_mappings_fetch_failed", team_id=team.id, error=str(exc))
-            return mark_safe(
-                '<p style="color: #856404; background: #fff3cd; border: 1px solid #ffc107; '
-                'padding: 8px 12px; border-radius: 4px; margin: 4px 0; font-size: 13px;">'
-                "Failed to fetch group type mappings from personhog</p>",
-            )
-        mappings = []
-        for m in mappings_raw:
-            detail_dashboard_id = m.get("detail_dashboard") or m.get("detail_dashboard_id")
-            detail_dashboard_url = None
-            if detail_dashboard_id:
-                try:
-                    detail_dashboard_url = reverse("admin:dashboards_dashboard_change", args=[detail_dashboard_id])
-                except NoReverseMatch:
-                    pass
-            mappings.append(
-                {
-                    **m,
-                    "detail_dashboard_id": detail_dashboard_id,
-                    "detail_dashboard_url": detail_dashboard_url,
-                    "created_at_display": _format_group_type_created_at(m.get("created_at")),
-                    "edit_url": reverse(
-                        "admin:posthog_team_edit_group_type_mapping",
-                        args=[team.pk, m["group_type_index"]],
-                    ),
-                }
-            )
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/group_type_mappings_display.html",
-                {"mappings": mappings, "team": team},
-                request=getattr(self, "_current_request", None),
-            )
-        )
-
-    def _get_personhog_client_or_error(self, request, redirect_url):
-        """Return (client, None) or (None, redirect_response) if personhog is unavailable."""
-        client = get_personhog_client()
-        if client is None:
-            messages.error(request, "personhog client is not configured — cannot manage group type mappings.")
-            return None, redirect(redirect_url)
-        return client, None
-
-    def _fetch_group_type_mapping_via_personhog(self, client, project_id, group_type_index):
-        """Fetch a single mapping from personhog by project_id + group_type_index. Returns dict or None."""
-        resp = client.get_group_type_mappings_by_project_id(
-            GetGroupTypeMappingsByProjectIdRequest(project_id=project_id)
-        )
-        for m in resp.mappings:
-            d = proto_group_type_mapping_to_dict(m)
-            if d["group_type_index"] == group_type_index:
-                return d
-        return None
-
-    def edit_group_type_mapping_view(self, request, object_id, group_type_index):
-        team = Team.objects.select_related("project").get(pk=object_id)
-        if not self.has_change_permission(request, team):
-            raise PermissionDenied
-        group_type_index = int(group_type_index)
-        team_url = reverse("admin:posthog_team_change", args=[object_id])
-
-        client, err_response = self._get_personhog_client_or_error(request, team_url)
-        if err_response is not None:
-            return err_response
-
-        try:
-            mapping_dict = self._fetch_group_type_mapping_via_personhog(client, team.project_id, group_type_index)
-        except Exception as exc:
-            logger.warning(
-                "admin_group_type_mapping_fetch_failed",
-                team_id=team.id,
-                group_type_index=group_type_index,
-                error=str(exc),
-            )
-            messages.warning(request, "Failed to fetch group type mappings from personhog")
-            return redirect(team_url)
-
-        if mapping_dict is None:
-            messages.error(request, f"Group type mapping with index {group_type_index} not found for this team.")
-            return redirect(team_url)
-
-        existing_created_at = mapping_dict.get("created_at")
-
-        if request.method == "GET":
-            default_columns = mapping_dict.get("default_columns")
-            default_columns_json = json.dumps(default_columns) if default_columns else ""
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "mapping": mapping_dict,
-                "default_columns_json": default_columns_json,
-                "created_at_display": _format_group_type_created_at(existing_created_at),
-                "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
-            }
-            return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["GET", "POST"])
-
-        name_singular = request.POST.get("name_singular", "").strip()
-        name_plural = request.POST.get("name_plural", "").strip()
-
-        default_columns_raw = request.POST.get("default_columns", "").strip()
-        parsed_default_columns: list[str] | None = None
-        if default_columns_raw:
-            try:
-                parsed = json.loads(default_columns_raw)
-                if not isinstance(parsed, list):
-                    raise ValueError
-                parsed_default_columns = parsed
-            except (json.JSONDecodeError, ValueError):
-                messages.error(request, "Default columns must be a valid JSON array.")
-                return redirect(
-                    reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
-                )
-
-        created_at_raw = request.POST.get("created_at", "").strip()
-        created_at_millis: int | None = None
-        if created_at_raw:
-            parsed_created_at = parse_datetime(created_at_raw)
-            if parsed_created_at is None:
-                messages.error(request, "Created at must be a valid datetime, e.g. 2026-01-15 10:30:00.")
-                return redirect(
-                    reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
-                )
-            if parsed_created_at.tzinfo is None:
-                parsed_created_at = parsed_created_at.replace(tzinfo=UTC)
-            created_at_millis = int(parsed_created_at.timestamp() * 1000)
-
-        update_mask = ["name_singular", "name_plural"]
-        update_kwargs: dict[str, Any] = {
-            "project_id": team.project_id,
-            "group_type_index": group_type_index,
-            "name_singular": name_singular,
-            "name_plural": name_plural,
-        }
-        if default_columns_raw:
-            update_mask.append("default_columns")
-            if parsed_default_columns is not None:
-                update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
-        # The form prefills created_at, so an untouched field matches what is stored and is left
-        # alone; a cleared field sends the mask path with no value, which nulls the column.
-        existing_millis = int(existing_created_at.timestamp() * 1000) if existing_created_at else None
-        if created_at_millis != existing_millis:
-            update_mask.append("created_at")
-            if created_at_millis is not None:
-                update_kwargs["created_at"] = created_at_millis
-        update_kwargs["update_mask"] = update_mask
-
-        try:
-            client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**update_kwargs))
-        except Exception as exc:
-            logger.exception(
-                "admin_edit_group_type_mapping_failed",
-                team_id=team.id,
-                group_type_index=group_type_index,
-                error=str(exc),
-            )
-            messages.error(request, f"Failed to update via personhog: {exc}")
-            return redirect(reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index]))
-
-        if team.project_id:
-            invalidate_group_types_cache(team.project_id)
-
-        logger.info(
-            "admin_edit_group_type_mapping",
-            team_id=team.id,
-            group_type_index=group_type_index,
-            fields=update_kwargs["update_mask"],
-            triggered_by=request.user.email,
-        )
-        messages.success(
-            request,
-            f"Updated group type mapping (index {group_type_index}) for team '{team.name}'.",
-        )
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+        return MovedToConsole.team_action(team, "group-types", "View and edit group types")
 
     @admin.display(description="PostHog system internal properties")
     def internal_properties(self, team: Team):
@@ -655,18 +447,7 @@ class TeamAdmin(admin.ModelAdmin):
     def remote_config_cache_actions(self, team: Team):
         if not team.pk:
             return "-"
-
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/remote_config_cache_actions.html",
-                {
-                    "view_url": reverse("admin:posthog_team_view_cache", args=[team.pk]),
-                    "rebuild_moved": MovedToConsole.team_action(team, "remote-config", "Rebuild cache"),
-                    "cache_key": RemoteConfig.get_hypercache().get_cache_key(team.api_token),
-                },
-            )
-        )
+        return MovedToConsole.team_action(team, "remote-config", "View and rebuild cache")
 
     def _log_email_suspension_activity(self, request, team: Team, activity: str, reason: str) -> None:
         log_activity(
@@ -991,16 +772,6 @@ class TeamAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
-                "<path:object_id>/group-type-mapping/<int:group_type_index>/edit/",
-                self.admin_site.admin_view(self.edit_group_type_mapping_view),
-                name="posthog_team_edit_group_type_mapping",
-            ),
-            path(
-                "<path:object_id>/view-cache/",
-                self.admin_site.admin_view(self.view_cache),
-                name="posthog_team_view_cache",
-            ),
-            path(
                 "<path:object_id>/delete-recordings/",
                 self.admin_site.admin_view(self.delete_recordings_view),
                 name="posthog_team_delete_recordings",
@@ -1037,25 +808,6 @@ class TeamAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
-
-    def view_cache(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-        hypercache = RemoteConfig.get_hypercache()
-        cache_key = hypercache.get_cache_key(team.api_token)
-
-        # source tells us where the result came from ("redis", "s3", or None).
-        # When data is None, source disambiguates: a cache hit returning None means
-        # the team was explicitly cached as missing, while no source means a true cache miss.
-        cached_data, source = hypercache.get_from_cache_with_source(team.api_token)
-
-        if cached_data is None:
-            if source in ("redis", "s3"):
-                return JsonResponse({"cached": True, "cache_key": cache_key, "message": "Team cached as missing"})
-            return JsonResponse({"cached": False, "message": "No cached config found"})
-
-        return JsonResponse(
-            {"cached": True, "cache_key": cache_key, "data": cached_data}, json_dumps_params={"indent": 2}
-        )
 
     def _get_delete_workflows(self, team_id: int) -> list[dict]:
         """Fetch recent delete-recordings workflows for this team from Temporal."""

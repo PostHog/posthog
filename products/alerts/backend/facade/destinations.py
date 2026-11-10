@@ -333,6 +333,13 @@ def unrevised_hold_backs(
     )
 
 
+def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
+    """Whether an enabled function takes the alert's events, bound to it on any template or unbound."""
+    return destination_eligibility.alert_has_enabled_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
 def unbound_alert_destinations(
     *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
 ) -> tuple[UUID, ...]:

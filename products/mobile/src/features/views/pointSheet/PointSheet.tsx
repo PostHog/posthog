@@ -132,7 +132,7 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
         setPage(includeRecordings ? 'recordings' : 'people')
         void actors.load(input)
     }
-    const title = formatTooltipDate(point.at, point.interval)
+    const title = point.label ?? formatTooltipDate(point.at, point.interval)
     const maxHeight = Math.round(height * 0.7)
 
     return (
@@ -246,7 +246,7 @@ function SeriesRows({ point, formatValue, selectable, selectedKey, onSelect }: S
                             {selectable && selected ? <CheckIcon size={16} color={colors.ink} /> : null}
                         </View>
                         <Text style={selectable ? styles.rowValueSmall : styles.rowValue}>
-                            {formatValue(row.value)}
+                            {row.formattedValue ?? formatValue(row.value)}
                         </Text>
                         {row.previous ? (
                             <Text style={styles.compare}>{compareText(row, point, formatValue)}</Text>
@@ -396,7 +396,7 @@ function CopyValueChip({
             icon={copied ? <CheckIcon size={16} /> : <CopyIcon size={16} />}
             label={copied ? 'Copied' : 'Copy value'}
             onPress={() => {
-                void Clipboard.setStringAsync(formatValue(top.value)).then(() => setCopied(true))
+                void Clipboard.setStringAsync(top.formattedValue ?? formatValue(top.value)).then(() => setCopied(true))
             }}
             testID="point-copy"
         />

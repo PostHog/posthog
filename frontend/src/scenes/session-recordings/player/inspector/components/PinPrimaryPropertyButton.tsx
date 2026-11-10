@@ -16,7 +16,7 @@ export function PinPrimaryPropertyButton({
     propertyKey: string
     isRowHovered: boolean
 }): JSX.Element | null {
-    const { primaryProperties, primaryPropertiesLoading } = useValues(primaryEventPropertiesModel)
+    const { primaryProperties, primaryPropertyChangesLoading } = useValues(primaryEventPropertiesModel)
     const { updatePrimaryProperty } = useActions(primaryEventPropertiesModel)
 
     if (hasTaxonomyPrimaryProperty(eventName)) {
@@ -49,7 +49,7 @@ export function PinPrimaryPropertyButton({
             size="xsmall"
             noPadding
             active={isPinned}
-            loading={primaryPropertiesLoading}
+            loading={primaryPropertyChangesLoading}
             icon={isPinned ? <IconPinFilled /> : <IconPin />}
             tooltip={tooltip}
             onClick={() => updatePrimaryProperty({ eventName, propertyKey: isPinned ? null : propertyKey })}

@@ -115,6 +115,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.ui_customization",
     "products.account_audits",
     "products.alerts_platform",
     "products.ai_training",
@@ -554,6 +555,8 @@ depends_on = [
     "products.data_tools",
     "products.event_definitions",
     "products.feature_flags",
+    # Facade-only: the exposure counts keep the `$lib` names of PostHog's own SDKs and count the rest as other.
+    "products.growth",
     "products.notifications",
     # An experiment with a funnel metric runs the funnel through product analytics.
     "products.product_analytics",
@@ -2023,4 +2026,23 @@ expose = [
 ]
 from = [
     "products.knowledge_writer",
+]
+
+[[modules]]
+path = "products.ui_customization"
+depends_on = [
+    "posthog",
+    "products.dashboards",
+    "products.notebooks",
+    "products.product_analytics",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ui_customization",
 ]

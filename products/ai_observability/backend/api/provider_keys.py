@@ -4,7 +4,7 @@ from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -43,7 +43,7 @@ from ..llm.providers.openai_compatible import (
     is_allowed_custom_base_url,
 )
 from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluations import Evaluation
+from ..models.evaluations import Evaluation, EvaluationStatus
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..models.taggers import Tagger
@@ -458,6 +458,37 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class ProviderKeyDependentEvaluationSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Evaluation ID.")
+    name = serializers.CharField(help_text="Evaluation name.")
+    model_configuration_id = serializers.CharField(
+        required=False, help_text="Model configuration that pins this key. Absent for evaluations on the active key."
+    )
+    enabled = serializers.BooleanField(help_text="Whether the evaluation is running.")
+    status_reason = serializers.CharField(
+        allow_null=True, help_text="Why the system turned the evaluation off, such as provider_key_quota_exceeded."
+    )
+
+
+class ProviderKeyAlternativeSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Provider key ID.")
+    name = serializers.CharField(help_text="Provider key name.")
+    provider = serializers.CharField(help_text="Provider of the key.")
+
+
+class ProviderKeyDependentConfigsSerializer(serializers.Serializer):
+    evaluations = ProviderKeyDependentEvaluationSerializer(
+        many=True, help_text="Evaluations whose model configuration pins this key."
+    )
+    alternative_keys = ProviderKeyAlternativeSerializer(
+        many=True, help_text="Working keys for the same provider that could replace this one."
+    )
+    active_key_evaluations = ProviderKeyDependentEvaluationSerializer(
+        many=True,
+        help_text="Errored evaluations with no pinned key, which run on this key while it is the project's active key.",
+    )
+
+
 class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [TeamMemberStrictManagementPermission]
@@ -610,6 +641,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         page on a project other than the user's current one still lists its own keys' models."""
         return Response(provider_key_models(self.get_object()))
 
+    @extend_schema(responses={200: ProviderKeyDependentConfigsSerializer})
     @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"])
     @llma_track_latency("llma_provider_keys_dependent_configs")
     @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
@@ -617,18 +649,27 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         """Get evaluations using this key and alternative keys for replacement."""
         instance = self.get_object()
 
+        # Reading a key must not reveal evaluations the caller cannot open.
+        visible_evaluations: QuerySet[Evaluation] = Evaluation.objects.filter(team_id=self.team_id, deleted=False)
+        if not is_service_auth(request):
+            visible_evaluations = self.user_access_control.filter_queryset_by_access_level(visible_evaluations)
+        visible_evaluation_ids = visible_evaluations.values("id")
+
         model_configs = LLMModelConfiguration.objects.filter(
             provider_key=instance, team_id=self.team_id
         ).prefetch_related("evaluations")
 
         evaluations = []
         for config in model_configs:
-            for evaluation in config.evaluations.filter(deleted=False):
+            for evaluation in config.evaluations.filter(deleted=False, id__in=visible_evaluation_ids):
                 evaluations.append(
                     {
                         "id": str(evaluation.id),
                         "name": evaluation.name,
                         "model_configuration_id": str(config.id),
+                        # Lets the settings page offer to turn back on the evaluations a key problem turned off.
+                        "enabled": evaluation.enabled,
+                        "status_reason": evaluation.status_reason,
                     }
                 )
 
@@ -638,13 +679,36 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             state=LLMProviderKey.State.OK,
         ).exclude(id=instance.id)
 
+        # An evaluation with no pinned key runs on the project's active key (`active_key_fallback`), so a
+        # problem with that key turns it off too. Listed apart, because replacing a key only re-pins the
+        # configs above.
+        active_key_evaluations = []
+        if EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).exists():
+            active_key_evaluations = [
+                {
+                    "id": str(evaluation.id),
+                    "name": evaluation.name,
+                    "enabled": evaluation.enabled,
+                    "status_reason": evaluation.status_reason,
+                }
+                for evaluation in Evaluation.objects.filter(
+                    team_id=self.team_id, deleted=False, status=EvaluationStatus.ERROR, id__in=visible_evaluation_ids
+                ).filter(
+                    Q(model_configuration__isnull=True)
+                    | Q(model_configuration__provider_key__isnull=True, model_configuration__provider=instance.provider)
+                )
+            ]
+
         return Response(
-            {
-                "evaluations": evaluations,
-                "alternative_keys": [
-                    {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
-                ],
-            }
+            ProviderKeyDependentConfigsSerializer(
+                {
+                    "evaluations": evaluations,
+                    "alternative_keys": [
+                        {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
+                    ],
+                    "active_key_evaluations": active_key_evaluations,
+                }
+            ).data
         )
 
     @llma_track_latency("llma_provider_keys_destroy")

@@ -256,6 +256,29 @@ def list_firing_alerts_created_by(
     ]
 
 
+ENABLED_ALERT_CANDIDATES = 500
+
+
+def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts.EnabledAlert]:
+    """Enabled alerts on insights the user can view, newest first."""
+    access = UserAccessControl(user, team=team)
+    candidates = (
+        AlertConfiguration.objects.filter(team_id=team.id, enabled=True, insight__deleted=False)
+        .select_related("insight")
+        .order_by("-created_at")[:ENABLED_ALERT_CANDIDATES]
+    )
+    viewable = (alert for alert in candidates if access.check_access_level_for_object(alert.insight, "viewer"))
+    return [
+        contracts.EnabledAlert(
+            id=alert.id,
+            name=alert.name,
+            insight_name=alert.insight.name or alert.insight.derived_name,
+            insight_short_id=alert.insight.short_id,
+        )
+        for alert in islice(viewable, limit)
+    ]
+
+
 WATCHED_ROWS_PER_INSIGHT = 4
 
 

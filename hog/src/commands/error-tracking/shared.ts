@@ -8,6 +8,8 @@ import type { ErrorTrackingOptions, InjectedReport, UploadReport } from '@/error
 
 // The options `inject`, `upload` and `process` share, and how their results look.
 
+export const UPLOAD_SCOPES = ['error_tracking:write']
+
 export const PATHS = {
     paths: {
         description: 'Files or folders to read. Defaults to errorTracking.sources in posthog.json',

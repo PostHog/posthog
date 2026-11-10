@@ -13,7 +13,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { isPathUnder, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import {
     AnalyticsListDisplayConfiguration,
@@ -21,6 +20,8 @@ import {
     UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import type { UserBasicType, UserType } from '~/types'
+
+import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 
 import {
     ANALYTICS_FEED_PAGE_SIZE,

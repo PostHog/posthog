@@ -162,3 +162,25 @@ describe('chartMath', () => {
         expect(span.height).toBeCloseTo(height)
     })
 })
+
+test('mixed lines and bars on separate axes never add to one another’s stacks', () => {
+    const series: ChartSeries[] = [
+        { key: 'one', label: 'One', color: '#111111', kind: 'bar', points: [{ at: 0, value: 100 }] },
+        {
+            key: 'growth',
+            label: 'Growth',
+            color: '#222222',
+            kind: 'line',
+            axis: 'right',
+            points: [{ at: 0, value: 25 }],
+        },
+        { key: 'two', label: 'Two', color: '#333333', kind: 'bar', points: [{ at: 0, value: 50 }] },
+        { key: 'right', label: 'Right', color: '#444444', kind: 'bar', axis: 'right', points: [{ at: 0, value: 5 }] },
+    ]
+    expect(barSegments(series, 'stacked')).toEqual([
+        { starts: [0], ends: [100] },
+        { starts: [0], ends: [25] },
+        { starts: [100], ends: [150] },
+        { starts: [0], ends: [5] },
+    ])
+})

@@ -2626,27 +2626,52 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("first_alert_of_the_team", None, True),
-            ("team_the_platform_has_begun_taking_over", "platform", True),
-            ("team_whose_alerts_stay_on_logs", "logs", False),
-            ("team_rolled_back", "rolled_back", False),
+            ("first_alert_of_the_team", None, "logs_api", True),
+            ("first_alert_of_the_team_through_the_platform", None, "platform_api", True),
+            ("team_the_platform_has_begun_taking_over", "platform", "logs_api", True),
+            ("team_the_platform_has_begun_taking_over_through_the_platform", "platform", "platform_api", True),
+            ("team_whose_alerts_stay_on_logs", "logs", "logs_api", False),
+            ("team_rolled_back", "rolled_back", "logs_api", False),
         ]
     )
-    def test_where_a_new_alert_starts(self, _name: str, existing: str | None, on_the_platform: bool) -> None:
+    @time_machine.travel("2026-01-10T12:00:00Z", tick=False)
+    def test_where_a_new_alert_starts(
+        self, _name: str, existing: str | None, route: str, on_the_platform: bool
+    ) -> None:
+        now = timezone.now()
+        team_cut_over_at = now - timedelta(days=4)
         if existing == "platform":
-            self._owned_by_the_platform()
+            for moved_at in (team_cut_over_at, now - timedelta(days=1)):
+                moved = self._owned_by_the_platform(name=f"Moved at {moved_at}")
+                LogsAlertConfiguration.objects.filter(pk=moved["id"]).update(owner_changed_at=moved_at)
         elif existing == "logs":
             self._keep_the_team_on_logs()
         elif existing == "rolled_back":
             self._create_via_api(name="Moved, then handed back", enabled=False)
             assert [result.skipped for result in roll_back_team(self.team.id)] == [None]
 
-        created = self._create_via_api(name="New alert")
+        if route == "logs_api":
+            created = self._create_via_api(name="New alert")
+            assert created["platform_owned"] is on_the_platform
+            alert_id = created["id"]
+        else:
+            response = self._create_on_the_platform(
+                {
+                    "source_kind": "logs",
+                    "source_config": {
+                        "filters": {"serviceNames": ["api"]},
+                        "condition": {"threshold_count": 5, "threshold_operator": "above", "window_minutes": 10},
+                    },
+                }
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            alert_id = response.json()["legacy_configuration_id"]
 
-        assert created["platform_owned"] is on_the_platform
-        assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned is on_the_platform
+        alert = LogsAlertConfiguration.objects.get(pk=alert_id)
+        assert alert.platform_owned is on_the_platform
         if on_the_platform:
-            assert self._copy(created["id"]).owner == "platform"
+            assert self._copy(alert_id).owner == "platform"
+            assert alert.owner_changed_at == (team_cut_over_at if existing == "platform" else now)
 
     def _copy_grouping_keys(self, alert_id: str) -> tuple[str, ...]:
         with team_scope(self.team.id):

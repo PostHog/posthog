@@ -1,6 +1,7 @@
 import math
 import unicodedata
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import date
 from enum import StrEnum
 from zoneinfo import ZoneInfo
@@ -30,9 +31,11 @@ from products.experiments.backend.health.context import (
     ExposureSegment,
     ExposureTotals,
     FlagHistory,
+    FlagHistoryNotChecked,
     FlagState,
     HealthContext,
     ReachableCondition,
+    split_changed_after_the_end,
 )
 from products.experiments.backend.health.pinned_share import pinned_variant_keys
 from products.experiments.backend.health.skips import (
@@ -40,6 +43,7 @@ from products.experiments.backend.health.skips import (
     NEEDS_SPLIT_VARIANTS,
     RUNS_AFTER_LAUNCH,
     SPLIT_ASSIGNS_NOBODY,
+    SPLIT_CHANGED_AFTER_END,
     CheckOutcome,
     CheckValues,
     not_applicable,
@@ -59,6 +63,9 @@ UNIFORM_SEGMENT_MINIMUM_SIZE = 1000
 SEGMENT_LABEL_MAX_LENGTH = 60
 # The detail names the located segments furthest from the split, up to this many.
 NAMED_SEGMENTS = 2
+# One variant fills a segment when the other variants have less than this share of their expected count in it. The
+# expected count comes from the split, so on a 90/10 split a segment at 95% control doesn't count as filled by control.
+BARELY_EXPOSED_SHARE = 0.1
 
 # pinned: the subcode is sent as `finding_subcode` on the health finding events, so insights group on it.
 SPLIT_CHANGED = "split_changed"
@@ -70,6 +77,7 @@ class SrmReason(StrEnum):
     LIBRARY_VERSION = ExposureSegmentDimension.LIBRARY_VERSION.value
     PAGE = ExposureSegmentDimension.PAGE.value
     SCREEN = ExposureSegmentDimension.SCREEN.value
+    VARIANT_SEGMENTS = "variant_segments"
     UNIFORM = "uniform"
 
 
@@ -178,6 +186,9 @@ def srm(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NEEDS_EXPOSURES)
     if p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
         return None
+    # The test compares the run's exposures with the flag's current split, and the exposures count only its variants.
+    if _split_changed_after_the_end(ctx):
+        return not_applicable(SPLIT_CHANGED_AFTER_END)
     share_off_split = _share_off_split(exposures.total_exposures, exposures.sample_ratio_expected)
     split_change = _split_change_warning(ctx)
     history = ctx.flag_history
@@ -251,7 +262,8 @@ def _after_split_change(
                 "variants from another split, which can cause this.",
                 *retest,
                 *(cause.sentences if cause is not None else ()),
-                f'Follow the steps in "{split_change.title}" to fix the results.',
+                # The split check doesn't run after the end, so its finding isn't there to follow.
+                *([] if ctx.has_ended else [f'Follow the steps in "{split_change.title}" to fix the results.']),
             ]
         ),
         evidence=evidence,
@@ -343,9 +355,24 @@ def _skew_predates_the_change(ctx: HealthContext, exposures: ExposureTotals, his
     )
 
 
+def _split_changed_after_the_end(ctx: HealthContext) -> bool:
+    history = ctx.flag_history
+    return isinstance(history, FlagHistory | FlagHistoryNotChecked) and split_changed_after_the_end(
+        history.changes, ctx.ended_at
+    )
+
+
+def _during_the_run(ctx: HealthContext) -> HealthContext:
+    """The context as the split check reads it before the end. After the end that check stops, because the flag often
+    holds the shipped decision. Without a split change after the end, the flag's split is still the run's."""
+    if ctx.has_ended and not _split_changed_after_the_end(ctx):
+        return replace(ctx, has_ended=False)
+    return ctx
+
+
 def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
     try:
-        outcome = split_changed_mid_run(ctx)
+        outcome = split_changed_mid_run(_during_the_run(ctx))
     except Exception as error:
         # The health endpoint reports the failure of the split check itself. Here it must not hide the mismatch.
         capture_exception(error)
@@ -473,6 +500,10 @@ class _SegmentTest:
     # None when the segment holds too few persons or groups for the test.
     p_value: float | None
 
+    @property
+    def fails(self) -> bool:
+        return self.p_value is not None and self.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+
 
 @frozen
 class _Verdict:
@@ -494,13 +525,15 @@ class _SegmentCause:
 
     @property
     def locates_the_mismatch(self) -> bool:
-        return self.reason is not None and self.reason != SrmReason.UNIFORM
+        # A variant override also sends the users it matches to segments that one variant fills, so the override
+        # finding comes before `variant_segments`.
+        return self.reason not in (None, SrmReason.UNIFORM, SrmReason.VARIANT_SEGMENTS)
 
 
 def _segment_cause(exposures: ExposureTotals, unit: str) -> _SegmentCause:
     tests = _segment_tests(exposures)
     verdicts = [_verdict(tests, dimension, exposures.sample_ratio_expected) for dimension in ExposureSegmentDimension]
-    sentences, reason = _cause(verdicts, unit)
+    sentences, reason = _cause(verdicts, _variant_segments(tests, exposures), unit)
     evidence = _segment_evidence(tests, verdicts)
     located = _located(verdicts)
     if located:
@@ -532,11 +565,7 @@ def _verdict(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, wei
     powered = sum(1 for row in table if sum(row) >= UNIFORM_SEGMENT_MINIMUM_SIZE) >= 2
     located: ExposureSegment | None = None
     if homogeneity_p_value < SAMPLE_RATIO_MISMATCH_P_VALUE:
-        failing = [
-            test.segment
-            for test in compared
-            if test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
-        ]
+        failing = [test.segment for test in compared if test.fails]
         # The detail says the mismatch comes from the segment, which reads as if the other segments match the split.
         located = failing[0] if len(failing) == 1 else None
     return _Verdict(
@@ -563,7 +592,48 @@ def _share_off_split(exposed_by_variant: Mapping[str, int], weights: Mapping[str
     )
 
 
-def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], SrmReason | None]:
+def _variant_segments(tests: list[_SegmentTest], exposures: ExposureTotals) -> list[tuple[ExposureSegment, str]]:
+    """The segments that a variant with fewer exposures than expected fills, each with its variant, the largest
+    segment of each variant first."""
+    expected = exposures.sample_ratio_expected
+    total_expected = sum(expected.values())
+    # The detail says that users are missing from the variant that sends its exposure from its own place. A variant
+    # with more exposures than expected can fill segments for another reason, such as a variant override.
+    short = _short_variants(exposures.segments or (), expected)
+    found: dict[str, ExposureSegment] = {}
+    for test in tests:
+        segment = test.segment
+        # The segment must also fail the test on its own, so that a small segment doesn't count by chance.
+        if not test.fails or segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+            continue
+        compared = sum(segment.exposed_by_variant.get(variant, 0) for variant in expected)
+        variant = max(expected, key=lambda key: segment.exposed_by_variant.get(key, 0))
+        others = compared - segment.exposed_by_variant.get(variant, 0)
+        if variant in short and others < BARELY_EXPOSED_SHARE * compared * (1 - expected[variant] / total_expected):
+            found.setdefault(variant, segment)
+    return [(segment, variant) for variant, segment in found.items()][:NAMED_SEGMENTS]
+
+
+def _short_variants(segments: tuple[ExposureSegment, ...], expected: Mapping[str, float]) -> set[str]:
+    """The variants with a smaller share of the segments than of the split."""
+    # Each person or group is in exactly one library segment, so the library segments count everyone the segments
+    # count. After a split change that is only those first exposed after it, which the totals of the whole run are not.
+    counted = {
+        variant: sum(
+            segment.exposed_by_variant.get(variant, 0)
+            for segment in segments
+            if segment.dimension == ExposureSegmentDimension.LIBRARY
+        )
+        for variant in expected
+    }
+    total_counted = sum(counted.values())
+    total_expected = sum(expected.values())
+    return {variant for variant in expected if counted[variant] * total_expected < expected[variant] * total_counted}
+
+
+def _cause(
+    verdicts: list[_Verdict], variant_segments: list[tuple[ExposureSegment, str]], unit: str
+) -> tuple[list[str], SrmReason | None]:
     """The sentences that follow the mismatch, and the finding's reason. Empty without a verdict."""
     named = _without_libraries_of_located_versions(_located(verdicts))[:NAMED_SEGMENTS]
     if named:
@@ -572,6 +642,16 @@ def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], SrmReason | 
             f"The mismatch comes from {places}.",
             f"Check that the code there sends the exposure for every {unit} in every variant.",
         ], SrmReason(named[0].dimension.value)
+    if variant_segments:
+        filled = ", and ".join(
+            f'{unit}s {_segment_place(segment)} are almost all in "{variant}"' for segment, variant in variant_segments
+        )
+        return [
+            f"{filled[0].upper()}{filled[1:]}, so the variants send their exposures from different places.",
+            f"When each variant has its own page or site, {unit}s who leave before their variant's exposure is sent "
+            "are missing from that variant, which can cause this.",
+            "Send the exposure at the same point in every variant, before any redirect.",
+        ], SrmReason.VARIANT_SEGMENTS
     compared = {
         verdict.dimension: verdict.homogeneity_p_value
         for verdict in verdicts

@@ -3,9 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { EvaluationJudgeModelPicker } from '../components/EvaluationJudgeModelPicker'
 import { decisionModelHint } from '../constants'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
@@ -14,7 +11,6 @@ import { llmEvaluationLogic } from '../llmEvaluationLogic'
 export function EvaluationModelPanel(): JSX.Element | null {
     const { evaluation, usesDecisionModel, includeMedia } = useValues(llmEvaluationLogic)
     const { setIncludeMedia } = useActions(llmEvaluationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!evaluation) {
         return null
@@ -31,7 +27,7 @@ export function EvaluationModelPanel(): JSX.Element | null {
                         : 'Runs on your own AI provider key. Each run is one call to this model.'}
                 </p>
             </div>
-            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_JUDGE_IMAGES] && !usesDecisionModel && (
+            {!usesDecisionModel && (
                 <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-1">
                         <LemonCheckbox
