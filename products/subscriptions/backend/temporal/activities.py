@@ -231,7 +231,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
 async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAbort | None:
     """Returns abort info when delivery should not proceed; None to continue."""
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "integration").get,
+        Subscription.objects.select_related("created_by").get,
         thread_sensitive=False,
     )(pk=subscription_id)
 
@@ -444,7 +444,7 @@ async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSub
     recipient_results: list[RecipientResult] = []
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "insight", "dashboard", "team", "integration").get,
+        Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
