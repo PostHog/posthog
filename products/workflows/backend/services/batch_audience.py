@@ -1,3 +1,6 @@
+import math
+import time
+from itertools import pairwise
 from typing import Optional
 
 from django.conf import settings
@@ -10,8 +13,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.team.team import Team
@@ -25,6 +30,7 @@ from products.feature_flags.backend.user_blast_radius import (
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
+AUDIENCE_CHUNK_SAMPLE_SIZE = 100_000
 
 
 def person_audience_page_size() -> int:
@@ -99,25 +105,139 @@ def get_batch_audience_person_ids_snapshot(
     settings: HogQLGlobalSettings,
 ) -> list[str]:
     """
-    The whole person audience in one query, in person id order, for a run that resolves its audience
-    once up front instead of rescanning the person table per page. Applies the same email dedupe.
+    The whole person audience, in person id order, for a run that resolves its audience once up front
+    instead of rescanning the person table per page. Applies the same email dedupe.
+
+    A big team's audience runs as several queries over consecutive person id ranges, so no single query
+    has to hold the whole team in memory. No range starts after `settings.max_execution_time` has passed.
     """
     reject_flag_conditions_in_audience(team, filters)
+    deadline = time.monotonic() + (settings.max_execution_time or 0)
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
-        select_query = _build_audience_person_query(team, cleaned_filter, dedupe_key=dedupe_key, limit=limit)
+        boundaries = _person_id_chunk_boundaries(team, _remaining_budget(settings, deadline))
+        # Keyed by dedupe group, first seen wins. The ranges run in ClickHouse's UUID order and each query
+        # returns its rows in that order, so the first person seen for a group has the smallest id.
+        audience: dict[str, str] = {}
+        for id_from, id_to in pairwise([None, *boundaries, None]):
+            if len(audience) >= limit:
+                break
+            # A range repeats at most len(audience) groups that an earlier range already holds, so this many
+            # rows always cover the new groups still needed. Without dedupe no two ranges share a person.
+            chunk_limit = limit if dedupe_key == EMAIL_DEDUPE_KEY else limit - len(audience)
+            select_query = _build_snapshot_chunk_query(team, cleaned_filter, dedupe_key, id_from, id_to, chunk_limit)
+            tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+            response = execute_hogql_query(
+                query=select_query,
+                team=team,
+                settings=_remaining_budget(settings, deadline),
+                workload=Workload.OFFLINE,
+                # The cohort limit context lets the explicit LIMIT above exceed the interactive row cap.
+                limit_context=LimitContext.COHORT_CALCULATION,
+            )
+            for row in response.results or []:
+                person_id = str(row[0])
+                audience.setdefault(str(row[1]) if dedupe_key == EMAIL_DEDUPE_KEY else person_id, person_id)
+                if len(audience) >= limit:
+                    break
 
-        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        response = execute_hogql_query(
-            query=select_query,
-            team=team,
-            settings=settings,
-            workload=Workload.OFFLINE,
-            # The cohort limit context lets the explicit LIMIT above exceed the interactive row cap.
-            limit_context=LimitContext.COHORT_CALCULATION,
+    return list(audience.values())
+
+
+def _remaining_budget(query_settings: HogQLGlobalSettings, deadline: float) -> HogQLGlobalSettings:
+    remaining = math.floor(deadline - time.monotonic())
+    if remaining < 1:
+        raise ClickHouseQueryTimeOut("The audience used up its query budget")
+    # The cohort limit context raises a lower cap to this floor anyway, so a range that starts close to the
+    # deadline can run past it by up to the floor. Stating it here keeps that ceiling visible.
+    return query_settings.model_copy(
+        update={"max_execution_time": max(remaining, settings.HOGQL_INCREASED_MAX_EXECUTION_TIME)}
+    )
+
+
+def _person_id_chunk_boundaries(team: Team, query_settings: HogQLGlobalSettings) -> list[str]:
+    rows_per_chunk = settings.WORKFLOWS_BATCH_AUDIENCE_SNAPSHOT_ROWS_PER_CHUNK
+    max_chunks = settings.WORKFLOWS_BATCH_AUDIENCE_SNAPSHOT_MAX_CHUNKS
+    tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+    # Sorted in ClickHouse, because ClickHouse orders UUIDs differently from their string form.
+    [(row_count, sample)] = sync_execute(
+        """
+        SELECT count(), arraySort(groupArraySample(%(sample_size)s)(id))
+        FROM person
+        WHERE team_id = %(team_id)s
+        """,
+        {"team_id": team.pk, "sample_size": AUDIENCE_CHUNK_SAMPLE_SIZE},
+        settings={"max_execution_time": query_settings.max_execution_time},
+        workload=Workload.OFFLINE,
+        team_id=team.pk,
+    )
+    chunks = min(max_chunks, math.ceil(row_count / rows_per_chunk), len(sample))
+    if chunks <= 1:
+        return []
+    boundaries: list[str] = []
+    for index in range(1, chunks):
+        boundary = str(sample[index * len(sample) // chunks])
+        if not boundaries or boundaries[-1] != boundary:
+            boundaries.append(boundary)
+    return boundaries
+
+
+def _build_snapshot_chunk_query(
+    team: Team,
+    prop_group: PropertyGroup,
+    dedupe_key: Optional[str],
+    id_from: Optional[str],
+    id_to: Optional[str],
+    limit: int,
+) -> ast.SelectQuery:
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        ),
+        property_to_expr(prop_group, team, scope="person"),
+    ]
+    if id_from is not None:
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["persons", "id"]),
+                right=ast.Constant(value=id_from),
+            )
+        )
+    if id_to is not None:
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["persons", "id"]),
+                right=ast.Constant(value=id_to),
+            )
         )
 
-    return [str(row[0]) for row in response.results] if response.results else []
+    if dedupe_key == EMAIL_DEDUPE_KEY:
+        # The range filter can sit inside the aggregation here, unlike the paged query's cursor, because the
+        # caller merges ranges in id order and keeps the first person it sees for each email.
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="person_id", expr=ast.Call(name="min", args=[ast.Field(chain=["persons", "id"])])),
+                ast.Alias(alias="dedupe_group", expr=email_dedupe_group_expr()),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            where=ast.And(exprs=where_exprs),
+            group_by=[email_dedupe_group_expr()],
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["person_id"]), order="ASC")],
+            limit=ast.Constant(value=limit),
+        )
+
+    return ast.SelectQuery(
+        select=[ast.Field(chain=["persons", "id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        distinct=True,
+        where=ast.And(exprs=where_exprs),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")],
+        limit=ast.Constant(value=limit),
+    )
 
 
 def email_dedupe_group_expr() -> ast.Expr:
@@ -138,10 +258,7 @@ def _build_audience_person_query(
     prop_group: PropertyGroup,
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
-    limit: Optional[int] = None,
 ) -> ast.SelectQuery:
-    if limit is None:
-        limit = person_audience_page_size()
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -152,7 +269,7 @@ def _build_audience_person_query(
     ]
 
     if dedupe_key == EMAIL_DEDUPE_KEY:
-        return _wrap_with_email_dedupe(where_exprs, cursor, limit)
+        return _wrap_with_email_dedupe(where_exprs, cursor)
 
     if cursor is not None:
         where_exprs.append(
@@ -169,11 +286,11 @@ def _build_audience_person_query(
         distinct=True,
         where=ast.And(exprs=where_exprs),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")],
-        limit=ast.Constant(value=limit),
+        limit=ast.Constant(value=person_audience_page_size()),
     )
 
 
-def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str], limit: int) -> ast.SelectQuery:
+def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str]) -> ast.SelectQuery:
     """
     One person (min UUID) per normalized email; persons without an email keep their own group.
 
@@ -201,5 +318,5 @@ def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str], 
         select_from=ast.JoinExpr(table=inner_query),
         where=outer_where,
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["person_id"]), order="ASC")],
-        limit=ast.Constant(value=limit),
+        limit=ast.Constant(value=person_audience_page_size()),
     )
