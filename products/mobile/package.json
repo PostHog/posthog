@@ -49,10 +49,8 @@
     "dependencies": {
         "@expo/metro-runtime": "~58.0.15",
         "@opentelemetry/api": "1.9.0",
-        "@opentelemetry/exporter-metrics-otlp-http": "0.218.0",
         "@opentelemetry/exporter-trace-otlp-http": "0.218.0",
         "@opentelemetry/resources": "2.7.1",
-        "@opentelemetry/sdk-metrics": "2.7.1",
         "@opentelemetry/sdk-trace-base": "2.7.1",
         "@posthog/react-native-plugin": "2.12.7",
         "@react-native-async-storage/async-storage": "2.2.0",

@@ -1,21 +1,20 @@
 import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api'
-import { AggregationTemporalityPreference, OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { resourceFromAttributes } from '@opentelemetry/resources'
-import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
-import { BasicTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
+import { BasicTracerProvider, BatchSpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base'
 import { AppState } from 'react-native'
 
 import { FEATURE_FLAGS, isFeatureFlagEnabled } from './featureFlags'
 
 const INSTRUMENTATION_NAME = 'posthog-mobile'
 const SLOW_REQUEST_MS = 2000
-// The OpenTelemetry semantic convention boundaries for HTTP durations in seconds.
-const REQUEST_DURATION_BUCKETS_S = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10]
+// Django samples with parentbased_traceidratio and follows the sampled flag in `traceparent`.
+// This ratio therefore also sets how many mobile API requests Django traces end to end.
+const TRACE_SAMPLE_RATIO = 0.1
 
 type Log = (level: 'warn' | 'error', body: string, attributes: Record<string, string | number>) => void
 
-let requestDuration: ReturnType<ReturnType<MeterProvider['getMeter']>['createHistogram']> | undefined
+let started = false
 let requestTracer = trace.getTracer(INSTRUMENTATION_NAME)
 let log: Log | undefined
 let telemetryConfig: { apiKey: string; host: string } | undefined
@@ -85,10 +84,11 @@ export function initMobileTelemetry(apiKey: string, host: string, logRequest: Lo
 }
 
 function ensureTelemetry(): boolean {
-    if (requestDuration) return true
+    if (started) return true
     if (!telemetryConfig) return false
     try {
         startTelemetry(telemetryConfig)
+        started = true
         return true
     } catch {
         // A bad export host disables telemetry for this process instead of failing every API request.
@@ -99,34 +99,18 @@ function ensureTelemetry(): boolean {
 
 function startTelemetry({ apiKey, host }: { apiKey: string; host: string }): void {
     const headers = { Authorization: `Bearer ${apiKey}` }
-    const resource = resourceFromAttributes({ 'service.name': INSTRUMENTATION_NAME })
     const traces = new OTLPTraceExporter({ url: `${host.replace(/\/$/, '')}/i/v1/traces`, headers })
     const provider = new BasicTracerProvider({
-        resource,
+        resource: resourceFromAttributes({ 'service.name': INSTRUMENTATION_NAME }),
+        sampler: new TraceIdRatioBasedSampler(TRACE_SAMPLE_RATIO),
         spanProcessors: [new BatchSpanProcessor(traces, { scheduledDelayMillis: 5000, maxExportBatchSize: 32 })],
     })
     requestTracer = provider.getTracer(INSTRUMENTATION_NAME)
 
-    // Delta sends each measurement once, so an idle app exports nothing and phones do not mix running totals.
-    const metrics = new OTLPMetricExporter({
-        url: `${host.replace(/\/$/, '')}/i/v1/metrics`,
-        headers,
-        temporalityPreference: AggregationTemporalityPreference.DELTA,
-    })
-    const meterProvider = new MeterProvider({
-        resource,
-        readers: [new PeriodicExportingMetricReader({ exporter: metrics, exportIntervalMillis: 30000 })],
-    })
-    requestDuration = meterProvider.getMeter(INSTRUMENTATION_NAME).createHistogram('http.client.request.duration', {
-        description: 'Duration of mobile API requests',
-        unit: 's',
-        advice: { explicitBucketBoundaries: REQUEST_DURATION_BUCKETS_S },
-    })
-    // The OS can end a backgrounded app before the export timers fire.
+    // The OS can end a backgrounded app before the export timer fires.
     AppState.addEventListener('change', (state) => {
         if (state === 'background') {
             void provider.forceFlush().catch(() => {})
-            void meterProvider.forceFlush().catch(() => {})
         }
     })
 }
@@ -159,7 +143,9 @@ export async function instrumentApiRequest(
     const span = requestTracer.startSpan(`${method.toUpperCase()} ${route}`, { kind: SpanKind.CLIENT, attributes })
     const spanContext = span.spanContext()
     const traceparent = `00-${spanContext.traceId}-${spanContext.spanId}-${(spanContext.traceFlags ?? 0).toString(16).padStart(2, '0')}`
-    const traceIds = { trace_id: spanContext.traceId, span_id: spanContext.spanId }
+    const traceIds: Record<string, string> = span.isRecording()
+        ? { trace_id: spanContext.traceId, span_id: spanContext.spanId }
+        : {}
     const startedAt = Date.now()
     try {
         const result = await request(traceparent)
@@ -169,7 +155,6 @@ export async function instrumentApiRequest(
             const failed = status >= 400
             span.setAttribute('http.response.status_code', status)
             if (failed) span.setStatus({ code: SpanStatusCode.ERROR })
-            requestDuration?.record(durationMs / 1000, { ...attributes, 'http.response.status_code': status })
             if (failed || durationMs >= SLOW_REQUEST_MS) {
                 log?.(
                     failed ? 'error' : 'warn',
@@ -195,7 +180,6 @@ export async function instrumentApiRequest(
                     : 'NetworkError'
                 span.setAttribute('error.type', errorType)
                 span.setStatus({ code: SpanStatusCode.ERROR })
-                requestDuration?.record(durationMs / 1000, { ...attributes, 'error.type': errorType })
                 log?.('error', 'Mobile API request failed', {
                     ...attributes,
                     duration_ms: durationMs,

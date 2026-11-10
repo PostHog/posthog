@@ -36,8 +36,9 @@ the request while previously loaded pages remain visible. The load-more retry re
 ### Network observability
 
 When `mobile-network-observability` is enabled, the shared client exports OpenTelemetry client
-spans and an `http.client.request.duration` histogram to the configured PostHog host. It also
-logs slow requests and failures through the React Native SDK. Telemetry includes the method,
+spans for a 10% sample of requests to the configured PostHog host. The `traceparent` header carries
+that sampling decision, so the backend traces the same requests. It also logs slow requests and
+failures through the React Native SDK. Telemetry includes the method,
 sanitized route, status, duration and error type. It excludes request hosts, query strings,
 headers, bodies and error messages. This measures API latency; it does not measure Wi-Fi throughput.
 
