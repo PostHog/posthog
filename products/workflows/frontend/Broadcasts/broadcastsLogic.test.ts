@@ -68,7 +68,7 @@ describe('broadcastsLogic', () => {
             return [500, { detail: 'timeout' }]
         }
         const { query } = await request.json()
-        const job = /app_source_id = '([^']+)'/.exec(query.query)?.[1]
+        const job = /app_source_id\s*=\s*'([^']+)'/.exec(query.query)?.[1]
         const totals: Record<string, number> = {}
         const runsCounted = Object.entries(sends).filter(([id]) => !job || id === job)
         for (const [metric, count] of runsCounted.flatMap(([, counts]) => Object.entries(counts))) {
