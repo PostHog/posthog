@@ -36,7 +36,7 @@ export interface ToolRow {
 }
 
 const SCOPES_HINT =
-    'If you logged in with `hog auth login`, run `hog auth add` with the scopes PostHog named. If you use a personal API key, add the scopes to it in PostHog under Settings, Personal API keys.'
+    'If you logged in with `hog auth login`, run `hog auth add` with the scopes PostHog named. If you use a personal API key, add the scopes to it in PostHog under Settings > Personal API keys.'
 
 // "Events & properties" becomes "events-properties".
 export function groupSlug(name: string): string {
