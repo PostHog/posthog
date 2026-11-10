@@ -10,8 +10,9 @@ import { useMetricAggregate, useMetricSeries } from './hooks'
 let mockMode: 'loading' | 'demo' | 'live' = 'live'
 
 jest.mock('@/demo/demoMode', () => ({ useDataMode: () => mockMode }))
+// A report a web link opened reads its own project, not the session's, which is 2 in the auth provider below.
 jest.mock('@/auth/useProjectScope', () => {
-    const scope = { host: 'https://app.example.com', projectId: 2 }
+    const scope = { host: 'https://app.example.com', projectId: 9 }
     return { useProjectScope: () => scope }
 })
 
@@ -35,19 +36,22 @@ function wrapper({ children }: { children: ReactNode }): ReactElement {
 
 describe('metric hooks', () => {
     const posted: unknown[] = []
+    const urls: string[] = []
 
     beforeEach(() => {
         mockMode = 'live'
         posted.length = 0
+        urls.length = 0
         // No garbage collection timer, so Jest can exit once the tests finish.
         client = new QueryClient({ defaultOptions: { queries: { gcTime: Number.POSITIVE_INFINITY } } })
         setAuthProvider({
             getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
         })
-        globalThis.fetch = jest.fn(async (_url: string, init: RequestInit) => {
+        globalThis.fetch = jest.fn(async (url: string, init: RequestInit) => {
             const { query } = JSON.parse(String(init.body)) as { query: { trendsFilter: { display: string } } }
             posted.push(query.trendsFilter.display)
+            urls.push(url)
             return {
                 ok: true,
                 status: 200,
@@ -98,6 +102,7 @@ describe('metric hooks', () => {
             ],
         })
         expect([...posted].sort()).toEqual(['ActionsBar', 'BoldNumber'])
+        expect([...new Set(urls)]).toEqual(['https://app.example.com/api/projects/9/query/'])
     })
 
     test('a disabled query stays idle', () => {

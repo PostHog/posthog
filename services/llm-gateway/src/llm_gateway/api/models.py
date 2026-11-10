@@ -25,6 +25,8 @@ logger = structlog.get_logger(__name__)
 
 models_router = APIRouter(tags=["models"])
 
+UNSCOPED_CATALOG_PRODUCT = "django"
+
 CREATED_TIMESTAMP = 1669766400  # Nov 30, 2022 - ChatGPT release date - we don't have data on this so just return a default for the field to match OpenAI's API
 
 
@@ -179,7 +181,7 @@ async def _drop_flag_gated_models(models: list[ModelObject], user: Authenticated
 @models_router.get("/v1/models")
 async def list_models(request: Request) -> ModelsResponse:
     user = await _authenticated_caller(request)
-    response = _build_response("llm_gateway")
+    response = _build_response(UNSCOPED_CATALOG_PRODUCT)
     return _models_response(await _drop_flag_gated_models(response.data, user))
 
 

@@ -163,7 +163,7 @@ Create the export in the AWS Billing console under **Data Exports**, delivered t
 AWS rewrites a whole billing period on each delivery and restates the previous month for up to two weeks after it ends, so every sync rebuilds the table from the latest delivery of each billing period. Each sync reads every month from the first billing period on, and each read counts as synced rows, so start at the earliest month you need.""",
             iconPath="/static/services/aws_cost_and_usage_report.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cost-and-usage-report",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "cur", "finops", "cloud spend", "data exports", "focus"],
             fields=cast(
                 list[FieldType],

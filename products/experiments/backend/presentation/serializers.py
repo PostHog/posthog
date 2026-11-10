@@ -360,6 +360,64 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
+    rollout_percentage = serializers.FloatField(
+        help_text="The share of the users matching the condition set's filters who get the flag, from 0 to 100.",
+    )
+    property_count = serializers.IntegerField(
+        help_text="The number of filters a user must match, such as properties and cohorts. 0 matches all users.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when "
+            "it assigns them by user."
+        ),
+    )
+
+
+class ExperimentHealthSetupSerializer(serializers.Serializer):
+    release_conditions = ExperimentHealthReleaseConditionSerializer(
+        many=True,
+        help_text=(
+            "The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a "
+            "request depends on the sets before it and on `early_exit`."
+        ),
+    )
+    early_exit = serializers.BooleanField(
+        help_text=(
+            "Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the "
+            "user out. Otherwise such a user goes on to the next set."
+        ),
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        help_text="The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The flag's own group type, which the exposure counts and the results use. A condition set can override "
+            "it. Null for users."
+        ),
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        help_text="The flag's `evaluation_runtime`. Null on the flag reads as all.",
+    )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation "
+            "contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag "
+            "has none."
+        ),
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        help_text="The flag's 'Persist flag across authentication steps' setting.",
+    )
+
+
 class ExperimentHealthSerializer(serializers.Serializer):
     findings = ExperimentHealthFindingSerializer(
         many=True,
@@ -373,6 +431,14 @@ class ExperimentHealthSerializer(serializers.Serializer):
         help_text=(
             "The result of each health check, in the order the checks run. The checks that read the exposure "
             "counts are not here: the exposure query returns them as `health_checks`."
+        ),
+    )
+    setup = ExperimentHealthSetupSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The settings of the experiment's flag that decide which variant a user gets. Null when the experiment "
+            "has no flag."
         ),
     )
 
@@ -655,7 +721,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
             "'mean' (set source to an EventsNode with an event name), "
             "'funnel' (set series to an array of EventsNode steps), "
-            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'ratio' (set numerator and denominator EventsNode entries), "
+            "'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric "
+            "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; "
+            "breakdowns are not supported), or "
             "'retention' (set start_event and completion_event; pass start_event "
             '{"kind": "ExperimentExposureNode"} to start retention from the experiment\'s exposure event). '
             "Use the read-data-schema tool with query kind 'events' to find available events in the project."
@@ -3028,7 +3097,9 @@ class ExperimentSetupCandidateMetricSerializer(serializers.Serializer):
 
 class ExperimentSetupOutcomeSerializer(serializers.Serializer):
     metric_type = serializers.CharField(
-        help_text="metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'."
+        help_text=(
+            "metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio', 'retention' or 'quantile'."
+        )
     )
     metric_samples = serializers.IntegerField(
         allow_null=True,
@@ -3160,7 +3231,9 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
     shared_metric_count = serializers.IntegerField(help_text="Shared metrics attached to the experiment.")
     primary_metric_types = serializers.ListField(
         child=serializers.CharField(),
-        help_text="metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'.",
+        help_text=(
+            "metric_type of each primary metric, for example 'mean', 'funnel', 'ratio', 'retention' or 'quantile'."
+        ),
     )
     primary_metric_events = serializers.ListField(
         child=serializers.CharField(), help_text="Event names the primary metrics count."
@@ -3237,7 +3310,8 @@ class ExperimentSetupSharedMetricSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Shared metric id, to attach it instead of creating an inline metric.")
     name = serializers.CharField(help_text="Shared metric name.")
     metric_type = serializers.CharField(
-        allow_null=True, help_text="'mean', 'funnel', 'ratio' or 'retention', or null for older metrics."
+        allow_null=True,
+        help_text="'mean', 'funnel', 'ratio', 'retention' or 'quantile', or null for older metrics.",
     )
     events = serializers.ListField(child=serializers.CharField(), help_text="Event names the metric counts.")
     action_ids = serializers.ListField(child=serializers.IntegerField(), help_text="Actions the metric counts.")
@@ -3258,7 +3332,7 @@ class ExperimentSetupSharedMetricSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, "
-            "'mean_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
+            "'mean_source', 'quantile_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
             "'retention_completion'. A metric that only starts from the event is a different precedent from one "
             "that converts on it. Empty when the metric does not count it, and null when no metric_event was "
             "passed."
@@ -3426,7 +3500,9 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
             "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
         ),
     )
-    launched_at = serializers.DateTimeField(help_text="When the experiment launched.")
+    start_date = serializers.DateTimeField(
+        help_text="The experiment's start date. The flag history counts changes from it, as the results count exposures from it."
+    )
     team_timezone = serializers.CharField(help_text="The project's time zone, which the findings use for times.")
     changes = ExperimentHealthInputsFlagChangeSerializer(
         many=True,

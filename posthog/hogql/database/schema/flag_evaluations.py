@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSON_DISTINCT_IDS, PERSONS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    EventsRetentionTable,
     ExpressionField,
     FieldOrTable,
     FieldTraverser,
@@ -12,7 +13,6 @@ from posthog.hogql.database.models import (
     LazyJoin,
     StringDatabaseField,
     StringJSONDatabaseField,
-    Table,
     UUIDDatabaseField,
     VirtualTable,
 )
@@ -34,10 +34,9 @@ if TYPE_CHECKING:
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
-# At most FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS
-# back. It stays lower while the table still lacks the oldest days that a shorter TTL dropped. The TTL constant
-# lives in posthog/models/flag_evaluations/sql.py.
-FLAG_EVALUATIONS_COMPLETE_DAYS = 89
+# FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS back.
+# The TTL constant lives in posthog/models/flag_evaluations/sql.py.
+FLAG_EVALUATIONS_COMPLETE_DAYS = 91
 
 
 def utc_midnight(now: datetime) -> datetime:
@@ -120,11 +119,13 @@ _ELEMENT_ARRAY_STAND_INS = ("elements_chain_texts", "elements_chain_ids", "eleme
 ELEMENT_STAND_INS = frozenset(_ELEMENT_STRING_STAND_INS + _ELEMENT_ARRAY_STAND_INS)
 
 
-class FlagEvaluationsTable(Table):
+# Flag calls are events too, and a query on events can read them from here, so events retention applies.
+class FlagEvaluationsTable(EventsRetentionTable):
     description: str = (
         "One row per feature flag evaluation, from the `$feature_flag_called` event. Rows are kept for 90 days. "
         "A project that is not sending flag-evaluation telemetry yet sees an empty table."
     )
+    events_retention_field: str = "timestamp"
     fields: dict[str, FieldOrTable] = {
         "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this row."),
         "event": StringDatabaseField(

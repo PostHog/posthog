@@ -12,6 +12,8 @@ from posthog.models.user import User
 from products.product_analytics.backend import events_retention
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention, ProjectEventsRetention
 
+NOT_A_STANDARD_PERIOD_MESSAGE = events_retention.NOT_A_STANDARD_PERIOD_MESSAGE
+
 
 def organization_events_retention(organization: Organization) -> OrganizationEventsRetention:
     """The organization's period and the periods its admins can set."""
@@ -21,6 +23,24 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
 def project_events_retention(team: Team) -> ProjectEventsRetention:
     """The period set for this project and its next deletion."""
     return events_retention.project_events_retention(team)
+
+
+def project_events_deleted(team: Team, months: int, *, concurrency_slots: events_retention.ConcurrencySlots) -> int:
+    return events_retention.project_events_deleted(team, months, concurrency_slots=concurrency_slots)
+
+
+def organization_events_deleted(
+    organization: Organization, months: int, *, concurrency_slots: events_retention.ConcurrencySlots
+) -> int:
+    return events_retention.organization_events_deleted(organization, months, concurrency_slots=concurrency_slots)
+
+
+def organization_downgrade_events_deleted(
+    organization: Organization, months: int, *, concurrency_slots: events_retention.ConcurrencySlots
+) -> int:
+    return events_retention.organization_downgrade_events_deleted(
+        organization, months, concurrency_slots=concurrency_slots
+    )
 
 
 def set_organization_events_retention(

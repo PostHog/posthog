@@ -17,15 +17,19 @@
                  alt="" />
         </div>
     </div>
-    <div class="flex flex-col gap-4">
-        {% for block in page.blocks %}
-            {% if block.kind == "notice" %}
-                <p class="m-0 max-w-3xl text-muted-foreground">{{ block.text }}</p>
-            {% elif block.kind == "table" %}
-                {% include "admin_console/_table.html" with table=block %}
-            {% elif block.kind == "paging" %}
-                {% include "admin_console/_paging.html" with paging=block %}
-            {% endif %}
-        {% endfor %}
-    </div>
+    {% if operations %}
+        <section class="quill-card group/card flex flex-col mb-4 max-w-3xl"
+                 data-quill
+                 data-slot="card"
+                 data-size="sm"
+                 aria-labelledby="tool-actions-title">
+            <div class="quill-card__header group/card-header" data-slot="card-header">
+                <h2 id="tool-actions-title"
+                    class="quill-card__title m-0"
+                    data-slot="card-title">Actions</h2>
+            </div>
+            <div class="quill-card__content" data-slot="card-content">{% include "admin_console/_operations.html" %}</div>
+        </section>
+    {% endif %}
+    {% include "admin_console/_blocks.html" %}
 {% endblock %}

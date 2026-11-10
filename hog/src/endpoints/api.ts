@@ -1,37 +1,68 @@
 import { z } from 'zod'
 
-import type { PostHogApi } from '@/posthog/api'
+import { ApiError, type PostHogApi } from '@/posthog/api'
+import { findNamed, getPage, listTooLong, MAX_LIMIT, readAll, type Page } from '@/posthog/pagination'
 
 import { Endpoint, InsightVariable } from './model'
 
-// Follows `next` links
-async function all<S extends z.ZodType>(api: PostHogApi, path: string, item: S): Promise<z.output<S>[]> {
-    const page = z.looseObject({ results: z.array(item), next: z.string().nullish() })
-    const results: z.output<S>[] = []
-    let next: string | null | undefined = path
-    while (next) {
-        const current: { results: z.output<S>[]; next?: string | null } = await api.get(next, page)
-        results.push(...current.results)
-        next = current.next ? new URL(current.next).pathname + new URL(current.next).search : undefined
-    }
-    return results
+// Lookups can read many pages, so they ask for the largest page PostHog sends.
+const ENDPOINT_PAGES = `endpoints/?limit=${MAX_LIMIT}`
+
+export function listEndpoints(api: PostHogApi, limit: number, offset: number): Promise<Page<Endpoint>> {
+    return getPage(api, `endpoints/?limit=${limit}${offset > 0 ? `&offset=${offset}` : ''}`, Endpoint)
 }
 
-export function listEndpoints(api: PostHogApi): Promise<Endpoint[]> {
-    return all(api, 'endpoints/', Endpoint)
+export function readAllEndpoints(api: PostHogApi): Promise<Endpoint[]> {
+    return readAll(api, ENDPOINT_PAGES, Endpoint, listTooLong('endpoints', 'Pull the endpoints you need by name.'))
 }
 
 export function getEndpoint(api: PostHogApi, name: string): Promise<Endpoint> {
     return api.get(`endpoints/${encodeURIComponent(name)}/`, Endpoint)
 }
 
-// PostHog allows a variable without a code name, which no query can reference, so the list leaves
-// it out.
+// Reads the list until it has every name. In a project too large for that, it looks up each name
+// it hasn't found yet, so the cost grows with the names instead of the project.
+export async function findEndpoints(api: PostHogApi, names: readonly string[]): Promise<Map<string, Endpoint>> {
+    const { found, complete } = await findNamed(api, ENDPOINT_PAGES, Endpoint, names, (endpoint) => endpoint.name)
+    if (!complete) {
+        for (const name of names.filter((name) => !found.has(name))) {
+            try {
+                found.set(name, await getEndpoint(api, name))
+            } catch (error) {
+                if (!(error instanceof ApiError && error.status === 404)) {
+                    throw error
+                }
+            }
+        }
+    }
+    return found
+}
+
+// PostHog can't filter variables by name or ID, so a variable lookup pages further.
+const VARIABLE_MAX_PAGES = 200
+
+// PostHog allows a variable without a code name, which no query can reference, so a lookup skips it.
 const ListedVariable = InsightVariable.extend({ code_name: z.string().nullable() })
 
-export async function listInsightVariables(api: PostHogApi): Promise<InsightVariable[]> {
-    const variables = await all(api, 'insight_variables/', ListedVariable)
-    return variables.flatMap(({ code_name, ...variable }) => (code_name === null ? [] : [{ ...variable, code_name }]))
+// When `complete` is false, a name missing from `found` can still be in the project. A push then
+// tries to create that variable, and PostHog rejects the duplicate for that endpoint alone.
+export async function findInsightVariables(
+    api: PostHogApi,
+    names: readonly string[]
+): Promise<{ found: Map<string, InsightVariable>; complete: boolean }> {
+    const { found, complete } = await findNamed(
+        api,
+        'insight_variables/',
+        ListedVariable,
+        names,
+        (variable) => variable.code_name,
+        VARIABLE_MAX_PAGES
+    )
+    return { found: new Map([...found].map(([name, variable]) => [name, { ...variable, code_name: name }])), complete }
+}
+
+export function getInsightVariable(api: PostHogApi, id: string): Promise<InsightVariable> {
+    return api.get(`insight_variables/${encodeURIComponent(id)}/`, InsightVariable)
 }
 
 export function createInsightVariable(

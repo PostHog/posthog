@@ -44,7 +44,8 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
-    mirrored_property_for_column,
+    key_read_overlaps_restriction,
+    mirrored_properties_for_column,
     property_path_overlaps_restriction,
     restricted_feature_flag_names,
     restricted_key_path,
@@ -602,11 +603,11 @@ def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
     )
 
 
-def _mirrored_source_property(field_type: ast.FieldType, context: HogQLContext) -> str | None:
+def _mirrored_source_properties(field_type: ast.FieldType, context: HogQLContext) -> tuple[str, ...]:
     resolved_field = field_type.resolve_database_field(context)
     if not isinstance(resolved_field, DatabaseField):
-        return None
-    return mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
+        return ()
+    return mirrored_properties_for_column(field_type.table_type, resolved_field.name, context)
 
 
 def feature_flag_variant_read(value: ast.Expr) -> ast.Expr:
@@ -933,11 +934,11 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # JSONDropKeys strips the key, so extracting it always yields '' which scrubs to NULL — so return that constant
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
-    source_property = _mirrored_source_property(field_type, context)
+    source_properties = _mirrored_source_properties(field_type, context)
     restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, context)
     if (
-        source_property in restricted_keys
-        if source_property is not None
+        any(source_property in restricted_keys for source_property in source_properties)
+        if source_properties
         else restricted_key_path(node.keys, restricted_keys) is not None
     ):
         _record_property_usage(context, None)
@@ -1318,10 +1319,14 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         Must match what `_substitute_value_read` builds for the source property, so the mirror column and
         its source property become the same AST node and agree on nullability and comparison printing.
         """
-        source_property = _mirrored_source_property(field_type, self.context)
-        if source_property is None:
+        source_properties = _mirrored_source_properties(field_type, self.context)
+        if not source_properties:
             return None
-        if source_property not in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+        restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, self.context)
+        # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
+        if not any(
+            key_read_overlaps_restriction(source_property, restricted_keys) for source_property in source_properties
+        ):
             return None
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
