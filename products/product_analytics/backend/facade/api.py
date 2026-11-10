@@ -29,6 +29,7 @@ from products.product_analytics.backend.facade.contracts import (
     InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
+    InsightViewContext,
     SavedInsightDefinition,
     SavedTrendsInsight,
     ViewableInsight,
@@ -39,8 +40,6 @@ from products.product_analytics.backend.models.insight_variable import InsightVa
 
 if TYPE_CHECKING:
     from posthog.models.user import User
-
-    from products.product_analytics.backend.models.insight import InsightViewed
 
 
 def _to_variable_definition(variable: InsightVariable) -> InsightVariableDefinition:
@@ -152,11 +151,23 @@ def record_insight_view_context(
     )
 
 
-def insight_view_contexts(*, team_id: int, insight_ids: Collection[int]) -> QuerySet["InsightViewed"]:
+def insight_view_contexts(*, team_id: int, insight_ids: Collection[int]) -> list[InsightViewContext]:
     """Return access facts; consumers own source, viewer, context and recency policy."""
     from products.product_analytics.backend import view_context
 
-    return view_context.insight_view_contexts(team_id=team_id, insight_ids=insight_ids)
+    rows = view_context.insight_view_contexts(team_id=team_id, insight_ids=insight_ids).values_list(
+        "insight_id", "user_id", "source", "dashboard_id", "last_viewed_at"
+    )
+    return [
+        InsightViewContext(
+            insight_id=insight_id,
+            user_id=user_id,
+            source=source,
+            dashboard_id=dashboard_id,
+            last_viewed_at=last_viewed_at,
+        )
+        for insight_id, user_id, source, dashboard_id, last_viewed_at in rows
+    ]
 
 
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:

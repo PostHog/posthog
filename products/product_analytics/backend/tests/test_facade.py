@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, NonAtomicBaseTest
@@ -434,7 +435,11 @@ class TestInsightViewedRecording(BaseTest):
         if dashboard:
             apps.get_model("dashboards", "DashboardTile").objects.create(insight=insight, dashboard=dashboard)
         viewer_id = self.user.pk if identified else None
-        context = {"user_id": viewer_id, "source": "web", "dashboard_id": dashboard.pk if dashboard else None}
+        context: dict[str, Any] = {
+            "user_id": viewer_id,
+            "source": "web",
+            "dashboard_id": dashboard.pk if dashboard else None,
+        }
         first = now()
         with time_machine.travel(first, tick=False):
             record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
@@ -495,7 +500,7 @@ class TestInsightViewedRecording(BaseTest):
 
         contexts = apps.get_model("product_analytics", "InsightViewed")
         insight = Insight.objects.create(team=self.team)
-        row = contexts.objects.create(
+        contexts.objects.create(
             team=self.team, insight=insight, source="web", last_viewed_at=now() - timedelta(days=31)
         )
         other_team = Team.objects.create(organization=self.organization)
@@ -503,7 +508,8 @@ class TestInsightViewedRecording(BaseTest):
         contexts.objects.create(
             team=other_team, insight=other_insight, source="web", last_viewed_at=now() - timedelta(days=31)
         )
-        assert list(insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk, other_insight.pk])) == [row]
+        rows = insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk, other_insight.pk])
+        assert [row.insight_id for row in rows] == [insight.pk]
 
 
 class TestConcurrentLegacyInsightViews(NonAtomicBaseTest):

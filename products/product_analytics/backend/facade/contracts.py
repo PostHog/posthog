@@ -32,6 +32,20 @@ INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL = timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
+class InsightViewContext:
+    """One viewer's latest view of a saved insight from one source, standalone or on one dashboard.
+
+    An empty ``source`` marks history recorded before views carried a source.
+    """
+
+    insight_id: int
+    user_id: int | None
+    source: str
+    dashboard_id: int | None
+    last_viewed_at: datetime
+
+
+@dataclass(frozen=True)
 class InsightVariableDefinition:
     """A saved query variable, as callers outside product analytics read it.
 

@@ -1945,12 +1945,12 @@ class TestSharedViewDemand(APIBaseTest):
         view = insight.insightviewed_set.get(source="")
         from products.product_analytics.backend.facade.api import insight_view_contexts
 
-        rows = insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk]).exclude(source="")
+        rows = [row for row in insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk]) if row.source]
         if dashboard_context:
             # No live tile exists in this fixture, so no context is attributed.
-            assert not rows.exists()
+            assert not rows
         else:
-            row = rows.get()
+            [row] = rows
             assert row.user_id is None and row.source == "shared" and row.dashboard_id is None
             assert row.last_viewed_at >= view.last_viewed_at
 
@@ -1979,7 +1979,7 @@ class TestSharedViewDemand(APIBaseTest):
         view = insight.insightviewed_set.get(source="")
         from products.product_analytics.backend.facade.api import insight_view_contexts
 
-        row = insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk]).exclude(source="").get()
+        [row] = [row for row in insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk]) if row.source]
         assert row.user_id is None and row.source == "shared" and row.dashboard_id is None
         assert row.last_viewed_at >= view.last_viewed_at
 

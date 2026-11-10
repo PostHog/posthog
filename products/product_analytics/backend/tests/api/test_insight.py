@@ -2783,11 +2783,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             payload["query_context"] = context
         if context == "dashboard":
             payload["dashboard_id"] = dashboard.pk
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/insights/viewed/",
-            payload,
-            **({"HTTP_X_POSTHOG_CLIENT": "mcp"} if source == "mcp" else {}),
-        )
+        headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT": "mcp"} if source == "mcp" else {}
+        response = self.client.post(f"/api/projects/{self.team.pk}/insights/viewed/", payload, **headers)
         assert response.status_code == 201
         assert InsightViewed.objects.filter(insight_id__in=payload["insight_ids"], source="").count() == 2
         rows = InsightViewed.objects.filter(team=self.team).exclude(source="")
@@ -2797,7 +2794,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         elif context == "dashboard":
             assert list(rows.values_list("insight_id", "dashboard_id")) == [(insight.pk, dashboard.pk)]
         else:
-            assert set(rows.values_list("insight_id", "dashboard_id")) == {(insight.pk, None), (other_insight.pk, None)}
+            standalone_rows: set[tuple[int, int | None]] = {(insight.pk, None), (other_insight.pk, None)}
+            assert set(rows.values_list("insight_id", "dashboard_id")) == standalone_rows
 
     @parameterized.expand([("insight",), ("dashboard",)])
     def test_view_context_does_not_record_inaccessible_demand(self, restricted_resource: str) -> None:
@@ -2828,7 +2826,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_metadata_retrieval_does_not_record_view_context(self) -> None:
         from products.product_analytics.backend.models.insight import InsightViewed
 
-        insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery"})
+        insight = Insight.objects.create(team=self.team, query=default_pageview_query())
         response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.pk}/?basic=true")
         assert response.status_code == 200
         assert not InsightViewed.objects.exclude(source="").exists()
