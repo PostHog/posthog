@@ -2553,6 +2553,9 @@ importers:
       snappy:
         specifier: ^7.2.2
         version: 7.2.2
+      uWebSockets.js:
+        specifier: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d
+        version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d
       ultimate-express:
         specifier: 2.0.13
         version: 2.0.13

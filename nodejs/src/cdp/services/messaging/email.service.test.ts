@@ -1,6 +1,8 @@
 import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
+
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
+
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
@@ -8,23 +10,19 @@ import {
 import { RecipientsManagerService } from '@posthog/hog-engine/cdp/services/managers/recipients-manager.service'
 import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction } from '@posthog/hog-engine/cdp/types'
+import { MESSAGE_ASSETS_OUTPUT } from '@posthog/node-common/outputs/index'
 import { createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { FakeSes, FakeSesFault, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { EMAIL_STATUS_OUTPUT } from '~/cdp/outputs/outputs'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { MESSAGE_ASSETS_OUTPUT } from '@posthog/node-common/outputs'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
-
-
-
 import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
 import { selectEmailSenderIntegrationId } from '~/cdp/services/messaging/email-sender-selection'
 import { EmailStatusService } from '~/cdp/services/messaging/email-status.service'
@@ -45,8 +43,10 @@ import { MailDevAPI } from '~/cdp/services/messaging/helpers/maildev'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { MessageAssetsService } from '~/cdp/services/messaging/message-assets.service'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
-
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 import { Hub, Team } from '~/types'
+
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
     const metric = await register.getSingleMetric(name)!.get()
     const values: { labels: Partial<Record<string, string | number>>; value: number; metricName?: string }[] =
