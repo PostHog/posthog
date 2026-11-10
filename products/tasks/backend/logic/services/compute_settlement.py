@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_internal_client import (
     AIGatewayNotConfigured,
     ReportedSpendResponse,
-    get_usage_report,
+    get_usage_report_rows,
     report_spend,
 )
 from posthog.models.project_secret_api_key import find_project_secret_api_key
@@ -563,13 +563,14 @@ def _deltas(
 
 
 def reconcile_compute_settlement(since: datetime, until: datetime, wallet_team: int) -> ComputeReconciliation:
-    rows = get_usage_report(
+    rows = get_usage_report_rows(
         {
             "team_id": str(wallet_team),
             "group_by": "obo,charge_kind",
             "charge_kind": "compute",
             "from": since.isoformat(),
             "to": until.isoformat(),
+            "limit": "1000",
         }
     )
     gateway_compute = _report_column(rows, "compute_usd")

@@ -92,7 +92,6 @@ fn get_now_rounded_to_minutes(minutes: i64) -> String {
 async fn try_increment_issue_buckets(
     heal_gate: &HealGate,
     redis: &Arc<dyn Client + Send + Sync>,
-    shadow: Option<&Arc<dyn Client + Send + Sync>>,
     issue_counts: &HashMap<Uuid, u32>,
 ) {
     if issue_counts.is_empty() {
@@ -110,26 +109,12 @@ async fn try_increment_issue_buckets(
         })
         .collect();
 
-    let shadow_items = shadow.map(|_| items.clone());
     if let Err(err) = redis
         .batch_incr_by_expire_nx(items, ISSUE_BUCKET_TTL_SECONDS)
         .await
     {
         warn!("Failed to increment issue buckets batch: {err}");
         heal_on_connection_error(heal_gate, redis, &err);
-    } else if let Some(shadow) = shadow {
-        let shadow = shadow.clone();
-        let healing = shadow.clone();
-        let items = shadow_items.expect("shadow items exist when shadow is configured");
-        crate::modes::shadow_redis::submit(
-            "issue_buckets",
-            async move {
-                shadow
-                    .batch_incr_by_expire_nx(items, ISSUE_BUCKET_TTL_SECONDS)
-                    .await
-            },
-            async move { healing.reconnect().await },
-        );
     }
 }
 
@@ -138,7 +123,6 @@ async fn try_increment_team_buckets(
     redis: &Arc<dyn Client + Send + Sync>,
     issues_by_id: &HashMap<Uuid, Issue>,
     issue_counts: &HashMap<Uuid, u32>,
-    shadow: Option<&Arc<dyn Client + Send + Sync>>,
 ) {
     if issue_counts.is_empty() {
         return;
@@ -167,26 +151,12 @@ async fn try_increment_team_buckets(
         })
         .collect();
 
-    let shadow_items = shadow.map(|_| items.clone());
     if let Err(err) = redis
         .batch_incr_by_expire_nx(items, ISSUE_BUCKET_TTL_SECONDS)
         .await
     {
         warn!("Failed to increment team buckets batch: {err}");
         heal_on_connection_error(heal_gate, redis, &err);
-    } else if let Some(shadow) = shadow {
-        let shadow = shadow.clone();
-        let healing = shadow.clone();
-        let items = shadow_items.expect("shadow items exist when shadow is configured");
-        crate::modes::shadow_redis::submit(
-            "team_buckets",
-            async move {
-                shadow
-                    .batch_incr_by_expire_nx(items, ISSUE_BUCKET_TTL_SECONDS)
-                    .await
-            },
-            async move { healing.reconnect().await },
-        );
     }
 
     // Track unique issues per team bucket using sets
@@ -201,26 +171,12 @@ async fn try_increment_team_buckets(
         })
         .collect();
 
-    let shadow_items = shadow.map(|_| issue_set_items.clone());
     if let Err(err) = redis
         .batch_sadd_expire(issue_set_items, ISSUE_BUCKET_TTL_SECONDS)
         .await
     {
         warn!("Failed to add issues to team sets: {err}");
         heal_on_connection_error(heal_gate, redis, &err);
-    } else if let Some(shadow) = shadow {
-        let shadow = shadow.clone();
-        let healing = shadow.clone();
-        let issue_set_items = shadow_items.expect("shadow items exist when shadow is configured");
-        crate::modes::shadow_redis::submit(
-            "team_issue_sets",
-            async move {
-                shadow
-                    .batch_sadd_expire(issue_set_items, ISSUE_BUCKET_TTL_SECONDS)
-                    .await
-            },
-            async move { healing.reconnect().await },
-        );
     }
 }
 
@@ -262,7 +218,6 @@ pub async fn do_spike_detection(
     try_increment_issue_buckets(
         &context.issue_buckets_heal_gate,
         &context.issue_buckets_redis_client,
-        context.shadow_redis_client.as_ref(),
         &issue_counts,
     )
     .await;
@@ -274,7 +229,6 @@ pub async fn do_spike_detection(
         &context.issue_buckets_redis_client,
         &issues_by_id,
         &issue_counts,
-        context.shadow_redis_client.as_ref(),
     )
     .await;
     team_buckets_timer.fin();
@@ -321,51 +275,6 @@ async fn acquire_cooldown_locks(
     redis.batch_set_nx_ex(batch).await
 }
 
-async fn acquire_cooldown_locks_mirrored(
-    redis: &(dyn Client + Send + Sync),
-    shadow: Option<&Arc<dyn Client + Send + Sync>>,
-    items: &[(String, usize)],
-) -> Result<Vec<bool>, common_redis::CustomRedisError> {
-    let result = acquire_cooldown_locks(redis, items).await?;
-    if let Some(shadow) = shadow {
-        let granted: Vec<_> = items
-            .iter()
-            .zip(&result)
-            .filter(|(_, acquired)| **acquired)
-            .map(|(item, _)| item.clone())
-            .collect();
-        if !granted.is_empty() {
-            let shadow = shadow.clone();
-            let healing = shadow.clone();
-            crate::modes::shadow_redis::submit(
-                "cooldown_acquire",
-                async move { acquire_cooldown_locks(&*shadow, &granted).await },
-                async move { healing.reconnect().await },
-            );
-        }
-    }
-    Ok(result)
-}
-
-async fn release_cooldown_locks_mirrored(
-    redis: &(dyn Client + Send + Sync),
-    shadow: Option<&Arc<dyn Client + Send + Sync>>,
-    keys: Vec<String>,
-) -> Result<(), common_redis::CustomRedisError> {
-    let shadow_keys = shadow.map(|_| keys.clone());
-    redis.batch_del(keys).await?;
-    if let (Some(shadow), Some(keys)) = (shadow, shadow_keys) {
-        let shadow = shadow.clone();
-        let healing = shadow.clone();
-        crate::modes::shadow_redis::submit(
-            "cooldown_release",
-            async move { shadow.batch_del(keys).await },
-            async move { healing.reconnect().await },
-        );
-    }
-    Ok(())
-}
-
 async fn emit_spiking_events(
     context: &AppContext,
     spiking: Vec<SpikingIssue>,
@@ -387,20 +296,15 @@ async fn emit_spiking_events(
         })
         .unzip();
 
-    let lock_results = match acquire_cooldown_locks_mirrored(
-        &*context.issue_buckets_redis_client,
-        context.shadow_redis_client.as_ref(),
-        &cooldown_items,
-    )
-    .await
-    {
-        Ok(results) => results,
-        Err(e) => {
-            locks_timer.fin();
-            warn!("Failed to acquire spike cooldown locks: {e}");
-            return;
-        }
-    };
+    let lock_results =
+        match acquire_cooldown_locks(&*context.issue_buckets_redis_client, &cooldown_items).await {
+            Ok(results) => results,
+            Err(e) => {
+                locks_timer.fin();
+                warn!("Failed to acquire spike cooldown locks: {e}");
+                return;
+            }
+        };
 
     let blocked_count = lock_results.iter().filter(|&&acquired| !acquired).count();
     metrics::counter!(SPIKE_ISSUES_BLOCKED_BY_COOLDOWN).increment(blocked_count as u64);
@@ -436,12 +340,10 @@ async fn emit_spiking_events(
     }
 
     if !failed_keys.is_empty() {
-        if let Err(e) = release_cooldown_locks_mirrored(
-            &*context.issue_buckets_redis_client,
-            context.shadow_redis_client.as_ref(),
-            failed_keys,
-        )
-        .await
+        if let Err(e) = context
+            .issue_buckets_redis_client
+            .batch_del(failed_keys)
+            .await
         {
             warn!("Failed to release cooldown locks after Kafka failure: {e}");
         }
@@ -662,100 +564,25 @@ mod tests {
     use common_redis::MockRedisClient;
 
     #[tokio::test]
-    async fn mirrors_only_cooldown_locks_granted_by_primary() {
-        crate::modes::shadow_redis::with_test_circuit(async {
-            let denied = "cooldown/denied".to_string();
-            let granted = "cooldown/granted".to_string();
-            let mut primary_mock = MockRedisClient::new();
-            primary_mock.set_nx_ex_ret(&denied, Ok(false));
-            primary_mock.set_nx_ex_ret(&granted, Ok(true));
-            let shadow = Arc::new(MockRedisClient::new());
-            let shadow_client: Arc<dyn Client + Send + Sync> = shadow.clone();
-            let items = vec![(denied, 600), (granted.clone(), 600)];
-
-            let result = acquire_cooldown_locks_mirrored(
-                &primary_mock,
-                Some(&shadow_client),
-                &items,
-            )
-            .await
-            .unwrap();
-            assert_eq!(result, vec![false, true]);
-            tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                while shadow.get_calls().is_empty() {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .unwrap();
-            let calls = shadow.get_calls();
-            assert_eq!(calls.len(), 1);
-            assert!(matches!(&calls[0].value, common_redis::MockRedisValue::VecString(keys) if keys == &vec![granted]));
-        })
-        .await;
-    }
-
-    #[tokio::test]
-    async fn does_not_mirror_refused_cooldown_locks() {
-        crate::modes::shadow_redis::with_test_circuit(async {
-            let primary = MockRedisClient::new();
-            let shadow = Arc::new(MockRedisClient::new());
-            let shadow_client: Arc<dyn Client + Send + Sync> = shadow.clone();
-            let items = vec![("cooldown/denied".to_string(), 600)];
-            let result = acquire_cooldown_locks_mirrored(&primary, Some(&shadow_client), &items)
-                .await
-                .unwrap();
-            for _ in 0..10 {
-                tokio::task::yield_now().await;
-            }
-            assert_eq!(result, vec![false]);
-            assert!(shadow.get_calls().is_empty());
-        })
-        .await;
-    }
-
-    #[tokio::test]
-    async fn mirrors_spike_counters_sets_and_cooldowns() {
+    async fn writes_spike_counters_sets_and_cooldowns_to_primary() {
         let ctx = TestContext::new();
         let key = cooldown_key(&ctx.issue_id);
-        let mut primary_mock = MockRedisClient::new();
-        primary_mock.set_nx_ex_ret(&key, Ok(true));
-        let primary: Arc<dyn Client + Send + Sync> = Arc::new(primary_mock);
-        let shadow = Arc::new(MockRedisClient::new());
-        let shadow_client: Arc<dyn Client + Send + Sync> = shadow.clone();
+        let mut redis_mock = MockRedisClient::new();
+        redis_mock.set_nx_ex_ret(&key, Ok(true));
+        let redis = Arc::new(redis_mock);
+        let client: Arc<dyn Client + Send + Sync> = redis.clone();
         let counts = HashMap::from([(ctx.issue_id, 2)]);
         let gate = HealGate::new();
-        try_increment_issue_buckets(&gate, &primary, Some(&shadow_client), &counts).await;
-        try_increment_team_buckets(
-            &gate,
-            &primary,
-            &ctx.issues_by_id(),
-            &counts,
-            Some(&shadow_client),
-        )
-        .await;
+        try_increment_issue_buckets(&gate, &client, &counts).await;
+        try_increment_team_buckets(&gate, &client, &ctx.issues_by_id(), &counts).await;
         let locks = vec![(key.clone(), 3600)];
-        let primary_result =
-            acquire_cooldown_locks_mirrored(&*primary, Some(&shadow_client), &locks)
-                .await
-                .unwrap();
-        let keys = vec![cooldown_key(&ctx.issue_id)];
-        release_cooldown_locks_mirrored(&*primary, Some(&shadow_client), keys.clone())
-            .await
-            .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while shadow.get_calls().len() < 5 {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
-        assert_eq!(primary_result, vec![true]);
-        let ops = shadow
-            .get_calls()
-            .into_iter()
-            .map(|call| call.op)
-            .collect::<Vec<_>>();
+        assert_eq!(
+            acquire_cooldown_locks(&*client, &locks).await.unwrap(),
+            vec![true]
+        );
+        client.batch_del(vec![key]).await.unwrap();
+
+        let ops: Vec<_> = redis.get_calls().into_iter().map(|call| call.op).collect();
         assert_eq!(
             ops.iter()
                 .filter(|op| op.as_str() == "batch_incr_by_expire_nx")
@@ -765,7 +592,6 @@ mod tests {
         assert!(ops.contains(&"batch_sadd_expire".to_string()));
         assert!(ops.contains(&"batch_set_nx_ex".to_string()));
         assert!(ops.contains(&"batch_del".to_string()));
-        assert!(shadow.get_calls().iter().any(|call| matches!(&call.value, common_redis::MockRedisValue::VecString(shadow_keys) if call.op == "batch_del" && shadow_keys == &keys)));
     }
 
     fn bytes(v: i64) -> Vec<u8> {

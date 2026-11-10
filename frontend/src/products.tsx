@@ -372,6 +372,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/etl': ['PipelineOverview', 'pipelineOverview'],
     '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+    '/web/content-autopilot/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -1177,6 +1178,7 @@ export const productConfiguration: Record<string, any> = {
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
+        cloudOnly: true,
         description:
             'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
@@ -1186,18 +1188,21 @@ export const productConfiguration: Record<string, any> = {
     ReplayVisionScanner: {
         name: 'Replay vision scanner',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
     ReplayVisionScannerEditor: {
         name: 'Replay vision scanner editor',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
     ReplayVisionObservation: {
         name: 'Replay vision observation',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
@@ -2055,6 +2060,7 @@ export const productUrls = {
     webAnalyticsLive: (): string => `/web/live`,
     webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
     webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
+    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/content-autopilot/prompts/${id}`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>

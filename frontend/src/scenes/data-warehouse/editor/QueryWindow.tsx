@@ -1,10 +1,11 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlus, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -26,6 +27,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
 import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
+import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { FixErrorButton } from './components/FixErrorButton'
@@ -308,6 +310,19 @@ export function QueryWindow({
                             />
                         )}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
+                        {mode === SQLEditorMode.FullScene ? (
+                            <LemonButton
+                                icon={<IconPlus />}
+                                type="secondary"
+                                size="small"
+                                // An explicit empty query skips the recovery of this tab's unsaved working copy.
+                                to={combineUrl(urls.sqlEditor(), { open_query: '' }).url}
+                                targetBlank
+                                tooltip="Open a new SQL editor in a new browser tab"
+                                aria-label="Open a new SQL editor in a new browser tab"
+                                data-attr="sql-editor-new-browser-tab"
+                            />
+                        ) : null}
                         <LemonDivider vertical />
                         {!hideVariables ? (
                             <QueryVariablesMenu
@@ -326,7 +341,9 @@ export function QueryWindow({
                                     size="small"
                                     icon={<IconDatabase />}
                                     onClick={() => openMaterializationModal(editingView)}
-                                    disabledReason={editingView.engine?.capabilities.materialize.reason ?? undefined}
+                                    disabledReason={
+                                        viewEngine(editingView).capabilities.materialize.reason ?? undefined
+                                    }
                                     data-attr="sql-editor-materialization-button"
                                 >
                                     Materialization
