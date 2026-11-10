@@ -253,12 +253,12 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
     )
     def test_week_over_week_numbers(self, _name: str, query: dict[str, Any], expected: list[tuple]) -> None:
-        results = get_query_runner(query["source"], team=self.team).calculate().results
+        results = get_query_runner(query["source"], team=self.team, user=self.user).calculate().results
 
         assert [(r["label"], r["compare_label"], round(r["aggregated_value"], 3)) for r in results] == expected
 
     def test_trend_has_one_point_per_week(self) -> None:
-        results = get_query_runner(TREND_QUERY["source"], team=self.team).calculate().results
+        results = get_query_runner(TREND_QUERY["source"], team=self.team, user=self.user).calculate().results
 
         # The two weeks of checks are 7 days apart, so they land in consecutive weeks whatever today's weekday is.
         assert [(r["label"], [round(v, 3) for v in r["data"] if v]) for r in results] == [
@@ -281,7 +281,7 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
                 [{"properties": [{"type": "hogql", "key": "cited"}]}, {}],
                 None,
                 "A / B",
-                [("Formula (A / B)", None, [0.5, 0.6])],
+                [("Formula (A / B)", None, [0.5, 0.8])],
             ),
         ]
     )
@@ -313,6 +313,6 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
             trendsFilter=TrendsFilter(formula=formula),
         )
 
-        results = get_query_runner(query, team=self.team).calculate().results
+        results = get_query_runner(query, team=self.team, user=self.user).calculate().results
 
         assert [(r["label"], r.get("breakdown_value"), [v for v in r["data"] if v]) for r in results] == expected

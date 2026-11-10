@@ -43,19 +43,21 @@ _COMPETITOR_DOMAINS = _BRANDS_OF_KIND.format(expr="lower(domain)", kind="competi
 _BRAND_REGEX = r"concat('(?i)\\b(', arrayStringConcat(brand_names, '|'), ')\\b')"
 _NAMES_BRAND = "notEmpty(brand_names) AND match({field}, brand_regex)"
 
+
 # The same rules as HogQL filters on a Trends series, which has no WITH clause to hold the names.
 # `arrayExists` over an empty catalog is false, so without an own brand nothing names the brand.
-_TRENDS_NAMES_BRAND = (
-    r"arrayExists(name -> match({field}, concat('(?i)\\b', name, '\\b')), "
-    f"({_BRAND_NAMES}))"
-)
-_TRENDS_ANSWERED_NON_BRANDED = f"NOT check_failed AND NOT {_TRENDS_NAMES_BRAND.format(field='prompt_text')}"
+# A function, not a str.format template: the brand names subquery holds the regex class \p{L}.
+def _trends_names_brand(field: str) -> str:
+    return rf"arrayExists(name -> match({field}, concat('(?i)\\b', name, '\\b')), ({_BRAND_NAMES}))"
+
+
+_TRENDS_ANSWERED_NON_BRANDED = f"NOT check_failed AND NOT {_trends_names_brand('prompt_text')}"
 # Matches the cited URLs against the current own domains, as `_answers` does, instead of the stored `cited`.
 _TRENDS_CITES_OWN = (
     "arrayExists(url -> arrayExists(d -> lower(domain(url)) = d OR endsWith(lower(domain(url)), concat('.', d)), "
     f"({_OWN_DOMAINS})), JSONExtract(ifNull(cited_urls, '[]'), 'Array(String)'))"
 )
-_TRENDS_MENTIONED = f"{_TRENDS_CITES_OWN} OR {_TRENDS_NAMES_BRAND.format(field="ifNull(answer_text, '')")}"
+_TRENDS_MENTIONED = f"{_TRENDS_CITES_OWN} OR {_trends_names_brand("ifNull(answer_text, '')")}"
 
 
 def _answers(days: int) -> str:
