@@ -34,11 +34,10 @@ class MetaGraphIntegration:
         oauth_config = oauth.OauthIntegration.oauth_config_for_kind(self.integration.kind)
 
         # skip refresh if more than 7 days until expiry
-        if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
-            if (
-                time.time()
-                < self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
-            ):
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+        if expires_in and refreshed_at:
+            if time.time() < refreshed_at + expires_in - 604800:
                 return
 
         client = oauth.OauthIntegration.client_credentials_for_kind(self.integration.kind)
