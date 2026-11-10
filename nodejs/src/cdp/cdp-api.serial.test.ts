@@ -4,7 +4,6 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
-import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
@@ -13,6 +12,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { APP_METRICS_OUTPUT } from '~/common/outputs'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -38,8 +38,7 @@ import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tes
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-import { CyclotronV2Worker } from './services/cyclotron-v2'
-import { encodeStateColumns } from './services/cyclotron-v2/job-codec'
+import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
 import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import {
@@ -48,9 +47,13 @@ import {
 } from './services/hogflows/transactional-email'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
+import {
+    HOG_FLOW_VERSION_APP_SOURCE,
+    versionedAppSourceId,
+} from './services/monitoring/hog-function-monitoring.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
 // email tests would do live DNS lookups for their fixture recipients (and
@@ -2265,6 +2268,59 @@ describe('CDP API', () => {
         const inDays = (days: number): string => new Date(Date.now() + days * DAY_MS).toISOString()
         const toClickHouseTime = (date: Date): string => date.toISOString().replace('T', ' ').replace('Z', '000')
 
+        let queue: CyclotronJobQueuePostgresV2
+        let manager: CyclotronV2Manager
+        let cyclotron: Pool
+
+        beforeAll(async () => {
+            queue = new CyclotronJobQueuePostgresV2(100, hub)
+            await queue.startAsProducer()
+            manager = new CyclotronV2Manager({
+                pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+                depthLimit: 1_000_000,
+            })
+            await manager.connect()
+            cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+        })
+
+        afterAll(async () => {
+            await queue.stopProducer()
+            await manager.disconnect()
+            await cyclotron.end()
+        })
+
+        const useRealQueue = async (): Promise<void> => {
+            await cyclotron.query(`DELETE FROM cyclotron_jobs WHERE queue_name = 'email'`)
+            api['hogflowQueue'] = queue
+            api['batchResolverProducer'] = manager
+        }
+
+        const storedJob = async (id: string) =>
+            (await cyclotron.query('SELECT status, scheduled, priority, state FROM cyclotron_jobs WHERE id = $1', [id]))
+                .rows[0]
+
+        const idsAnEmailWorkerClaims = async (): Promise<string[]> => {
+            const worker = new CyclotronV2Worker({
+                pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+                queueName: 'email',
+                batchMaxSize: 100,
+                pollDelayMs: 10,
+                includeEmptyBatches: true,
+            })
+            let claimed: string[] = []
+            await new Promise<void>((resolve, reject) => {
+                worker
+                    // eslint-disable-next-line @typescript-eslint/require-await
+                    .connect(async (batch) => {
+                        claimed = batch.map((job) => job.id)
+                        resolve()
+                    })
+                    .catch(reject)
+            })
+            await worker.disconnect()
+            return claimed
+        }
+
         const codeSend = {
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
@@ -2552,50 +2608,9 @@ describe('CDP API', () => {
         })
 
         describe('with a scheduled_at', () => {
-            let queue: CyclotronJobQueuePostgresV2
-            let cyclotron: Pool
-
-            beforeAll(async () => {
-                queue = new CyclotronJobQueuePostgresV2(100, hub)
-                await queue.startAsProducer()
-                cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
-            })
-
-            afterAll(async () => {
-                await queue.stopProducer()
-                await cyclotron.end()
-            })
-
             beforeEach(async () => {
-                await cyclotron.query(`DELETE FROM cyclotron_jobs WHERE queue_name = 'email'`)
-                api['hogflowQueue'] = queue
+                await useRealQueue()
             })
-
-            const storedJob = async (id: string) =>
-                (await cyclotron.query('SELECT scheduled, priority, state FROM cyclotron_jobs WHERE id = $1', [id]))
-                    .rows[0]
-
-            const idsAnEmailWorkerClaims = async (): Promise<string[]> => {
-                const worker = new CyclotronV2Worker({
-                    pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
-                    queueName: 'email',
-                    batchMaxSize: 100,
-                    pollDelayMs: 10,
-                    includeEmptyBatches: true,
-                })
-                let claimed: string[] = []
-                await new Promise<void>((resolve, reject) => {
-                    worker
-                        // eslint-disable-next-line @typescript-eslint/require-await
-                        .connect(async (batch) => {
-                            claimed = batch.map((job) => job.id)
-                            resolve()
-                        })
-                        .catch(reject)
-                })
-                await worker.disconnect()
-                return claimed
-            }
 
             const sendAt = (route: 'transactional_email' | 'transactional_email/send', scheduledAt: string) =>
                 sendOn(
@@ -3160,9 +3175,6 @@ describe('CDP API', () => {
         })
 
         describe('cancel and reschedule of a scheduled send', () => {
-            let cancelUnclaimed: jest.Mock
-            let rescheduleUnclaimed: jest.Mock
-
             type ManageAction = 'cancel' | 'reschedule'
             const mintManageToken = (
                 teamId: number,
@@ -3186,33 +3198,31 @@ describe('CDP API', () => {
                     .set(headers)
                     .send(payload)
 
-            const scheduleSend = async (): Promise<CyclotronJobInvocation> => {
+            const sendFor = async (scheduledAt: string | undefined): Promise<string> => {
                 const res = await send(
                     hogFlow.id,
                     { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
-                    { ...body, scheduled_at: inDays(2) }
+                    { ...body, ...(scheduledAt && { scheduled_at: scheduledAt }) }
                 )
                 expect(res.status).toEqual(202)
-                return mockQueueInvocations.mock.calls[0][0][0]
+                return res.body.invocation_id
             }
+            const scheduleSend = (): Promise<string> => sendFor(inDays(2))
+            const claimedSend = async (): Promise<string> => {
+                const id = await sendFor(undefined)
+                expect(await idsAnEmailWorkerClaims()).toEqual([id])
+                return id
+            }
+            const scheduledTime = async (id: string): Promise<string> =>
+                new Date((await storedJob(id)).scheduled).toISOString()
 
-            const unclaimedJob = (id: string, scheduled: DateTime, invocation?: CyclotronJobInvocation) => ({
-                id,
-                teamId: team.id,
-                functionId: hogFlow.id,
-                queueName: 'email',
-                priority: 0,
-                scheduled,
-                created: DateTime.now(),
-                parentRunId: null,
-                state: invocation ? encodeStateColumns(invocation).state : null,
-                cancelRequestedAt: null,
-            })
+            const appMetricRows = (queueMessages: jest.SpyInstance) =>
+                queueMessages.mock.calls
+                    .filter(([output]) => output === APP_METRICS_OUTPUT)
+                    .flatMap(([, messages]) => messages.map((m: { value: Buffer }) => parseJSON(m.value.toString())))
 
-            beforeEach(() => {
-                cancelUnclaimed = jest.fn()
-                rescheduleUnclaimed = jest.fn()
-                api['batchResolverProducer'] = fakeJobProducer({ cancelUnclaimed, rescheduleUnclaimed })
+            beforeEach(async () => {
+                await useRealQueue()
             })
 
             afterEach(() => {
@@ -3227,49 +3237,44 @@ describe('CDP API', () => {
                 async (_desc, flowLoads) => {
                     const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
                     const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockResolvedValue(undefined)
+                    const queueMessages = jest.spyOn(api['emailStatusService']['outputs'], 'queueMessages')
                     const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
                     hub.HOG_INVOCATION_RESULTS_ENABLED = true
-                    const invocation = await scheduleSend()
-                    if (!flowLoads) {
-                        jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockRejectedValue(
-                            new Error('database unavailable')
-                        )
-                    }
-                    const version = { id: hogFlow.id, version: flowLoads ? hogFlow.version : undefined }
-                    cancelUnclaimed
-                        .mockResolvedValueOnce({
-                            outcome: 'canceled',
-                            job: unclaimedJob(
-                                invocation.id,
-                                invocation.queueScheduledAt!.plus({ days: 1 }),
-                                invocation
-                            ),
-                        })
-                        .mockResolvedValueOnce({ outcome: 'already_canceled' })
-                    const queueAppMetric = jest.spyOn(
-                        api['invocationResultsService'].monitoringService,
-                        'queueAppMetric'
-                    )
-
                     try {
-                        const first = await manage('cancel', invocation.id)
-                        const repeat = await manage('cancel', invocation.id)
+                        const messageId = await scheduleSend()
+                        if (!flowLoads) {
+                            jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockRejectedValue(
+                                new Error('database unavailable')
+                            )
+                        }
+
+                        const first = await manage('cancel', messageId)
+                        const repeat = await manage('cancel', messageId)
 
                         expect(first.status).toEqual(200)
-                        expect(first.body).toEqual({ id: invocation.id, status: 'canceled' })
+                        expect(first.body).toEqual({ id: messageId, status: 'canceled' })
                         expect(repeat.status).toEqual(200)
                         expect(repeat.body).toEqual(first.body)
-                        expect(cancelUnclaimed).toHaveBeenCalledWith(team.id, invocation.id)
+                        expect((await storedJob(messageId)).status).toEqual('canceled')
+                        expect(await idsAnEmailWorkerClaims()).toEqual([])
+                        const versioned = versionedAppSourceId(hogFlow.id, hogFlow.version)
                         expect(
-                            queueAppMetric.mock.calls.map(([metric]) => [
-                                metric.metric_name,
-                                metric.app_source_id,
-                                metric.app_source_version,
-                            ])
-                        ).toEqual([
-                            ['canceled', hogFlow.id, version],
-                            ['triggered', hogFlow.id, version],
-                        ])
+                            appMetricRows(queueMessages)
+                                .filter((row) => row.metric_name === 'canceled' || row.metric_name === 'triggered')
+                                .map((row) => [row.app_source, row.app_source_id, row.metric_name, row.count])
+                                .sort()
+                        ).toEqual(
+                            [
+                                ['hog_flow', hogFlow.id, 'canceled', 1],
+                                ['hog_flow', hogFlow.id, 'triggered', 1],
+                                ...(flowLoads
+                                    ? [
+                                          [HOG_FLOW_VERSION_APP_SOURCE, versioned, 'canceled', 1],
+                                          [HOG_FLOW_VERSION_APP_SOURCE, versioned, 'triggered', 1],
+                                      ]
+                                    : []),
+                            ].sort()
+                        )
                         const lifecycleRows = produceResultRow.mock.calls
                             .filter(([output]) => output === 'hog_invocation_results')
                             .map(([, message]) => parseJSON(message.value!.toString()))
@@ -3277,7 +3282,7 @@ describe('CDP API', () => {
                         expect(lifecycleRows).toEqual(
                             ['running', 'canceled'].map((status) =>
                                 expect.objectContaining({
-                                    invocation_id: invocation.id,
+                                    invocation_id: messageId,
                                     function_kind: 'hog_flow',
                                     function_id: hogFlow.id,
                                     status,
@@ -3286,9 +3291,9 @@ describe('CDP API', () => {
                             )
                         )
                         expect(emailStatusRows()).toEqual([
-                            expect.objectContaining({ message_id: invocation.id, status: 'scheduled' }),
+                            expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
                             expect.objectContaining({
-                                message_id: invocation.id,
+                                message_id: messageId,
                                 status: 'canceled',
                                 recipient: body.to,
                                 function_id: hogFlow.id,
@@ -3301,37 +3306,34 @@ describe('CDP API', () => {
             )
 
             it.each([
-                ['an unknown message', 'not_found', 404, { error: 'not_found' }],
-                ['a message a worker has claimed', 'claimed', 409, { error: 'already_sending' }],
-            ])('answers a cancel of %s without a status row', async (_desc, outcome, status, expected) => {
-                cancelUnclaimed.mockResolvedValue({ outcome })
-                const messageId = new UUIDT().toString()
+                ['an unknown message', () => Promise.resolve(new UUIDT().toString()), 404, { error: 'not_found' }],
+                ['a message a worker has claimed', claimedSend, 409, { error: 'already_sending' }],
+            ])('answers a cancel of %s without a status row', async (_desc, messageFor, status, expected) => {
+                const messageId = await messageFor()
+                const rowsBefore = emailStatusRows().length
 
                 const res = await manage('cancel', messageId)
 
                 expect(res.status).toEqual(status)
                 expect(res.body).toEqual(expected)
-                expect(cancelUnclaimed).toHaveBeenCalledWith(team.id, messageId)
-                expect(emailStatusRows()).toEqual([])
+                expect(emailStatusRows()).toHaveLength(rowsBefore)
             })
 
             it('moves a scheduled send and records it scheduled again with its recipient and new time', async () => {
-                const invocation = await scheduleSend()
+                const messageId = await scheduleSend()
                 const scheduledAt = inDays(3)
-                rescheduleUnclaimed.mockResolvedValue({
-                    outcome: 'rescheduled',
-                    job: unclaimedJob(invocation.id, DateTime.fromISO(scheduledAt, { zone: 'utc' }), invocation),
-                    rescheduledAt: new Date(),
-                })
 
-                const res = await manage('reschedule', invocation.id, { scheduled_at: scheduledAt })
+                const res = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
 
                 expect(res.status).toEqual(200)
-                expect(res.body).toEqual({ id: invocation.id, status: 'scheduled', scheduled_at: scheduledAt })
-                expect(rescheduleUnclaimed).toHaveBeenCalledWith(team.id, invocation.id, new Date(scheduledAt))
+                expect(res.body).toEqual({ id: messageId, status: 'scheduled', scheduled_at: scheduledAt })
+                expect(await scheduledTime(messageId)).toEqual(scheduledAt)
+                expect(parseJSON((await storedJob(messageId)).state.toString())).toMatchObject({
+                    state: { scheduledAt },
+                })
                 expect(emailStatusRows().at(-1)).toEqual(
                     expect.objectContaining({
-                        message_id: invocation.id,
+                        message_id: messageId,
                         status: 'scheduled',
                         recipient: body.to,
                         function_id: hogFlow.id,
@@ -3340,44 +3342,57 @@ describe('CDP API', () => {
                 )
             })
 
-            it('keeps the time of the reschedule that committed last when two status rows arrive out of order', async () => {
-                const invocation = await scheduleSend()
-                const job = unclaimedJob(invocation.id, DateTime.now(), invocation)
-                const [first, second] = [inDays(3), inDays(4)]
-                const committedAt = Date.now() + 60_000
-                rescheduleUnclaimed
-                    .mockResolvedValueOnce({ outcome: 'rescheduled', job, rescheduledAt: new Date(committedAt + 1) })
-                    .mockResolvedValueOnce({ outcome: 'rescheduled', job, rescheduledAt: new Date(committedAt) })
+            it('keeps the time of the reschedule that committed last when its status row arrives first', async () => {
+                const messageId = await scheduleSend()
+                const [earlier, later] = [inDays(3), inDays(4)]
+                let releaseEarlier!: () => void
+                const earlierHeld = new Promise<void>((resolve) => (releaseEarlier = resolve))
+                const reschedule = manager.rescheduleUnclaimed.bind(manager)
+                let reachedHold!: () => void
+                const holding = new Promise<void>((resolve) => (reachedHold = resolve))
+                jest.spyOn(manager, 'rescheduleUnclaimed').mockImplementationOnce(async (...args) => {
+                    const result = await reschedule(...args)
+                    reachedHold()
+                    await earlierHeld
+                    return result
+                })
 
-                expect((await manage('reschedule', invocation.id, { scheduled_at: second })).status).toEqual(200)
-                expect((await manage('reschedule', invocation.id, { scheduled_at: first })).status).toEqual(200)
+                const earlierRequest = manage('reschedule', messageId, { scheduled_at: earlier }).then((res) => res)
+                await holding
+                expect((await manage('reschedule', messageId, { scheduled_at: later })).status).toEqual(200)
+                releaseEarlier()
+                expect((await earlierRequest).status).toEqual(200)
 
+                expect(await scheduledTime(messageId)).toEqual(later)
                 const rows = emailStatusRows().filter((row) => row.status === 'scheduled')
                 const latest = rows.reduce((a, b) => (BigInt(String(b.version)) > BigInt(String(a.version)) ? b : a))
-                expect(latest.scheduled_at).toEqual(toClickHouseTime(new Date(second)))
+                expect(latest.scheduled_at).toEqual(toClickHouseTime(new Date(later)))
             })
 
             it.each([
-                ['a time that has passed', 0, -60_000],
-                ['a time that has passed, for a message older than 30 days', 31 * DAY_MS, -60_000],
-            ])('moves a send to now for %s', async (_desc, messageAgeMs, offsetMs) => {
+                ['a time that has passed', 0],
+                ['a time that has passed, for a message older than 30 days', 31 * DAY_MS],
+            ])('moves a send to now for %s', async (_desc, messageAgeMs) => {
                 const messageId = new UUIDT(Date.now() - messageAgeMs).toString()
-                rescheduleUnclaimed.mockResolvedValue({
-                    outcome: 'rescheduled',
-                    job: unclaimedJob(messageId, DateTime.now()),
-                    rescheduledAt: new Date(),
+                await manager.createJob({
+                    id: messageId,
+                    teamId: team.id,
+                    functionId: hogFlow.id,
+                    queueName: 'email',
+                    scheduled: new Date(Date.now() + DAY_MS),
                 })
                 const before = Date.now()
 
                 const res = await manage('reschedule', messageId, {
-                    scheduled_at: new Date(before + offsetMs).toISOString(),
+                    scheduled_at: new Date(before - 60_000).toISOString(),
                 })
 
                 expect(res.status).toEqual(200)
-                const movedTo: Date = rescheduleUnclaimed.mock.calls[0][2]
-                expect(movedTo.getTime()).toBeGreaterThanOrEqual(before)
-                expect(movedTo.getTime()).toBeLessThanOrEqual(Date.now())
-                expect(res.body.scheduled_at).toEqual(movedTo.toISOString())
+                const movedTo = new Date(res.body.scheduled_at).getTime()
+                expect(movedTo).toBeGreaterThanOrEqual(before)
+                expect(movedTo).toBeLessThanOrEqual(Date.now())
+                expect(await scheduledTime(messageId)).toEqual(res.body.scheduled_at)
+                expect(await idsAnEmailWorkerClaims()).toEqual([messageId])
             })
 
             it.each([
@@ -3390,26 +3405,40 @@ describe('CDP API', () => {
                 ['a time that is not a time', () => ({ scheduled_at: 'tomorrow' }), 400, { error: 'invalid_request' }],
                 ['no time', () => ({}), 400, { error: 'invalid_request' }],
             ])('refuses a reschedule to %s and changes nothing', async (_desc, payload, status, expected) => {
-                const res = await manage('reschedule', new UUIDT().toString(), payload())
+                const messageId = await scheduleSend()
+                const scheduledBefore = await scheduledTime(messageId)
+                const rowsBefore = emailStatusRows().length
+
+                const res = await manage('reschedule', messageId, payload())
 
                 expect(res.status).toEqual(status)
                 expect(res.body).toMatchObject(expected)
-                expect(rescheduleUnclaimed).not.toHaveBeenCalled()
-                expect(emailStatusRows()).toEqual([])
+                expect(await scheduledTime(messageId)).toEqual(scheduledBefore)
+                expect(emailStatusRows()).toHaveLength(rowsBefore)
             })
 
             it.each([
-                ['an unknown message', 'not_found', 404, { error: 'not_found' }],
-                ['a message a worker has claimed', 'claimed', 409, { error: 'already_sending' }],
-                ['a canceled message', 'canceled', 409, { error: 'canceled' }],
-            ])('answers a reschedule of %s without a status row', async (_desc, outcome, status, expected) => {
-                rescheduleUnclaimed.mockResolvedValue({ outcome })
+                ['an unknown message', () => Promise.resolve(new UUIDT().toString()), 404, { error: 'not_found' }],
+                ['a message a worker has claimed', claimedSend, 409, { error: 'already_sending' }],
+                [
+                    'a canceled message',
+                    async () => {
+                        const id = await scheduleSend()
+                        expect((await manage('cancel', id)).status).toEqual(200)
+                        return id
+                    },
+                    409,
+                    { error: 'canceled' },
+                ],
+            ])('answers a reschedule of %s without a status row', async (_desc, messageFor, status, expected) => {
+                const messageId = await messageFor()
+                const rowsBefore = emailStatusRows().length
 
-                const res = await manage('reschedule', new UUIDT().toString(), { scheduled_at: inDays(2) })
+                const res = await manage('reschedule', messageId, { scheduled_at: inDays(2) })
 
                 expect(res.status).toEqual(status)
                 expect(res.body).toEqual(expected)
-                expect(emailStatusRows()).toEqual([])
+                expect(emailStatusRows()).toHaveLength(rowsBefore)
             })
 
             describe.each(['cancel', 'reschedule'] as const)('on %s', (action) => {
@@ -3448,27 +3477,29 @@ describe('CDP API', () => {
                             Authorization: `Bearer ${mintManageToken(team.id, messageId, otherAction)}`,
                         }),
                     ],
-                ])('rejects a request with %s', async (_desc, headers) => {
-                    const messageId = new UUIDT().toString()
-                    const res = await manage(action, messageId, { scheduled_at: inDays(2) }, headers(messageId))
+                ])('rejects a request with %s and leaves the send as it was', async (_desc, headers) => {
+                    const messageId = await scheduleSend()
+                    const before = await storedJob(messageId)
+
+                    const res = await manage(action, messageId, { scheduled_at: inDays(3) }, headers(messageId))
 
                     expect(res.status).toEqual(401)
-                    expect(cancelUnclaimed).not.toHaveBeenCalled()
-                    expect(rescheduleUnclaimed).not.toHaveBeenCalled()
+                    expect(await storedJob(messageId)).toEqual(before)
                 })
 
                 it('fails closed when the transactional email JWT key is not provisioned', async () => {
+                    const messageId = await scheduleSend()
+                    const before = await storedJob(messageId)
                     const savedJwt = api['manageTransactionalEmailJwt']
                     api['manageTransactionalEmailJwt'] = new ScopedServiceJwt(
                         PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
                         ''
                     )
                     try {
-                        const res = await manage(action, new UUIDT().toString(), { scheduled_at: inDays(2) })
+                        const res = await manage(action, messageId, { scheduled_at: inDays(3) })
 
                         expect(res.status).toEqual(503)
-                        expect(cancelUnclaimed).not.toHaveBeenCalled()
-                        expect(rescheduleUnclaimed).not.toHaveBeenCalled()
+                        expect(await storedJob(messageId)).toEqual(before)
                     } finally {
                         api['manageTransactionalEmailJwt'] = savedJwt
                     }
