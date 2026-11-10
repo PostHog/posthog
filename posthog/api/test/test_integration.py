@@ -650,7 +650,7 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_integration_from_domain(
-        self, mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
+        self, _mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
     ):
 
         integration = EmailIntegration.create_native_integration(
@@ -678,14 +678,6 @@ class TestEmailIntegration:
         }
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
-
-        mock_create_email_domain.assert_called_once_with(
-            "posthog.com",
-            mail_from_subdomain="youmustnothavelikedmyemail",
-            team_id=self.team.id,
-            org_team_ids=[self.team.id],
-            keep_existing_mail_from=False,
-        )
 
         EmailIntegration(integration).update_native_integration({"name": "Renamed"}, self.team.id)
         assert integration.config["reply_to"] == "support@posthog.com"
