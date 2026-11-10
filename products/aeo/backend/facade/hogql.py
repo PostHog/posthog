@@ -5,9 +5,11 @@ SQL editor, the query API, and MCP can all read them, while the only write paths
 stay the backend runner and the brands API.
 """
 
+from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
+    ExpressionField,
     FloatDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -32,6 +34,18 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         "id": UUIDDatabaseField(name="id", description="Check id."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the check ran."),
+        # Trends reads `timestamp`, `distinct_id` and `person_id` by name. The warehouse mappings that add them for a
+        # DataWarehouseNode only cover warehouse tables, so a Trends series over this table needs them declared here.
+        # The actor is the prompt: a "unique users" count over this table counts prompts.
+        "timestamp": ExpressionField(
+            name="timestamp", expr=ast.Field(chain=["created_at"]), description="Same as created_at."
+        ),
+        "distinct_id": ExpressionField(
+            name="distinct_id", expr=ast.Field(chain=["prompt_id"]), description="Same as prompt_id."
+        ),
+        "person_id": ExpressionField(
+            name="person_id", expr=ast.Field(chain=["prompt_id"]), description="Same as prompt_id."
+        ),
         "run_id": UUIDDatabaseField(name="run_id", description="Groups every check from one runner pass."),
         "prompt_id": UUIDDatabaseField(name="prompt_id", description="Prompt that ran; joins to the prompt set."),
         "prompt_text": StringDatabaseField(name="prompt_text", description="The question as it ran."),

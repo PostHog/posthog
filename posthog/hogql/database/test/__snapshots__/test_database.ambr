@@ -2790,6 +2790,36 @@
                   "table": null,
                   "type": "datetime"
               },
+              "timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timestamp",
+                  "id": null,
+                  "name": "timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "distinct_id",
+                  "id": null,
+                  "name": "distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "person_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "person_id",
+                  "id": null,
+                  "name": "person_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "run_id": {
                   "chain": null,
                   "fields": null,
@@ -18023,6 +18053,36 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timestamp",
+                  "id": null,
+                  "name": "timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "distinct_id",
+                  "id": null,
+                  "name": "distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "person_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "person_id",
+                  "id": null,
+                  "name": "person_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "run_id": {
                   "chain": null,
