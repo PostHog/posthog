@@ -56,7 +56,7 @@ class TestFlagOwnership(APIBaseTest):
             ("product tour", "_own_by_product_tour", "product_tour"),
             ("archived product tour", "_own_by_archived_product_tour", "product_tour"),
             ("early access feature", "_own_by_early_access", "early_access_feature"),
-            ("deleted experiment", "_own_by_deleted_experiment", "experiment"),
+            ("deleted experiment", "_own_by_deleted_experiment", None),
             ("survey linked flag", "_reference_by_survey_linked_flag", None),
             ("nothing", None, None),
         ]

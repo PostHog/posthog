@@ -36,8 +36,16 @@ _OWNER_LABELS = {
 # `ProductTour.objects` hides archived tours. An archived tour keeps its `internal_targeting_flag`,
 # so the default manager would report that flag as free while a tour still holds it, and
 # unarchiving the tour would then produce the second owner this module exists to prevent.
+#
+# Experiments need the opposite correction. `Experiment.objects` shows soft-deleted rows, and a
+# deleted experiment is gone everywhere else a flag is read: the flag serializer omits it from
+# `experiment_set`, the flag deletion guards ignore it, and the Rust flags service computes
+# `has_experiment` without it. Reading through the default manager therefore locked a flag to an
+# experiment the user can no longer see or unlink, with no way out of the error. `live_objects`
+# releases the flag on deletion instead, and the restore path in experiments' `_validate_update_payload`
+# refuses to restore an experiment whose flag another product has adopted since.
 _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
-    ("experiment_set", FLAG_OWNER_EXPERIMENT, None),
+    ("experiment_set", FLAG_OWNER_EXPERIMENT, "live_objects"),
     ("surveys_targeting_flag", FLAG_OWNER_SURVEY, None),
     ("surveys_internal_targeting_flag", FLAG_OWNER_SURVEY, None),
     ("surveys_internal_response_sampling_flag", FLAG_OWNER_SURVEY, None),
@@ -64,6 +72,11 @@ _REFERENCE_ACCESSORS: frozenset[str] = frozenset(
         "code_analyses",
     }
 )
+
+
+def flag_owner_label(kind: str) -> str:
+    """The owning product as it is named to a user, such as "an experiment"."""
+    return _OWNER_LABELS[kind]
 
 
 def flag_owner_kind(flag: "FeatureFlag") -> str | None:

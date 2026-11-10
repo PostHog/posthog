@@ -151,7 +151,12 @@ from products.feature_flags.backend.facade.filters import (
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
-from products.feature_flags.backend.ownership import FLAG_OWNER_EXPERIMENT, assert_flag_available_for
+from products.feature_flags.backend.ownership import (
+    FLAG_OWNER_EXPERIMENT,
+    assert_flag_available_for,
+    flag_owner_kind,
+    flag_owner_label,
+)
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -4151,6 +4156,17 @@ class ExperimentService:
                 "Cannot restore experiment: the linked feature flag has been deleted. "
                 "Restore the feature flag first, then restore the experiment."
             )
+
+        # Deleting this experiment released its flag, so another product can have adopted the flag
+        # while the experiment was deleted. Restoring it then gives the flag two owners, which is
+        # what feature_flags' `ownership` module exists to prevent, so the restore is refused here.
+        if experiment.deleted and update_data.get("deleted") is False:
+            owner = flag_owner_kind(feature_flag)
+            if owner is not None and owner != FLAG_OWNER_EXPERIMENT:
+                raise ValidationError(
+                    f"Cannot restore experiment: its feature flag {feature_flag.key} now belongs to "
+                    f"{flag_owner_label(owner)}. Unlink the flag there first, then restore the experiment."
+                )
 
         # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
         # run the same flag guards as the dedicated launch_experiment action: flag not

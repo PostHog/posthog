@@ -16,7 +16,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
 
 from products.feature_flags.backend.facade.filters import (
     CohortRestrictionBlocker,
@@ -49,6 +49,22 @@ EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure
 ExposureFreezeBlocker = (
     Literal["draft", "stopped", "paused", "already_frozen", "no_flag", "flag_deleted"] | CohortRestrictionBlocker
 )
+
+
+class LiveExperimentManager(RootTeamManager):
+    """Experiments that still exist, which means `deleted` is neither true nor null.
+
+    Soft deletion is the only delete the experiment API offers, so almost every caller wants this
+    population rather than every row. Holding the predicate here keeps the flag-side readers
+    (`live_experiments_for_flag`, the flag ownership table) on the same definition as the Rust flags
+    service, which repeats it as hand-written SQL.
+
+    Inherits `RootTeamManager` because `RootTeamMixin` makes that the default manager, and a manager
+    on the model that does not inherit it would lose the project-scoped team rewriting.
+    """
+
+    def get_queryset(self) -> "QuerySet[Experiment]":
+        return super().get_queryset().filter(deleted=False)
 
 
 class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -161,6 +177,14 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     feature_flag_rule_id = models.UUIDField(null=True, blank=True)
     # The immutable first-start snapshot preserves the rule and relevant flag context after winner shipping.
     feature_flag_rule_snapshot = models.JSONField(null=True, blank=True)
+
+    # `objects` repeats the manager `RootTeamMixin` already supplies, because declaring it here is
+    # what keeps it the default manager. Django orders a locally declared manager ahead of an
+    # inherited one, so `live_objects` alone would become the default and would hide soft-deleted
+    # rows from every reverse accessor, from the admin and from the delete and restore paths that
+    # must still see them.
+    objects = RootTeamManager()
+    live_objects = LiveExperimentManager()
 
     class Meta:
         db_table = "posthog_experiment"
@@ -381,7 +405,7 @@ def live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
 
     Accepts a concrete id or an `OuterRef`, so it backs both helpers below.
     """
-    return Experiment.objects.filter(feature_flag_id=feature_flag_id, deleted=False)
+    return Experiment.live_objects.filter(feature_flag_id=feature_flag_id)
 
 
 def live_experiment_exists() -> Exists:
