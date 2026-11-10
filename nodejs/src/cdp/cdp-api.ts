@@ -241,7 +241,6 @@ const liquidTagsIn = (value: unknown): number => {
     return 0
 }
 
-// The renderer drops the email editor's `design` state before parsing, so its tags never cost a parse.
 const liquidTagsInStep = (emailStep: EmailStep): number =>
     Object.entries(emailStep.config.inputs).reduce((total: number, [key, input]) => {
         if (input?.templating !== 'liquid') {
@@ -1477,8 +1476,6 @@ export class CdpApi {
                     }
                 }
                 if (idempotencyKey) {
-                    // Checked before the quota and the workflow's shape, so a retry of a send that went out
-                    // gets its answer even when the team has hit its quota or the workflow changed since.
                     stages.start('idempotency')
                     const reservation = await idempotencyKeys.reserve(
                         team.id,

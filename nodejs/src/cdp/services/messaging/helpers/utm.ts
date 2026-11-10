@@ -28,7 +28,6 @@ const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as 
 
 export const UTM_VALUE_LIMIT_CHARS = 1_000
 
-/** The first custom value longer than UTM_VALUE_LIMIT_CHARS, which LiquidJS could take seconds to parse. */
 export const utmValueOverLimit = (raw: unknown): (typeof UTM_KEYS)[number] | undefined =>
     raw && typeof raw === 'object'
         ? UTM_KEYS.find((key) => {
