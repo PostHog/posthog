@@ -309,6 +309,12 @@ describe('claimSandboxCaps', () => {
 
             store.stopAnswering()
             expect(await answerWithin(first.releaseUnsent(), 10_000)).toBe(false)
+
+            store.answerNewConnections()
+            await waitForExpect(
+                async () => expect(await claimSandboxCaps(stalling, caps, sameSend())).toMatchObject({ ok: true }),
+                30_000
+            )
         })
 
         it('refuses at once while abandoned claims still wait for a connection, and claims again once storage answers', async () => {
