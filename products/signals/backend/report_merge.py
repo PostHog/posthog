@@ -40,6 +40,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportEntityLink,
     SignalReportGithubComment,
     SignalScoutRun,
 )
@@ -352,6 +353,17 @@ def _move_side_rows(source: SignalReport, survivor: SignalReport) -> None:
         comment.save(update_fields=["report", "updated_at"])
 
     SignalReportCheck.objects.for_team(source.team_id).filter(report_id=source.id).update(report_id=survivor.id)
+
+    survivor_entities = set(
+        SignalReportEntityLink.all_teams.filter(team_id=survivor.team_id, report_id=survivor.id).values_list(
+            "source_product", "source_type", "source_id"
+        ),
+    )
+    for link in SignalReportEntityLink.all_teams.filter(team_id=source.team_id, report_id=source.id):
+        if (link.source_product, link.source_type, link.source_id) in survivor_entities:
+            continue
+        link.report_id = survivor.id
+        link.save(update_fields=["report"])
 
 
 def _merge_source_into(

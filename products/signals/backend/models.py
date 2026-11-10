@@ -3788,6 +3788,125 @@ class SignalScoutPendingTrigger(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalAgentRun(TeamScopedRootMixin, UUIDModel):
+    """One pass of an agent over one entity that another product asked Self-driving to look at.
+
+    The row is the request and its answer. It never holds the entity's content: the owning
+    product's loader returns that at the start of each pass, and the row keeps only the hash of
+    what the pass read. The entity side is a key and not a foreign key, because the entity belongs
+    to another product and may have no Postgres row at all.
+    """
+
+    class Agent(models.TextChoices):
+        RESEARCH = "research", "Research"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        DONE = "done", "Done"
+        FAILED = "failed", "Failed"
+
+    class Reason(models.TextChoices):
+        NEW_INFORMATION = "new_information", "New information"
+        STILL_BROKEN = "still_broken", "Still broken"
+
+    class RequestedBy(models.TextChoices):
+        TRIAGE = "triage", "Triage"
+        WORKFLOW = "workflow", "Workflow"
+        USER = "user", "User"
+
+    ACTIVE_STATUSES = (Status.QUEUED, Status.RUNNING)
+    # The caller's note shares the scout run's note with the entity reference and the reason, and
+    # that note is cut at `scout_harness.limits.MAX_RUN_NOTE_CHARS`. Half of it leaves room for both.
+    MAX_NOTE_LENGTH = 500
+
+    # See SignalScoutConfig.all_teams for rationale: the workflow's activities run with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    agent = models.CharField(max_length=40, choices=Agent.choices)
+    source_product = models.CharField(max_length=100)
+    source_type = models.CharField(max_length=100)
+    source_id = models.CharField(max_length=200)
+    pass_number = models.PositiveIntegerField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
+    # A request arrived while this pass was active. One more pass starts when this one ends,
+    # however many requests arrived in between.
+    look_again = models.BooleanField(default=False)
+    reason = models.CharField(max_length=40, choices=Reason.choices, null=True, blank=True)
+    note = models.TextField(blank=True, default="")
+    requested_by = models.CharField(max_length=40, choices=RequestedBy.choices, null=True, blank=True)
+    content_hash = models.CharField(max_length=64, null=True, blank=True)
+    result = models.JSONField(null=True, blank=True)
+    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Signal agent run"
+        verbose_name_plural = "Signal agent runs"
+        default_manager_name = "all_teams"
+        constraints = [
+            # Two requests for the same entity can race. This constraint makes the second insert
+            # fail, so the second request joins the active pass and never starts its own.
+            models.UniqueConstraint(
+                fields=["team", "source_product", "source_type", "source_id", "agent"],
+                condition=models.Q(status__in=["queued", "running"]),
+                name="signal_agent_run_one_active",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "source_product", "source_type", "source_id", "agent", "pass_number"],
+                name="signal_agent_run_pass_unique",
+            ),
+        ]
+
+
+class SignalReportEntityLink(TeamScopedRootMixin, UUIDModel):
+    """Says that an agent run for an entity of another product opened or matched this report.
+
+    One row per report and entity. Only agent runs write these rows. A source that emits signals
+    keeps its relation to a report on the signal rows in ClickHouse.
+    """
+
+    class Relation(models.TextChoices):
+        CREATED = "created", "Created"
+        MATCHED = "matched", "Matched"
+
+    # See SignalScoutConfig.all_teams for rationale: the workflow's activities run with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="entity_links")
+    source_product = models.CharField(max_length=100)
+    source_type = models.CharField(max_length=100)
+    source_id = models.CharField(max_length=200)
+    relation = models.CharField(max_length=20, choices=Relation.choices)
+    agent_run = models.ForeignKey(SignalAgentRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal report entity link"
+        verbose_name_plural = "Signal report entity links"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "report", "source_product", "source_type", "source_id"],
+                name="signal_report_entity_link_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["team", "source_product", "source_type", "source_id"],
+                name="signal_report_entity_idx",
+            ),
+        ]
+
+
 class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     """Narrow per-team memory surface for the Signals scout fleet — MCP-readable across agents.
 

@@ -93,6 +93,7 @@ from posthog.user_permissions import UserPermissions
 from products.alerts.backend.facade.api import list_enabled_alerts
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.agent_instructions import STEERING_FIELDS
+from products.signals.backend.agent_run_links import linked_report_ids
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_ASSIGNEE,
@@ -2486,6 +2487,8 @@ class SignalReportViewSet(
             )
         by_source = fetch_live_report_ids_for_source_ids(self.team, source_ids, product)
         report_ids = {report_id for ids in by_source.values() for report_id in ids}
+        # An agent run links a report to a record with a Postgres row and emits no signal for it.
+        report_ids |= linked_report_ids(team_id=self.team.id, product=product, ids=source_ids)
         return queryset.filter(id__in=report_ids)
 
     def _apply_signal_report_scout_filter(self, queryset):
