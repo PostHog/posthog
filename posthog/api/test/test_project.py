@@ -120,10 +120,15 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual({project["id"] for project in response.json()["results"]}, expected)
 
     @parameterized.expand(
-        [(method, url_org_restricted) for method in ("list", "create") for url_org_restricted in (True, False)]
+        [
+            ("list", True, status.HTTP_403_FORBIDDEN),
+            ("list", False, status.HTTP_200_OK),
+            ("create", True, status.HTTP_403_FORBIDDEN),
+            ("create", False, status.HTTP_201_CREATED),
+        ]
     )
     def test_organization_projects_route_checks_the_url_organizations_ip_policy(
-        self, method: str, url_org_restricted: bool
+        self, method: str, url_org_restricted: bool, expected_status: int
     ) -> None:
         self._set_unlimited_projects()
         other_org, _, other_team = Organization.objects.bootstrap(self.user)
@@ -140,11 +145,12 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.post(url, {"name": "Example project"}, REMOTE_ADDR="198.51.100.7")
         else:
             response = self.client.get(url, REMOTE_ADDR="198.51.100.7")
-        if url_org_restricted:
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
-            self.assertFalse(Project.objects.filter(name="Example project").exists())
-        else:
-            self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content)
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if method == "create":
+            self.assertEqual(
+                Project.objects.filter(organization=self.organization, name="Example project").exists(),
+                not url_org_restricted,
+            )
 
     @parameterized.expand([(True,), (False,)])
     def test_project_scoped_key_reads_organization_ai_consent(self, approved: bool) -> None:
