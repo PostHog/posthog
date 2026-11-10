@@ -167,12 +167,15 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             )
         })
 
-        it('should handle single specific day', () => {
-            action.config.day = ['monday']
-            jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
+        it.each([
+            ['monday', 5],
+            ['wednesday', 7],
+        ] as const)('schedules the next %s, %i days away', (day, days) => {
+            action.config.day = [day]
+            jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday, after the window
             const result = getWaitUntilTime(action)
             expect(result).toEqual(
-                DateTime.utc().plus({ days: 5 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 })
+                DateTime.utc().plus({ days }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 })
             )
         })
 
