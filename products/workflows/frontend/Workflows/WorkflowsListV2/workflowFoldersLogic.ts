@@ -962,8 +962,14 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             try {
                 await fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
-            } catch {
-                lemonToast.error("Couldn't delete the folder. It may still contain project files.")
+            } catch (error) {
+                const reason =
+                    error instanceof ApiError && error.code === 'directory_not_empty'
+                        ? 'It still contains project files.'
+                        : error instanceof ApiError && error.detail
+                          ? error.detail
+                          : 'Try again.'
+                lemonToast.error(`Couldn't delete the folder. ${reason}`)
             } finally {
                 actions.setFolderActionPending(false)
             }

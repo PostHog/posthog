@@ -185,20 +185,45 @@ describe('workflowFoldersLogic', () => {
         toast.mockRestore()
     })
 
-    it('deletes only an empty project folder without deleting its contents', async () => {
+    it.each([
+        {
+            name: 'deletes only an empty project folder without deleting its contents',
+            status: 204,
+            body: null,
+            toast: [],
+        },
+        {
+            name: 'keeps a folder the server reports is not empty',
+            status: 409,
+            body: { type: 'invalid_request', code: 'directory_not_empty', detail: 'Folder is not empty.' },
+            toast: ["Couldn't delete the folder. It still contains project files."],
+        },
+        {
+            name: "keeps a folder and shows the server's reason for any other failure",
+            status: 403,
+            body: { type: 'authentication_error', code: 'permission_denied', detail: 'You do not have access.' },
+            toast: ["Couldn't delete the folder. You do not have access."],
+        },
+    ])('$name', async ({ status, body, toast }) => {
         let recursive: string | null | undefined
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
         useMocks({
             delete: {
                 '/api/projects/:team_id/file_system/empty/': ({ request }) => {
                     recursive = new URL(request.url).searchParams.get('recursive')
-                    return [204, null]
+                    return [status, body]
                 },
             },
         })
-        await expectLogic(logic).toFinishAllListeners()
-        await logic.asyncActions.deleteFolder('Empty')
-        expect(recursive).toBe('false')
-        expect(logic.values.folderPaths).not.toContain('Empty')
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            await logic.asyncActions.deleteFolder('Empty')
+            expect(recursive).toBe('false')
+            expect(logic.values.folderPaths.includes('Empty')).toBe(status !== 204)
+            expect(errorToast.mock.calls.map(([message]) => message)).toEqual(toast)
+        } finally {
+            errorToast.mockRestore()
+        }
     })
 
     it('drops a workflow into Unfiled without creating a new unfiled location', async () => {
