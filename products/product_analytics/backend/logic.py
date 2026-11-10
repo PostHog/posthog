@@ -1,19 +1,22 @@
 from collections.abc import Collection, Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Count, OuterRef, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedTrendsInsight
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
 from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The columns `InsightVariableDefinition` carries; `values` and `values_query` stay on the row.
@@ -54,6 +57,45 @@ def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | 
     InsightViewed.objects.update_or_create(  # type: ignore[misc]  # nullable FKs; django-stubs drops None from *_id lookups
         insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
     )
+
+
+AGENT_READ_DAYS_KEPT = 35
+AGENT_READ_ONCE_SECONDS = 24 * 60 * 60
+
+
+def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) -> None:
+    read_at = now()
+    day = read_at.astimezone(team.timezone_info).date()
+    if not cache.add(
+        f"insight_agent_read:{team.id}:{user_id}:{insight_id}:{day.isoformat()}", True, AGENT_READ_ONCE_SECONDS
+    ):
+        return
+    oldest = day - timedelta(days=AGENT_READ_DAYS_KEPT)
+    with transaction.atomic():
+        read, created = InsightAgentRead.objects.select_for_update().get_or_create(
+            team_id=team.id,
+            user_id=user_id,
+            insight_id=insight_id,
+            defaults={"last_read_at": read_at, "read_days": [day]},
+        )
+        if not created:
+            read.read_days = sorted({*(kept for kept in read.read_days if kept > oldest), day})
+            read.last_read_at = read_at
+            read.save(update_fields=["read_days", "last_read_at"])
+
+
+def insight_reads_by_agents(*, team_id: int, user_id: int, since: datetime, limit: int) -> list[tuple[str, list]]:
+    return list(
+        InsightAgentRead.objects.filter(
+            team_id=team_id, user_id=user_id, last_read_at__gte=since, insight__deleted=False, insight__saved=True
+        )
+        .order_by("-last_read_at")
+        .values_list("insight__short_id", "read_days")[:limit]
+    )
+
+
+def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
+    InsightAgentRead.objects.filter(team_id__in=team_ids).delete()
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:

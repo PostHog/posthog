@@ -1,10 +1,11 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -19,13 +20,16 @@ from posthog.models.user import User
 from products.product_analytics.backend.facade.api import (
     create_insight_explanation,
     get_insight_explanation,
+    insight_reads_by_agents,
     insight_short_ids_built_by,
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
+    record_agent_insight_read,
     record_insight_view,
     update_insight_explanation,
     viewer_counts_by_insight,
 )
+from products.product_analytics.backend.facade.contracts import AgentInsightRead
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -74,6 +78,31 @@ class TestRecordInsightView(BaseTest):
         record_insight_view(insight_id=self.insight.pk)
 
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 2
+
+
+class TestAgentInsightReads(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def test_a_read_counts_once_a_day_and_days_past_the_window_drop_off(self) -> None:
+        asked = Insight.objects.create(team=self.team, saved=True, short_id="asked")
+        deleted = Insight.objects.create(team=self.team, saved=True, short_id="deleted", deleted=True)
+        for moment, insight in (
+            (datetime(2026, 10, 1, 9, tzinfo=UTC), asked),
+            (datetime(2026, 10, 1, 15, tzinfo=UTC), asked),
+            (datetime(2026, 11, 6, 9, tzinfo=UTC), asked),
+            (datetime(2026, 11, 7, 9, tzinfo=UTC), asked),
+            (datetime(2026, 11, 7, 9, tzinfo=UTC), deleted),
+        ):
+            with time_machine.travel(moment, tick=False):
+                record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
+
+        reads = insight_reads_by_agents(
+            team_id=self.team.id, user_id=self.user.id, since=datetime(2026, 10, 1, tzinfo=UTC), limit=5
+        )
+
+        self.assertEqual(reads, [AgentInsightRead("asked", (date(2026, 11, 6), date(2026, 11, 7)))])
 
 
 class TestInsightReads(BaseTest):

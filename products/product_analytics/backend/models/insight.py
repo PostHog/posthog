@@ -500,3 +500,18 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboa
             exc_info=True,
         )
         raise
+
+
+class InsightAgentRead(models.Model):
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    insight = models.ForeignKey(Insight, on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    last_read_at = models.DateTimeField()
+    read_days = ArrayField(models.DateField(), default=list)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "insight"], name="product_analytics_unique_agent_read")
+        ]
