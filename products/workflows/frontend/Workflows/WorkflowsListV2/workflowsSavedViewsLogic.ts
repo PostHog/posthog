@@ -900,10 +900,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const id = raw.get('view') ?? 'all'
                 const explicit = raw.has('q') || raw.has('text') || raw.has('columns') || raw.has('added')
                 if (!values.available) {
-                    if (explicit && cache.urlMethod !== 'REPLACE') {
+                    if (explicit && cache.followedLink) {
                         // A followed link with its own state replaces an earlier view-only link and the edits made
                         // while the views load, also on the same view. The list replaces the URL with its own edits,
-                        // and those edits keep both.
+                        // and a failed load syncs without any navigation, so both of those keep them.
                         cache.viewOnlyLink = undefined
                         cache.editsWhileViewsLoad = undefined
                     } else if (!explicit && values.enabled && raw.has('view') && cache.viewOnlyLink?.id !== id) {
@@ -927,16 +927,19 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     const edited = values.value
                     const baselineKeys = new Set(viewOnlyLink.baseline.filters.map(pillKey))
                     actions.setAddedFilters(edited.filters.filter((filter) => !baselineKeys.has(pillKey(filter))))
-                    actions.setAddedText(null)
+                    // Text typed while the views load is the person's search even when it equals the view's
+                    // saved search, so it is set as typed before the view applies and not compared after.
+                    const typedText = edited.text !== viewOnlyLink.baseline.text ? edited.text : undefined
+                    actions.setAddedText(typedText === undefined ? null : userText(typedText))
                     actions.applyView(view)
                     // The folder is where the person is, not part of the view, so applying the view would leave it.
                     const folder = edited.filters.find(isFolderScope)
-                    if (folder || edited.text !== viewOnlyLink.baseline.text) {
+                    if (folder || (typedText !== undefined && typedText !== values.value.text)) {
                         actions.setValue({
                             filters: folder
                                 ? [folder, ...values.value.filters.filter((filter) => !isFolderScope(filter))]
                                 : values.value.filters,
-                            text: edited.text !== viewOnlyLink.baseline.text ? edited.text : values.value.text,
+                            text: typedText ?? values.value.text,
                         })
                     }
                     keepColumnsChangedWhileViewsLoaded(columnsChangedWhileViewsLoaded)
@@ -1129,8 +1132,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     }),
     urlToAction(({ actions, cache }) => {
         const sync = (_: unknown, __: unknown, ___: unknown, { method }: { method: string }): void => {
-            cache.urlMethod = method
+            cache.followedLink = method !== 'REPLACE'
             actions.syncViewFromUrl()
+            cache.followedLink = false
         }
         return { [urls.workflows()]: sync, [urls.workflows('workflows')]: sync }
     }),

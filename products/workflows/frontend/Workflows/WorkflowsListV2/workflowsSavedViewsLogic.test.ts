@@ -923,6 +923,33 @@ describe('workflowsSavedViewsLogic', () => {
         }
     )
 
+    it("keeps a search typed while a view-only link loads as typed, also when it matches the view's saved search", async () => {
+        storedViews = [{ ...savedView, state: { ...savedView.state, text: 'renewal' } }]
+        let release: () => void = () => {}
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/workflow_views/': async () => {
+                    await pending
+                    return [200, paginated(storedViews)]
+                },
+            },
+        })
+        router.actions.push(urls.workflows(), viewOnlyLink)
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+
+        workflowsListV2Logic.actions.setValue({ filters: [], text: 'renewal' })
+        release()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+
+        expect(logic.values.hasAdditions).toBe(true)
+        applyViewById('all')
+        expect(workflowsListV2Logic.values.value).toEqual({ filters: [], text: 'renewal' })
+    })
+
     it.each([
         ['filters', (): void => workflowsListV2Logic.actions.setValue({ filters: [eventTrigger], text: '' })],
         ['columns', (): void => workflowsListV2Logic.actions.setVisibleColumns(['owner', 'trigger'])],
@@ -1432,6 +1459,22 @@ describe('workflowsSavedViewsLogic', () => {
         expect(restores).toEqual(1)
         expect(logic.values.myWorkflowsDeleted).toBe(false)
         expect(logic.values.views.find((view) => view.id === myWorkflows.id)?.state).toEqual(myWorkflows.state)
+    })
+
+    it('keeps columns changed while a view link loads through a failed load and a retry', async () => {
+        useMocks({ get: { '/api/projects/:team_id/workflow_views/': () => [500, { detail: 'Unavailable' }] } })
+        router.actions.push(urls.workflows(), { view: VIEW_ID, q: '', text: '', columns: 'trigger' })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+
+        workflowsListV2Logic.actions.setVisibleColumns(['owner'])
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        expect(logic.values.savedViewsLoadFailed).toBe(true)
+        useMocks({ get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated(storedViews)] } })
+        await logic.asyncActions.loadSavedViews()
+
+        expect(logic.values.activeViewId).toEqual(VIEW_ID)
+        expect(workflowsListV2Logic.values.shownColumns).toEqual(['owner'])
     })
 
     it('preserves the baseline query and default columns when loading the saved-view API fails', async () => {
