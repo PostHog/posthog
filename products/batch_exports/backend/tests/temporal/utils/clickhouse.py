@@ -4,6 +4,7 @@ import collections.abc
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.app_metrics2.sql import (
     APP_METRICS2_DATA_TABLE_SQL,
     APP_METRICS2_MV_TABLE_SQL,
@@ -29,6 +30,9 @@ from products.batch_exports.backend.temporal.pipeline.producer import slice_reco
 async def execute_query(clickhouse_client: ClickHouseClient, query: str, *data):
     """Try to prevent flakiness in CI by retrying the query if it fails."""
     return await clickhouse_client.execute_query(query, *data)
+
+
+_kafka_tables_created = False
 
 
 async def create_clickhouse_tables_and_views(clickhouse_client):
@@ -74,13 +78,20 @@ async def create_clickhouse_tables_and_views(clickhouse_client):
     ):
         await execute_query(clickhouse_client, query)
 
-    return
+    global _kafka_tables_created
+    _kafka_tables_created = True
 
 
-async def drop_clickhouse_kafka_tables(clickhouse_client):
+def drop_clickhouse_kafka_tables() -> None:
     # A Kafka engine table polls Kafka until it is dropped, which keeps ClickHouse busy after the test run.
+    # The drop waits for the end of the session, because a recreated table rejoins its Kafka consumer group
+    # and the first test after that can time out waiting for its metrics.
+    global _kafka_tables_created
+    if not _kafka_tables_created:
+        return
     for query in (DROP_APP_METRICS2_MV_TABLE_SQL, DROP_KAFKA_APP_METRICS2_TABLE_SQL):
-        await execute_query(clickhouse_client, query)
+        sync_execute(query)
+    _kafka_tables_created = False
 
 
 EVENTS_TABLES = (
