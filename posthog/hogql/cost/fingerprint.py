@@ -3,7 +3,9 @@
 The fingerprint hashes the shape of an AST: node kinds, table and column references, function names,
 operators, join kinds and aliases. It skips constant values, source positions and resolved types. Two
 queries that differ only in literals (a date range, an event name, a LIMIT) share a fingerprint. Two
-queries that differ in structure never do.
+queries that differ in structure never do. Structure includes how many constants an IN list holds, the
+aliases a query gives its columns, and whether a list of values arrived as a tuple of literals or as one
+placeholder value, so those split what a reader may see as one plan.
 
 The HogQL executor emits it as the ``plan_fingerprint`` query tag, and ``query_log_archive`` exposes it
 as ``lc_plan_fingerprint``. That lets the cost planner group the actual cost ClickHouse reports by plan

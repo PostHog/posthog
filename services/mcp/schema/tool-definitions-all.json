@@ -6636,6 +6636,21 @@
             "readOnlyHint": false
         }
     },
+    "explain-sql": {
+        "description": "Estimate how much an SQL (HogQL) query will read before running it, without running it. Returns one plan line per table the query scans, with the rows it is expected to read and whether that number is measured or only the table's size, the property filters on each scan and how much each skips, and the join. Use it before execute-sql on a query over a long date range, many events, or a large table, and narrow the timestamp range or the event names when the plan reads more than needed. The estimate counts rows read, not rows returned: a filter with no index behind it does not lower it. A table on a live external connection is shown by its size from that database's catalog; nothing measures what the query reads there, and with a connectionId set the plan has no filter lines.",
+        "category": "SQL",
+        "feature": "sql",
+        "summary": "Estimate what an SQL query will read before running it.",
+        "title": "Explain SQL query",
+        "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/mcp_tools/explain_sql/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "external-data-destinations-add-sources": {
         "description": "Attach up to 50 existing sources to a destination. Each source's tables then also sync there, except tables with their own destination override: they keep the override and ignore this link. Before attaching, check the destination's status with external-data-destinations-retrieve: do not attach to a failing or paused destination until the user fixed it. Then call external-data-sources-destinations-retrieve for each source. When destination_ids holds only the PostHog warehouse destination (is_posthog_warehouse in external-data-destinations-list), the source may write there by default and would stop updating its PostHog tables after this call. If the user wants to keep them and no destination in external-data-destinations-list is paused, first call external-data-sources-destinations-update with that same list: it makes the warehouse an explicit link. If a destination is paused, tell the user instead. When destination_ids is empty, tell the user the PostHog tables stop updating. Call external-data-schemas-destinations-retrieve for each of the source's tables and tell the user which have inherits_from_source false: those will not reach this destination. Sources already attached, or already at the destination limit, come back in skipped with a reason. An attached source sends only rows from its next syncs, so the destination holds no history until those tables are resynced. Set resync=true to start a full resync of every enabled table now, including tables with an override that will not reach this destination. Tell the user first: a resync re-reads every row and bills every destination the source writes to.",
         "category": "Warehouse destinations",

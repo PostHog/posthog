@@ -4,30 +4,24 @@ import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
-import { PredicateIndexUsage, PredicateIndexVerdict, PredicateQuickfix } from '~/queries/schema/schema-general'
+import {
+    CostPlanStep,
+    PredicateIndexUsage,
+    PredicateQuickfix,
+    ScanEstimate,
+    ScanEstimateSource,
+} from '~/queries/schema/schema-general'
 
+import { QueryCostPlan } from './QueryCostPlan'
 import { QueryIndexUsageTable } from './QueryIndexUsageTable'
-
-function summarize(predicates: PredicateIndexUsage[]): { text: string; scanning: boolean } {
-    const total = predicates.length
-    const scanning = predicates.filter((predicate) => predicate.verdict !== PredicateIndexVerdict.Indexed).length
-
-    // Says an index exists, not that the filter is cheap. Whether an index drops any data depends on
-    // the table's sort order and the value being compared, which the report does not look at.
-    if (scanning === 0) {
-        return { text: total === 1 ? '1 filter has an index' : `All ${total} filters have an index`, scanning: false }
-    }
-    if (scanning === total) {
-        return {
-            text: total === 1 ? '1 filter reads every row' : `${total} filters read every row`,
-            scanning: true,
-        }
-    }
-    return { text: `${scanning} of ${total} filters read every row`, scanning: true }
-}
+import { summarizeQueryScan } from './queryScanSummary'
+import { QueryScanTablesTable } from './QueryScanTablesTable'
 
 interface QueryIndexUsageBarProps {
     predicates: PredicateIndexUsage[]
+    estimate?: ScanEstimate | null
+    /** The plan that explains the estimate. It replaces the per-table list; the filter table stays because it carries the quickfix actions. */
+    plan?: CostPlanStep[] | null
     /** A refresh is in flight, so the report still describes the SQL the server last saw. */
     refreshing?: boolean
     /** The report does not describe the text the editor holds, so its offsets would land elsewhere. */
@@ -39,17 +33,49 @@ interface QueryIndexUsageBarProps {
 
 export function QueryIndexUsageBar({
     predicates,
+    estimate,
+    plan,
     refreshing,
     stale,
     onApplyQuickfix,
     onFixWithAI,
     fixWithAILoading,
 }: QueryIndexUsageBarProps): JSX.Element | null {
-    if (predicates.length === 0) {
+    const summary = summarizeQueryScan(predicates, estimate)
+    if (!summary) {
         return null
     }
 
-    const { text, scanning } = summarize(predicates)
+    const header = (
+        <span className="flex items-center gap-2 text-xs">
+            {!refreshing && summary.warn ? (
+                <IconWarning className="text-warning" />
+            ) : (
+                <IconInfo className="text-secondary" />
+            )}
+            {refreshing ? 'Checking query' : summary.text}
+        </span>
+    )
+
+    // A single events scan is fully described by the header, so the table list only appears when there is a
+    // second table, or a table the header's number does not cover.
+    const showTables =
+        !!estimate &&
+        (estimate.tables.length > 1 || estimate.tables.some((table) => table.source !== ScanEstimateSource.Events))
+
+    const hasPlan = !!plan && plan.length > 0
+
+    // With nothing to expand, the header stands alone instead of opening an empty panel.
+    if (predicates.length === 0 && !showTables && !hasPlan) {
+        return (
+            <div
+                className={clsx('border-b px-2 py-1.5', refreshing && 'opacity-60')}
+                data-attr="sql-editor-index-usage"
+            >
+                {header}
+            </div>
+        )
+    }
 
     return (
         <LemonCollapse
@@ -60,24 +86,22 @@ export function QueryIndexUsageBar({
                 {
                     key: 'index-usage',
                     dataAttr: 'sql-editor-index-usage',
-                    header: (
-                        <span className="flex items-center gap-2 text-xs">
-                            {refreshing || !scanning ? (
-                                <IconInfo className="text-secondary" />
-                            ) : (
-                                <IconWarning className="text-warning" />
-                            )}
-                            {refreshing ? 'Checking filters' : text}
-                        </span>
-                    ),
+                    header,
                     content: (
-                        <QueryIndexUsageTable
-                            predicates={predicates}
-                            stale={stale}
-                            onApplyQuickfix={onApplyQuickfix}
-                            onFixWithAI={onFixWithAI}
-                            fixWithAILoading={fixWithAILoading}
-                        />
+                        <>
+                            {hasPlan && plan ? (
+                                <QueryCostPlan steps={plan} />
+                            ) : showTables && estimate ? (
+                                <QueryScanTablesTable estimate={estimate} />
+                            ) : null}
+                            <QueryIndexUsageTable
+                                predicates={predicates}
+                                stale={stale}
+                                onApplyQuickfix={onApplyQuickfix}
+                                onFixWithAI={onFixWithAI}
+                                fixWithAILoading={fixWithAILoading}
+                            />
+                        </>
                     ),
                 },
             ]}

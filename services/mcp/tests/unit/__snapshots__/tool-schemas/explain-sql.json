@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "connectionId": {
+            "description": "Optional id of a data warehouse connection. When set, the query is estimated against that source's tables, the same as execute-sql with a connectionId.",
+            "type": "string"
+        },
+        "query": {
+            "description": "The SQL query to estimate before running it.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}
