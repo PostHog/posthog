@@ -68,7 +68,7 @@ export function createEnvironment(): Environment {
         restartBackoffMs: ROLE_RESTART_BACKOFF_MS,
     })
     let edge: ProviderEdge | undefined
-    let releaseLock: (() => void) | undefined
+    let releaseLock: (() => Promise<void>) | undefined
 
     return {
         async up() {
@@ -76,7 +76,7 @@ export function createEnvironment(): Environment {
                 throw new Error(`No tsx at ${TSX}; install the nodejs package first.`)
             }
             mkdirSync(stateDir, { recursive: true })
-            releaseLock = holdRunLock(stateDir)
+            releaseLock = await holdRunLock(stateDir)
             const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
             if (plan.strangers.length > 0) {
                 throw strangerConflict(plan.strangers)
@@ -174,7 +174,7 @@ export function createEnvironment(): Environment {
             await supervisor.stop()
             await edge?.close()
             edge = undefined
-            releaseLock?.()
+            await releaseLock?.()
             releaseLock = undefined
         },
     }
