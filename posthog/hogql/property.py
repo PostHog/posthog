@@ -551,6 +551,10 @@ def _coerce_ordered_bound(
     return ast.Call(name="toFloat", args=[expr]), bound
 
 
+def is_relative_date(value: object) -> bool:
+    return isinstance(value, str) and re.match(r"^-?[0-9]+[hdwmqysHDWMQY]", value) is not None
+
+
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     """Resolve a date value for IS_DATE_* operators.
 
@@ -571,8 +575,7 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     if not isinstance(value, str):
         return value
 
-    relative_regex = r"^-?[0-9]+[hdwmqysHDWMQY]"
-    if re.match(relative_regex, value):
+    if is_relative_date(value):
         from posthog.utils import relative_date_parse
 
         resolved = relative_date_parse(value, team.timezone_info)

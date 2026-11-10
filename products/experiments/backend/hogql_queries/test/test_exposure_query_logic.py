@@ -153,6 +153,16 @@ class TestExposureCriteriaOnTheEvent:
     @parameterized.expand(
         [
             ("event_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}, True),
+            (
+                "event_absolute_date",
+                {"key": "signup", "value": "2026-01-01", "operator": "is_date_after", "type": "event"},
+                True,
+            ),
+            (
+                "event_relative_date",
+                {"key": "signup", "value": "-7d", "operator": "is_date_after", "type": "event"},
+                False,
+            ),
             ("element", {"key": "text", "value": "Buy", "operator": "exact", "type": "element"}, True),
             ("hogql_on_the_timestamp", {"key": "timestamp >= toDateTime('2026-01-01', 'UTC')", "type": "hogql"}, True),
             ("person_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, False),
@@ -161,6 +171,13 @@ class TestExposureCriteriaOnTheEvent:
             ("hogql_subquery", {"key": "distinct_id IN (SELECT distinct_id FROM events)", "type": "hogql"}, False),
             ("hogql_in_cohort", {"key": "distinct_id IN COHORT 5", "type": "hogql"}, False),
             ("hogql_posthog_function", {"key": "matchesAction(1)", "type": "hogql"}, False),
+            (
+                "hogql_query_tag",
+                {"key": "(<HogQLQuery query='SELECT count() FROM persons' />) > 0", "type": "hogql"},
+                False,
+            ),
+            ("hogql_clock", {"key": "timestamp < now() - interval 7 day", "type": "hogql"}, False),
+            ("hogql_random", {"key": "rand() % 2 = 0", "type": "hogql"}, False),
             ("hogql_that_does_not_parse", {"key": "plan = (", "type": "hogql"}, False),
         ]
     )
