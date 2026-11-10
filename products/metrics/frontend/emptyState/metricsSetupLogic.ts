@@ -87,4 +87,6 @@ export const metricsSetupLogic = createSetupDetectionLogic({
     // often enough for the flip to feel immediate.
     pollIntervalMs: 5000,
     cacheHasData: () => hasIngestedMetrics,
+    // A cached visit still records experiment exposure, which only the detection call fires.
+    revalidateCachedHasData: true,
 })
