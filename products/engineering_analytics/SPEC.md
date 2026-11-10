@@ -16,6 +16,21 @@ Three endpoints write: `enable` enrolls the team, the CI Signals config update t
 CI Signals for PostHog Desktop are the goal (see the README).
 Signal detection is defined once in `logic/` over the read layer, so the emitter and the endpoints share one definition.
 
+### What must stay true
+
+Three properties outrank any single feature. Reject a change that weakens one of them.
+
+- The product never compares engineers. It measures what the delivery pipeline costs people, and it has no leaderboard of output or speed (§2, §6).
+- The code follows "A Philosophy of Software Design".
+  - A module hides a decision behind a small interface. `logic/` holds each domain rule once, and callers never repeat it.
+  - Complexity moves down into the builders. An endpoint, a tool or a component stays thin.
+  - An interface makes the wrong call impossible where it can. Do not add a flag that a caller must pair with a second call.
+  - A pass-through method, a duplicated rule or a rule that leaks into a consumer is a defect to fix, not a style note.
+- The product is a model for other products in this repository, because the DevEx team owns both.
+  - It is isolated: other code imports only `backend/facade/`, and `backend:contract-check` enforces that.
+  - It follows every repository guide in `.agents/` and every skill that `AGENTS.md` at the root requires, with no local exemption.
+  - When a repository rule and this product disagree, change the product, or change the rule in its own PR.
+
 ## 2. Non-goals
 
 - The product never rates a developer's performance.
@@ -25,10 +40,10 @@ Signal detection is defined once in `logic/` over the read layer, so the emitter
   - Friction covers red CI the author did not cause, re-runs that failed again, merge-queue kickouts, review waits and rework.
   - A friction figure is a mean per pull request, so shipping more or faster does not raise it.
   - Friction reads one fixed 30-day window of merged pull requests, whatever the date picker says.
+  - `logic/friction.py` defines the friction inputs once.
 - The author page is allowed. It shows one author's figures next to the same figures for the repository and for the author's team.
   - A team figure is always an aggregate and never a member's figure.
-  - A team figure appears only when at least two other authors contribute a value to it.
-- The product does not send real-time alerts about individual pull requests.
+  - A team figure appears only when at least two other authors contribute a value to it. This is a noise floor and not a privacy floor.- The product does not send real-time alerts about individual pull requests.
 - The product does not replace GitHub's own UI.
 - The product does not do static analysis of code quality.
 
@@ -90,7 +105,13 @@ Every endpoint follows the same practices.
 - A read over span data reports absolute counts and never rates. CI emits no span for most passing tests, so a rate has a biased denominator.
 - Test evidence is counted per CI run, never per span or per run attempt. `run_evidence()` in `logic/queries/_test_spans.py` defines that grain for every span read.
 - A CI setup break is not test evidence, so `run_evidence()` drops attempts whose failures spread across many jobs or teams.
+- A test is `confirmed_flake` only with proof of recovery on the same commit. A failure without that proof is `suspected_regression`.
 - A read over optional data degrades to a typed empty answer such as `has_membership_data: false`. It never returns a 500.
+- `logic/reverts.py` recognizes a reverting pull request by its title, because GitHub records no link from a revert to the change it undid.
+- The list reads cache a pull request's lifetime cost for 5 minutes, and CI status stays live.
+  - The cache key carries a hash of the cost query, so a change to the query, the prices or the tables starts a new cache.
+  - A cached value is served only when the reader's HogQL catalog grants every table that the query reads.
+- A run or job lookup accepts `ci_engine`. An integer id that exists in both engines fails with a 400 until the caller names the engine.
 
 ### Exposed warehouse views
 
@@ -131,6 +152,7 @@ These rules hold for the friction view.
 
 - The view counts friction and does not score it. A read applies curves and weights, so a weight change needs no new materialization.
 - `kickout_count` counts gate attempts where any workflow run failed. The source does not record which checks are required, so the count is an upper bound.
+- The view unions every GitHub source of the team, and each row carries `source_id`. A product read filters on the one source that the caller may use.
 
 These rules hold for the stored CI rows (`logic/views/ci_rows.py`, `logic/views/incremental_floor.py`, `logic/materialized_ci.py`).
 
@@ -138,6 +160,7 @@ These rules hold for the stored CI rows (`logic/views/ci_rows.py`, `logic/views/
 - The two grains are joined at read time on `(ci_engine, run_id)`. A re-run changes the run row, so a stored joined row would go stale.
 - `is_handoff_shell` is a flag on both stored grains, and the read that uses the stored rows filters on it (§6).
 - Historical aggregates and cost reads use the stored rows only when both views are ready. Each view's newest build must be at most 30 minutes old and must match the current definition.
+- The reader checks permission on the raw sources and on both views, then filters on source and repository. A failed check sends the read back to the raw tables.
 - Current CI status, single-run detail, single-PR detail and raw job steps always read the raw tables.
 
 ## 6. Locked decisions
@@ -170,6 +193,8 @@ Change a decision only in a separate PR with a written reason.
   - The `workflow_jobs` builder sets `is_rerun_copy` when the same `(run_id, name, started_at, completed_at)` exists at a lower `run_attempt`.
   - Each consumer decides. Cost and per-job aggregates drop copies, and red or green reads keep them.
   - The flag comes from a duplicate-key join and never a window function, which would sort the whole scan in memory.
+  - A windowed read floors both scans. The floor sits one day back when the read filters the job's `created_at`, and seven days back when it filters the run's start.
+  - The seven days keep the earlier attempts of a re-run, whose job rows were created before the run's newest start.
 - A read with no floor is scoped by run. The per-PR cost, push history and per-run job reads have no date bound, because a pull request's CI can predate it.
   - Such a read first resolves the run ids it needs, then bounds every raw scan to them (`_curated.scoped_to_run`, `_curated.scoped_to_pr_history`, `pr_rollup_query`).
 - A successful CI hand-off shell is suppressed in the read layer, unlike a re-run copy. A shell ran no tests, so it would read as a false green run.
@@ -182,6 +207,7 @@ Change a decision only in a separate PR with a written reason.
   - The push time is the earliest run creation time, or the run start when the creation time is missing.
 - CI Signals use immutable evidence.
   - A flaky check needs job rows that show a failed attempt and a later successful attempt of the same job.
+  - A broken default branch needs GitHub's reported default branch, read from the PR snapshot. A repository with no PR rows is skipped, never guessed.
   - Each condition has a week-stable `source_id`, so the hourly sweep emits a standing condition once per week.
 - Analytics reads use HogQL only, with no raw ClickHouse queries.
 - The product has no Postgres database. A product config model would go on the main database as a team-scoped model.
@@ -230,6 +256,8 @@ The Depot source lands `depot_job_attempts`, one row per Depot CI job attempt.
 - Each row carries `ci_engine` (`github_actions` or `depot_ci`) and the source's native ids. A join on an integer run id or job id must also match `ci_engine`.
 - Depot numbers attempts per job, so the jobs builder flags the re-listed rows as `is_rerun_copy`.
 - A run with no executed job attempt has no row, so the table cannot prove that the run list is complete.
+- Depot's API reports no runner size, so every attempt is costed as the default `depot-ubuntu-24.04` sandbox.
+- Curated cost leaves out suppressed hand-off and relay jobs, so it cannot reconcile an invoice. `depot_ci_usage` prices the raw attempts.
 - The source is optional, and reads fall back to GitHub-only CI.
 
 The Trunk source is optional and lands two snapshots.
