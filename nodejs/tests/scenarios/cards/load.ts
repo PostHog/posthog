@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
 import path from 'path'
-import { parse } from 'yaml'
+import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
 import { getDefaultConfig } from '~/common/config/config'
@@ -48,23 +48,9 @@ function readYaml(file: string, label: string): { value: unknown } | { problem: 
     }
 }
 
-function sortKeys(value: unknown): unknown {
-    if (Array.isArray(value)) {
-        return value.map(sortKeys)
-    }
-    if (value !== null && typeof value === 'object') {
-        return Object.fromEntries(
-            Object.keys(value)
-                .sort()
-                .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])])
-        )
-    }
-    return value
-}
-
 function sha256(value: unknown): string {
     return createHash('sha256')
-        .update(JSON.stringify(sortKeys(value)))
+        .update(stringify(value, { sortMapEntries: true }))
         .digest('hex')
 }
 
