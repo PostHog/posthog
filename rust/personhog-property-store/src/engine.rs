@@ -5,6 +5,10 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use metrics::Label;
+use slatedb::compactor::{
+    CompactionScheduler, CompactionSchedulerSupplier, CompactionSpec, CompactionStatus,
+    CompactorStateView, SizeTieredCompactionSchedulerSupplier, SourceId,
+};
 use slatedb::config::{CompactionWorkerOptions, CompactorOptions, Settings};
 use slatedb::db_cache::foyer::{FoyerCache, FoyerCacheOptions};
 use slatedb::db_cache::{DbCache, SplitCache};
@@ -74,19 +78,89 @@ pub(crate) fn settings(config: &PropertyStoreConfig) -> Settings {
         min_filter_keys: config.min_filter_keys,
         manifest_poll_interval: WRITER_MANIFEST_POLL,
         compression_codec: config.compression.codec(),
-        compactor_options: Some(CompactorOptions {
-            max_concurrent_compactions: SHARD_COMPACTIONS,
-            worker: Some(CompactionWorkerOptions {
-                max_concurrent_compactions: SHARD_COMPACTIONS,
-                max_fetch_tasks: 1,
-                bytes_to_fetch: COMPACTION_FETCH_BYTES,
-                min_filter_keys: config.min_filter_keys,
-                ..CompactionWorkerOptions::default()
-            }),
-            ..CompactorOptions::default()
-        }),
+        compactor_options: None,
         ..Settings::default()
     }
+}
+
+pub(crate) fn compactor_options(config: &PropertyStoreConfig) -> CompactorOptions {
+    CompactorOptions {
+        max_concurrent_compactions: SHARD_COMPACTIONS,
+        worker: Some(CompactionWorkerOptions {
+            max_concurrent_compactions: SHARD_COMPACTIONS,
+            max_fetch_tasks: 1,
+            bytes_to_fetch: COMPACTION_FETCH_BYTES,
+            min_filter_keys: config.min_filter_keys,
+            ..CompactionWorkerOptions::default()
+        }),
+        ..CompactorOptions::default()
+    }
+}
+
+/// SlateDB does not check an admin submission against active compactions, so a full compaction
+/// beside a routine merge of the same runs would drop that merge's rows at commit.
+pub(crate) struct ExclusiveSubmissions;
+
+impl CompactionSchedulerSupplier for ExclusiveSubmissions {
+    fn compaction_scheduler(
+        &self,
+        options: &CompactorOptions,
+    ) -> Box<dyn CompactionScheduler + Send + Sync> {
+        Box::new(Exclusive(
+            SizeTieredCompactionSchedulerSupplier::new().compaction_scheduler(options),
+        ))
+    }
+}
+
+struct Exclusive(Box<dyn CompactionScheduler + Send + Sync>);
+
+impl CompactionScheduler for Exclusive {
+    fn propose(&self, state: &CompactorStateView) -> Vec<CompactionSpec> {
+        self.0.propose(state)
+    }
+
+    fn validate(
+        &self,
+        state: &CompactorStateView,
+        spec: &CompactionSpec,
+    ) -> Result<(), slatedb::Error> {
+        self.0.validate(state, spec)?;
+        let claimed = state
+            .compactions()
+            .into_iter()
+            .flat_map(|compactions| compactions.recent_compactions())
+            .filter(|c| {
+                matches!(
+                    c.status(),
+                    CompactionStatus::Scheduled
+                        | CompactionStatus::Running
+                        | CompactionStatus::Compacted
+                )
+            })
+            .map(|c| c.spec());
+        if conflicts(claimed, spec) {
+            return Err(slatedb::Error::invalid(
+                "the compaction overlaps an active one".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// A spec matches itself when it is validated again at commit, so an equal spec is not a conflict.
+fn conflicts<'a>(
+    mut claimed: impl Iterator<Item = &'a CompactionSpec>,
+    spec: &CompactionSpec,
+) -> bool {
+    let touched = |s: &CompactionSpec| -> Vec<SourceId> {
+        s.sources()
+            .iter()
+            .copied()
+            .chain(s.destination().map(SourceId::SortedRun))
+            .collect()
+    };
+    let mine = touched(spec);
+    claimed.any(|other| other != spec && touched(other).iter().any(|id| mine.contains(id)))
 }
 
 /// Publishes SlateDB's metrics without a shard label; gauges sum or max across open databases.
@@ -325,6 +399,7 @@ impl MetricsRecorder for MetricsBridge {
 mod tests {
     use super::*;
     use crate::encoding::{encode_value, StoredProperties};
+    use rstest::rstest;
 
     fn value(version: i64) -> Bytes {
         encode_value(&StoredProperties {
@@ -378,5 +453,29 @@ mod tests {
             assert_eq!(version_of(&merged), Some(5));
         }
         assert_eq!(KeepNewest.merge(&key, None, value(2)).unwrap(), value(2));
+    }
+
+    fn runs(sources: &[u32], destination: u32) -> CompactionSpec {
+        CompactionSpec::new(
+            sources.iter().map(|&id| SourceId::SortedRun(id)).collect(),
+            destination,
+        )
+    }
+
+    #[rstest]
+    #[case::disjoint_runs(runs(&[4, 3], 3), false)]
+    #[case::a_shared_run(runs(&[3, 2, 1, 0], 0), true)]
+    #[case::merged_into_a_run_of_mine(runs(&[2, 1], 1), true)]
+    #[case::the_same_spec_validated_again(runs(&[1, 0], 0), false)]
+    fn a_submission_conflicts_with_an_active_compaction_it_shares_a_run_with(
+        #[case] active: CompactionSpec,
+        #[case] conflicting: bool,
+    ) {
+        let full_compaction = runs(&[1, 0], 0);
+
+        assert_eq!(
+            conflicts([&active].into_iter(), &full_compaction),
+            conflicting
+        );
     }
 }

@@ -5,14 +5,14 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use futures::future::join_all;
 use metrics::{counter, histogram};
-use slatedb::config::{CloseOptions, Settings};
+use slatedb::config::{CloseOptions, CompactorOptions, Settings};
 use slatedb::db_cache::DbCache;
 use slatedb::object_store::ObjectStore;
-use slatedb::{CloseReason, Db, ErrorKind, FilterPolicy, WriteBatch};
+use slatedb::{CloseReason, CompactorBuilder, Db, ErrorKind, FilterPolicy, WriteBatch};
 use tokio::sync::{Mutex, Notify};
 
 use crate::encoding::{encode_key, encode_value, StoredProperties};
-use crate::engine::{self, KeepNewest, ShardMetrics};
+use crate::engine::{self, ExclusiveSubmissions, KeepNewest, ShardMetrics};
 use crate::{shard_for, shard_path, PropertyStoreConfig, PropertyStoreError};
 
 mod maintenance;
@@ -78,6 +78,7 @@ pub struct PropertyWriter {
     prefix: String,
     shards: u32,
     settings: Settings,
+    compactor_options: CompactorOptions,
     filter_policies: Vec<Arc<dyn FilterPolicy>>,
     cache: Arc<dyn DbCache>,
     memtable_flush: Option<Duration>,
@@ -103,6 +104,7 @@ impl PropertyWriter {
             prefix: config.prefix.clone(),
             shards: config.shards.max(1),
             settings: engine::settings(config),
+            compactor_options: engine::compactor_options(config),
             filter_policies: engine::filter_policies(config),
             cache: engine::shared_cache(config),
             memtable_flush: config.memtable_flush_interval(),
@@ -363,11 +365,19 @@ impl PropertyWriter {
         let opened = join_all(shards.iter().map(|&shard| async move {
             let started = Instant::now();
             let metrics = ShardMetrics::new();
+            let compactor = CompactorBuilder::new(
+                shard_path(&self.prefix, shard),
+                Arc::clone(&self.object_store),
+            )
+            .with_options(self.compactor_options.clone())
+            .with_filter_policies(self.filter_policies.clone())
+            .with_scheduler_supplier(Arc::new(ExclusiveSubmissions));
             let db = Db::builder(
                 shard_path(&self.prefix, shard),
                 Arc::clone(&self.object_store),
             )
             .with_settings(self.settings.clone())
+            .with_compactor_builder(compactor)
             .with_filter_policies(self.filter_policies.clone())
             .with_db_cache(Arc::clone(&self.cache), u64::from(shard))
             .with_merge_operator(Arc::new(KeepNewest))
