@@ -1095,8 +1095,8 @@ importers:
         specifier: 1.9.90
         version: 1.9.90
       frimousse:
-        specifier: ^0.4.0
-        version: 0.4.0(react@18.3.1)(typescript@6.0.3)
+        specifier: ^0.3.0
+        version: 0.3.0(react@18.3.1)(typescript@6.0.3)
       fuse.js:
         specifier: 'catalog:'
         version: 7.3.0
@@ -17825,8 +17825,8 @@ packages:
     resolution: {integrity: sha512-Rx/WycZ60HOaqLKAi6cHRKKI7zxWbJ31MhntmtwMoaTeF7XFH9hhBp8vITaMidfljRQ6eYWCKkaTK+ykVJHP2A==}
     engines: {node: '>= 0.8'}
 
-  frimousse@0.4.0:
-    resolution: {integrity: sha512-wA/1Xt9UTk51wYNpy+EvHKPUA4jdm4NuEFzSNNZxqT0Nxrj4RFwYByjRMuaq4qSLOco/ikDCpLKesB8W1w2q+Q==}
+  frimousse@0.3.0:
+    resolution: {integrity: sha512-kO6LMoKY/cLAYEhXXtqLRaLIE6L/DagpFPrUZaLv3LsUa1/8Iza3HhwZcgN8eZ+weXnhv69eoclNUPohcCa/IQ==}
     peerDependencies:
       react: 18.3.1
       typescript: 6.0.3
@@ -38580,7 +38580,7 @@ snapshots:
 
   fresh@2.0.0: {}
 
-  frimousse@0.4.0(react@18.3.1)(typescript@6.0.3):
+  frimousse@0.3.0(react@18.3.1)(typescript@6.0.3):
     dependencies:
       react: 18.3.1
     optionalDependencies:

@@ -240,7 +240,7 @@
         "fastpriorityqueue": "^0.8.0",
         "fflate": "^0.8.3",
         "free-email-domains": "1.9.90",
-        "frimousse": "^0.4.0",
+        "frimousse": "^0.3.0",
         "fuse.js": "catalog:",
         "hast-util-to-html": "^9.0.5",
         "he": "^1.2.0",
