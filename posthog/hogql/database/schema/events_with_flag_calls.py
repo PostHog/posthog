@@ -297,8 +297,6 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
         return serialized
     # Events reads a missing key and an empty object as NULL. An integer key names a key, not a position.
     raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
-    # Events reads a JSON null as NULL. The JSON type cannot store null, so a JSON subcolumn has no value for the key,
-    # and the document that events rebuilds for a restricted read has no member for it.
     return null_if_sentinels(raw, ("", "{}", "null"))
 
 
