@@ -372,6 +372,22 @@ class IntegrationReader:
     async def adelete(self, team_id: int, id: int, *, ignore_usages: bool = False) -> None:
         await database_sync_to_async(self.delete)(team_id, id, ignore_usages=ignore_usages)
 
+    @instrumented("list_in_teams", rows="returned")
+    def list_in_teams(
+        self,
+        team_ids: Iterable[int],
+        *,
+        external_id: str | None = None,
+        where: Mapping[str, ConfigValue] | None = None,
+    ) -> builtins.list[IntegrationRecord]:
+        """The rows of these teams, oldest first, for example of the teams of one organization.
+
+        The caller chooses the teams, so the read does not go to teams that the caller cannot see.
+        An empty `team_ids` lists no row.
+        """
+        rows = self._matching(None, external_id, where, team_ids=list(team_ids))
+        return list(rows.order_by("created_at", "id"))
+
 
 class AuthAccessor(IntegrationReader):
     """Reads, deletes and writes of the rows of one kind with one auth type."""

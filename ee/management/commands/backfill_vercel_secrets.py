@@ -13,6 +13,7 @@ halt the sweep.
 """
 
 from argparse import ArgumentParser
+from itertools import batched
 from typing import Any
 
 from django.core.management.base import BaseCommand
@@ -20,10 +21,13 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.team import Team
 from posthog.tasks.integrations import push_vercel_secrets
 
 logger = structlog.get_logger(__name__)
+
+TEAM_BATCH_SIZE = 1000
 
 
 class Command(BaseCommand):
@@ -37,10 +41,14 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        # SDK reads are per team, so the sweep reads the resources of every team in batches.
+        all_team_ids = list(Team.objects.order_by("id").values_list("id", flat=True))
         team_ids = sorted(
-            Integration.objects.filter(kind=Integration.IntegrationKind.VERCEL)
-            .values_list("team_id", flat=True)
-            .distinct()
+            {
+                resource.team_id
+                for batch in batched(all_team_ids, TEAM_BATCH_SIZE, strict=False)
+                for resource in IntegrationManager.vercel.oauth.list_in_teams(batch)
+            }
         )
 
         if options["dry_run"]:

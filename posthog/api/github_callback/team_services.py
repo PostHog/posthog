@@ -47,8 +47,6 @@ from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubInstallationAccessFetchError,
     GitHubIntegration,
-    Integration,
-    defer_repository_cache_fields,
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.integration.github_audit import GitHubAudit
@@ -102,7 +100,7 @@ def create_team_github_integration_from_oauth_code(
     installation_id: str | None,
     state_token: str | None,
     code: str | None,
-) -> Integration:
+) -> IntegrationRecord:
     if not installation_id:
         raise ValidationError("An installation_id must be provided")
 
@@ -120,8 +118,9 @@ def create_team_github_integration_from_oauth_code(
 
     if not is_valid_github_installation_id(installation_id):
         raise ValidationError("Invalid installation_id")
+    organization_id = Team.objects.get(pk=team_id).organization_id
     audit = GitHubAudit(
-        organization_id=Team.objects.get(pk=team_id).organization_id,
+        organization_id=organization_id,
         team_id=team_id,
         user=user,
         installation_id=installation_id,
@@ -148,9 +147,9 @@ def create_team_github_integration_from_oauth_code(
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
     instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
-
-    instance.config["connecting_user_github_login"] = authorization.gh_login
-    instance.save(update_fields=["config"])
+    instance = IntegrationManager.github.oauth.update(
+        team_id, instance.id, config_patch={"connecting_user_github_login": authorization.gh_login}
+    )
     refreshed_at = instance.config.get("refreshed_at", 0)
     expires_in = instance.config.get("expires_in", 3600)
     token_expires_at = datetime.fromtimestamp(refreshed_at + expires_in, tz=UTC).isoformat()
@@ -165,10 +164,10 @@ def create_team_github_integration_from_oauth_code(
         ),
         authorization,
         create_only=True,
-        originating_organization_id=instance.team.organization_id,
+        originating_organization_id=organization_id,
     )
 
-    audit.record("link_completed", path="oauth", linked_integration_id=instance.pk, after_commit=True)
+    audit.record("link_completed", path="oauth", linked_integration_id=instance.id, after_commit=True)
     return instance
 
 
@@ -218,7 +217,7 @@ GITHUB_ADOPTION_ADMIN_REQUIRED_MESSAGE = (
 
 def adopt_orphan_installation(
     *, user: User, team: Team, installation_id: str, discovery_id: str | None = None
-) -> Integration:
+) -> IntegrationRecord:
     """Create the team's first ``Integration`` row for a GitHub App installation that exists on
     GitHub but was never linked to any PostHog team — e.g. a non-admin clicked "Connect
     organization", GitHub created an install *request*, and a GitHub org admin approved it
@@ -259,8 +258,9 @@ def adopt_orphan_installation(
         credential.integration, source="github_callback", priority=Priority.NORMAL
     ).github_login
     if login:
-        instance.config["connecting_user_github_login"] = login
-        instance.save(update_fields=["config"])
+        instance = IntegrationManager.github.oauth.update(
+            team.id, instance.id, config_patch={"connecting_user_github_login": login}
+        )
 
     return instance
 
@@ -478,9 +478,7 @@ def _org_linked_github_installation_ids(organization: Organization) -> set[str]:
     access error rather than being offered up for adoption, or the access boundary in
     ``_accessible_org_team_ids`` would leak through the adoption path.
     """
-    org_github = defer_repository_cache_fields(
-        Integration.objects.filter(team__organization_id=organization.id, kind="github")
-    )
+    org_github = IntegrationManager.github.oauth.list_in_teams(organization.teams.values_list("id", flat=True))
     return {
         str(installation_id)
         for integration in org_github
@@ -545,16 +543,12 @@ def link_existing_team_github_integration(
         # No source specified: auto-resolve the org's existing GitHub installation. This backs the
         # one-click "Link existing installation" UI, where a second project reuses the org's single
         # install without the caller having to know a sibling team id or the installation id.
-        org_github = (
-            Integration.objects.filter(
-                team__organization_id=organization.id, team_id__in=accessible_team_ids, kind="github"
-            )
-            .exclude(team_id=team_id)
-            .order_by("id")
+        org_github = sorted(
+            IntegrationManager.github.oauth.list_in_teams(accessible_team_ids - {team_id}), key=lambda row: row.id
         )
         distinct_installation_ids = {
             str(config_installation_id)
-            for integration in defer_repository_cache_fields(org_github)
+            for integration in org_github
             if (config_installation_id := (integration.config or {}).get("installation_id"))
         }
         if not distinct_installation_ids:
@@ -566,7 +560,15 @@ def link_existing_team_github_integration(
             raise ValidationError(
                 "Your organization has multiple GitHub installations; specify which one to link via installation_id"
             )
-        source = org_github.for_github_installation_id(next(iter(distinct_installation_ids))).first()
+        only_installation_id = next(iter(distinct_installation_ids))
+        source = next(
+            (
+                integration
+                for integration in org_github
+                if str((integration.config or {}).get("installation_id")) == only_installation_id
+            ),
+            None,
+        )
         if source is None:
             raise ValidationError(
                 "No team in your organization has a GitHub installation to link",
@@ -604,7 +606,7 @@ class _InstallationAccount:
     type: str | None
 
 
-def _sibling_installation_account(integration: Integration) -> _InstallationAccount:
+def _sibling_installation_account(integration: IntegrationRecord) -> _InstallationAccount:
     """Account to show for an installation a project in the organization already has.
 
     The name must be the GitHub account the app is installed on, never the login of the person who
@@ -646,9 +648,8 @@ def list_org_github_installations(
     duplicated.
     """
     accessible_team_ids = _accessible_org_team_ids(user, organization)
-    org_github = defer_repository_cache_fields(
-        Integration.objects.filter(team__organization_id=organization.id, kind="github").select_related("team")
-    ).order_by("id")
+    team_names = dict(organization.teams.values_list("id", "name"))
+    org_github = sorted(IntegrationManager.github.oauth.list_in_teams(team_names), key=lambda row: row.id)
 
     # One pass over the org's rows yields both the sibling entries and the org-wide linked set the
     # adoption merge below excludes against, instead of two near-identical queries.
@@ -682,7 +683,7 @@ def list_org_github_installations(
             "account_name": sibling_account.name,
             "account_type": sibling_account.type,
             "source_team_id": integration.team_id,
-            "source_team_name": integration.team.name,
+            "source_team_name": team_names[integration.team_id],
         }
 
     personal_installations = (
