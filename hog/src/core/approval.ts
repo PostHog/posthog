@@ -96,7 +96,7 @@ function pendingPath(runtime: Runtime, command: string): string {
     return hogFile(runtime, `pending-${command.replace(/^hog /, '').replaceAll(' ', '-')}.json`)
 }
 
-async function readPending<Pending extends PendingApproval>(
+export async function readPending<Pending extends PendingApproval>(
     runtime: Runtime,
     flow: ApprovalWait<Pending, unknown>
 ): Promise<Pending | undefined> {

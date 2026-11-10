@@ -59,13 +59,18 @@ export function loginFlow(
     runtime: Runtime,
     host: Host,
     scopes: readonly string[],
-    { command = LOGIN_COMMAND, requiredScopes = [] }: { command?: string; requiredScopes?: readonly string[] } = {}
+    {
+        command = LOGIN_COMMAND,
+        requiredScopes = [],
+        projectId,
+    }: { command?: string; requiredScopes?: readonly string[]; projectId?: ProjectId } = {}
 ): ApprovalFlow<PendingLogin, OAuthLogin> {
     return {
         ...loginWait(runtime, command),
-        start: () => startDeviceLogin(runtime, host, { scopes, requiredScopes, command }),
+        start: () => startDeviceLogin(runtime, host, { scopes, requiredScopes, command, projectId }),
         reuse: (existing) =>
             existing.host === host &&
+            existing.projectId === projectId &&
             sameScopes(existing.scopes, scopes) &&
             sameScopes(existing.requiredScopes, requiredScopes),
     }

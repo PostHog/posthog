@@ -231,8 +231,11 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
         add({ host, projectId })
         add({ host, projectId: null })
     }
+    // A login filed under its host alone keeps its secret in the host's item, so sweeping that item
+    // before the login's own logout would leave nothing to revoke it with.
+    const hostItemsLast = [...items].sort(([, a], [, b]) => Number(a.projectId === null) - Number(b.projectId === null))
     const loggedOut: LoggedOutLogin[] = []
-    for (const [name, owner] of items) {
+    for (const [name, owner] of hostItemsLast) {
         const { host, projectId } = owner
         const target = projectId === null ? undefined : { host, projectId }
         const record = target && loginFor(settings, target)
