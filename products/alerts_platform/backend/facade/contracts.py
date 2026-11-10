@@ -1205,6 +1205,9 @@ class SourceConfigSpec:
     # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
     # the other kinds and the platform's own pages closed.
     access_flag: str | None = None
+    # `source_config` keys an edit keeps the stored value of when it leaves them out. A stored config
+    # without one predates it, so an edit that fills it in does not end the alert's firings.
+    kept_source_config_keys: frozenset[str] = frozenset()
 
     @property
     def creatable(self) -> bool:

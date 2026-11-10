@@ -1226,11 +1226,25 @@ export interface InsightPlatformAlertConditionApi {
     detector?: InsightPlatformAlertConditionApiDetector
 }
 
+/**
+ * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
+ */
+export type InsightPlatformAlertSourceConfigApiConfig = { [key: string]: unknown } | null
+
 export interface InsightPlatformAlertSourceConfigApi {
     /** The insight the alert checks. It cannot change through this API. */
     insight_id: number
     /** The bound the insight's value is checked against. */
     condition: InsightPlatformAlertConditionApi
+    /** Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API. */
+    config?: InsightPlatformAlertSourceConfigApiConfig
+    /** Whether checks skip Saturdays and Sundays. It can't change through this API. */
+    skip_weekend?: boolean
+    /**
+     * How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API.
+     * @minimum 0
+     */
+    evaluation_delay_intervals?: number
 }
 
 /**

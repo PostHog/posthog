@@ -193,6 +193,16 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
             "enabled",
             "An AI detector alert can't be turned back on through this API. Turn it on in the insight's alert settings.",
         )
+    for key, stored in (
+        ("config", alert.config),
+        ("skip_weekend", bool(alert.skip_weekend)),
+        ("evaluation_delay_intervals", alert.evaluation_delay_intervals),
+    ):
+        # Insight checks these against the insight's query, so only the insight API may change them.
+        if key in edit.source_config and edit.source_config[key] != stored:
+            raise InvalidPlatformAlertEdit(
+                "source_config", f"{key} can't change through this API. Change it in the insight's alert settings."
+            )
     condition = edit.source_config[SOURCE_CONDITION_KEY]
     if condition.get("detector") != alert.detector_config:
         # A detector config is checked against its insight and its access rules in the insight API only.
