@@ -80,7 +80,7 @@ Two identities, deliberately not conflated:
 
 |                | What it is                                                                                               | Trusted?                                                                                                              |
 | -------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **Deployment** | The pod set that signed the token (`posthog-django`, a temporal worker)                                  | Yes. It is derived from _which key verified the token_, never from a claim, so there is nothing in the token to forge |
+| **Deployment** | The pod set that signed the token (`posthog-web-django`, a temporal worker)                              | Yes. It is derived from _which key verified the token_, never from a claim, so there is nothing in the token to forge |
 | **Caller**     | The code path that wanted the credential (`warehouse-sources`, `cdp`), from a code enum at the call site | No. Django holds one key and hosts many products, so a compromised Django pod could name any of them                  |
 
 Authorization hangs off the deployment. The caller claim reaches the audit log so an incident can
@@ -126,11 +126,16 @@ Each route accepts only its own audience, and `aud` must be a plain string, so o
 - The owner comes only from the token. A route never reads it from the path, query or body.
 - A rejected token gets a bare 401. A valid token that does not allow the request gets a 403 with `forbidden_op`, `forbidden_kind` or `forbidden_ref`.
 
-| Deployment                                  | Ops                                                          |
-| ------------------------------------------- | ------------------------------------------------------------ |
-| `posthog-django`                            | all, including `*_by_external_id`, `delete_owner`, `changes` |
-| `temporal-worker[-*]`, `posthog-celery[-*]` | `read`, `resolve`, `write`, `refresh`, `list_across_teams`   |
-| `cdp[-*]`, `ingestion[-*]`, `push-api[-*]`  | `resolve`                                                    |
+Deployments match by exact name. There is no prefix or family match.
+The names come from the `__CALLER_KEY_<DEPLOYMENT>` entries in `PostHog/charts` (`apps/<name>`).
+`src/auth/policy.ts` lists every name.
+
+| Deployment                                                                                                                                  | Ops                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)                                                         | all, including `revoke`, `delete`, `*_by_external_id`, `delete_owner`, `changes` |
+| `temporal-worker-{batch-exports,data-warehouse,general-purpose,health-check,max-ai,stamphog,tasks-agent,video-export,wizard}`               | `read`, `resolve`, `write`, `refresh`, `list_across_teams`, `mint`               |
+| `posthog-worker-django` (Celery), `posthog-query-django`, `posthog-admin-django`, `warehouse-sources-load`                                  | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                       |
+| `cdp-*` (the listed CDP API, cyclotron worker and events consumer deployments) and the listed `ingestion-*` lanes, including `cdp-api-push` | `resolve`                                                                        |
 
 ## Storage and rotation
 
