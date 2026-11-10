@@ -1,28 +1,20 @@
-EXECUTE_SQL_SYSTEM_PROMPT = """
+from ee.hogai.chat_agent.sql.prompts import (
+    HOGQL_DIALECT_RULES,
+    HOGQL_EVENTS_TIMESTAMP_RULE,
+    HOGQL_RELATIONAL_JOIN_RULES,
+)
+
+EXECUTE_SQL_SYSTEM_PROMPT = (
+    """
 Use this tool to generate a HogQL query, which is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 
-# Important HogQL differences versus other SQL dialects
-- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
-- JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
-- Width-suffixed conversion functions (toInt64, toInt32, toFloat64, toUInt8, etc., including their OrNull/OrZero variants like toInt32OrNull, toFloat64OrZero) are not supported, if you use them, the query will fail. Use the unsuffixed form instead: toInt(), toFloat(), toUInt() and their OrNull/OrZero variants (toIntOrNull, toFloatOrZero, toUIntOrNull, ...).
-- Conversion functions with 'OrZero' or 'OrNull' suffix (like toDateOrNull, toIntOrNull) require String arguments. If you have a DateTime/numeric value, use the direct conversion instead (toDate, toInt) or convert to string first with toString(). Example: use toDate(timestamp) NOT toDateOrNull(toTimeZone(timestamp, 'UTC')).
-- toDate() takes exactly one argument. It does not accept a timezone argument like ClickHouse's toDate(value, timezone). Convert to the desired timezone first with toTimeZone(), then wrap in toDate(). Example: toDate(toTimeZone(timestamp, 'US/Pacific')) NOT toDate(timestamp, 'US/Pacific').
-- The ClickHouse `SETTINGS` clause is not supported in HogQL and will always cause an "Unsupported: SelectStmt.settingsClause()" error. Do not append `SETTINGS ...` to a query, even to tune things like `max_execution_time` or `join_algorithm`.
-- LAG()/LEAD() are not supported. Instead, use lagInFrame()/leadInFrame().
-  Caution: lagInFrame/leadInFrame behavior differs from the standard SQL LAG/LEAD window function.
-  The HogQL window functions lagInFrame/leadInFrame respect the window frame. To get behavior identical to LAG/LEAD, use `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.
-- count() does not take * as an argument, it's just count().
-- cardinality() is not supported for bitmaps. Use bitmapCardinality() instead to get the cardinality of a bitmap.
-- toStartOfWeek() takes an optional second argument for week mode which should be a numeric constant (0 for Sunday start, 1 for Monday start), NOT a string like 'Mon' or 'Sun'. Example: toStartOfWeek(timestamp, 1) for Monday start.
-- There is no split() function in HogQL. Use splitByChar(separator, string) or splitByString(separator, string) instead to split strings into arrays. Example: splitByChar('@', email)
-- Array functions like splitByChar(), splitByString() cannot be used directly on Nullable fields because Array types cannot be wrapped in Nullable. Always handle nulls first using coalesce() or ifNull(). Example: splitByChar(',', coalesce(interests_string, '')) NOT splitByChar(',', interests_string) if interests_string is nullable.
-- Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
-  This is a hard technical constraint that cannot be overridden, even if explicitly requested.
-  Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`.
-  If asked to use relational operators in JOIN, you should refuse and suggest CROSS JOIN with WHERE clause.
-- A WHERE clause should be after all the JOIN clauses.
-- For performance, every SELECT from the `events` table should have a `WHERE` clause narrowing down the timestamp to the relevant period.
-- HogQL queries should not end in semicolons.
+# """
+    + HOGQL_DIALECT_RULES
+    + "\n"
+    + HOGQL_RELATIONAL_JOIN_RULES
+    + "\n"
+    + HOGQL_EVENTS_TIMESTAMP_RULE
+    + """
 
 # Events and properties
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
@@ -156,7 +148,8 @@ GROUP BY week_of
 ORDER BY week_of DESC
 ```
 </example>
-""".strip()
+"""
+).strip()
 
 EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT = """
 The query you generated cannot be parsed. It returned the following error:
