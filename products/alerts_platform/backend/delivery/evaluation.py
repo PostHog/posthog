@@ -18,10 +18,19 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook, recipients
+from products.alerts_platform.backend.delivery import (
+    delivery_paths,
+    describers,
+    episode_paths,
+    legacy_webhook,
+    recipients,
+)
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
-from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.dispatch import (
+    add_late_image as add_late_image_to_target,
+    deliver,
+)
 from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
 from products.alerts_platform.backend.delivery.message import INCIDENT_KINDS, AlertMessage
@@ -30,9 +39,15 @@ from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy, ThreadKey
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DeliveryTransport,
+    DestinationMisconfigured,
+    RootImageEditor,
+)
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
+    NO_LATE_IMAGE,
     AlertDeliveryRequest,
     AlertDestinationData,
     AlertEventKind,
@@ -41,6 +56,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EvaluationAnnouncement,
     IncidentAction,
+    LateImageResult,
     LegacyEventEmission,
     MessageLink,
     StoredAlertDestination,
@@ -353,6 +369,94 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         emitted_transitions=len(emitted),
         emitted_events=sum(emission.event_count for emission in emitted),
     )
+
+
+def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -> LateImageResult:
+    """Puts the image the source draws from `late_detail` into the messages this evaluation's firings
+    opened, after they went out without it.
+
+    `late_detail` is what the check would have recorded in `source_detail` had it been ready, so the
+    source's own image resolver mints the image, as it does for a message that carries it on time.
+
+    Only a transport that can edit what it sent takes part, which is Slack. Each destination subscribed
+    to firings is read now, as a delivery reads it, and one with no message for the evaluation yet
+    counts as waiting, because its delivery may still be on the way.
+    """
+    firing_event = request.event_ids_by_kind.get(AlertEventKind.FIRING.value)
+    if not request.owned_by_platform or not request.sends_messages or firing_event is None:
+        return NO_LATE_IMAGE
+    announced = announcement(
+        request.team_id,
+        request.configuration_id,
+        request.evaluation_key,
+        source=request.source,
+        incident_grouping_keys=request.incident_actions.keys(),
+        part=request.part,
+        parts=request.parts,
+    )
+    firings = tuple(
+        transition
+        for transition in (announced.transitions if announced else ())
+        if transition.kind == AlertEventKind.FIRING
+    )
+    if not firings:
+        return NO_LATE_IMAGE
+    # One image for every firing, because a source's late detail describes the check, not a group.
+    first = firings[0]
+    image = describers.resolve_image(
+        request.source,
+        team_id=request.team_id,
+        transition=replace(first, source_detail={**first.source_detail, **late_detail}),
+    )
+    if image is None:
+        return NO_LATE_IMAGE
+
+    # A firing already sent through HogFunctions has no native message for an emitted-events destination.
+    @cache
+    def natively_sent() -> tuple[AnnouncedTransition, ...]:
+        return tuple(transition for transition in firings if not _sent_through_hog_functions(request, transition))
+
+    thread_store = DatabaseThreadStore(request.team_id)
+    result = NO_LATE_IMAGE
+    for subscribed_destination in _destinations(request, firing_event, _platform_destinations(request)):
+        transport_class = _TRANSPORTS.get(subscribed_destination.data["type"])
+        if transport_class is None or not issubclass(transport_class, RootImageEditor):
+            continue
+        transitions = natively_sent() if subscribed_destination.receives_emitted_events else firings
+        if not transitions:
+            continue
+        try:
+            result += add_late_image_to_target(
+                transport=transport_class(),
+                thread_store=thread_store,
+                team_id=request.team_id,
+                configuration_id=request.configuration_id,
+                evaluation_key=request.evaluation_key,
+                target=subscribed_destination.data,
+                transitions=transitions,
+                image=image,
+            )
+        # One channel that refuses the edit must not cost the others theirs. A refusal that only the
+        # destination's owner can fix gets no retry. Any other, such as a rate limit, waits for one.
+        except DeliveryError as error:
+            logger.warning(
+                "alerts_platform_late_image_refused", destination_id=subscribed_destination.id, error=str(error)
+            )
+            if not isinstance(error, DestinationMisconfigured):
+                result += LateImageResult(edited=0, waiting=1)
+    return result
+
+
+def _sent_through_hog_functions(request: AlertDeliveryRequest, transition: AnnouncedTransition) -> bool:
+    if transition.episode_started_at is None or delivery_paths.emitter_for(request.source) is None:
+        return False
+    path = episode_paths.stored_path(
+        team_id=request.team_id,
+        configuration_id=request.configuration_id,
+        grouping_key=transition.grouping_key,
+        episode_started_at=transition.episode_started_at,
+    )
+    return path == DeliveryPath.HOG_FUNCTION
 
 
 def _count_emissions(request: AlertDeliveryRequest, outcome: DeliveryOutcomeLabel, transitions: int) -> None:
