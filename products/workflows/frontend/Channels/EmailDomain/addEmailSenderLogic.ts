@@ -300,12 +300,14 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
                 verified: addedSender.verified,
                 existing_senders_on_domain: values.selectedDomain?.senders.length ?? 0,
             })
-            actions.loadIntegrations()
-            // An unverified sender leaves the modal open on the domain, which now offers to finish verification.
             if (addedSender.verified) {
                 lemonToast.success(`Added ${values.fromAddress} as a sender`)
                 actions.closeAddSender()
+            } else if (values.selectedDomain) {
+                // The refresh marks the domain unverified, and the default pick would then skip to another domain.
+                actions.selectDomain(values.selectedDomain.domain)
             }
+            actions.loadIntegrations()
         },
         useNewDomain: () => {
             actions.closeAddSender()
