@@ -6368,12 +6368,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (cache.dashboardChangesPersisted) {
                 cache.dashboardChangesPersisted = false
                 if (payload?.scope === 'layout') {
-                    lemonToast.success(payload.recordUndo ? 'Layout saved' : 'Layout change undone', {
-                        toastId: `dashboard-layout-saved-${props.id}`,
-                        button: values.canUndoLayoutChange
-                            ? { label: 'Undo', action: () => actions.undoLayoutChange() }
-                            : undefined,
-                    })
+                    // A moved tile shows it saved, so only an undo, which moves tiles the editor did not touch, says so.
+                    if (!payload.recordUndo) {
+                        lemonToast.success('Layout change undone', {
+                            toastId: `dashboard-layout-saved-${props.id}`,
+                            button: values.canUndoLayoutChange
+                                ? { label: 'Undo', action: () => actions.undoLayoutChange() }
+                                : undefined,
+                        })
+                    }
                 } else {
                     lemonToast.success('Dashboard saved')
                 }

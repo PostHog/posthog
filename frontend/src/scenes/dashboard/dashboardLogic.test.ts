@@ -2931,7 +2931,7 @@ describe('dashboardLogic', () => {
             )
         })
 
-        it('confirms a real save with a success toast that offers Undo', async () => {
+        it('saves a layout change quietly and confirms only the undo', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const firstTile = logic.values.dashboard!.tiles[0]
@@ -2953,10 +2953,14 @@ describe('dashboardLogic', () => {
                 logic.actions.saveEditModeChanges('layout')
             }).toFinishAllListeners()
 
-            expect(successToast).toHaveBeenCalledWith(
-                'Layout saved',
-                expect.objectContaining({ button: expect.objectContaining({ label: 'Undo' }) })
-            )
+            expect(successToast).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.undoLayoutChange()
+            }).toFinishAllListeners()
+
+            expect(successToast).toHaveBeenCalledTimes(1)
+            expect(successToast).toHaveBeenCalledWith('Layout change undone', expect.anything())
         })
 
         it('counts a duplicated tile as saved only when the server has it', async () => {
