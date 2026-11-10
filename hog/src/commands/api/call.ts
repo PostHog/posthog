@@ -71,6 +71,7 @@ export default defineCommand({
             )
         }
 
+        await ctx.ensureScopes(tool.requiredScopes, `to call ${tool.name}`)
         const result = await withApiConnection(ctx, options, tool.readOnly || tool.idempotent, (connection) =>
             library.call(tool.name, validation.input, connection, options.confirm === true)
         )
@@ -78,15 +79,16 @@ export default defineCommand({
         if (result.ok) {
             return result.value
         }
-        // PostHog names one missing scope per refusal, so look up the key to name all of them.
-        if (result.error.code === 'permission_denied') {
-            const granted = await grantedScopes(ctx, library)
-            const missing = granted ? library.missingScopes(granted, tool.requiredScopes) : []
-            if (missing.length > 0) {
-                throw missingScopesError(tool.name, missing)
-            }
+        if (result.error.code !== 'permission_denied') {
+            throw toHogError(result.error, tool.name)
         }
-        throw toHogError(result.error, tool.name)
+        const credentials = await ctx.credentials()
+        // PostHog names one missing scope per refusal, so look up the key to name all of them.
+        const granted = await grantedScopes(ctx, library)
+        const missing = granted ? library.missingScopes(granted, tool.requiredScopes) : []
+        throw missing.length > 0
+            ? missingScopesError(tool.name, missing, credentials)
+            : toHogError(result.error, tool.name, credentials)
     },
 
     telemetry: ({ args, options }) => ({ tool: args.tool, confirm: options.confirm === true }),

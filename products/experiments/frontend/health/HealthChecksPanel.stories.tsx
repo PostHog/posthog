@@ -1,11 +1,17 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
+
 import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import { userEvent } from 'storybook/test'
 
-import type { ExperimentHealthCheckResultApi, ExperimentHealthCheckRuleApi } from '../generated/api.schemas'
+import type {
+    ExperimentHealthCheckResultApi,
+    ExperimentHealthCheckRuleApi,
+    ExperimentHealthSetupApi,
+} from '../generated/api.schemas'
 import { HealthChecksPanel } from './HealthChecksPanel'
 import type { HealthPanelCheck } from './healthPanelChecks'
 import type { HealthPanelFinding } from './healthPanelFindings'
@@ -56,6 +62,16 @@ const FLAG_SETUP_CHECKS = [
     passed('forced_variant_release_condition', 'Release conditions that force a variant'),
 ]
 
+const SETUP: ExperimentHealthSetupApi = {
+    release_conditions: [{ rollout_percentage: 50, property_count: 1, aggregation_group_type_index: null }],
+    early_exit: false,
+    bucketing_identifier: 'distinct_id',
+    aggregation_group_type_index: null,
+    evaluation_runtime: 'all',
+    evaluation_contexts: ['web-app'],
+    ensure_experience_continuity: false,
+}
+
 const meta: Meta<typeof HealthChecksPanel> = {
     title: 'Experiments/HealthChecksPanel',
     component: HealthChecksPanel,
@@ -64,7 +80,7 @@ const meta: Meta<typeof HealthChecksPanel> = {
         mockDate: '2026-11-03 12:00:00',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
-    args: { onFindingActedOn: () => {}, exposures: null },
+    args: { onFindingActedOn: () => {}, exposures: null, setup: SETUP },
     decorators: [
         (Story) => (
             <div className="w-[60rem]">
@@ -156,6 +172,7 @@ const UNEVEN_SPLIT_EXPOSURES: ExperimentExposureQueryResponse = {
     kind: NodeKind.ExperimentExposureQuery,
     timeseries: [],
     total_exposures: { control: 4790, test: 2420, 'test-2': 2392, $multiple: 403 },
+    exposed_by_library: { web: 8204, 'posthog-node': 1601, [BREAKDOWN_NULL_STRING_LABEL]: 200 },
     date_range: { date_from: '2026-10-19T00:00:00Z' },
     sample_ratio_mismatch: { expected: { control: 4801, test: 2400.5, 'test-2': 2400.5 }, p_value: 0.71 },
     health_checks: [

@@ -151,6 +151,7 @@ describe('explain-chart', () => {
                         { text: 'From one referrer.', query: { kind: 'TrendsQuery', series: [] } },
                         { text: 'The signup funnel shows it.', insightShortId: 'xyz98765' },
                         { text: 'A release went out.', url: github },
+                        { text: 'Raw events agree.', query: { kind: 'HogQLQuery', query: 'SELECT 1' } },
                     ],
                 },
             ],
@@ -160,13 +161,14 @@ describe('explain-chart', () => {
 
         const shown = result.chapters[0]!.evidence.map((item) => item.url)
         expect(shown[0]).toContain('/project/1/insights/new')
-        expect(shown.slice(1)).toEqual(['https://us.posthog.com/project/1/insights/xyz98765', github])
+        expect(shown.slice(1, 3)).toEqual(['https://us.posthog.com/project/1/insights/xyz98765', github])
+        expect(shown[3]).toContain('/project/1/sql?open_query=')
         await explainChartSaveHandler(context, args)
         const { saveExplanation } = vi.mocked(context.api.insights).mock.results[0]!.value
         const stored = saveExplanation.mock.calls[0][0].data.chapters[0].evidence.map(
             (item: { url: string | null }) => item.url
         )
-        expect(stored).toEqual([null, null, github])
+        expect(stored).toEqual([null, null, github, null])
     })
 
     it.each([

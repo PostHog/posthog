@@ -13,6 +13,7 @@ from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.db import InterfaceError, InternalError, OperationalError
+from django.test import override_settings
 
 import redis.exceptions as redis_exceptions
 import deltalake.exceptions
@@ -51,6 +52,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.r
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.test_delta_errors import (
+    OWN_BUCKET,
+    OWN_BUCKET_LIST_FORBIDDEN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
@@ -106,14 +111,24 @@ def _passthrough(fn, *, executor=None):
     return _inner
 
 
+def _without_oauth_fields(source_mock: Any) -> None:
+    # The store asks the source class where its OAuth pointer is. A MagicMock answer is not an integration id.
+    if isinstance(source_mock, mock.Mock):
+        source_mock.in_use_oauth_slot.return_value = None
+        source_mock.in_use_oauth_pointer.return_value = None
+
+
 @contextlib.contextmanager
 def _patched_activity(source_mock, model=None, schema=None):
     """Patch out every dependency import_data_activity_sync touches before source setup."""
+    _without_oauth_fields(source_mock)
     if model is None:
         model = mock.MagicMock()
         model.pipeline_version = ExternalDataJob.PipelineVersion.V3
         model.pipeline.source_type = "MongoDB"
         model.pipeline.job_inputs = {}
+        # The source has no credentials row, so the store reads `job_inputs` as stored.
+        model.pipeline.credentials_integration_id = None
         model.folder_path = mock.Mock(return_value="dataset")
 
     if schema is None:
@@ -991,17 +1006,30 @@ async def test_non_failover_internal_error_falls_through_to_the_default_branch()
     logger.aexception.assert_awaited_once()
 
 
+@parameterized.expand(
+    [
+        # A transient S3 credential-provider blip (IMDS/STS) talking to our own data-warehouse
+        # bucket, e.g. while resetting the Delta table.
+        (
+            "credential_provider_blip",
+            OSError(
+                "Operation not supported: the credential provider was not enabled: "
+                "no providers in chain provided credentials"
+            ),
+        ),
+        # Our own bucket's 403 after another exception type wrapped it. Its body says "not
+        # authorized", which the source map below matches as a customer access denial.
+        ("own_bucket_forbidden_wrapped", Exception(OWN_BUCKET_LIST_FORBIDDEN)),
+    ]
+)
+@override_settings(DATAWAREHOUSE_BUCKET=OWN_BUCKET, BUCKET_URL=f"s3://{OWN_BUCKET}")
 @pytest.mark.asyncio
-async def test_transient_object_store_error_reraised_as_non_reportable():
-    # A transient S3 credential-provider blip (IMDS/STS) talking to our own data-warehouse bucket,
-    # e.g. while resetting the Delta table. It's retryable (Temporal retries the activity as usual),
-    # but re-raising the bare OSError would still be captured by the activity interceptor, which
-    # only skips reporting for NonReportableError — so it must be wrapped, not just logged at warning.
-    error = OSError(
-        "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials"
-    )
+async def test_transient_object_store_error_reraised_as_non_reportable(_name: str, error: Exception):
+    # It's retryable (Temporal retries the activity as usual), but re-raising the bare error would
+    # still be captured by the activity interceptor, which only skips reporting for
+    # NonReportableError — so it must be wrapped, not just logged at warning.
     source = mock.MagicMock(spec=SimpleSource)
-    source.get_non_retryable_errors.return_value = {}
+    source.get_non_retryable_errors.return_value = {"not authorized": "Your row-level security policy denied the read."}
     source.get_retryable_errors.return_value = set()
 
     logger = mock.MagicMock()
@@ -1009,10 +1037,14 @@ async def test_transient_object_store_error_reraised_as_non_reportable():
     logger.aexception = mock.AsyncMock()
     logger.adebug = mock.AsyncMock()
 
-    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as mock_non_retryable,
+    ):
         with pytest.raises(NonReportableError) as exc_info:
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
+    mock_non_retryable.assert_not_awaited()
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
@@ -1261,11 +1293,13 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 
 @contextlib.contextmanager
 def _patched_activity_reaching_run(source_mock, schema, api_version=None, workflow_run_id=None):
+    _without_oauth_fields(source_mock)
     model = mock.MagicMock()
     model.workflow_run_id = workflow_run_id
     model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
+    model.pipeline.credentials_integration_id = None
     model.pipeline.api_version = api_version
     model.folder_path = mock.Mock(return_value="dataset")
 
@@ -1641,6 +1675,7 @@ def _probe_model() -> mock.MagicMock:
     model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "Postgres"
     model.pipeline.job_inputs = {}
+    model.pipeline.credentials_integration_id = None
     model.folder_path = mock.Mock(return_value="dataset")
     return model
 

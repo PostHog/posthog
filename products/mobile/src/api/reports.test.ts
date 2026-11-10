@@ -3,6 +3,8 @@ import { reportFixture } from '@/model/adapters/testFixtures'
 import { setAuthProvider } from './client'
 import { dismissReport, fetchInboxPage, fetchLatestReviewerArtefact, INBOX_PAGE_SIZE, resolveReport } from './reports'
 
+const SCOPE = { host: 'https://app.example.com', projectId: 2 }
+
 describe('reports api', () => {
     const urls: string[] = []
     const bodies: unknown[] = []
@@ -31,7 +33,7 @@ describe('reports api', () => {
     })
 
     test.each([0, INBOX_PAGE_SIZE])('the inbox asks for personal reports at offset %i', async (offset) => {
-        await expect(fetchInboxPage(offset)).resolves.toEqual({ count: 0, next: null, results: [] })
+        await expect(fetchInboxPage(SCOPE, offset)).resolves.toEqual({ count: 0, next: null, results: [] })
 
         const url = new URL(urls[0] ?? '')
         expect(url.pathname).toBe('/api/projects/2/signals/reports/')
@@ -78,7 +80,7 @@ describe('reports api', () => {
             text: async () => JSON.stringify(body) ?? '',
         })) as unknown as typeof fetch
 
-        await expect(fetchInboxPage(0)).rejects.toThrow("Couldn't load your inbox. Try again.")
+        await expect(fetchInboxPage(SCOPE, 0)).rejects.toThrow("Couldn't load your inbox. Try again.")
     })
 
     test.each([
@@ -104,7 +106,7 @@ describe('reports api', () => {
             headers: { get: () => null },
             text: async () => JSON.stringify(page),
         })) as unknown as typeof fetch
-        await expect(fetchInboxPage(0)).resolves.toEqual(page)
+        await expect(fetchInboxPage(SCOPE, 0)).resolves.toEqual(page)
     })
 
     test('finds the newest reviewer assignment beyond the first artefact page', async () => {
@@ -124,7 +126,7 @@ describe('reports api', () => {
             text: async () => JSON.stringify(pages.shift()),
         })) as unknown as typeof fetch
 
-        await expect(fetchLatestReviewerArtefact('report-1')).resolves.toMatchObject(assignment)
+        await expect(fetchLatestReviewerArtefact(SCOPE, 'report-1')).resolves.toMatchObject(assignment)
         const requests = jest.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(String(url)))
         expect(requests.map((url) => url.searchParams.get('offset'))).toEqual([null, '100'])
     })
@@ -138,24 +140,24 @@ describe('reports api', () => {
                 JSON.stringify({ count: 101, next: 'https://other.example.com/steal?offset=100', results: [] }),
         })) as unknown as typeof fetch
 
-        await expect(fetchLatestReviewerArtefact('report-1')).rejects.toThrow('Invalid report artefact page')
+        await expect(fetchLatestReviewerArtefact(SCOPE, 'report-1')).rejects.toThrow('Invalid report artefact page')
         expect(globalThis.fetch).toHaveBeenCalledTimes(1)
     })
 
     test.each([
         {
             name: 'resolve sends the reason and the trimmed note',
-            send: () => resolveReport('report-1', 'pr_merged', '  Fixed in #12 \n'),
+            send: () => resolveReport(SCOPE, 'report-1', 'pr_merged', '  Fixed in #12 \n'),
             body: { state: 'resolved', dismissal_reason: 'pr_merged', dismissal_note: 'Fixed in #12' },
         },
         {
             name: 'dismiss leaves out a blank note',
-            send: () => dismissReport('report-1', 'other', '   '),
+            send: () => dismissReport(SCOPE, 'report-1', 'other', '   '),
             body: { state: 'suppressed', dismissal_reason: 'other' },
         },
         {
             name: 'a long note is cut to the API limit',
-            send: () => dismissReport('report-1', 'analysis_wrong', 'x'.repeat(4100)),
+            send: () => dismissReport(SCOPE, 'report-1', 'analysis_wrong', 'x'.repeat(4100)),
             body: { state: 'suppressed', dismissal_reason: 'analysis_wrong', dismissal_note: 'x'.repeat(4000) },
         },
     ])('$name', async ({ send, body }) => {

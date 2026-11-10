@@ -17,6 +17,16 @@ export type AiAccess =
     | { kind: 'needs_consent' }
     | { kind: 'ready' }
 
+/**
+ * The project an AI action runs in. A report a web link opened runs in the link's project, so the approval that
+ * counts is the one of that project's organization, not the session's.
+ */
+export type AiProject = number | null | undefined
+
+function aiProjectId(project: AiProject): number | null {
+    return project ?? useAuthStore.getState().projectId
+}
+
 export function currentAiIdentity(): string | null {
     const { status, host, user, projectId } = useAuthStore.getState()
     return status === 'signed_in' && host && user && projectId !== null
@@ -24,9 +34,10 @@ export function currentAiIdentity(): string | null {
         : null
 }
 
-export function currentAiAccess(verifiedOrganization?: ProjectOrganization): AiAccess {
+export function currentAiAccess(verifiedOrganization?: ProjectOrganization, project?: AiProject): AiAccess {
     const auth = useAuthStore.getState()
-    const { host, user, projectId } = auth
+    const { host, user } = auth
+    const projectId = aiProjectId(project)
     if (!currentAiIdentity() || !host || !user || projectId === null) {
         return { kind: 'org_unknown' }
     }
@@ -47,9 +58,18 @@ export function currentAiAccess(verifiedOrganization?: ProjectOrganization): AiA
         : { kind: 'needs_consent' }
 }
 
-export async function refreshAiOrganization(identity: string, signal?: AbortSignal): Promise<ProjectOrganization> {
-    const auth = useAuthStore.getState()
-    const project = auth.projects.find((candidate) => candidate.id === auth.projectId)
+/** An organization the cached account cannot name fails here, so an unverifiable project never reaches an AI call. */
+export async function refreshAiOrganization(
+    identity: string,
+    signal?: AbortSignal,
+    targetProject?: AiProject
+): Promise<ProjectOrganization> {
+    const projectId = aiProjectId(targetProject)
+    // A link can open a report in a project the account was cached before, so a stale list is not the last word.
+    if (projectId !== null && !useAuthStore.getState().projects.some((candidate) => candidate.id === projectId)) {
+        await useAuthStore.getState().reloadAccount()
+    }
+    const project = useAuthStore.getState().projects.find((candidate) => candidate.id === projectId)
     if (!project || currentAiIdentity() !== identity) {
         throw new Error('No current project')
     }
@@ -89,6 +109,7 @@ export async function refreshAiOrganization(identity: string, signal?: AbortSign
 interface ApprovalRequest {
     identity: string
     action: AiAction
+    project: AiProject
     access: AiAccess | null
     checking: boolean
 }
@@ -112,23 +133,24 @@ export async function checkAiApproval(accept = false): Promise<void> {
     }
     operation.request = { ...operation.request, checking: true }
     useAiApprovalStore.setState({ request: operation.request })
+    const { identity, project } = operation.request
     try {
-        const organization = await refreshAiOrganization(operation.request.identity, operation.signal)
+        const organization = await refreshAiOrganization(identity, operation.signal, project)
         await waitForAiConsent()
         if (pending !== operation) {
             return
         }
-        if (currentAiIdentity() !== operation.request.identity || useDemoMode.getState().enabled) {
+        if (currentAiIdentity() !== identity || useDemoMode.getState().enabled) {
             operation.finish(false)
             return
         }
-        let access = currentAiAccess(organization)
+        let access = currentAiAccess(organization, project)
         if (accept && access.kind === 'needs_consent') {
             const { host, user } = useAuthStore.getState()
             if (host && user) {
                 useAiConsentStore.getState().accept(aiConsentKey(host, user.uuid))
             }
-            access = currentAiAccess(organization)
+            access = currentAiAccess(organization, project)
         }
         if (access.kind === 'ready') {
             operation.finish(true)
@@ -147,7 +169,7 @@ export async function checkAiApproval(accept = false): Promise<void> {
 }
 
 /** Refresh approval before every AI action, including messages that waited in a queue. */
-export async function requestAiApproval(action: AiAction, signal?: AbortSignal): Promise<boolean> {
+export async function requestAiApproval(action: AiAction, signal?: AbortSignal, project?: AiProject): Promise<boolean> {
     if (signal?.aborted) {
         return false
     }
@@ -159,7 +181,7 @@ export async function requestAiApproval(action: AiAction, signal?: AbortSignal):
         return false
     }
     return new Promise<boolean>((resolve) => {
-        const request: ApprovalRequest = { identity, action, access: null, checking: false }
+        const request: ApprovalRequest = { identity, action, project, access: null, checking: false }
         const abort = (): void => operation.finish(false)
         const unsubscribe = useAuthStore.subscribe(() => {
             if (currentAiIdentity() !== identity) {
@@ -190,11 +212,13 @@ addSessionEndTask(cancelAiApproval)
 
 export function useAiApproval(
     action: AiAction,
-    context: string
+    context: string,
+    project?: AiProject
 ): { request: () => Promise<boolean>; pending: boolean; signal: AbortSignal } {
-    const identity = useAuthStore((state) =>
+    const sessionIdentity = useAuthStore((state) =>
         JSON.stringify([state.host, state.projectId, state.user?.uuid, state.status])
     )
+    const identity = JSON.stringify([sessionIdentity, project ?? null])
     const lifetime = useMemo(() => ({ identity, context, controller: new AbortController() }), [identity, context])
     const inFlight = useRef(false)
     const [checking, setChecking] = useState(false)
@@ -206,11 +230,11 @@ export function useAiApproval(
         inFlight.current = true
         setChecking(true)
         try {
-            return await requestAiApproval(action, lifetime.controller.signal)
+            return await requestAiApproval(action, lifetime.controller.signal, project)
         } finally {
             inFlight.current = false
             setChecking(false)
         }
-    }, [action, lifetime])
+    }, [action, lifetime, project])
     return { request, pending: checking, signal: lifetime.controller.signal }
 }

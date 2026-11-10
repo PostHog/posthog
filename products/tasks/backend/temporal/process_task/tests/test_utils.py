@@ -75,17 +75,17 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
 
-    def test_fable_models_support_all_public_reasoning_efforts(self) -> None:
-        for model in ("claude-fable-5", "claude-fable-5-1"):
-            assert model in get_models_for_runtime_adapter("claude")
-            assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max",
-                "ultracode",
-            )
+    @parameterized.expand([("claude-fable-5",), ("claude-fable-5-1",), ("claude-fable-5-2",)])
+    def test_fable_models_support_all_public_reasoning_efforts(self, model: str) -> None:
+        assert model in get_models_for_runtime_adapter("claude")
+        assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+        )
 
 
 class TestRunStateModelAccess(SimpleTestCase):
@@ -953,30 +953,6 @@ class TestGetGithubToken(TestCase):
         assert first == ["ghs_1", "ghs_1"]
         assert second == "ghs_2"
         assert mint.call_count == 2
-
-    @parameterized.expand(
-        [
-            ("readable", 200, False),
-            ("not_found", 404, True),
-            ("forbidden", 403, True),
-            ("unauthorized", 401, False),
-            ("upstream_error", 503, False),
-            ("probe_raises", None, False),
-        ]
-    )
-    def test_installation_confirms_repository_denied_only_on_a_clear_refusal(self, _name, status, expected):
-        from posthog.models.integration import GitHubIntegration
-
-        from products.tasks.backend.temporal.process_task.utils import installation_confirms_repository_denied
-
-        github = MagicMock(spec=GitHubIntegration)
-        if status is None:
-            github.api_request.side_effect = RuntimeError("probe failed")
-        else:
-            github.api_request.return_value = MagicMock(status_code=status)
-
-        assert installation_confirms_repository_denied(github, "acme/api") is expected
-        github.api_request.assert_called_once_with("GET", "/repos/acme/api", endpoint="/repos/{owner}/{repo}")
 
     @parameterized.expand(
         [

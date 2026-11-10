@@ -57,15 +57,28 @@ def _scrub_user_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+def _flatten_usages(report: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for resource_type, resources in report.items():
+        if not isinstance(resources, list):
+            continue
+        for resource in resources:
+            if isinstance(resource, dict):
+                resource_key = resource.get("id") or resource.get("name")
+                rows.append({**resource, "resource_type": resource_type, "resource_key": resource_key})
+    return rows
+
+
+_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
     "Servers": _scrub_server_row,
     "Users": _scrub_user_row,
+    "Usages": _flatten_usages,
 }
 
 
 def get_resource(endpoint: str) -> EndpointResource:
-    """Builds a top-level (non-fan-out) resource. `Snapshots` fans out from `Servers` and is
-    built via `build_dependent_resource` in `strato_source`."""
+    """Builds a top-level (non-fan-out) resource. `Snapshots` and `ServerMonitoring` fan out from
+    `Servers` and are built via `build_dependent_resource` in `strato_source`."""
     config = STRATO_ENDPOINTS[endpoint]
     if config.fanout:
         raise ValueError(f"Fan-out endpoint '{endpoint}' must use the fan-out path")
@@ -74,7 +87,7 @@ def get_resource(endpoint: str) -> EndpointResource:
         "name": config.name,
         "table_name": config.name,
         "write_disposition": "replace",
-        "endpoint": {"path": config.path},
+        "endpoint": {"path": config.path, "params": dict(config.params)},
         "table_format": "delta",
     }
     data_map = _DATA_MAPS.get(endpoint)

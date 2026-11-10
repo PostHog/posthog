@@ -2,17 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { userLogic } from 'scenes/userLogic'
-
 import { comingSoonInterestLogic } from './comingSoonInterestLogic'
 import { ComingSoonInterestModal } from './ComingSoonInterestModal'
 import { ComingSoonInterestTag } from './ComingSoonInterestTag'
 import { RECEIVING_INTEREST_SURVEY } from './receivingInterestSurvey'
+import { useComingSoonInterestSurvey } from './useComingSoonInterestSurvey'
 
 /** Sending is the only real view, so choosing Receiving asks about interest and leaves Sending selected. */
 export function EmailDirectionToggle(): JSX.Element {
-    const { user } = useValues(userLogic)
-    const survey = { ...RECEIVING_INTEREST_SURVEY, accountId: user?.uuid ?? '' }
+    const survey = useComingSoonInterestSurvey(RECEIVING_INTEREST_SURVEY)
     const logic = comingSoonInterestLogic(survey)
     const { hasRecordedInterest } = useValues(logic)
     const { registerInterest } = useActions(logic)

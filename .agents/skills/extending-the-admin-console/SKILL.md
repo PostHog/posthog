@@ -12,6 +12,11 @@ Read [`posthog/admin/console/AGENTS.md`](../../../posthog/admin/console/AGENTS.m
 ## 1. Decide where it goes
 
 - **Plain create, read, update or delete on one model** stays in Django admin. The console is not a second CRUD layer.
+  A changelist action (`actions = (...)`) stays too when it does only what staff could do in the change form of the selected rows.
+  It writes fields of those rows, shows no page of its own, and starts nothing itself: no send, job, outside call, or write to another model.
+  It calls `self.log_change(request, obj, ...)` for each row, because an action leaves no admin history.
+  Any other action is a console operation: classify it with section 4.
+  Before you move an action for a reason or a gate, make its field read-only in Django admin too, or the move protects nothing.
 - **Facts and actions about one team or one organization** go in a panel on that record's page. One panel per product concern, owned by the team that owns the data.
 - **A report across many teams, or an action that is not about one record** (a backfill, a re-save across teams) is a tool. An action on one team from a tool row links to that team's page instead of becoming a tool operation.
 - **A staff page your product already has in the app** (a DRF staff endpoint and scene) is legacy. Do not extend it and do not bridge to it. Ask the user whether to move it into the console as its own change.
@@ -39,6 +44,7 @@ Invoke `/writing-user-facing-copy`. In the console that means:
 - **Internal and reversible** (rebuild, clear or purge a cache that refills itself) is a plain operation.
 - **Gives the customer something back** (enable access, clear a revoke, re-enable sending, add credit) is a plain operation. Give it a form only when it needs input, as Add credit does for the amount and the reason.
 - **Takes something away from the customer, or cannot be undone** (suspend, revoke, replace a token) sets `danger=True`, takes a form with a `reason` field, and sets `undo_hint` to how staff undo it, or that they cannot. The console writes the reason to the audit log and shows the undo hint on the confirm page.
+- **Only the owning team's staff may run it** (approve a deletion, send usage reports): set `gate=Gate.owner()`, and set `staff_group` on the panel or tool's `Owner` to that team's Django group. Use `Gate.group(name)` only when the operation belongs to another team's group.
 - A handler that moves money or sends messages builds its idempotency key from the `form_nonce` the console posts, so a double submit runs once.
 - Offer an operation only in the state where it makes sense. The console runs only operations the panel offers right now.
 - A form that edits current state sets `form_initial` from the record, so an unchanged submit changes nothing.
