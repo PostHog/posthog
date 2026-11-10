@@ -58,6 +58,7 @@ _FIELD_CHECKS: Final[dict[str, Callable[[object], bool]]] = {
     "webhook_url": _is_text,
     "pagerduty_routing_key": _is_text,
     "email_addresses": _is_list_of(_is_text),
+    "email_user_ids": _is_list_of(_is_id),
     "in_app_user_ids": _is_list_of(_is_id),
 }
 
@@ -160,7 +161,11 @@ def validate_destination_data(data: AlertDestinationData) -> None:
     destination_type = data.get("type")
     if destination_type not in DestinationType.values:
         raise AlertDestinationValidationError("This destination type is not supported.", field="type")
-    required = _REQUIRED_FIELDS[DestinationType(destination_type)]
+    required = (
+        ("email_user_ids",)
+        if destination_type == DestinationType.EMAIL and "email_user_ids" in data
+        else _REQUIRED_FIELDS[DestinationType(destination_type)]
+    )
     missing = [key for key in required if not data.get(key)]
     if missing:
         raise AlertDestinationValidationError(f"This destination needs {', '.join(missing)}.", field="config")

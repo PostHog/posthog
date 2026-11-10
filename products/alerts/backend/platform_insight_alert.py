@@ -8,9 +8,11 @@ from uuid import UUID
 from django.db.models import Prefetch, prefetch_related_objects
 
 from posthog.models.tagged_item import TaggedItem
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
     get_configuration,
@@ -83,6 +85,22 @@ def insight_of(team_id: int, source_config: dict) -> Insight | None:
         return None
     found = insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=[insight_id])
     return found[0] if found and not found[0].deleted else None
+
+
+def subscribers_with_insight_access(*, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> list[int]:
+    """The users who can still view the insight an insight alert watches. Nobody, once it is gone."""
+    configuration = get_configuration(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=configuration_id
+    )
+    insight = insight_of(team_id, configuration.source_config) if configuration is not None else None
+    if insight is None:
+        return []
+    team = Team.objects.get(id=team_id)
+    return [
+        user.id
+        for user in User.objects.filter(id__in=user_ids)
+        if UserAccessControl(user, team=team).check_access_level_for_object(insight, "viewer")
+    ]
 
 
 def evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:

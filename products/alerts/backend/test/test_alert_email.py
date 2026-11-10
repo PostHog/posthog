@@ -3,14 +3,17 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.destinations import list_alert_destination_groups, list_delivery_destination_groups
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
+from products.alerts.backend.platform_insight_alert import subscribers_with_insight_access
 from products.alerts.backend.test.insight_alerts import create_insight_alert
-from products.alerts_platform.backend.facade.contracts import DestinationType
+from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.contracts import DestinationType, SourceKind
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 
@@ -59,6 +62,34 @@ class TestInsightAlertEmailDestination(APIBaseTest):
             list_alert_destination_groups(team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=[event_id])
             == []
         )
+
+    @parameterized.expand([("insight_kept", False, True), ("insight_deleted", True, False)])
+    def test_a_destination_row_reaches_only_users_who_can_still_see_the_insight(
+        self, _name: str, insight_deleted: bool, user_reached: bool
+    ) -> None:
+        alert = self._alert()
+        denied = User.objects.create_and_join(self.organization, "denied@example.com", None)
+        with team_scope(self.team.id):
+            configuration = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="alert",
+                source_kind=SourceKind.INSIGHT,
+                check_interval_minutes=60,
+                source_config={"insight_id": alert.insight.id},
+            )
+        if insight_deleted:
+            alert.insight.deleted = True
+            alert.insight.save()
+
+        def can_view(access_control: UserAccessControl, *_args: object) -> bool:
+            return access_control._user.id != denied.id
+
+        with patch.object(UserAccessControl, "check_access_level_for_object", autospec=True, side_effect=can_view):
+            reached = subscribers_with_insight_access(
+                team_id=self.team.id, configuration_id=configuration.id, user_ids=[self.user.id, denied.id]
+            )
+
+        assert reached == ([self.user.id] if user_reached else [])
 
     @parameterized.expand(
         [

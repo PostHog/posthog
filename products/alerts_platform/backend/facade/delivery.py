@@ -11,6 +11,7 @@ from products.alerts_platform.backend.delivery import (
     destinations,
     legacy_webhook,
     recipients,
+    subscribers,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -25,6 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     SourceRecipients,
     SourceSlackRenderer,
+    SubscriberAccess,
 )
 
 if TYPE_CHECKING:
@@ -37,6 +39,10 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
 
 def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> None:
     recipients.register(source, lookup)
+
+
+def register_subscriber_access(source: SourceKind, access: SubscriberAccess) -> None:
+    subscribers.register(source, access)
 
 
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:
