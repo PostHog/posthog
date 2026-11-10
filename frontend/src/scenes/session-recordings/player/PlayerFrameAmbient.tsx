@@ -50,6 +50,8 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         const blend = blendRef.current
         const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
         let dirty = true
+        // The rebuild event, not the body's content, marks a sampleable page, because a real page can have an empty body.
+        let rebuilt = !!replayer.iframe?.contentDocument?.body?.hasChildNodes()
         let observedDocument: Document | null = null
         let lastLayout = ''
         let animationFrame = 0
@@ -131,7 +133,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             const recording = { width: Number(iframe?.width), height: Number(iframe?.height) }
             const container = replayer.wrapper.ownerDocument.body.getBoundingClientRect()
             const scaled = scaledFrameRect(container, recording)
-            if (document.hidden || maskedRef.current || !recordedDocument || !scaled) {
+            if (document.hidden || maskedRef.current || !rebuilt || !recordedDocument || !scaled) {
                 return
             }
             observe(recordedDocument)
@@ -143,7 +145,6 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             const layout = [container.width, container.height, recording.width, recording.height].join()
             dirty ||= layout !== lastLayout
             lastLayout = layout
-            // A document mid-rebuild samples as nothing, so the last colors stay up until a real sample replaces them.
             const sampled = dirty ? sampler.sample(recordedDocument, recording) : null
             if (!sampled) {
                 return
@@ -166,6 +167,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         }
         // rrweb applies the events up to a seek target in the same task, so the sample waits for the next frame.
         const sampleAfterRebuild = (): void => {
+            rebuilt = true
             dirty = true
             rebuildFrame ||= requestAnimationFrame(() => {
                 rebuildFrame = 0

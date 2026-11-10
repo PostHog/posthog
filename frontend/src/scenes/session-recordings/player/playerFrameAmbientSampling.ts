@@ -81,7 +81,7 @@ export class AmbientFrameSampler {
 
     sample(doc: Document, recording: PlayerFrameDimensions): AmbientGrid | null {
         const view = doc.defaultView
-        if (!view || !doc.body?.hasChildNodes()) {
+        if (!view) {
             return null
         }
         this.needsResample = false
