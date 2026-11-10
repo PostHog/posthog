@@ -18,6 +18,7 @@ import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -199,9 +200,10 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
     // The promo waits until the field guide banner is closed so the two never stack
     const { isDismissed: isFieldGuideDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
+    const { isHobby } = useValues(preflightLogic)
 
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (isDismissed || !isFieldGuideDismissed) {
+    if (isHobby || isDismissed || !isFieldGuideDismissed) {
         return null
     }
 
