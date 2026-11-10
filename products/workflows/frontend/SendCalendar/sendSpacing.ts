@@ -36,13 +36,12 @@ export function describeRule(rule: SendingRule): string {
 }
 
 /**
- * Whether two audiences can hold the same people. Without a count of the shared people, only two
- * audiences of cohorts with no cohort in common count as apart.
+ * Whether two audiences can hold the same people. Without a count of the shared people, two audiences
+ * count as apart only when each includes a cohort and they include no cohort in common. The other
+ * audience filters combine with AND, so they can only remove people from those cohorts.
  */
 export function mayShareRecipients(a: SendAudience, b: SendAudience): boolean {
-    const cohortsOnly = (audience: SendAudience): boolean =>
-        audience.cohortIds.length > 0 && audience.filters.length === 0
-    if (!cohortsOnly(a) || !cohortsOnly(b)) {
+    if (a.cohortIds.length === 0 || b.cohortIds.length === 0) {
         return true
     }
     return a.cohortIds.some((id) => b.cohortIds.includes(id))
