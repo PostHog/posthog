@@ -54,7 +54,11 @@ from products.signals.backend.scout_harness.limits import (
 )
 from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
-from products.signals.backend.scout_harness.workflow_trigger_queue import claim_pending_triggers
+from products.signals.backend.scout_harness.workflow_trigger_queue import (
+    ClaimedTriggers,
+    claim_pending_triggers,
+    requeue_claimed_triggers,
+)
 from products.signals.backend.temporal import metrics
 from products.skills.backend.models.skills import LLMSkill
 
@@ -261,6 +265,21 @@ def cancel_failed_scout_trial_activity(input: RunSignalsScoutInput) -> None:
             )
 
 
+async def _requeue_unrun_triggers(input: RunSignalsScoutInput, claimed: ClaimedTriggers) -> None:
+    # Best effort: this runs in a `finally`, and a failure here must not mask the run's own outcome.
+    try:
+        await database_sync_to_async(requeue_claimed_triggers, thread_sensitive=False)(
+            team_id=input.team_id, skill_name=input.skill_name, claimed=claimed, reason="run_not_started"
+        )
+    except Exception:
+        logger.exception(
+            "signals_scout: failed to requeue claimed workflow triggers",
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+            claimed_count=claimed.count,
+        )
+
+
 async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
     """One scheduled scout run for a (team, skill) pair.
 
@@ -393,8 +412,12 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     # is the import entry point. Imported here at call time, after both modules are loaded.
     from products.signals.backend.scout_harness.runner import arun_signals_scout  # noqa: PLC0415
 
+    claimed = ClaimedTriggers(count=0)
+    run_started = False
     try:
         # Claimed after the gates above, so a skipped run leaves the fires queued for a later one.
+        # The runner has skip checks of its own, so the `finally` below puts the fires back when
+        # the run never got a row.
         claimed = await database_sync_to_async(claim_pending_triggers, thread_sensitive=False)(
             team_id=input.team_id,
             skill_name=input.skill_name,
@@ -418,6 +441,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 precheck_rows=input.precheck_rows,
                 precheck_query_source=input.precheck_query_source,
             )
+        run_started = result.run_id is not None
     except SkillNotFoundError:
         # A person deleted or renamed the skill after the run was dispatched. Nothing is left to run.
         metrics.increment_scout_run("skill_missing")
@@ -455,6 +479,9 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
             skill_name=input.skill_name,
             skill_version=input.skill_version or 0,
         )
+    finally:
+        if claimed.count and not run_started:
+            await _requeue_unrun_triggers(input, claimed)
     metrics.increment_scout_run(result.status or "unknown")
     logger.info(
         "signals_scout activity finished",
@@ -511,10 +538,16 @@ class RunSignalsScoutWorkflow:
                     skip_reason="config_disabled",
                 )
         # A scheduled run that carries queued workflow fires has subjects to handle, so a quiet
-        # pre-check must not skip it. Older histories carry no ids and keep the pre-check.
+        # pre-check must not skip it. The patch sits in front of the ids, so a history recorded
+        # without it replays the `scout-precheck` marker and the pre-check activity it holds.
+        carries_queued_triggers = (
+            input.triggered_by == TRIGGERED_BY_SCHEDULE
+            and temporalio.workflow.patched("scout-queued-triggers-skip-precheck-2026-11")
+            and bool(input.pending_trigger_ids)
+        )
         if (
             input.triggered_by == TRIGGERED_BY_SCHEDULE
-            and not input.pending_trigger_ids
+            and not carries_queued_triggers
             and temporalio.workflow.patched("scout-precheck")
         ):
             precheck = await self._evaluate_precheck(input)

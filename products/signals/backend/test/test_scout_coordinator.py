@@ -18,7 +18,7 @@ from django.utils import timezone
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team, User
@@ -2997,7 +2997,9 @@ async def test_report_checks_and_the_trigger_drain_run_only_on_the_patched_path(
 
 
 @pytest.mark.asyncio
-async def test_workflow_dispatches_children_fire_and_forget():
+# A drain that times out raises out of the activity call, and must not stop the scheduled dispatch.
+@pytest.mark.parametrize("drain_fails", [False, True])
+async def test_workflow_dispatches_children_fire_and_forget(drain_fails):
     # `dispatch_smear_seconds` left at its default, which is also what an in-flight coordinator
     # replaying a pre-smear history decodes it to: one batch, one stamp, no timers, original
     # order. That default is the whole replay gate — a non-zero one would fail those replays,
@@ -3029,6 +3031,16 @@ async def test_workflow_dispatches_children_fire_and_forget():
         if activity is stamp_dispatched_signals_scout_runs_activity:
             stamp_calls.append(activity_input)
             return None
+        if activity is drain_pending_workflow_triggers_activity and drain_fails:
+            raise ActivityError(
+                "Drain timed out",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="worker",
+                activity_type="drain_pending_workflow_triggers_activity",
+                activity_id="drain",
+                retry_state=None,
+            )
         return FetchEnabledRunsOutput(planned_runs=planned)
 
     coordinator = SignalsScoutCoordinatorWorkflow()

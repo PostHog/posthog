@@ -20,7 +20,7 @@ import posthoganalytics
 from croniter import CroniterError, croniter
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -1716,12 +1716,18 @@ class SignalsScoutCoordinatorWorkflow:
         )
         planned_runs = fetch_result.planned_runs
         if workflow.patched("scout-drain-workflow-triggers-2026-10"):
-            await workflow.execute_activity(
-                drain_pending_workflow_triggers_activity,
-                DrainPendingTriggersInput(scheduled_runs=planned_runs),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+            # A drain that times out or loses its worker raises here, outside the activity's own
+            # handler. The fires stay queued for the next tick, so it must not stop this tick's
+            # scheduled dispatch.
+            try:
+                await workflow.execute_activity(
+                    drain_pending_workflow_triggers_activity,
+                    DrainPendingTriggersInput(scheduled_runs=planned_runs),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except ActivityError:
+                workflow.logger.warning("signals_scout coordinator: draining pending workflow triggers failed")
         if not planned_runs:
             return CoordinatorWorkflowOutput(0, 0, 0)
 

@@ -5,7 +5,8 @@ A fire that the workflow cooldown or the in-flight gate turns away is stored her
 lane's rows to one run (`workflow_runs.py` decides which run and checks the gates), and that run
 claims them when it starts: the claim deletes the rows and returns their notes as one coalesced
 note. Rows leave the table only through a claim, so a dispatch that fails, or a run that skips
-before it starts, leaves them for the next tick.
+before it starts, leaves them for the next tick. A run that claims its fires and then skips
+without a run row puts them back (`requeue_claimed_triggers`).
 
 Only ids travel through Temporal. The notes stay in Postgres until the claim, because a lane can
 hold up to `MAX_PENDING_WORKFLOW_TRIGGERS` notes of `MAX_RUN_NOTE_CHARS` each, and a coordinator
@@ -60,6 +61,13 @@ class PendingTriggerLane:
 
 
 @frozen
+class ClaimedTrigger:
+    note: str
+    workflow_id: str | None
+    received_at: datetime
+
+
+@frozen
 class ClaimedTriggers:
     """The fires a run took. `run_note` lists them one per line, oldest first."""
 
@@ -67,6 +75,7 @@ class ClaimedTriggers:
     run_note: str | None = None
     # Set only when every claimed fire came from the same workflow.
     trigger_workflow_id: str | None = None
+    triggers: tuple[ClaimedTrigger, ...] = ()
 
 
 def enqueue_workflow_trigger(
@@ -195,6 +204,9 @@ def claim_pending_triggers(
         count=len(rows),
         run_note=render_coalesced_note([(row.received_at, row.note) for row in rows]),
         trigger_workflow_id=next(iter(workflow_ids)) if len(workflow_ids) == 1 else None,
+        triggers=tuple(
+            ClaimedTrigger(note=row.note, workflow_id=row.workflow_id, received_at=row.received_at) for row in rows
+        ),
     )
     oldest_wait_s = (timezone.now() - rows[0].received_at).total_seconds()
     logger.info(
@@ -218,6 +230,37 @@ def claim_pending_triggers(
             },
         )
     return claimed
+
+
+def requeue_claimed_triggers(*, team_id: int, skill_name: str, claimed: ClaimedTriggers, reason: str) -> int:
+    """Put back the fires a run claimed but never started with, keeping their arrival times.
+
+    A claim happens before the runner's own skip checks (in flight, withheld, no acting user), so
+    the activity calls this when it ends without a run row. The lane cap is not applied here: the
+    next fire to arrive trims the lane back to it.
+    """
+    if not claimed.triggers:
+        return 0
+    SignalScoutPendingTrigger.objects.for_team(team_id).bulk_create(
+        [
+            SignalScoutPendingTrigger(
+                team_id=team_id,
+                skill_name=skill_name,
+                note=trigger.note,
+                workflow_id=trigger.workflow_id,
+                received_at=trigger.received_at,
+            )
+            for trigger in claimed.triggers
+        ]
+    )
+    logger.info(
+        "signals_scout: requeued claimed workflow triggers",
+        team_id=team_id,
+        skill_name=skill_name,
+        reason=reason,
+        requeued_count=len(claimed.triggers),
+    )
+    return len(claimed.triggers)
 
 
 def render_coalesced_note(entries: list[tuple[datetime, str]]) -> str:
