@@ -208,7 +208,11 @@ def product_routed_app_labels() -> list[str]:
     config_path = _resolve_repo_path(PRODUCT_DB_ROUTING_PATH)
     if not config_path.is_file():
         return []
-    config = yaml.safe_load(config_path.read_text()) or {}
+    return routed_app_labels(config_path.read_text())
+
+
+def routed_app_labels(routing_config: str) -> list[str]:
+    config = yaml.safe_load(routing_config) or {}
     labels = {str(route.get("app_label", "")).strip() for route in config.get("routes") or []}
     return sorted(label for label in labels if APP_LABEL_RE.fullmatch(label))
 

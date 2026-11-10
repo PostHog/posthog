@@ -1,3 +1,5 @@
+import os
+import re
 import gzip
 import uuid
 import subprocess
@@ -9,9 +11,11 @@ import pytest
 
 from django.conf import settings
 
+import psycopg
+import requests
+import responses
 from hogli_commands import db_template
 from hogli_commands.db_template import Checkout, PostgresServer, PrimeOutcome, TemplateStore, prime_test_database
-from psycopg.conninfo import conninfo_to_dict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APPLIED, PENDING = sorted(path.stem for path in (REPO_ROOT / "posthog" / "migrations").glob("0*.py"))[1:3]
@@ -35,7 +39,9 @@ class Scratch:
             for name in migrations:
                 connection.execute("INSERT INTO django_migrations (app, name) VALUES ('posthog', %s)", (name,))
 
-    def build_template(self, sha: str, migrations: list[str], tmp_path: Path) -> None:
+    def build_template(
+        self, sha: str, migrations: list[str], tmp_path: Path, store: TemplateStore | None = None
+    ) -> None:
         rows = "".join(f"{index}\tposthog\t{name}\n" for index, name in enumerate(migrations, start=1))
         dump = tmp_path / "schema.sql.gz"
         dump.write_bytes(
@@ -46,7 +52,8 @@ class Scratch:
                 ).encode()
             )
         )
-        self.store.build(self.store.name_for(sha), dump)
+        store = store or self.store
+        store.build(store.name_for(sha), dump, sha=sha)
 
     def ledger(self) -> set[str] | None:
         if not self.server.database_exists(self.target):
@@ -119,44 +126,62 @@ def test_prime_test_database_leaves_the_database_alone_without_a_template_from_t
     assert (result.outcome, scratch.ledger()) == (PrimeOutcome.SKIPPED, ledger)
 
 
-def test_usable_template_tries_one_failed_download_per_retry_window(
+def test_prime_test_database_forgets_apps_the_template_commit_routed_to_another_database(
+    scratch: Scratch, tmp_path: Path
+) -> None:
+    history = tmp_path / "history"
+    (history / "products").mkdir(parents=True)
+    (history / "products" / "db_routing.yaml").write_text("routes:\n  - app_label: posthog\n    database: elsewhere\n")
+    git = [
+        "git",
+        "-C",
+        str(history),
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "commit.gpgsign=false",
+    ]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "route posthog away"], check=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    store = TemplateStore(scratch.server, Checkout(history), allow_download=False, prefix=scratch.store.prefix)
+    scratch.build_template(sha, [APPLIED, PENDING], tmp_path, store)
+
+    result = prime_test_database(scratch.server, scratch.target, store)
+
+    assert (result.outcome, scratch.ledger()) == (PrimeOutcome.CLONED, set())
+
+
+def test_usable_template_retries_a_failed_download_only_after_the_retry_window(
     scratch: Scratch, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    attempts: list[None] = []
+    monkeypatch.setenv("GH_TOKEN", "gho_not_a_real_token")
+    marker = tmp_path / "download-failed"
 
-    def unreachable_github() -> str:
-        attempts.append(None)
-        raise ConnectionError("github.com is unreachable")
+    def worker() -> TemplateStore:
+        return TemplateStore(scratch.server, Checkout(REPO_ROOT), prefix=scratch.store.prefix, failure_marker=marker)
 
-    monkeypatch.setattr(db_template, "github_token", unreachable_github)
-    workers = [
-        TemplateStore(
-            scratch.server, Checkout(REPO_ROOT), prefix=scratch.store.prefix, failure_marker=tmp_path / "failed"
-        )
-        for _ in range(3)
-    ]
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as github:
+        github.get(re.compile(r"https://api\.github\.com/.*"), status=401)
+        for _ in range(3):
+            with pytest.raises((requests.HTTPError, db_template.TemplateUnavailable)):
+                worker().usable_template()
+        requests_within_window = len(github.calls)
 
-    for worker in workers:
-        with pytest.raises((ConnectionError, db_template.TemplateUnavailable)):
-            worker.usable_template()
+        os.utime(marker, (0, 0))
+        with pytest.raises(requests.HTTPError):
+            worker().usable_template()
+        requests_in_total = len(github.calls)
 
-    assert len(attempts) == 1
+    assert (requests_within_window, requests_in_total) == (1, 2)
 
 
-def test_postgres_server_keeps_the_tls_settings_of_the_django_database() -> None:
-    server = PostgresServer.from_django(
-        {
-            "HOST": "db.example.com",
-            "PASSWORD": "not-a-real-password",
-            "OPTIONS": {"sslmode": "verify-full", "sslrootcert": "/certs/ca.pem", "connect_timeout": 3},
-        }
-    )
+def test_postgres_server_connects_with_the_tls_settings_of_the_django_database(tmp_path: Path) -> None:
+    tls = {"sslmode": "verify-full", "sslrootcert": str(tmp_path / "missing-ca.pem")}
+    server = PostgresServer.from_django({**settings.DATABASES["default"], "OPTIONS": tls})
 
-    assert conninfo_to_dict(server.conninfo("test_posthog")) == {
-        "host": "db.example.com",
-        "port": "5432",
-        "user": "posthog",
-        "dbname": "test_posthog",
-        "sslmode": "verify-full",
-        "sslrootcert": "/certs/ca.pem",
-    }
+    with pytest.raises(psycopg.OperationalError):
+        server.database_exists("postgres")

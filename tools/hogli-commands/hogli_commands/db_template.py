@@ -25,6 +25,7 @@ from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
 from hogli_commands.db_schema import (
+    PRODUCT_DB_ROUTING_PATH,
     REPO_ROOT,
     MigrationReference,
     check_dump_is_not_newer_than_checkout,
@@ -33,6 +34,7 @@ from hogli_commands.db_schema import (
     github_session,
     migrations_missing_from_checkout,
     product_routed_app_labels,
+    routed_app_labels,
     run_psql_with_gzip_input,
 )
 from hogli_commands.github_auth import github_token
@@ -45,7 +47,7 @@ TEMPLATE_MAX_LAG_SECONDS = 24 * 60 * 60
 TEMPLATE_BUILD_LOCK = 0x7465_6D70_6C61_7465
 MODE_ENV = "POSTHOG_TEST_DB_TEMPLATE"
 REFRESH_RETRY_SECONDS = 15 * 60
-LIBPQ_TLS_OPTIONS = ("sslmode", "sslrootcert", "sslcert", "sslkey", "sslpassword", "sslcrl", "sslnegotiation")
+LIBPQ_TLS_OPTIONS = ("sslmode", "sslrootcert", "sslcert", "sslkey", "sslcrl", "sslnegotiation")
 
 
 class TemplateUnavailable(Exception):
@@ -57,7 +59,7 @@ class PostgresServer:
     host: str
     port: str
     user: str
-    password: str
+    password: str = field(repr=False)
     tls: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -149,6 +151,9 @@ class Checkout:
             self._contains[sha] = self._git("merge-base", "--is-ancestor", sha, "HEAD") is not None
         return self._contains[sha]
 
+    def file_at(self, sha: str, path: Path) -> str | None:
+        return self._git("show", f"{sha}:{path.as_posix()}")
+
     def lags_master_base(self, sha: str, *, by_seconds: int) -> bool:
         """Whether sha is older than the master commit this checkout last merged, by more than by_seconds."""
         base = self._git("merge-base", "HEAD", self.master_ref) or "HEAD"
@@ -209,14 +214,15 @@ class TemplateStore:
             self._prune(keep=built)
             return built
 
-    def build(self, name: str, dump: Path) -> None:
+    def build(self, name: str, dump: Path, *, sha: str) -> None:
         check_dump_is_not_newer_than_checkout(dump)
+        routed_at_dump = routed_app_labels(self.checkout.file_at(sha, PRODUCT_DB_ROUTING_PATH) or "")
         building = name + BUILDING_SUFFIX
         self.server.drop_database(building)
         self.server.create_database(building)
         try:
             self.server.load_gzip_dump(building, dump)
-            if apps := product_routed_app_labels():
+            if apps := sorted({*product_routed_app_labels(), *routed_at_dump}):
                 self.server.forget_migrations(building, apps)
             self.server.rename_database(building, name)
         except Exception:
@@ -252,7 +258,7 @@ class TemplateStore:
             with tempfile.TemporaryDirectory(prefix="test-db-template-") as scratch:
                 dump = Path(scratch) / "schema.sql.gz"
                 download_schema_artifact(artifact, token=token, destination=dump, session=session)
-                self.build(name, dump)
+                self.build(name, dump, sha=artifact.head_sha)
         return name
 
     def _prune(self, *, keep: str) -> None:
