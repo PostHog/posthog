@@ -1369,6 +1369,8 @@ describe('workflowLogic auto-save', () => {
             })
             await mountLoaded()
             const successToast = jest.spyOn(lemonToast, 'success')
+            logic.actions.setWorkflowValues({ name: 'Unsaved edit' })
+            const leavePrompt = jest.spyOn(window, 'confirm').mockReturnValue(true)
 
             await expectLogic(logic, () => logic.actions.duplicate()).toFinishAllListeners()
 
@@ -1376,6 +1378,7 @@ describe('workflowLogic auto-save', () => {
             expect(posted[0]).toMatchObject({ name: 'Autosave test (copy)', status: 'draft' })
             expect(posted[0]).not.toHaveProperty('id')
             expect(successToast).toHaveBeenCalledWith('Workflow duplicated')
+            expect(leavePrompt).toHaveBeenCalledTimes(1)
             expect(router.values.location.pathname).toBe(`/project/997${urls.workflow('wf-copy', 'workflow')}`)
         })
     })
@@ -1392,15 +1395,15 @@ describe('workflowLogic auto-save', () => {
         }
         const subject = (): string | undefined => prefilledEmailContent(logic.values.workflow)?.subject
 
+        const typeEmail = (subject: string, paragraphs: string[]) => async (): Promise<void> =>
+            logic.actions.setWorkflowValue(
+                'actions',
+                withPrefilledEmail(logic.values.workflow, { subject, paragraphs }).actions
+            )
         const whileLoading = {
             rename: async (): Promise<void> => logic.actions.setWorkflowValue('name', 'Renamed'),
-            typeEmail: async (): Promise<void> => {
-                const typed = withPrefilledEmail(logic.values.workflow, {
-                    subject: 'Typed by me',
-                    paragraphs: ['Mine'],
-                })
-                logic.actions.setWorkflowValue('actions', typed.actions)
-            },
+            typeSubject: typeEmail('Typed by me', ['Template body']),
+            typeBody: typeEmail('Template subject', ['Typed by me']),
             save: async (): Promise<void> => {
                 await expectLogic(logic, () => logic.actions.saveWorkflow(logic.values.workflow)).toDispatchActions([
                     'saveWorkflowSuccess',
@@ -1411,17 +1414,18 @@ describe('workflowLogic auto-save', () => {
         it.each([
             { case: 'untouched', act: null, reason: null, subject: 'Written by AI', status: 'applied', dirty: false },
             { case: 'renamed', act: 'rename', reason: null, subject: 'Written by AI', status: 'applied', dirty: true },
-            { case: 'email typed', act: 'typeEmail', reason: null, subject: 'Typed by me', skipped: 'edited' },
+            { case: 'subject typed', act: 'typeSubject', reason: null, subject: 'Typed by me', skipped: 'edited' },
+            { case: 'body typed', act: 'typeBody', reason: null, subject: 'Template subject', skipped: 'edited' },
             { case: 'saved', act: 'save', reason: null, subject: 'Template subject', skipped: 'saved' },
             { case: 'rate limited', act: null, reason: 'rate_limited', subject: 'Template subject', status: 'failed' },
         ] as const)('applies the AI draft only when it is $case', async ({ act, reason, ...expected }) => {
             let respond: (body: unknown) => void = () => {}
+            const draft = new Promise((resolve) => {
+                respond = resolve
+            })
             useMocks({
                 post: {
-                    '/api/projects/:team_id/workflow_email_drafts/': () =>
-                        new Promise((resolve) => {
-                            respond = resolve
-                        }).then((body) => [200, body]),
+                    '/api/projects/:team_id/workflow_email_drafts/': () => draft.then((body) => [200, body]),
                     '/api/environments/:team_id/hog_flows/': async ({ request }: MockResolverInfo) => [
                         201,
                         { ...((await request.json()) as HogFlow), id: 'wf-created' },
