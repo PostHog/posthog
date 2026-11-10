@@ -259,7 +259,11 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
     report = check_merge(commit_sha, FakePostHogGitHub(commit_sha), judge_recording(verdict, judge_requests))
 
     judge_content = judge_requests[0]["messages"][0]["content"]
-    assert "Docs pages:\n" + "\n".join(FLAGS_PATHS) + "\n\n<diff>" in judge_content
+    assert judge_requests[0]["system"][1] == {
+        "type": "text",
+        "text": "Docs pages:\n" + "\n".join(FLAGS_PATHS),
+        "cache_control": {"type": "ephemeral", "ttl": "1h"},
+    }
     assert judge_content.endswith(f"<diff>\n{SCRIPT_CHUNK}{COMPONENT_CHUNK}\n</diff>")
     assert (report.needs_docs, report.change_kind) == (True, DocsChangeKind.UPDATE)
     assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:3])
@@ -322,8 +326,8 @@ def test_sitemap_pages_without_a_docs_source_are_kept_from_the_judge(
         commit_sha, github, judge_recording(verdict, judge_requests), is_pinned_to_merge=is_pinned_to_merge
     )
 
-    judge_content = judge_requests[0]["messages"][0]["content"]
-    assert FLAGS_PATHS[149] in judge_content and FLAGS_PATHS[-1] not in judge_content
+    judged_page_list = judge_requests[0]["system"][1]["text"]
+    assert FLAGS_PATHS[149] in judged_page_list and FLAGS_PATHS[-1] not in judged_page_list
     assert (report.change_kind, report.page_urls) == (DocsChangeKind.CREATE, ())
     assert ("not_editable_here", not_editable_count) in [(row.criterion, row.value) for row in report.criteria]
 

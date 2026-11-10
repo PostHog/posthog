@@ -5,7 +5,7 @@ from anthropic import Anthropic
 from pydantic import BaseModel, ValidationError
 
 from .gather import MergeEvidence, PathClass
-from .judge import MIN_QUOTE_CHARACTERS, JudgedChangeKind, is_quoted_in, normalized
+from .judge import MIN_QUOTE_CHARACTERS, JudgedChangeKind, is_quoted_in, normalized, system_with_cached_page_list
 
 FACTS_MODEL = "claude-sonnet-5-5"
 FACTS_PROMPT_VERSION = "facts-v1"
@@ -95,8 +95,8 @@ def extract_facts(
         response = anthropic_client.with_options(timeout=FACTS_TIMEOUT_SECONDS, max_retries=0).messages.parse(
             model=FACTS_MODEL,
             max_tokens=4096,
-            system=FACTS_INSTRUCTIONS,
-            messages=[{"role": "user", "content": facts_request(evidence, release_text, docs_page_paths)}],
+            system=system_with_cached_page_list(FACTS_INSTRUCTIONS, docs_page_paths),
+            messages=[{"role": "user", "content": facts_request(evidence, release_text)}],
             output_format=MergeFacts,
         )
     except ValidationError:
@@ -106,12 +106,11 @@ def extract_facts(
     return response.parsed_output
 
 
-def facts_request(evidence: MergeEvidence, release_text: str, docs_page_paths: list[str]) -> str:
+def facts_request(evidence: MergeEvidence, release_text: str) -> str:
     path_lines = "\n".join(f"{path_class}: {path}" for path, path_class in evidence.path_class_by_path.items())
     return (
         f"Title: {evidence.title}\n\nLabels: {', '.join(evidence.labels)}\n\nRelease line: {release_text}\n\n"
         f"<body>\n{evidence.body}\n</body>\n\nChanged paths by class:\n{path_lines}\n\n"
-        f"Docs pages:\n{chr(10).join(docs_page_paths)}\n\n"
         f"<diff>\n{facts_diff(evidence)[:MAX_FACTS_DIFF_CHARACTERS]}\n</diff>"
     )
 

@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Literal
 
 from anthropic import Anthropic
+from anthropic.types import TextBlockParam
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_id_from_seed
@@ -132,7 +133,6 @@ def judge_merge(
     docs_page_paths: list[str],
     page_text_by_key: dict[str, str],
 ) -> JudgeVerdict:
-    page_list = "\n".join(docs_page_paths)
     page_texts = "".join(f'<page path="{key}">\n{text}\n</page>\n\n' for key, text in page_text_by_key.items())
     try:
         response = anthropic_client.with_options(
@@ -140,13 +140,12 @@ def judge_merge(
         ).messages.parse(
             model=JUDGE_MODEL,
             max_tokens=4096,
-            system=JUDGE_INSTRUCTIONS,
+            system=system_with_cached_page_list(JUDGE_INSTRUCTIONS, docs_page_paths),
             messages=[
                 {
                     "role": "user",
                     "content": (
-                        f"Commit title: {title}\n\nDocs pages:\n{page_list}\n\n{page_texts}"
-                        f"<diff>\n{judged_diff[:MAX_DIFF_CHARACTERS]}\n</diff>"
+                        f"Commit title: {title}\n\n{page_texts}<diff>\n{judged_diff[:MAX_DIFF_CHARACTERS]}\n</diff>"
                     ),
                 }
             ],
@@ -157,6 +156,17 @@ def judge_merge(
     if response.stop_reason == "refusal" or response.parsed_output is None:
         return declined_verdict()
     return response.parsed_output
+
+
+def system_with_cached_page_list(instructions: str, docs_page_paths: list[str]) -> list[TextBlockParam]:
+    return [
+        {"type": "text", "text": instructions},
+        {
+            "type": "text",
+            "text": "Docs pages:\n" + "\n".join(docs_page_paths),
+            "cache_control": {"type": "ephemeral", "ttl": "1h"},
+        },
+    ]
 
 
 def declined_verdict() -> JudgeVerdict:
