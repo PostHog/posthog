@@ -3,7 +3,7 @@
 // the caller's token.
 
 import { createHash, randomUUID } from 'node:crypto'
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 
 import { type IntegrationAuth, assertKindAllowed } from '../auth/integrations'
 import { type JsonObject, type JsonValue, canonicalJson } from '../crypto/canonical'
@@ -11,14 +11,19 @@ import type { Envelope, SealedSecret } from '../crypto/envelope'
 import { EnvelopeError, KmsError } from '../crypto/types'
 import { claimIdempotencyKey, recordIdempotencyResult } from '../db/idempotency'
 import {
+    type ChangeCursor,
     type ListCursor,
     type Page,
     type PageRequest,
     getIntegrationsByRefs,
+    listChangedIntegrations,
     listIntegrations,
     listIntegrationsAcrossTeams,
     lockIntegration,
     lockIntegrationByKey,
+    lockIntegrationsByExternalId,
+    softDeleteOwnerBatch,
+    type SourceRows,
 } from '../db/integration-queries'
 import {
     type IntegrationChanges,
@@ -30,14 +35,17 @@ import {
     softDeleteIntegration,
     updateIntegration,
 } from '../db/integrations'
-import { type StoredSecret, deleteSecret, getSecrets, putSecret } from '../db/secrets'
+import { type StoredSecret, deleteSecret, deleteSecrets, getSecrets, getSecretsOf, putSecret } from '../db/secrets'
 import { withTransaction } from '../db/transaction'
 import { logger } from '../lib/logging'
 import { type AuditActor, type AuditEntry, type AuditQueue, insertAuditRows } from './audit'
 import { IntegrationApiError, notFound } from './errors'
 import { type IntegrationRecordJson, exposedCredentials, toRecordJson, tokenExpiresAt } from './record'
 import {
+    type ChangesQuery,
     type CrossTeamBody,
+    type ExternalIdListQuery,
+    type ExternalIdTarget,
     type ListQuery,
     type NewIntegrationBody,
     type PatchBody,
@@ -46,6 +54,12 @@ import {
 } from './validation'
 
 const DECRYPT_CONCURRENCY = 16
+const OWNER_DELETE_BATCH = 500
+// See `listChangedIntegrations`: the longest write transaction the change feed can wait out.
+const DEFAULT_CHANGES_SETTLE_SECONDS = 30
+// A cross-team write locks every matched row and may call KMS for each. It rolls back once it
+// runs this long, so it commits well inside the settle window and the change feed cannot skip it.
+const CROSS_TEAM_WRITE_DEADLINE_MS = 20_000
 const IDEMPOTENT_CREATE = 'create'
 // The text form Postgres prints for a timestamptz, as the list cursor carries it.
 const CURSOR_TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2}){0,2}$/
@@ -55,6 +69,8 @@ export interface IntegrationsDeps {
     pool: Pool
     envelope: Envelope
     audit: AuditQueue
+    /** How old a change must be before the change feed returns it. Tests shorten it. */
+    changesSettleSeconds?: number
 }
 
 /** The verified caller of one request. */
@@ -65,6 +81,25 @@ export interface Caller {
 
 export interface RecordPage {
     results: IntegrationRecordJson[]
+    next: string | null
+}
+
+/** One row of the change feed. `secret` is the whole blob, refresh token included. */
+export interface ChangeItem {
+    record: IntegrationRecordJson
+    deleted: boolean
+    updated_at: string
+    /** The current blob. `{}` when the row has no secret or is deleted. Null only with `secret_error`. */
+    secret: JsonObject | null
+    /** Keys of a migrated blob that could not be decrypted. They are not in `secret`. */
+    secret_unreadable_keys: string[]
+    /** Set when the secret cannot be opened. */
+    secret_error: 'unreadable_secret' | null
+}
+
+export interface ChangePage {
+    results: ChangeItem[]
+    /** The `since` of the next call. It equals the request's `since` when nothing changed. */
     next: string | null
 }
 
@@ -90,6 +125,15 @@ function owner(caller: Caller): IntegrationOwner {
     return tokenOwner
 }
 
+function crossTeamWriteDeadline(): () => void {
+    const deadline = Date.now() + CROSS_TEAM_WRITE_DEADLINE_MS
+    return () => {
+        if (Date.now() > deadline) {
+            throw new Error(`cross-team write ran past ${CROSS_TEAM_WRITE_DEADLINE_MS} ms and was rolled back`)
+        }
+    }
+}
+
 function isEmpty(value: object): boolean {
     return Object.keys(value).length === 0
 }
@@ -112,6 +156,11 @@ function encodeCursor(cursor: ListCursor | null): string | null {
 }
 
 function decodeCursor(value: string | null): ListCursor | null {
+    const cursor = decodeKeyset(value)
+    return cursor === null ? null : { createdAt: cursor.timestamp, id: cursor.id }
+}
+
+function decodeKeyset(value: string | null): { timestamp: string; id: string } | null {
     if (value === null) {
         return null
     }
@@ -131,7 +180,16 @@ function decodeCursor(value: string | null): ListCursor | null {
     ) {
         throw new IntegrationApiError('validation', 'the page cursor is not valid')
     }
-    return { createdAt: parsed[0], id: parsed[1] }
+    return { timestamp: parsed[0], id: parsed[1] }
+}
+
+function encodeChangeCursor(cursor: ChangeCursor): string {
+    return Buffer.from(JSON.stringify([cursor.updatedAt, cursor.id])).toString('base64url')
+}
+
+function decodeChangeCursor(value: string | null): ChangeCursor | null {
+    const cursor = decodeKeyset(value)
+    return cursor === null ? null : { updatedAt: cursor.timestamp, id: cursor.id }
 }
 
 /** Runs `fn` on every item, with at most `limit` calls in flight. */
@@ -348,8 +406,6 @@ export class IntegrationsService {
     async patch(caller: Caller, refText: string, body: PatchBody, ifMatch: number | null): Promise<IntegrationRow> {
         const teamOwner = owner(caller)
         const ref = parseRef(refText)
-        const secretPatch = body.sensitive_config_patch as JsonObject
-        const touchedSecretKeys = [...new Set([...Object.keys(secretPatch), ...body.sensitive_config_remove])].sort()
 
         return withTransaction(this.deps.pool, async (tx) => {
             const row = await lockIntegration(tx, teamOwner, ref)
@@ -360,51 +416,72 @@ export class IntegrationsService {
             if (ifMatch !== null && row.version !== ifMatch) {
                 throw versionMismatch(row.version)
             }
-
-            const changes: IntegrationChanges = {}
-            const config = row.config as JsonObject
-            const newConfig = patched(config, body.config_patch as JsonObject, body.config_remove)
-            if (!sameJson(newConfig, config)) {
-                changes.config = newConfig
-            }
-            if (body.errors !== null && body.errors !== row.errors) {
-                changes.errors = body.errors
-            }
-
-            let newSecret: { blob: JsonObject; unreadable: string[] } | null = null
-            if (touchedSecretKeys.length > 0) {
-                const stored = (await getSecrets(tx, teamOwner, [row.id])).get(row.id)
-                const current = stored ? await this.open(row, stored) : {}
-                const unreadable = stored?.legacyUnreadableKeys ?? []
-                // A key the patch writes or removes is no longer unreadable.
-                const stillUnreadable = unreadable.filter((key) => !touchedSecretKeys.includes(key))
-                const blob = patched(current, secretPatch, body.sensitive_config_remove)
-                if (!sameJson(blob, current) || stillUnreadable.length !== unreadable.length) {
-                    newSecret = { blob, unreadable: stillUnreadable }
-                }
-            }
-
-            if (isEmpty(changes) && newSecret === null) {
+            const applied = await this.applyPatch(tx, row, body)
+            if (applied === null) {
                 return row
             }
-            const updated = await updateIntegration(tx, teamOwner, { id: row.id }, row.version, changes)
-            if (updated.status !== 'ok') {
-                throw new Error(`patch of a locked row returned ${updated.status}`)
-            }
-            if (newSecret !== null) {
-                if (isEmpty(newSecret.blob) && newSecret.unreadable.length === 0) {
-                    await deleteSecret(tx, row.id)
-                } else {
-                    await putSecret(tx, row.id, await this.seal(row, newSecret.blob), newSecret.unreadable)
-                }
-            }
             await insertAuditRows(tx, [
-                this.auditEntry(caller, 'update', updated.row, 'ok', newSecret === null ? [] : touchedSecretKeys, {
-                    changed: Object.keys(changes).sort(),
-                }),
+                this.auditEntry(caller, 'update', applied.row, 'ok', applied.secretKeys, { changed: applied.changed }),
             ])
-            return updated.row
+            return applied.row
         })
+    }
+
+    /**
+     * Applies the patch to a locked row, in the caller's transaction. Returns null when the patch
+     * changes nothing, and then writes nothing.
+     */
+    private async applyPatch(
+        tx: PoolClient,
+        row: IntegrationRow,
+        body: PatchBody
+    ): Promise<{ row: IntegrationRow; changed: string[]; secretKeys: string[] } | null> {
+        const rowOwner: IntegrationOwner = { type: row.ownerType, id: row.ownerId }
+        const secretPatch = body.sensitive_config_patch as JsonObject
+        const touchedSecretKeys = [...new Set([...Object.keys(secretPatch), ...body.sensitive_config_remove])].sort()
+
+        const changes: IntegrationChanges = {}
+        const config = row.config as JsonObject
+        const newConfig = patched(config, body.config_patch as JsonObject, body.config_remove)
+        if (!sameJson(newConfig, config)) {
+            changes.config = newConfig
+        }
+        if (body.errors !== null && body.errors !== row.errors) {
+            changes.errors = body.errors
+        }
+
+        let newSecret: { blob: JsonObject; unreadable: string[] } | null = null
+        if (touchedSecretKeys.length > 0) {
+            const stored = (await getSecrets(tx, rowOwner, [row.id])).get(row.id)
+            const current = stored ? await this.open(row, stored) : {}
+            const unreadable = stored?.legacyUnreadableKeys ?? []
+            // A key the patch writes or removes is no longer unreadable.
+            const stillUnreadable = unreadable.filter((key) => !touchedSecretKeys.includes(key))
+            const blob = patched(current, secretPatch, body.sensitive_config_remove)
+            if (!sameJson(blob, current) || stillUnreadable.length !== unreadable.length) {
+                newSecret = { blob, unreadable: stillUnreadable }
+            }
+        }
+
+        if (isEmpty(changes) && newSecret === null) {
+            return null
+        }
+        const updated = await updateIntegration(tx, rowOwner, { id: row.id }, row.version, changes)
+        if (updated.status !== 'ok') {
+            throw new Error(`patch of a locked row returned ${updated.status}`)
+        }
+        if (newSecret !== null) {
+            if (isEmpty(newSecret.blob) && newSecret.unreadable.length === 0) {
+                await deleteSecret(tx, row.id)
+            } else {
+                await putSecret(tx, row.id, await this.seal(row, newSecret.blob), newSecret.unreadable)
+            }
+        }
+        return {
+            row: updated.row,
+            changed: Object.keys(changes).sort(),
+            secretKeys: newSecret === null ? [] : touchedSecretKeys,
+        }
     }
 
     /** Soft-deletes the row and removes its secret, so a deleted credential can never be resolved. */
@@ -517,6 +594,218 @@ export class IntegrationsService {
             this.pageRequest(body.limit, body.newest_first, body.after)
         )
         return this.readPage(caller, 'list_across_teams', page)
+    }
+
+    /** The rows of every team with this kind and external id. Needs the `read_by_external_id` op. */
+    async listByExternalId(caller: Caller, target: ExternalIdTarget, query: ExternalIdListQuery): Promise<RecordPage> {
+        const page = await listIntegrationsAcrossTeams(
+            this.deps.pool,
+            {
+                kinds: [target.kind],
+                authTypes: null,
+                externalId: target.externalId,
+                sourceRows: query.sourceRows,
+                where: {},
+                whereIn: {},
+                whereIexact: {},
+                hasConfigKey: null,
+                teamIds: query.teamIds,
+                excludeTeamIds: [],
+                createdByIds: null,
+            },
+            this.pageRequest(query.limit, false, query.after)
+        )
+        return this.readPage(caller, 'read_by_external_id', page)
+    }
+
+    /**
+     * Applies the patch to the rows of every team with this kind and external id, in one
+     * transaction. Audits every matched row: `ok` when it changed, `unchanged` when it did not.
+     */
+    async patchByExternalId(
+        caller: Caller,
+        target: ExternalIdTarget,
+        body: PatchBody,
+        sourceRows: SourceRows
+    ): Promise<{ matched: number; updated: number }> {
+        const checkDeadline = crossTeamWriteDeadline()
+        return withTransaction(this.deps.pool, async (tx) => {
+            const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
+            const entries: AuditEntry[] = []
+            let updated = 0
+            for (const row of rows) {
+                checkDeadline()
+                const applied = await this.applyPatch(tx, row, body)
+                if (applied === null) {
+                    entries.push(this.auditEntry(caller, 'write_by_external_id', row, 'unchanged'))
+                    continue
+                }
+                updated += 1
+                entries.push(
+                    this.auditEntry(caller, 'write_by_external_id', applied.row, 'ok', applied.secretKeys, {
+                        changed: applied.changed,
+                    })
+                )
+            }
+            await insertAuditRows(tx, entries)
+            checkDeadline()
+            return { matched: rows.length, updated }
+        })
+    }
+
+    /** Soft-deletes the rows of every team with this kind and external id, and their secrets, in one transaction. */
+    async deleteByExternalId(
+        caller: Caller,
+        target: ExternalIdTarget,
+        sourceRows: SourceRows
+    ): Promise<{ deleted: number }> {
+        const checkDeadline = crossTeamWriteDeadline()
+        return withTransaction(this.deps.pool, async (tx) => {
+            const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
+            const entries: AuditEntry[] = []
+            for (const row of rows) {
+                checkDeadline()
+                const deleted = await softDeleteIntegration(
+                    tx,
+                    { type: row.ownerType, id: row.ownerId },
+                    { id: row.id }
+                )
+                if (deleted.status !== 'ok') {
+                    throw new Error(`delete of a locked row returned ${deleted.status}`)
+                }
+                entries.push(this.auditEntry(caller, 'delete_by_external_id', deleted.row, 'ok'))
+            }
+            await deleteSecrets(
+                tx,
+                rows.map((row) => row.id)
+            )
+            await insertAuditRows(tx, entries)
+            checkDeadline()
+            return { deleted: rows.length }
+        })
+    }
+
+    /**
+     * Soft-deletes every live row of the token's owner and removes their secrets, `OWNER_DELETE_BATCH`
+     * rows per transaction. A second call finds nothing and returns zero, so a retry after a failure
+     * is safe. The token must not narrow by kind or ref, because the delete takes the whole owner.
+     */
+    async deleteOwner(caller: Caller, ownerId: number): Promise<{ deleted: number }> {
+        const teamOwner = owner(caller)
+        if (teamOwner.id !== ownerId) {
+            throw new IntegrationApiError('forbidden_op', 'the owner of the request is not the owner of the token')
+        }
+        if (caller.auth.kinds !== null) {
+            throw new IntegrationApiError('forbidden_kind', 'a token that narrows by kind cannot delete an owner')
+        }
+
+        let deleted = 0
+        for (;;) {
+            const batch = await withTransaction(this.deps.pool, async (tx) => {
+                const rows = await softDeleteOwnerBatch(tx, teamOwner, OWNER_DELETE_BATCH)
+                await deleteSecrets(
+                    tx,
+                    rows.map((row) => row.id)
+                )
+                await insertAuditRows(
+                    tx,
+                    rows.map((row) => this.auditEntry(caller, 'delete_owner', row, 'ok'))
+                )
+                return rows.length
+            })
+            deleted += batch
+            if (batch < OWNER_DELETE_BATCH) {
+                break
+            }
+        }
+        await this.deps.pool.query(`DELETE FROM idempotency_keys WHERE owner_type = $1 AND owner_id = $2`, [
+            teamOwner.type,
+            teamOwner.id,
+        ])
+        return { deleted }
+    }
+
+    /**
+     * The rows of every team that changed after `since`, oldest change first, deleted rows included.
+     * Unlike every other read, it returns decrypted secrets: the whole blob, `refresh_token` and
+     * `client_secret` too, for each live row on the page. The Django reverse sync
+     * needs the refreshed tokens, and only it may call this (the web deployment). The audit rows
+     * are written before the response is built, so a page that cannot be audited is not returned.
+     */
+    async changes(caller: Caller, query: ChangesQuery): Promise<ChangePage> {
+        const after = decodeChangeCursor(query.since)
+        const changed = await listChangedIntegrations(this.deps.pool, {
+            // A token that names kinds sees only those, even when the request names none.
+            kinds: query.kinds ?? caller.auth.kinds,
+            after,
+            limit: query.limit,
+            settleSeconds: this.deps.changesSettleSeconds ?? DEFAULT_CHANGES_SETTLE_SECONDS,
+        })
+        const live = changed.filter(({ row }) => row.deletedAt === null).map(({ row }) => row.id)
+        // Every live row carries its current secret. A secret that changed before the cursor can sit
+        // on a row that changed again after it, so the reader cannot tell from the cursor alone.
+        const secrets = await getSecretsOf(this.deps.pool, live)
+
+        const outcomes = new Map<string, Awaited<ReturnType<IntegrationsService['changeSecret']>>>()
+        await forEachLimit(changed, DECRYPT_CONCURRENCY, async ({ row }) => {
+            outcomes.set(row.id, await this.changeSecret(row, secrets))
+        })
+
+        const items: ChangeItem[] = []
+        const entries: AuditEntry[] = []
+        for (const { row } of changed) {
+            const outcome = outcomes.get(row.id)!
+            items.push({
+                record: toRecordJson(row),
+                deleted: row.deletedAt !== null,
+                updated_at: row.updatedAt.toISOString(),
+                ...outcome,
+            })
+            entries.push(
+                this.auditEntry(
+                    caller,
+                    'changes',
+                    row,
+                    outcome.secret_error ?? 'ok',
+                    outcome.secret === null ? [] : Object.keys(outcome.secret),
+                    { deleted: row.deletedAt !== null }
+                )
+            )
+        }
+        await insertAuditRows(this.deps.pool, entries)
+
+        const last = changed[changed.length - 1]
+        return {
+            results: items,
+            next: last ? encodeChangeCursor(last.cursor) : query.since,
+        }
+    }
+
+    private async changeSecret(
+        row: IntegrationRow,
+        secrets: Map<string, StoredSecret>
+    ): Promise<Pick<ChangeItem, 'secret' | 'secret_unreadable_keys' | 'secret_error'>> {
+        const stored = row.deletedAt === null ? secrets.get(row.id) : undefined
+        if (!stored) {
+            return { secret: {}, secret_unreadable_keys: [], secret_error: null }
+        }
+        try {
+            return {
+                secret: await this.open(row, stored),
+                secret_unreadable_keys: stored.legacyUnreadableKeys,
+                secret_error: null,
+            }
+        } catch (err) {
+            // A KMS outage fails the page, so the poller retries. A bad row must not stop the feed.
+            if (err instanceof IntegrationApiError && err.code === 'unreadable_secret') {
+                return {
+                    secret: null,
+                    secret_unreadable_keys: stored.legacyUnreadableKeys,
+                    secret_error: 'unreadable_secret',
+                }
+            }
+            throw err
+        }
     }
 
     private pageRequest(limit: number, newestFirst: boolean, after: string | null): PageRequest {
