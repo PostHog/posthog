@@ -13400,13 +13400,15 @@ export namespace Schemas {
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
      * * `connector` - Signed up through an OAuth connector
+     * * `device_login` - Signed up through an OAuth device login
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
         | "provisioned"
-        | "connector";
+        | "connector"
+        | "device_login";
     /**
      * * `1` - member
      * * `8` - administrator
