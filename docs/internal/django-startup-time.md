@@ -61,6 +61,7 @@ the enums (~270 classes) live in `posthog.schema_enums`, a separate generated mo
 everything else got one of the standard treatments — enum-only imports repointed to `posthog.schema_enums`, annotation-only model uses moved under `TYPE_CHECKING` with quoted annotations, method-body uses imported at call time.
 The default when writing a model file or any other setup-path module: take enums from `posthog.schema_enums`; if you need an actual pydantic model, import it inside the method that uses it.
 The same applies to the celery task graph: `posthog/tasks/__init__.py` eagerly imports every task module so autodiscovery registers them, so any module-level `from posthog.tasks...` import on a setup path drags all of them in — import tasks at the call site, and take `CeleryQueue` from `posthog.celery_queues` (import-light, made for decorator-eval consumers).
+Periodic task registration in `posthog/celery.py` runs on Celery's `import_modules` signal, which only worker and beat boot send. Keep imports out of `on_after_finalize` receivers: a web worker finalizes Celery on its first `.delay()`, and an import under the finalize lock can deadlock with a thread lazily importing a task module.
 
 ## The regression guard
 
@@ -162,6 +163,18 @@ When the floor has crept, the lever is the same as it ever was — find the heav
 - Import _structure_, when a deferral is blocked: `grimp` builds the module import graph.
   Sometimes you cannot just defer a heavy import because it is load-bearing in a circular import — deferring one edge only relocates the cycle.
   `grimp`'s `nominate_cycle_breakers` ranks which edge to cut, so the real work becomes untangling the owning package's cycle before the heavy import can come off the startup path.
+
+### Diagnose a stalled migration check
+
+Set `POSTHOG_COMMAND_DIAGNOSTICS=1` for `migrate --check` or `migrate_clickhouse --check`; other management commands ignore it.
+`manage.py` arms `faulthandler.dump_traceback_later` before Django imports and writes every thread's stack to stderr every 60 seconds.
+`POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS` changes the interval; invalid, nonpositive or oversized values fall back to 60 seconds.
+faulthandler writes from its own C thread, so a dump still arrives while the main thread is blocked in native code or holds the GIL.
+The top frames tell a Django import or `django.setup()` wait apart from a database connection or query wait.
+Diagnostics impose no timeout and preserve the command's exit status. With the variable unset, they produce no output.
+Direct output requires a draining stderr: a blocked destination can block the watchdog and delay interpreter shutdown.
+Use it on a scoped run, such as a deployment's migration check, and capture stderr before the pod is replaced.
+`migrate --profile-operations` covers per-operation timings once migrations run; this covers everything before and around them.
 
 ## Where the floor is now, and what is left
 

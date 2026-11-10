@@ -15,7 +15,8 @@ conversation until then.
 """
 
 from datetime import datetime, timedelta
-from typing import Protocol
+from enum import StrEnum
+from typing import Any, Protocol
 
 from django.db import models
 from django.utils import timezone
@@ -69,6 +70,15 @@ class ThreadClaim:
     claimed_at: datetime
 
 
+class Opening(StrEnum):
+    """What an evaluation's message is in a conversation."""
+
+    ROOT = "root"
+    REPLY = "reply"
+    # Not delivered yet: a send of it holds the conversation, or nothing of it is there.
+    WAITING = "waiting"
+
+
 class ThreadBusy(Exception):
     """Another send holds this conversation and has not finished with it."""
 
@@ -83,7 +93,12 @@ class ThreadStore(Protocol):
 
     def delivered(self, claim: ThreadClaim, handle: MessageHandle | None) -> None: ...
 
-    def release(self, claim: ThreadClaim) -> None: ...
+    def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:
+        """Frees the conversation. `root_content` replaces what the opening message shows, after an
+        edit that changed it, so later edits keep the change."""
+        ...
+
+    def opening(self, key: ThreadKey, evaluation_key: str) -> Opening: ...
 
 
 class NullThreadStore:
@@ -100,8 +115,11 @@ class NullThreadStore:
     def delivered(self, claim: ThreadClaim, handle: MessageHandle | None) -> None:
         return None
 
-    def release(self, claim: ThreadClaim) -> None:
+    def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:
         return None
+
+    def opening(self, key: ThreadKey, evaluation_key: str) -> Opening:
+        return Opening.WAITING
 
 
 class DatabaseThreadStore:
@@ -142,6 +160,9 @@ class DatabaseThreadStore:
         if not taken:
             raise ThreadBusy(f"thread {thread.id} is being posted to by another send")
 
+        # Read again under the claim: a holder that released between the first read and the update
+        # can have changed the opening message, and an edit from the stale copy would undo that change.
+        thread.refresh_from_db(fields=["external_ref", "root_message"])
         handle = (
             MessageHandle(external_ref=thread.external_ref, root_content=thread.root_message)
             if thread.external_ref
@@ -167,8 +188,32 @@ class DatabaseThreadStore:
             fields["root_message"] = handle.root_content
         self._fenced(claim).update(**fields)
 
-    def release(self, claim: ThreadClaim) -> None:
-        self._fenced(claim).update(pending_evaluation_key=None, pending_claimed_at=None, updated_at=timezone.now())
+    def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:
+        fields: dict[str, object] = {"pending_evaluation_key": None, "pending_claimed_at": None}
+        if root_content is not None:
+            fields["root_message"] = root_content
+        self._fenced(claim).update(**fields, updated_at=timezone.now())
+
+    def opening(self, key: ThreadKey, evaluation_key: str) -> Opening:
+        """Where this evaluation's message is in the conversation, read without creating one."""
+        thread = (
+            PlatformAlertThread.objects.for_team(self._team_id)
+            .filter(
+                configuration_id=key.configuration_id,
+                grouping_key=key.grouping_key,
+                provider=key.provider,
+                channel_target=key.channel_target,
+                episode_started_at=key.episode_started_at,
+            )
+            .first()
+        )
+        if thread is None:
+            return Opening.WAITING
+        delivered = thread.delivered_evaluation_keys or []
+        if evaluation_key in delivered:
+            # Oldest first, so the first entry is the send that opened the conversation until the cap drops it.
+            return Opening.ROOT if delivered[0] == evaluation_key and thread.external_ref else Opening.REPLY
+        return Opening.WAITING
 
     def _fenced(self, claim: ThreadClaim) -> models.QuerySet[PlatformAlertThread]:
         return PlatformAlertThread.objects.for_team(self._team_id).filter(

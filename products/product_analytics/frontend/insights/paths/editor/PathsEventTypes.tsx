@@ -1,5 +1,15 @@
 import { useActions, useValues } from 'kea'
 
+import { IconChevronDown } from '@posthog/icons'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
+
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -13,6 +23,7 @@ import { pathsDataLogic } from 'products/product_analytics/frontend/insights/pat
 export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     const includeEventTypes = pathsFilter?.includeEventTypes
     const setIncludeEventTypes = (includeEventTypes: PathsFilter['includeEventTypes']): void => {
@@ -40,7 +51,11 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
             label: 'SQL expression',
             selected: includeEventTypes?.includes(PathType.HogQL),
         },
-    ]
+    ].map((option) => ({
+        ...option,
+        disabledReason:
+            option.selected && includeEventTypes?.length === 1 ? 'At least one event type must be selected' : undefined,
+    }))
 
     const onClickPathtype = (pathType: PathType): void => {
         if (includeEventTypes) {
@@ -56,6 +71,30 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
 
     const summary = capitalizeFirstLetter(humanizePathsEventTypes(includeEventTypes).join(' & '))
 
+    if (quillSurface) {
+        return (
+            <DropdownMenu>
+                <DropdownMenuTrigger render={<Button variant="outline" left className="w-full min-w-0" />}>
+                    <span className="truncate">{summary}</span>
+                    <IconChevronDown className="ms-auto" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    {options.map((option) => (
+                        <DropdownMenuCheckboxItem
+                            key={option.type}
+                            data-attr={`path-type-${option.type}`}
+                            checked={!!option.selected}
+                            onCheckedChange={() => onClickPathtype(option.type)}
+                            disabledReason={option.disabledReason}
+                        >
+                            {option.label}
+                        </DropdownMenuCheckboxItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    }
+
     return (
         <LemonButtonWithDropdown
             fullWidth
@@ -68,11 +107,7 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
                         key={option.type}
                         data-attr={`path-type-${option.type}`}
                         onClick={() => onClickPathtype(option.type)}
-                        disabledReason={
-                            option.selected && includeEventTypes?.length === 1
-                                ? 'At least one event type must be selected'
-                                : undefined
-                        }
+                        disabledReason={option.disabledReason}
                         fullWidth
                     >
                         <span className="pointer-events-none mr-2">

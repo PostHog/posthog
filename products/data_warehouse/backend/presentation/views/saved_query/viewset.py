@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import BooleanField, Expression, ExpressionWrapper, Model, Prefetch, Q, Value
+from django.db.models import Model, Prefetch
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -17,6 +17,7 @@ from posthog.hogql.database.database import Database
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -47,8 +48,10 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     Node,
     NodeType,
+    ViewEngine,
 )
 from products.managed_warehouse.backend.facade.sql_editor import managed_trino_query_flag_enabled
+from products.warehouse_sources.backend.facade.api import team_has_had_direct_query_source
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -251,16 +254,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
                 "query", "external_tables", "incremental_state"
             )
-            # Reading the two keys still detoasts `query`, so only orgs that can save raw Trino views pay for it.
-            # The flag check is read-only. The editor's access check can promote the warehouse lifecycle, which a list must not do.
-            if managed_trino_query_flag_enabled(self.team.organization_id):
-                raw_managed_trino: Expression = ExpressionWrapper(
-                    Q(query__executionTarget="managed_trino", query__sendRawQuery=True),
-                    output_field=BooleanField(),
-                )
-            else:
-                raw_managed_trino = Value(False, output_field=BooleanField())
-            base_queryset = base_queryset.annotate(raw_managed_trino=raw_managed_trino)
+            # Reading the engine keys still detoasts `query`, so only teams that can save raw Trino views or
+            # views on a direct connection pay for it. The flag check is read-only. The editor's access check
+            # can promote the warehouse lifecycle, which a list must not do.
+            read_query_keys = managed_trino_query_flag_enabled(
+                self.team.organization_id
+            ) or team_has_had_direct_query_source(self.team.pk)
+            base_queryset = base_queryset.annotate(**ViewEngine.queryset_annotations(read_query_keys=read_query_keys))
 
         if self.action == "list" and not self._include_columns:
             base_queryset = base_queryset.defer("columns")
@@ -318,9 +318,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             403: OpenApiResponse(
                 description="You can't edit every view in the run, or engine is 'trino' and the organization has no managed warehouse."
             ),
-            409: OpenApiResponse(description="engine is 'trino' and a managed warehouse run is already in progress."),
+            409: OpenApiResponse(
+                description="engine is 'trino' and a managed warehouse run is already in progress, or the run started from the PostHog app and a view it would build is still running."
+            ),
             429: OpenApiResponse(
-                description="Every view this run would build ran too recently and has not changed since. Runs with engine 'trino' have no such limit. The Retry-After header gives the wait in seconds."
+                description="Every view this run would build ran too recently and has not changed since. Runs with engine 'trino' and runs started from the PostHog app have no such limit; the app refuses a run only while a view is still running. The Retry-After header gives the wait in seconds."
             ),
         },
     )
@@ -337,7 +339,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             MissingDagNodeError,
             clear_incremental_state,
             materialize_saved_query,
-            raise_if_ran_recently,
+            raise_if_manual_run_is_refused,
             run_trino_node_materializations,
         )
 
@@ -345,10 +347,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
-        if saved_query.is_raw_managed_trino:
-            raise exceptions.ValidationError(detail="Views that run raw Trino SQL cannot be materialized yet.")
+        materialize = saved_query.engine.can_materialize
+        if not materialize.available:
+            raise exceptions.ValidationError(detail=materialize.reason)
         on_trino = body.validated_data["engine"] == MaterializationEngine.TRINO
         direction = body.validated_data.get("direction")
+        from_browser_session = isinstance(request.successful_authenticator, SessionAuthentication)
 
         try:
             if direction or on_trino:
@@ -379,11 +383,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                         node.id,
                         direction=direction,
                         user=cast(User, request.user),
+                        from_browser_session=from_browser_session,
                         hidden_types=hidden_types,
                     )
             else:
                 # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
-                raise_if_ran_recently(self.team_id, saved_query.id)
+                raise_if_manual_run_is_refused(self.team_id, saved_query.id, from_browser_session=from_browser_session)
                 if body.validated_data["full_refresh"]:
                     # Dropping the watermark is the whole mechanism: the next run finds no progress to
                     # build on and rebuilds. Commit it before dispatch, and outside any transaction the
@@ -527,8 +532,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Enable materialization for this saved query, at the requested sync frequency or daily.
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
-        if saved_query.is_raw_managed_trino:
-            raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
+        materialize = saved_query.engine.can_materialize
+        if not materialize.available:
+            raise serializers.ValidationError(materialize.reason)
 
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)
@@ -538,9 +544,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 self.team_id,
                 saved_query.id,
                 user=cast(User, request.user),
-                sync_frequency_interval=sync_frequency_to_sync_frequency_interval(
-                    params.validated_data["sync_frequency"]
-                ),
+                frequency_target=sync_frequency_to_sync_frequency_interval(params.validated_data["sync_frequency"]),
                 visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
                     bounds, self.user_access_control, team_id=self.team_id
                 ),

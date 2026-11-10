@@ -36,8 +36,8 @@ function resolveProxyArgs(): string[] {
 
 // Chrome renders recording content the customer's visitors produced, so it must not hold the
 // worker's secrets in its address space. puppeteer-core defaults the browser environment to this
-// process's own, which carries SECRET_KEY, INTERNAL_API_SECRET and the pod's AWS credentials, so the
-// launch names what Chrome gets instead.
+// process's own, which carries the Temporal payload and client keys and the pod's AWS credentials, so
+// the launch names what Chrome gets instead.
 const CHROME_ENV_ALLOWLIST = [
     // Chrome resolves its helper binaries through PATH.
     'PATH',

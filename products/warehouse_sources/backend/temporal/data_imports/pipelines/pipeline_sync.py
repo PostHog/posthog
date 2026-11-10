@@ -2,6 +2,7 @@ import json
 import uuid
 import hashlib
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
@@ -14,11 +15,8 @@ import dlt
 import pyarrow
 import pendulum
 import dlt.common
-import dlt.extract
 import dlt.common.libs
 import dlt.common.libs.pyarrow
-import dlt.extract.incremental
-import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
 from structlog.types import FilteringBoundLogger
 
@@ -46,6 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
     not_another_schemas_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import (
+    lock_schema_for_history_registration,
+    run_pending_access_rules_copy,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
@@ -196,7 +198,6 @@ def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
 
 
 dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
-dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
 
 
 @dataclass(frozen=False)
@@ -661,6 +662,7 @@ async def register_cdc_companion_table(
     set_as_schema_table: bool = False,
     live_row_count: Optional[int] = None,
     live_size_mib: Optional[float] = None,
+    project_columns: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None,
 ) -> None:
     """Create or update a standalone DataWarehouseTable for a CDC companion resource (e.g. `{schema_name}_cdc`).
 
@@ -736,19 +738,47 @@ async def register_cdc_companion_table(
                 retry_on_db_connection_drop(
                     lambda: table.save(update_fields=update_fields, internally_computed_url_pattern=True)
                 )
+                run_pending_access_rules_copy(schema_id, team_id, table)
             else:
-                logger.debug(f"Creating CDC companion table: {companion_table_name}")
-                companion_table = DataWarehouseTable(
-                    external_data_source_id=job.pipeline.id,
-                    created_via=DataWarehouseTableCreatedVia.SOURCE,
-                    size_in_s3_mib=live_size_mib,
-                    **table_params,
-                )
-                # The batches carry the validity columns of the naming this run chose for the table.
-                companion_table.mark_as_history_table(
-                    ph_naming=history_naming_of(table_schema_dict or {}) == HISTORY_NAMING
-                )
-                companion_table.save()
+                # The table and the access rules it waits for commit together, so it is never readable without them.
+                with transaction.atomic():
+                    lock_schema_for_history_registration(schema_id, team_id)
+                    # A registration that overlapped this one may have created the table while this one waited.
+                    registered = not_another_schemas_table(
+                        DataWarehouseTable.objects.filter(
+                            team_id=team_id,
+                            name=companion_table_name,
+                            external_data_source_id=job.pipeline.id,
+                            deleted=False,
+                        ),
+                        schema_id,
+                    ).first()
+                    if registered is None:
+                        logger.debug(f"Creating CDC companion table: {companion_table_name}")
+                        companion_table = DataWarehouseTable(
+                            external_data_source_id=job.pipeline.id,
+                            created_via=DataWarehouseTableCreatedVia.SOURCE,
+                            size_in_s3_mib=live_size_mib,
+                            **table_params,
+                        )
+                        # The batches carry the validity columns of the naming this run chose for the table.
+                        companion_table.mark_as_history_table(
+                            ph_naming=history_naming_of(table_schema_dict or {}) == HISTORY_NAMING
+                        )
+                        companion_table.save()
+                    else:
+                        previous_queryable_folder = registered.queryable_folder
+                        storage_delta_mib = _storage_delta_mib(registered, live_size_mib)
+                        companion_table = registered
+                        companion_table.format = table_format
+                        companion_table.url_pattern = new_url_pattern
+                        companion_table.queryable_folder = queryable_folder
+                        companion_table.mark_as_history_table()
+                        companion_table.save(
+                            update_fields=["format", "url_pattern", "queryable_folder", "options"],
+                            internally_computed_url_pattern=True,
+                        )
+                    run_pending_access_rules_copy(schema_id, team_id, companion_table)
             _record_storage_delta(job, storage_delta_mib)
             _record_query_folder_pointer(
                 schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
@@ -758,6 +788,8 @@ async def register_cdc_companion_table(
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
             existing_columns = companion_table.columns or {}
             columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+            if project_columns is not None:
+                columns = project_columns(columns)
 
             def _persist_columns() -> None:
                 with transaction.atomic():

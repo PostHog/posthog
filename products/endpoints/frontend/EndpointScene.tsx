@@ -44,7 +44,6 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
@@ -77,7 +76,6 @@ export function EndpointScene(): JSX.Element {
     const { versions } = useValues(endpointLogic)
     const { allEndpoints } = useValues(endpointsLogic)
     const { openModal } = useActions(insightPickerEndpointModalLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const lineageSavedQueryId = (viewingVersion ?? endpoint)?.materialization?.saved_query_id ?? null
@@ -348,7 +346,6 @@ export function EndpointScene(): JSX.Element {
                                 onSave={(tags) => saveTagsInline(tags)}
                                 canEdit
                                 tags={endpoint.tags}
-                                tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                                 dataAttrKey="endpoint"
                             />
                         </SceneMenuBarPopover>
@@ -382,7 +379,6 @@ export function EndpointScene(): JSX.Element {
                     <ScenePanelInfoSection>
                         <SceneTags
                             tags={endpoint.tags}
-                            tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                             onSave={(tags) => saveTagsInline(tags)}
                             canEdit
                             dataAttrKey="endpoint"
