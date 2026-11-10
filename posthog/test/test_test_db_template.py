@@ -73,7 +73,7 @@ class UploadedArtifact:
     archive: bytes
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class GitHubActions:
     artifacts: list[UploadedArtifact] = field(default_factory=list)
     api: str = "https://api.github.com/repos/PostHog/posthog/actions"
