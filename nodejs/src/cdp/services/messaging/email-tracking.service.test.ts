@@ -223,35 +223,6 @@ describe('EmailTrackingService', () => {
         } as any
         const phIdOf = (html: string): string => html.match(/ph_id=([A-Za-z0-9._-]+)/)![1]
 
-        it.each([
-            { captureEngagement: undefined, distinctId: 'leaky-id' },
-            { captureEngagement: true, distinctId: 'leaky-id' },
-            { captureEngagement: false, distinctId: undefined },
-        ])(
-            'mints the pixel and redirect codes in dev/test with the distinct_id the send choice $captureEngagement allows',
-            ({ captureEngagement, distinctId }) => {
-                const out = addTrackingToEmail(
-                    '<body><a href="https://example.com">x</a></body>',
-                    {
-                        ...invocationWithDistinctId,
-                        state: {
-                            ...invocationWithDistinctId.state,
-                            send:
-                                captureEngagement === undefined
-                                    ? undefined
-                                    : { tracking: { captureEngagement, clicks: true } },
-                        },
-                    },
-                    signer
-                )
-                const codes = [...out.matchAll(/ph_id=([A-Za-z0-9_.-]+)/g)].map((match) => signer.parse(match[1]))
-                expect(codes).toHaveLength(2)
-                for (const code of codes) {
-                    expect(code).toMatchObject({ functionId: 'fn-1', invocationId: 'inv-1', distinctId })
-                }
-            }
-        )
-
         it('omits distinct_id from the public tracking URLs in production (Referer-leak guard)', () => {
             const devSpy = jest.spyOn(envUtils, 'isDevEnv').mockReturnValue(false)
             const testSpy = jest.spyOn(envUtils, 'isTestEnv').mockReturnValue(false)
@@ -565,6 +536,69 @@ describe('EmailTrackingService', () => {
                     })
                 })
             })
+
+            it.each([
+                { captureEngagement: undefined, captured: 1 },
+                { captureEngagement: true, captured: 1 },
+                { captureEngagement: false, captured: 0 },
+            ])(
+                'records the open and click of a delivered email, and captures them for the recipient when the send choice is $captureEngagement',
+                async ({ captureEngagement, captured }) => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO workflows_teamworkflowsconfig
+                            (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                             email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                         VALUES ($1, true, 'off', '', '', 0)`,
+                        [team.id],
+                        'test-set-engagement-capture'
+                    )
+                    const sendId = new UUIDT().toString()
+                    const delivered = addTrackingToEmail(
+                        '<body><a href="https://example.com/docs">Docs</a></body>',
+                        {
+                            functionId: hogFunction.id,
+                            id: sendId,
+                            teamId: team.id,
+                            state: {
+                                globals: { event: { distinct_id: 'user-1' } },
+                                send: {
+                                    tracking: {
+                                        ...(captureEngagement === undefined ? {} : { captureEngagement }),
+                                        clicks: true,
+                                    },
+                                },
+                            },
+                        } as any,
+                        signer
+                    )
+                    const pathOf = (url: string): string => `${new URL(url).pathname}${new URL(url).search}`
+                    const pixel = delivered.match(/<img src="([^"]+)"/)![1]
+                    const link = delivered.match(/<a href="([^"]+)"/)![1].replace(/&amp;/g, '&')
+                    mockInternalFetch.mockClear()
+
+                    expect((await supertest(app).get(pathOf(pixel))).status).toBe(200)
+                    const clicked = await supertest(app).get(pathOf(link))
+
+                    expect(clicked.status).toBe(302)
+                    expect(clicked.headers.location).toBe('https://example.com/docs')
+                    await waitForExpect(() => {
+                        const metrics = mockProducerObserver
+                            .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                            .filter(({ value }) => value.instance_id === sendId)
+                            .map(({ value }) => value.metric_name)
+                        expect(metrics).toEqual(expect.arrayContaining(['email_opened', 'email_link_clicked']))
+                    })
+                    const capturedEvents = mockInternalFetch.mock.calls
+                        .map(([, options]) => parseJSON(String(options?.body)))
+                        .filter((event) => event.distinct_id === 'user-1')
+                        .map((event) => event.event)
+                    expect(capturedEvents.filter((event) => event === '$workflows_email_opened')).toHaveLength(captured)
+                    expect(capturedEvents.filter((event) => event === '$workflows_email_link_clicked')).toHaveLength(
+                        captured
+                    )
+                }
+            )
 
             it('should return a 200 even if the tracking code is invalid', async () => {
                 const res = await supertest(app).get(`/public/m/pixel?ph_id=invalid-tracking-code`)
