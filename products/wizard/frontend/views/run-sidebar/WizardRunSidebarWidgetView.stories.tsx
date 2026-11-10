@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import type { WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas'
 import { WizardRunSidebarWidgetView } from './WizardRunSidebarWidgetView'
 
@@ -147,6 +149,21 @@ export const MultipleRunsMenuOpen: Story = {
 }
 
 export const DetectedSourcesMenuOpen: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/external_data_sources/wizard': {
+                    Stripe: { name: 'Stripe', label: 'Stripe', iconPath: '/static/services/stripe.png', fields: [] },
+                    Postgres: {
+                        name: 'Postgres',
+                        label: 'Postgres',
+                        iconPath: '/static/services/postgres.png',
+                        fields: [],
+                    },
+                },
+            },
+        }),
+    ],
     args: {
         detectedSources: [
             {
