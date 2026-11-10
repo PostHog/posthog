@@ -1,7 +1,9 @@
+import io
 import os
 import re
 import gzip
 import uuid
+import zipfile
 import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -30,6 +32,35 @@ FROM_NEWER_BRANCH = "9999_from_a_newer_branch"
 NOT_IN_HISTORY = "0123456789ab"
 
 
+def schema_dump(recorded: list[tuple[str, str]]) -> bytes:
+    rows = "".join(f"{index}\t{app}\t{name}\n" for index, (app, name) in enumerate(recorded, start=1))
+    return gzip.compress(
+        (
+            "CREATE TABLE public.django_migrations (id serial PRIMARY KEY, app text, name text);\n"
+            f"COPY public.django_migrations (id, app, name) FROM stdin;\n{rows}\\.\n"
+        ).encode()
+    )
+
+
+def git_history(root: Path, commits: list[dict[str, str]]) -> list[str]:
+    git = ["git", "-C", str(root), "-c", "user.name=test", "-c", "user.email=test@example.com"]
+    root.mkdir(parents=True)
+    subprocess.run([*git, "init", "-q"], check=True)
+    shas = []
+    for index, files in enumerate(commits):
+        for path, content in files.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(content)
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run(
+            [*git, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", f"c{index}"], check=True
+        )
+        shas.append(
+            subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        )
+    return shas
+
+
 @dataclass(frozen=True, kw_only=True, slots=True)
 class Scratch:
     server: PostgresServer
@@ -54,17 +85,8 @@ class Scratch:
         store: TemplateStore | None = None,
         other_apps: tuple[tuple[str, str], ...] = (),
     ) -> None:
-        recorded = [("posthog", name) for name in migrations] + list(other_apps)
-        rows = "".join(f"{index}\t{app}\t{name}\n" for index, (app, name) in enumerate(recorded, start=1))
         dump = tmp_path / "schema.sql.gz"
-        dump.write_bytes(
-            gzip.compress(
-                (
-                    "CREATE TABLE public.django_migrations (id serial PRIMARY KEY, app text, name text);\n"
-                    f"COPY public.django_migrations (id, app, name) FROM stdin;\n{rows}\\.\n"
-                ).encode()
-            )
-        )
+        dump.write_bytes(schema_dump([("posthog", name) for name in migrations] + list(other_apps)))
         store = store or self.store
         store.build(store.name_for(sha), dump, sha=sha)
 
@@ -155,13 +177,7 @@ def test_prime_test_database_clears_only_the_apps_the_template_commit_routed_to_
     scratch: Scratch, tmp_path: Path, routing: str, other_apps: tuple[tuple[str, str], ...], ledger: set[str]
 ) -> None:
     history = tmp_path / "history"
-    (history / "products").mkdir(parents=True)
-    (history / "products" / "db_routing.yaml").write_text(routing)
-    git = ["git", "-C", str(history), "-c", "user.name=test", "-c", "user.email=test@example.com"]
-    subprocess.run([*git, "init", "-q"], check=True)
-    subprocess.run([*git, "add", "."], check=True)
-    subprocess.run([*git, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "routing"], check=True)
-    sha = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    [sha] = git_history(history, [{"products/db_routing.yaml": routing}])
     store = TemplateStore(scratch.server, Checkout(history), allow_download=False, prefix=scratch.store.prefix)
     scratch.build_template(sha, [APPLIED, PENDING], tmp_path, store, other_apps)
 
@@ -190,6 +206,60 @@ def test_prime_django_test_database_primes_the_test_database_of_the_django_setti
 
     kept = PrimeResult(outcome=PrimeOutcome.KEPT, detail=f"{scratch.target} fits this checkout")
     assert result == (None if mode == "off" else kept)
+
+
+def test_usable_template_names_and_routes_the_template_by_the_commit_the_mirror_dumped(
+    scratch: Scratch, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    history = tmp_path / "history"
+    dumped, mirrored_at = git_history(
+        history,
+        [
+            {"products/db_routing.yaml": "routes:\n  - app_label: posthog\n"},
+            {"products/db_routing.yaml": "routes: []\n"},
+        ],
+    )
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("schema.sql.gz", schema_dump([("posthog", APPLIED), ("posthog", PENDING)]))
+    repo = "https://api.github.com/repos/PostHog/posthog/actions"
+    monkeypatch.setenv("GH_TOKEN", "gho_not_a_real_token")
+    store = TemplateStore(
+        scratch.server, Checkout(history), prefix=scratch.store.prefix, failure_marker=tmp_path / "download-failed"
+    )
+
+    with responses.RequestsMock() as github:
+        github.get(
+            f"{repo}/artifacts",
+            json={
+                "artifacts": [
+                    {
+                        "id": 1,
+                        "name": "migrated-schema",
+                        "expired": False,
+                        "size_in_bytes": 20_000,
+                        "archive_download_url": f"{repo}/artifacts/1/zip",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "workflow_run": {
+                            "id": 7,
+                            "head_sha": mirrored_at,
+                            "head_branch": "master",
+                            "head_repository_id": 1,
+                            "repository_id": 1,
+                        },
+                    }
+                ]
+            },
+        )
+        github.get(
+            f"{repo}/runs/7/artifacts",
+            json={"artifacts": [{"name": "migrated-schema"}, {"name": f"migrated-schema-mirrored-{dumped}"}]},
+        )
+        github.get(f"{repo}/artifacts/1/zip", body=archive.getvalue())
+        template = store.usable_template()
+
+    assert template is not None
+    assert (template, scratch.server.recorded_migrations(template)) == (store.name_for(dumped), set())
 
 
 def test_usable_template_retries_a_failed_download_only_after_the_retry_window(

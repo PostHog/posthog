@@ -33,6 +33,7 @@ from hogli_commands.db_schema import (
     find_newest_compatible_artifact,
     github_session,
     migrations_missing_from_checkout,
+    mirrored_dump_sha,
     routed_app_labels,
     run_psql_with_gzip_input,
 )
@@ -252,12 +253,15 @@ class TemplateStore:
         )
         if artifact is None:
             raise TemplateUnavailable("no recent master schema dump is an ancestor of this checkout")
-        name = self.name_for(artifact.head_sha)
+        dump_sha = mirrored_dump_sha(artifact, token=token, session=session)
+        if dump_sha is None:
+            raise TemplateUnavailable(f"schema artifact {artifact.id} does not name the commit it was dumped from")
+        name = self.name_for(dump_sha)
         if not self.server.database_exists(name):
             with tempfile.TemporaryDirectory(prefix="test-db-template-") as scratch:
                 dump = Path(scratch) / "schema.sql.gz"
                 download_schema_artifact(artifact, token=token, destination=dump, session=session)
-                self.build(name, dump, sha=artifact.head_sha)
+                self.build(name, dump, sha=dump_sha)
         return name
 
     def _prune(self, *, keep: str) -> None:

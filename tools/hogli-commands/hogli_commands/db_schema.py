@@ -29,6 +29,7 @@ ArtifactMode = Literal["off", "auto", "on"]
 
 GITHUB_REPOSITORY = "PostHog/posthog"
 SCHEMA_ARTIFACT_NAME = "migrated-schema"
+MIRRORED_MARKER_PREFIX = "migrated-schema-mirrored-"
 SCHEMA_DUMP_NAME = "schema.sql.gz"
 LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
@@ -78,6 +79,7 @@ class SchemaArtifact:
     head_sha: str
     head_branch: str
     created_at: str
+    workflow_run_id: int | None = None
 
 
 def _find_repo_root() -> Path:
@@ -387,6 +389,7 @@ def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
             head_sha=_require_type(workflow_run.get("head_sha"), str),
             head_branch=_require_type(workflow_run.get("head_branch"), str),
             created_at=_require_type(raw.get("created_at"), str),
+            workflow_run_id=workflow_run.get("id") if isinstance(workflow_run.get("id"), int) else None,
         )
     except TypeError:
         return None
@@ -488,6 +491,28 @@ def find_newest_compatible_artifact(
             break
 
     _emit_selection_diagnostics(fetched, base_branch=base_branch)
+    return None
+
+
+def mirrored_dump_sha(artifact: SchemaArtifact, *, token: str | None, session: requests.Session) -> str | None:
+    """The master commit whose dump the artifact holds, which the mirror run names in its marker artifact.
+
+    The mirror runs on a schedule, so the artifact's own head_sha is master at mirror time,
+    which can be newer than the commit the dump was taken from.
+    """
+    if artifact.workflow_run_id is None:
+        return None
+    response = session.get(
+        f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/runs/{artifact.workflow_run_id}/artifacts",
+        params={"per_page": 100},
+        headers=github_headers(token),
+        timeout=30,
+    )
+    response.raise_for_status()
+    for raw in response.json().get("artifacts") or []:
+        sha = str(raw.get("name", "")).removeprefix(MIRRORED_MARKER_PREFIX)
+        if sha != raw.get("name") and re.fullmatch(r"[0-9a-f]{40}", sha):
+            return sha
     return None
 
 
