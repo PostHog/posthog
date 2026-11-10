@@ -38,7 +38,9 @@ class TestWorkflowViewAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.base_url = f"/api/projects/{self.team.pk}/workflow_views/"
-        self.flags = patch("posthoganalytics.feature_enabled", return_value=True)
+        self.flags = patch(
+            "posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag == "workflows-list-v2"
+        )
         self.flags.start()
         self.addCleanup(self.flags.stop)
 
