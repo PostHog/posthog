@@ -2150,7 +2150,7 @@ if settings.TEST:
     ChPool.get_client = _counting_chpool_get_client  # ty: ignore[invalid-assignment]
 
 
-def reset_clickhouse_database() -> None:
+def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = ()) -> None:
     # Dropping tables below removes their materialized columns behind the metadata cache's back,
     # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
     try:
@@ -2306,6 +2306,14 @@ def reset_clickhouse_database() -> None:
         ]
     )
 
+    if materialized_event_properties:
+        from ee.clickhouse.materialized_columns.columns import (
+            materialize,  # noqa: PLC0415 — keeps the ee dep optional, like the other ee imports in this module
+        )
+
+        for property_name in materialized_event_properties:
+            materialize("events", property_name)
+
     managed_tables = {
         match.group(1)
         for statement in (*drop_views_and_dictionaries, *drop_and_truncate_tables, *create_tables)
@@ -2318,6 +2326,7 @@ def reset_clickhouse_database() -> None:
         schema=state.schema,
         row_counts=row_counts,
         mutation_counts={table: count for table, count in state.mutation_counts.items() if table in row_counts},
+        materialized_event_properties=materialized_event_properties,
     )
     _mark_clickhouse_reset()
 
@@ -2363,6 +2372,7 @@ class _ClickhouseResetBaseline:
     schema: tuple[frozenset[tuple[str, str]], int, int]
     row_counts: dict[str, int]
     mutation_counts: dict[str, int]
+    materialized_event_properties: tuple[str, ...]
 
 
 _clickhouse_reset_baseline: _ClickhouseResetBaseline | None = None
@@ -2378,9 +2388,9 @@ def _read_clickhouse_table_state() -> _ClickhouseTableState:
     )
 
 
-def _truncate_clickhouse_tables_if_schema_unchanged() -> bool:
+def _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties: tuple[str, ...]) -> bool:
     baseline = _clickhouse_reset_baseline
-    if baseline is None:
+    if baseline is None or baseline.materialized_event_properties != materialized_event_properties:
         return False
     state = _read_clickhouse_table_state()
     if state.schema != baseline.schema:
@@ -2406,14 +2416,17 @@ def _mark_clickhouse_reset() -> None:
     _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
 
 
-def reset_clickhouse_database_if_dirty() -> None:
+def reset_clickhouse_database_if_dirty(materialized_event_properties: tuple[str, ...] = ()) -> None:
     """Reset ClickHouse only if something has checked out a ClickHouse client since
     the last reset finished; with zero checkouts the state cannot have changed and
     the reset would be a no-op costing dozens of DDL statements."""
-    if _clickhouse_pool_checkouts == _clickhouse_checkouts_at_last_reset:
+    baseline = _clickhouse_reset_baseline
+    if _clickhouse_pool_checkouts == _clickhouse_checkouts_at_last_reset and (
+        baseline is None or baseline.materialized_event_properties == materialized_event_properties
+    ):
         return
-    if not _truncate_clickhouse_tables_if_schema_unchanged():
-        reset_clickhouse_database()
+    if not _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties):
+        reset_clickhouse_database(materialized_event_properties)
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
@@ -2422,13 +2435,15 @@ class ClickhouseDestroyTablesMixin(BaseTest):
     Use this mixin to make sure you completely destroy the tables between tests.
     """
 
+    clickhouse_reset_materialized_event_properties: tuple[str, ...] = ()
+
     def setUp(self):
         super().setUp()
-        reset_clickhouse_database_if_dirty()
+        reset_clickhouse_database_if_dirty(self.clickhouse_reset_materialized_event_properties)
 
     def tearDown(self):
         super().tearDown()
-        reset_clickhouse_database_if_dirty()
+        reset_clickhouse_database_if_dirty(self.clickhouse_reset_materialized_event_properties)
 
 
 def skip_clickhouse_query_snapshots(fn: Callable) -> Callable:
