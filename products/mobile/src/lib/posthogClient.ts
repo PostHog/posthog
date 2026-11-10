@@ -1,15 +1,17 @@
 import PostHog from 'posthog-react-native'
-import { AppState } from 'react-native'
+import { AppState, Platform } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 
 import { type AnalyticsProperties, setAnalyticsClient } from './analytics'
-import { appVariant, hostKind, updateChannel } from './environment'
+import { DEMO_REPLAY_CONFIG, DemoReplay } from './demoReplay'
+import { appVariant, hostKind, isInternalBuild, updateChannel } from './environment'
 import { setFeatureFlags } from './featureFlags'
 import { initMobileTelemetry } from './mobileTelemetry'
 
 const DEFAULT_HOST = 'https://us.i.posthog.com'
+let initialized = false
 
 function definedProperties(
     properties: AnalyticsProperties | undefined
@@ -45,9 +47,10 @@ function superProperties(): Record<string, string | number | null> {
 // Expo inlines `EXPO_PUBLIC_*` variables at build time, so they must be read as literal `process.env` members.
 export function initAnalytics(): void {
     const apiKey = process.env.EXPO_PUBLIC_POSTHOG_KEY
-    if (!apiKey) {
+    if (!apiKey || initialized) {
         return
     }
+    initialized = true
     const posthog = new PostHog(apiKey, {
         host: process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST,
         captureAppLifecycleEvents: true,
@@ -60,10 +63,27 @@ export function initAnalytics(): void {
             delete properties.url
             return { ...event, properties }
         },
+        capturePushNotificationSubscriptions: false,
+        capturePushNotificationOpened: false,
+        rageClickConfig: { enabled: false },
+        enableSessionReplay: false,
+        enablePersistSessionIdAcrossRestart: isInternalBuild && process.env.EXPO_PUBLIC_POSTHOG_HANDOFF === '1',
+        sessionReplayConfig: DEMO_REPLAY_CONFIG,
     })
     initMobileTelemetry(apiKey, process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST, (level, body, attributes) => {
         posthog.logger[level](body, attributes)
     })
+    const replay = new DemoReplay(posthog)
+    const syncReplay = (): void => {
+        replay.setAllowed(
+            process.env.EXPO_PUBLIC_POSTHOG_REPLAY === '1' &&
+                isInternalBuild &&
+                (Platform.OS === 'ios' || Platform.OS === 'android') &&
+                useDemoMode.persist.hasHydrated() &&
+                useDemoMode.getState().enabled &&
+                useAuthStore.getState().status === 'signed_out'
+        )
+    }
     const registerSuperProperties = (): void => {
         void posthog.register(superProperties())
     }
@@ -103,7 +123,9 @@ export function initAnalytics(): void {
     setFeatureFlags({})
     registerSuperProperties()
     syncFlagContext()
+    syncReplay()
     useAuthStore.subscribe((state, previous) => {
+        syncReplay()
         if (
             state.host !== previous.host ||
             state.status !== previous.status ||
@@ -119,9 +141,13 @@ export function initAnalytics(): void {
     useDemoMode.subscribe((state, previous) => {
         if (state.enabled !== previous.enabled) {
             registerSuperProperties()
+            syncReplay()
         }
     })
-    useDemoMode.persist.onFinishHydration(registerSuperProperties)
+    useDemoMode.persist.onFinishHydration(() => {
+        registerSuperProperties()
+        syncReplay()
+    })
     AppState.addEventListener('change', (state) => {
         if (state === 'active') {
             syncFlagContext(true)

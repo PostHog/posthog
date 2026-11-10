@@ -12,14 +12,15 @@ Operations include:
 
 import random
 import statistics
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Protocol
+from collections.abc import Callable, Iterable
+from itertools import batched
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
 from django.conf import settings
-from django.db import connection
+from django.db import DEFAULT_DB_ALIAS, connection
 
 import structlog
 from posthoganalytics import capture_exception
@@ -28,6 +29,7 @@ from prometheus_client import Counter, Gauge
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.team.team import Team
+from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache
 
@@ -732,3 +734,68 @@ def batch_check_expiry_tracking(
             results[identifier] = score is not None
 
     return results
+
+
+@frozen
+class OrphanedTokenSweepResult:
+    tokens_checked: int
+    orphaned_tokens: tuple[str, ...]
+    failed_tokens: tuple[str, ...]
+
+
+def existing_team_identifiers(field: Literal["api_token", "id"], identifiers: Iterable[str | int]) -> set[str | int]:
+    """Return the identifiers that a Team row on the Postgres primary still has."""
+    # The primary avoids replica lag, which would report a team created moments ago as missing.
+    teams = Team.objects.using(DEFAULT_DB_ALIAS)
+    if field == "api_token":
+        return set(teams.filter(api_token__in=identifiers).values_list("api_token", flat=True))
+    return set(teams.filter(id__in=identifiers).values_list("id", flat=True))
+
+
+def sweep_orphaned_token_entries(
+    hypercache: HyperCache,
+    *,
+    delete: bool,
+    limit: int | None = None,
+    batch_size: int = 1000,
+) -> OrphanedTokenSweepResult:
+    """Find the object-storage entries of a token-based cache whose token no team has, and optionally delete them.
+
+    An entry is orphaned only when Postgres has no Team row with its token. The payload is never read.
+    The sweep checks every listed token before it deletes any entry.
+    A failed listing or Team lookup raises, so the sweep deletes nothing.
+    A failed delete is logged and recorded in failed_tokens, and the sweep continues.
+    The sweep stops after `limit` orphaned entries.
+    """
+    tokens_checked = 0
+    orphaned: list[str] = []
+    for batch in batched(hypercache.iter_object_storage_tokens(), batch_size, strict=False):
+        tokens_checked += len(batch)
+        existing = existing_team_identifiers("api_token", batch)
+        orphaned.extend(token for token in batch if token not in existing)
+        if limit is not None and len(orphaned) >= limit:
+            del orphaned[limit:]
+            break
+
+    failed: list[str] = []
+    if delete:
+        for token in orphaned:
+            masked_token = mask_key_value(token)
+            try:
+                # The sweep finds entries only by listing object storage. The object goes last, so a
+                # failed Redis delete leaves it in place and the next sweep finds the token again.
+                hypercache.delete_cache_entry(token, kinds=["redis"], strict_mirror=True)
+                hypercache.delete_cache_entry(token, kinds=["s3"])
+                logger.info("Deleted orphaned cache entry", namespace=hypercache.namespace, token=masked_token)
+            except Exception as e:
+                logger.exception(
+                    "Failed to delete orphaned cache entry", namespace=hypercache.namespace, token=masked_token
+                )
+                capture_exception(e)
+                failed.append(token)
+
+    return OrphanedTokenSweepResult(
+        tokens_checked=tokens_checked,
+        orphaned_tokens=tuple(orphaned),
+        failed_tokens=tuple(failed),
+    )

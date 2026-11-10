@@ -578,10 +578,8 @@ class _ReferencesLazyJoinVisitor(TraversingVisitor):
 
 
 def is_events_only_field(node: ast.Field) -> bool:
-    """True iff the field resolves to a direct field on the EventsTable (not a traversal to
-    person/groups/sessions/etc. via a virtual/lazy join)."""
-    from posthog.hogql.database.schema.events import EventsTable
-
+    """True iff the field resolves to a direct field on the EventsTable or the events_with_flag_calls union (not a
+    traversal to person/groups/sessions/etc. via a virtual/lazy join)."""
     type_ = node.type
     if isinstance(type_, ast.PropertyType):
         type_ = type_.field_type
@@ -590,15 +588,9 @@ def is_events_only_field(node: ast.Field) -> bool:
     if not isinstance(type_, ast.FieldType):
         return False
 
-    table_type = type_.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
     # Virtual tables (e.g. person, group) pivot to another underlying table, so they are not
     # safely "events-only" even if they hang off an events row.
-
-    if isinstance(table_type, ast.TableType):
-        return isinstance(table_type.table, EventsTable)
-    return False
+    return is_events_scan(type_.table_type)
 
 
 def _unwrap_field_alias_type(expr_type: Optional[ast.Type]) -> Optional[ast.Type]:
@@ -611,6 +603,19 @@ def unwrap_table_alias_type(table_type: Optional[ast.Type]) -> Optional[ast.Type
     while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         table_type = table_type.table_type
     return table_type
+
+
+def is_events_scan(table_type: Optional[ast.Type]) -> bool:
+    """True when `table_type` reads events or the events_with_flag_calls union, through table aliases."""
+    from posthog.hogql.database.schema.events import EventsTable  # noqa: PLC0415 - breaks the schema import cycle
+    from posthog.hogql.database.schema.events_with_flag_calls import (  # noqa: PLC0415 - breaks the schema import cycle
+        EventsWithFlagCallsTable,
+    )
+
+    unwrapped = unwrap_table_alias_type(table_type)
+    return isinstance(unwrapped, (ast.TableType, ast.LazyTableType)) and isinstance(
+        unwrapped.table, (EventsTable, EventsWithFlagCallsTable)
+    )
 
 
 def event_field_type(expr: ast.Expr) -> ast.FieldType | None:
@@ -629,11 +634,6 @@ def event_field_type(expr: ast.Expr) -> ast.FieldType | None:
 
 def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableType]:
     """If the expression resolves to $session_id on the events table, return its (possibly aliased) table type."""
-    from posthog.hogql.database.schema.events import EventsTable  # noqa: PLC0415 - breaks the schema import cycle
-    from posthog.hogql.database.schema.events_with_flag_calls import (  # noqa: PLC0415 - breaks the schema import cycle
-        EventsWithFlagCallsTable,
-    )
-
     expr_type = _unwrap_field_alias_type(node.type)
 
     if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
@@ -656,10 +656,7 @@ def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableTy
     else:
         return None
 
-    unwrapped = unwrap_table_alias_type(table_type)
-    if isinstance(unwrapped, (ast.TableType, ast.LazyTableType)) and isinstance(
-        unwrapped.table, (EventsTable, EventsWithFlagCallsTable)
-    ):
+    if is_events_scan(table_type):
         return cast(ast.BaseTableType, table_type)
     return None
 
@@ -754,7 +751,7 @@ def build_session_id_v7_pushdown_predicate(
 
     Returns None if the outer query shape or WHERE can't be safely pushed down.
     """
-    events_join = _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
+    events_join = _events_scan_for_join(outer_node, join_to_add)
     if events_join is None or not isinstance(events_join.table, ast.Field):
         return None
 

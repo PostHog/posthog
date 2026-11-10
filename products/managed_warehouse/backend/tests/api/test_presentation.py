@@ -653,13 +653,20 @@ def test_status_for_strips_bucket_from_response(mock_request: MagicMock) -> None
     # The bucket is internal infra detail — never part of the UI-facing status body.
     org = Organization.objects.create(name="Org")
     mock_request.return_value = Response(
-        {"org_id": str(org.id), "state": "ready", "bucket": "posthog-duckling-x-mw-prod-us"}, status=200
+        {
+            "org_id": str(org.id),
+            "state": "ready",
+            "bucket": "posthog-duckling-x-mw-prod-us",
+            "bucket_prefix": "warehouses/x",
+        },
+        status=200,
     )
 
     resp = managed_warehouse.status_for(org.id)
 
     assert "bucket" not in resp.data
     assert "bucket_region" not in resp.data
+    assert "bucket_prefix" not in resp.data
 
 
 @pytest.mark.django_db
@@ -738,6 +745,27 @@ def test_cp_bucket_for_returns_none_when_cp_has_no_bucket(mock_request: MagicMoc
     mock_request.return_value = Response({"org_id": str(org.id), "state": "ready"}, status=200)
 
     assert managed_warehouse.cp_bucket_for(org.id) is None
+
+
+@pytest.mark.parametrize(
+    "body_overrides, expected",
+    [
+        ({"bucket": "lake-bucket"}, "s3://lake-bucket/"),
+        ({"bucket": "lake-bucket", "bucket_prefix": "lake"}, "s3://lake-bucket/lake/"),
+        ({"bucket": "lake-bucket", "bucket_prefix": "/lake/sub/"}, "s3://lake-bucket/lake/sub/"),
+        ({}, None),
+        ({"bucket": "lake-bucket", "org_id": "00000000-0000-0000-0000-000000000000"}, None),
+    ],
+)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_cp_data_path_for_renders_the_ducklake_data_path(
+    mock_request: MagicMock, body_overrides: dict[str, str], expected: str | None
+) -> None:
+    org_id = "11111111-1111-1111-1111-111111111111"
+    mock_request.return_value = Response({"org_id": org_id, "state": "ready", **body_overrides}, status=200)
+
+    assert managed_warehouse.cp_data_path_for(org_id) == expected
+    assert mock_request.call_args.kwargs["require_enabled"] is False
 
 
 def test_teams_response_attaches_the_org_naming_policy_to_each_row() -> None:

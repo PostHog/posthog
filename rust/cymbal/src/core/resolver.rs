@@ -92,7 +92,7 @@ pub fn build_catalog(
     let smp_atmostonce = concurrency::AtMostOne::new(smp_caching);
 
     let hmp_chunk = ChunkIdFetcher::new(
-        HermesMapProvider {},
+        HermesMapProvider::new(config),
         s3_client.clone(),
         posthog_pool.clone(),
         config.object_storage_bucket.clone(),
@@ -104,7 +104,7 @@ pub fn build_catalog(
     let hmp_atmostonce = concurrency::AtMostOne::new(hmp_caching);
 
     let pgp_chunk = ChunkIdFetcher::new(
-        ProguardProvider {},
+        ProguardProvider::new(config),
         s3_client.clone(),
         posthog_pool.clone(),
         config.object_storage_bucket.clone(),
@@ -114,7 +114,7 @@ pub fn build_catalog(
     let pgp_atmostonce = concurrency::AtMostOne::new(pgp_caching);
 
     let apple_chunk = ChunkIdFetcher::new(
-        AppleProvider {},
+        AppleProvider::new(config),
         s3_client.clone(),
         posthog_pool.clone(),
         config.object_storage_bucket.clone(),
@@ -124,7 +124,7 @@ pub fn build_catalog(
     let apple_atmostonce = concurrency::AtMostOne::new(apple_caching);
 
     let native_chunk = ChunkIdFetcher::new(
-        NativeProvider {},
+        NativeProvider::new(config),
         s3_client.clone(),
         posthog_pool.clone(),
         config.object_storage_bucket.clone(),

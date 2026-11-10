@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from django.db import router
@@ -25,54 +25,55 @@ from owners_yaml import OwnersResolver, Resolution
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.models.utils import uuid7
 from posthog.ownership.github_files import AuthenticatedRepoTree, GitHubFilesFetcher
 from posthog.ph_client import ph_scoped_capture
 
-from products.stamphog.backend.facade.enums import RoutingMode
+from products.stamphog.backend.facade.enums import (
+    LlmSkipReason,
+    OwnerKind,
+    RoutingMode,
+    RoutingOwnerOutcome,
+    RoutingOwnerReason,
+    RoutingScope,
+    RoutingStatus,
+)
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.routing.candidates import (
     ChangedFile,
     OwnerCandidate,
-    OwnerKind,
     find_candidates,
     paths_to_resolve,
 )
+from products.stamphog.backend.logic.routing.claims import is_stale_claim
 from products.stamphog.backend.logic.routing.comment import (
     ROUTING_COMMENT_MARKER,
     render_approved_routing_comment,
     render_routing_comment,
 )
-from products.stamphog.backend.logic.routing.cut import (
-    CUT_MODEL,
-    LlmSkipReason,
-    RoutingDecision,
-    decide_cuts,
-    keep_pinned,
-)
+from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts, keep_pinned
+from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.routing.model import GatewayCutModel
+from products.stamphog.backend.logic.routing.run_log import record_routing_run
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, StamphogRepoConfig
 
 logger = structlog.get_logger(__name__)
 
 ROUTING_EVENT = "stamphog_reviewer_routing_completed"
-# FALLBACK only: the head waits for stamphog's verdict or for the safety net, whichever comes first.
-STATUS_WAITING = "waiting"
+STATUS_WAITING = RoutingStatus.WAITING.value
 # A task claimed the pull request and its routing is running. The record holds the plan once
 # `planned_at` is set, and the plan is saved before any GitHub write.
-STATUS_ROUTING = "routing"
+STATUS_ROUTING = RoutingStatus.ROUTING.value
 # A record stays REQUESTED between the review requests and the comment, so a retry finishes the
 # comment without requesting anybody a second time.
-STATUS_REQUESTED = "requested"
-STATUS_DONE = "done"
+STATUS_REQUESTED = RoutingStatus.REQUESTED.value
+STATUS_DONE = RoutingStatus.DONE.value
 _CLAIMED_STATUSES = frozenset({STATUS_ROUTING, STATUS_REQUESTED})
-# A claim older than this counts as abandoned, so a task that died does not block the pull request
-# for good. It sits far above the time a task needs to finish, retries included.
-CLAIM_STALE_AFTER = timedelta(hours=2)
 
 TRIGGER_SAFETY_NET = "safety_net"
-SCOPE_FULL = "full"
-SCOPE_PINNED = "pinned"
+SCOPE_FULL = RoutingScope.FULL.value
+SCOPE_PINNED = RoutingScope.PINNED.value
 
 # PR-level marks, carried over every later record of the pull request. FALLBACK routes in full at
 # most once per pull request. `pinned_routed_head` is the latest approved head that got its pinned
@@ -114,14 +115,6 @@ def is_fork(pr: Mapping[str, Any], repository: str) -> bool:
     # A deleted fork leaves no head repo, and it is still not the base repository.
     head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name") or ""
     return head_repo.casefold() != repository.casefold()
-
-
-def fork_labels(repo_config: StamphogRepoConfig) -> dict[str, str]:
-    """The repo's team slug -> label map. Entries that are not a string pair are ignored."""
-    configured = repo_config.routing_fork_labels
-    if not isinstance(configured, dict):
-        return {}
-    return {slug: label for slug, label in configured.items() if isinstance(slug, str) and isinstance(label, str)}
 
 
 def stored_routing(repo_config: StamphogRepoConfig, pr_number: int) -> dict[str, Any] | None:
@@ -170,19 +163,9 @@ def is_own_claim(record: Mapping[str, Any] | None, task_id: str) -> bool:
     return _is_claim(record) and bool(task_id) and record is not None and record.get("claimed_by") == task_id
 
 
-def _is_stale_claim(record: Mapping[str, Any]) -> bool:
-    try:
-        claimed_at = datetime.fromisoformat(str(record.get("claimed_at") or ""))
-    except ValueError:
-        return True
-    return datetime.now(UTC) - claimed_at > CLAIM_STALE_AFTER
-
-
 def is_foreign_claim(record: Mapping[str, Any] | None, task_id: str) -> bool:
     """Whether another task holds a live claim on the pull request."""
-    return (
-        _is_claim(record) and not is_own_claim(record, task_id) and record is not None and not _is_stale_claim(record)
-    )
+    return _is_claim(record) and not is_own_claim(record, task_id) and record is not None and not is_stale_claim(record)
 
 
 def effective_record(record: dict[str, Any] | None, task_id: str) -> dict[str, Any] | None:
@@ -193,7 +176,7 @@ def effective_record(record: dict[str, Any] | None, task_id: str) -> dict[str, A
     """
     if record is None or record.get("status") != STATUS_ROUTING:
         return record
-    if is_own_claim(record, task_id) or _is_stale_claim(record):
+    if is_own_claim(record, task_id) or is_stale_claim(record):
         previous = record.get("previous")
         return previous if isinstance(previous, dict) else None
     return record
@@ -297,9 +280,15 @@ class _SourceWithoutKinds:
         self._files.read_all(paths)
 
 
-def _resolve_owners(
-    client: StamphogGitHubClient, repository: str, files: Sequence[ChangedFile]
-) -> tuple[dict[str, Resolution], bool]:
+@frozen
+class _Ownership:
+    resolutions: dict[str, Resolution]
+    # False when the owners of additions could not be read, so the run routes without their pins.
+    additions_resolved: bool
+    owners_sha: str | None
+
+
+def _resolve_owners(client: StamphogGitHubClient, repository: str, files: Sequence[ChangedFile]) -> _Ownership:
     """Every path's resolution at one default-branch commit, and whether the owners of additions are part of it.
 
     The owners of additions are an extra. A failed kind lookup routes without their pins rather than
@@ -321,8 +310,10 @@ def _resolve_owners(
         tree.prefetch_kinds(paths)
     except Exception:
         logger.warning("stamphog_reviewer_routing_additions_unavailable", exc_info=True)
-        return OwnersResolver(source=_SourceWithoutKinds(tree)).map(paths), False
-    return OwnersResolver(source=tree).map(paths), True
+        resolutions = OwnersResolver(source=_SourceWithoutKinds(tree)).map(paths)
+        return _Ownership(resolutions=resolutions, additions_resolved=False, owners_sha=tree.head_sha)
+    resolutions = OwnersResolver(source=tree).map(paths)
+    return _Ownership(resolutions=resolutions, additions_resolved=True, owners_sha=tree.head_sha)
 
 
 @frozen
@@ -347,13 +338,47 @@ def _plan_requests(kept: Sequence[OwnerCandidate], *, fork: bool, labels_by_team
     )
 
 
-def _candidate_record(candidate: OwnerCandidate) -> dict[str, Any]:
+def _owner_outcome(
+    owner: str, reason: RoutingOwnerReason, *, request_owners: set[str], labeled_teams: set[str]
+) -> RoutingOwnerOutcome:
+    """What the run does with one owner. GitHub can still refuse a request, which the run log adds."""
+    if reason == RoutingOwnerReason.MODEL_CUT:
+        return RoutingOwnerOutcome.CUT
+    if reason == RoutingOwnerReason.STAMPHOG_APPROVED:
+        return RoutingOwnerOutcome.NOT_REQUESTED
+    if owner not in request_owners:
+        # A pinned owner on an approval that an earlier routing of the pull request already requested.
+        return RoutingOwnerOutcome.ALREADY_REQUESTED
+    if owner in labeled_teams:
+        return RoutingOwnerOutcome.LABELED
+    return RoutingOwnerOutcome.REQUESTED
+
+
+def _candidate_record(
+    candidate: OwnerCandidate, decision: RoutingDecision, *, request_owners: set[str], labeled_teams: set[str]
+) -> dict[str, Any]:
+    reason = decision.reasons[candidate.owner]
+    outcome = _owner_outcome(candidate.owner, reason, request_owners=request_owners, labeled_teams=labeled_teams)
     return {
         "owner": candidate.owner,
         "kind": candidate.kind.value,
         "lines": candidate.lines,
         "file_count": len(candidate.files),
         "pins": sorted(({"reason": pin.reason.value, "path": pin.path} for pin in candidate.pins), key=str),
+        "files": [
+            {
+                "path": file.path,
+                "previous_path": file.previous_path,
+                "status": file.status,
+                "additions": file.additions,
+                "deletions": file.deletions,
+                "owners_source": candidate.owners_sources.get(file.path),
+            }
+            for file in candidate.files
+        ],
+        "outcome": outcome.value,
+        "reason": reason.value,
+        "model_reason": decision.model_reasons.get(candidate.owner, ""),
     }
 
 
@@ -379,6 +404,10 @@ def finish_comment(client: StamphogGitHubClient, pr_obj: PullRequest, record: di
         # Nobody is cut now, so a comment from an earlier routing names cuts that no longer hold.
         client.delete_sticky_comment(repository, pr_obj.pr_number, marker=ROUTING_COMMENT_MARKER)
     done = {key: value for key, value in record.items() if key != "pending_comment"}
+    # The run log already holds the file lists, and a large pull request would carry them on its row for good.
+    done["candidates"] = [
+        {key: value for key, value in candidate.items() if key != "files"} for candidate in record["candidates"]
+    ]
     done["status"] = STATUS_DONE
     done[COMMENT_POSTED] = posted
     _save_claimed(pr_obj, done)
@@ -420,6 +449,8 @@ def _plan(
     repo_config = pr_obj.repo_config
     repository = repo_config.repository
     pinned_only = claim["scope"] == SCOPE_PINNED
+    # Planned here so the model call can carry it, which links the run log row to its LLM trace.
+    run_id = str(uuid7())
     fork = is_fork(pr, repository)
     files = [ChangedFile.from_github(entry) for entry in client.get_pr_files(repository, pr_obj.pr_number)]
     changed_files = pr.get("changed_files")
@@ -433,8 +464,8 @@ def _plan(
             listed=len(files),
             changed_files=changed_files,
         )
-    resolutions, additions_resolved = _resolve_owners(client, repository, files)
-    candidates = find_candidates(files, resolutions)
+    ownership = _resolve_owners(client, repository, files)
+    candidates = find_candidates(files, ownership.resolutions)
 
     model = GatewayCutModel(
         team_id=repo_config.team_id,
@@ -443,6 +474,9 @@ def _plan(
             "stamphog_runtime": "hosted",
             "stamphog_team_id": repo_config.team_id,
             "stamphog_step": "reviewer_routing",
+            "stamphog_repo": repository,
+            "stamphog_pr_number": pr_obj.pr_number,
+            "stamphog_routing_run_id": run_id,
         },
     )
     if pinned_only:
@@ -465,12 +499,22 @@ def _plan(
     return {
         **claim,
         "fork": fork,
-        "candidates": [_candidate_record(candidate) for candidate in candidates],
+        "candidates": [
+            _candidate_record(
+                candidate,
+                decision,
+                request_owners={owner.owner for owner in to_request},
+                labeled_teams=set(requests.labeled_teams),
+            )
+            for candidate in candidates
+        ],
         "kept": [candidate.owner for candidate in decision.kept],
         "cut": [{"owner": cut.candidate.owner, "reason": cut.reason} for cut in decision.cut],
+        "run_id": run_id,
         "llm_skipped": decision.llm_skipped.value if decision.llm_skipped else None,
         "model": CUT_MODEL if model.sent_request else None,
-        "additions_resolved": additions_resolved,
+        "additions_resolved": ownership.additions_resolved,
+        "owners_sha": ownership.owners_sha,
         "files_truncated": files_truncated,
         "request_owners": [candidate.owner for candidate in to_request],
         "requested_teams": requests.teams,
@@ -486,15 +530,26 @@ def _plan(
     }
 
 
+def _record_run(pr_obj: PullRequest, record: dict[str, Any]) -> None:
+    # The log is a record, not part of routing: it runs after the requests are saved as made, and a failed
+    # write only logs, so it never makes the task retry and request again.
+    try:
+        record_routing_run(pr_obj, record)
+    except Exception:
+        logger.exception("stamphog_reviewer_routing_run_log_failed", pr_number=pr_obj.pr_number)
+
+
 def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan: dict[str, Any]) -> None:
     """Make the GitHub writes of a saved plan, then finish the comment."""
     repo_config = pr_obj.repo_config
     repository = repo_config.repository
-    if plan["labels"]:
-        client.add_pr_labels(repository, pr_obj.pr_number, plan["labels"])
+    labels_refused = bool(plan["labels"]) and not client.add_pr_labels(repository, pr_obj.pr_number, plan["labels"])
     refused = client.request_reviewers(
         repository, pr_obj.pr_number, users=plan["requested_users"], teams=plan["requested_teams"]
     )
+    if labels_refused:
+        # Those fork teams got neither a label nor a review request.
+        refused = [*refused, *plan["labeled_teams"]]
     if refused:
         logger.info("stamphog_reviewer_routing_refused", repo=repository, pr_number=pr_obj.pr_number, refused=refused)
 
@@ -510,6 +565,7 @@ def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan
         requested.update({FULL_ROUTED_HEAD: plan["head_sha"], "full_routed_at": plan["routed_at"]})
     if not _save_claimed(pr_obj, requested):
         return
+    _record_run(pr_obj, requested)
     _capture(repo_config, requested)
     finish_comment(client, pr_obj, requested)
 

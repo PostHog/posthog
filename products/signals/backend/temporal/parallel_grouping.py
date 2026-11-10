@@ -22,6 +22,7 @@ from products.signals.backend.temporal.grouping import (
     _ProcessedBatchSignal,
     assign_and_emit_signal_activity,
     match_signal_to_report_activity,
+    source_issue_url_for_signal,
     verify_match_specificity_activity,
 )
 from products.signals.backend.temporal.signal_queries import (
@@ -42,6 +43,8 @@ from products.signals.backend.temporal.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+SOURCE_ISSUE_MATCH_PATCH = "signals-source-issue-match-2026-11"
 
 
 @dataclass
@@ -180,15 +183,22 @@ async def _process_signal(
             sync_with_source=signal.sync_with_source,
             source_match_signal_id=signal.source_match_signal_id,
             source_match_report_id=signal.source_match_report_id,
+            source_issue_url=source_issue_url_for_signal(signal.source_product, signal.source_type, signal.extra),
         ),
         start_to_close_timeout=timedelta(minutes=10),
         retry_policy=RetryPolicy(maximum_attempts=5),
     )
 
-    # Step 5.5: PR-specificity verification for existing matches
+    # Step 5.5: PR-specificity verification for existing matches. A report that names the signal's
+    # issue as its source took it by exact match, so similarity has nothing to verify. Patched in
+    # front of the data check, so a history recorded before the field existed keeps its commands.
     updated_title: Optional[str] = None
 
-    if isinstance(match_result, ExistingReportMatch) and not match_result.source_synced:
+    if (
+        isinstance(match_result, ExistingReportMatch)
+        and not match_result.source_synced
+        and not (workflow.patched(SOURCE_ISSUE_MATCH_PATCH) and match_result.source_issue_matched)
+    ):
         report_ctx = report_contexts.get(match_result.report_id)
         report_title = report_ctx.title if report_ctx else ""
 

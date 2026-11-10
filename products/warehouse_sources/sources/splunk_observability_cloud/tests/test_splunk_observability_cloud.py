@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 
@@ -69,13 +69,22 @@ class TestTimestampConversion:
 
 
 class TestRestPagination:
-    def test_full_page_then_short_page(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "method", "path", "body", "data_key"),
+        [
+            ("detectors", "GET", "/v2/detector", None, "results"),
+            # The SLO search is a POST whose filters are all optional; an empty body matches all.
+            ("slos", "POST", "/v2/slo/search", {}, "results"),
+            ("clients", "GET", "/v2/fm-service/v1/clients", None, "clients"),
+        ],
+    )
+    def test_full_page_then_short_page(self, endpoint: str, method: str, path: str, body: Any, data_key: str) -> None:
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
         responses = [
-            ScriptedResponse(json=_wrapped(full_page, count=PAGE_SIZE + 1)),
-            ScriptedResponse(json=_wrapped([{"id": "last"}], count=PAGE_SIZE + 1)),
+            ScriptedResponse(json={data_key: full_page}),
+            ScriptedResponse(json={data_key: [{"id": "last"}]}),
         ]
-        result = _driver().run("detectors", responses)
+        result = _driver().run(endpoint, responses)
 
         assert result.raised is None
         assert len(result.rows) == PAGE_SIZE + 1
@@ -83,6 +92,13 @@ class TestRestPagination:
             ("0", str(PAGE_SIZE)),
             (str(PAGE_SIZE), str(PAGE_SIZE)),
         ]
+        assert [(request.method, request.path, request.json()) for request in result.requests] == [
+            (method, path, body),
+            (method, path, body),
+        ]
+        if endpoint == "clients":
+            # Offset pages are only stable under an explicit sort.
+            assert set(result.params("sort_key")) == {"instance_uid"}
         # Resume state is saved only while there is a next page to resume to, and after
         # the page has been yielded.
         assert result.saved_states == [SplunkObservabilityCloudResumeConfig(offset=PAGE_SIZE)]
@@ -134,6 +150,244 @@ class TestDetectorEventsFanOut:
         ]
         # The bookmarked detector resumes at its saved offset; the next one starts fresh.
         assert [request.param("offset") for request in event_requests] == [str(PAGE_SIZE), "0"]
+
+
+class TestUnpagedEndpoints:
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "wrap"),
+        [
+            (
+                "synthetic_locations",
+                "/v2/synthetics/locations",
+                lambda rows: {"locations": rows, "default_location_ids": ["row-0"]},
+            ),
+            ("roles", "/v2/role", lambda rows: rows),
+        ],
+    )
+    def test_single_request_reads_every_row(self, endpoint: str, path: str, wrap: Any) -> None:
+        # These endpoints have no paging, so a full page must not trigger an offset walk that
+        # would read the same rows again.
+        rows = [{"id": f"row-{i}"} for i in range(PAGE_SIZE)]
+        result = _driver().run(endpoint, [ScriptedResponse(json=wrap(rows))])
+
+        assert result.raised is None
+        assert result.rows == rows
+        assert [request.path for request in result.requests] == [path]
+        assert result.params("offset") == [None]
+
+
+class TestSyntheticTests:
+    def _tests_page(self, ids: list[int], next_page: int | None) -> ScriptedResponse:
+        return ScriptedResponse(json={"tests": [{"id": test_id} for test_id in ids], "nextPageLink": next_page})
+
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_pages"),
+        [
+            (None, ["1", "2"]),
+            (SplunkObservabilityCloudResumeConfig(page=4), ["4", "5"]),
+        ],
+    )
+    def test_walks_pages_until_no_next_page_link(
+        self, resume_state: SplunkObservabilityCloudResumeConfig | None, expected_pages: list[str]
+    ) -> None:
+        result = _driver().run(
+            "synthetic_tests",
+            [self._tests_page([1, 2], next_page=2), self._tests_page([3], next_page=None)],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert [(request.path, request.param("page")) for request in result.requests] == [
+            ("/v2/synthetics/tests", page) for page in expected_pages
+        ]
+        assert result.saved_states == [SplunkObservabilityCloudResumeConfig(page=int(expected_pages[1]))]
+
+
+class TestSyntheticRunsFanOut:
+    def _tests_page(self, ids: list[int], next_page: int | None) -> ScriptedResponse:
+        return ScriptedResponse(json={"tests": [{"id": test_id} for test_id in ids], "nextPageLink": next_page})
+
+    def _runs_page(self, test_id: int, run_ids: list[str], has_next: bool) -> ScriptedResponse:
+        runs = [
+            {"runId": run_id, "testId": test_id, "timestamp": "2026-01-01T00:00:00.000Z", "success": True}
+            for run_id in run_ids
+        ]
+        return ScriptedResponse(json={"runs": runs, "nextPageLink": "next" if has_next else None})
+
+    def test_walks_test_pages_and_run_pages(self) -> None:
+        responses = [
+            self._tests_page([1, 2], next_page=2),
+            self._tests_page([3], next_page=None),
+            self._runs_page(1, ["r1", "r2"], has_next=True),
+            self._runs_page(1, ["r3"], has_next=False),
+            self._runs_page(2, [], has_next=False),
+            self._runs_page(3, ["r4"], has_next=False),
+        ]
+        result = _driver().run("synthetic_runs", responses)
+
+        assert result.raised is None
+        assert [(row["testId"], row["runId"]) for row in result.rows] == [(1, "r1"), (1, "r2"), (1, "r3"), (3, "r4")]
+        assert result.rows[0]["timestamp"] == datetime(2026, 1, 1, tzinfo=UTC)
+        assert [(request.path, request.param("page")) for request in result.requests] == [
+            ("/v2/synthetics/tests", "1"),
+            ("/v2/synthetics/tests", "2"),
+            ("/v2/synthetics/tests/1/runs", "1"),
+            ("/v2/synthetics/tests/1/runs", "2"),
+            ("/v2/synthetics/tests/2/runs", "1"),
+            ("/v2/synthetics/tests/3/runs", "1"),
+        ]
+        assert [(state.test_id, state.page) for state in result.saved_states] == [(1, 2), (2, 1), (3, 1)]
+        assert {(state.window_start, state.window_end) for state in result.saved_states} == {
+            (result.requests[2].param("startTime"), result.requests[2].param("endTime"))
+        }
+
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_run_requests"),
+        [
+            (
+                SplunkObservabilityCloudResumeConfig(
+                    test_id=2,
+                    page=3,
+                    window_start="2026-01-01T00:00:00.000Z",
+                    window_end="2026-01-02T00:00:00.000Z",
+                ),
+                [("/v2/synthetics/tests/2/runs", "3"), ("/v2/synthetics/tests/3/runs", "1")],
+            ),
+            # The bookmarked test was deleted: start again from the first test.
+            (
+                SplunkObservabilityCloudResumeConfig(test_id=99, page=3),
+                [
+                    ("/v2/synthetics/tests/1/runs", "1"),
+                    ("/v2/synthetics/tests/2/runs", "1"),
+                    ("/v2/synthetics/tests/3/runs", "1"),
+                ],
+            ),
+        ],
+    )
+    def test_resume(
+        self, resume_state: SplunkObservabilityCloudResumeConfig, expected_run_requests: list[tuple[str, str]]
+    ) -> None:
+        responses = [self._tests_page([1, 2, 3], next_page=None)] + [
+            self._runs_page(0, [], has_next=False) for _ in expected_run_requests
+        ]
+        result = _driver().run("synthetic_runs", responses, resume_state=resume_state)
+
+        assert result.raised is None
+        run_requests = [request for request in result.requests if request.path.endswith("/runs")]
+        assert [(request.path, request.param("page")) for request in run_requests] == expected_run_requests
+        if resume_state.test_id in (1, 2, 3):
+            assert {(request.param("startTime"), request.param("endTime")) for request in run_requests} == {
+                (resume_state.window_start, resume_state.window_end)
+            }
+
+    def test_incremental_watermark_sets_start_time(self) -> None:
+        responses = [self._tests_page([1], next_page=None), self._runs_page(1, [], has_next=False)]
+        result = _driver().run(
+            "synthetic_runs",
+            responses,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.requests[1].param("startTime") == "2026-01-01T00:00:00.000Z"
+
+
+class TestEventSearch:
+    def _events(self, items: list[tuple[str, int]]) -> ScriptedResponse:
+        return ScriptedResponse(
+            json=[{"id": event_id, "timestamp": ts, "sf_eventType": "deploy"} for event_id, ts in items]
+        )
+
+    @pytest.mark.parametrize(
+        ("pages", "expected_windows", "expected_ids"),
+        [
+            # The first window reaches the cap, so the next starts at the latest timestamp
+            # read and skips the event at that timestamp it already yielded.
+            (
+                [
+                    [("a", 1), ("b", 2)],
+                    [("c", 3), ("d", 4)],
+                    [("d", 4), ("e", 5)],
+                    [],
+                ],
+                [("0", "0"), ("0", "2"), ("4", "0"), ("4", "2")],
+                ["a", "b", "c", "d", "e"],
+            ),
+            # More events than the cap share one timestamp: skip to the next millisecond
+            # instead of reading the same window forever or stopping before later events.
+            (
+                [
+                    [("a", 7), ("b", 7)],
+                    [("c", 7), ("d", 7)],
+                    [("a", 7), ("b", 7)],
+                    [("c", 7), ("d", 7)],
+                    [("e", 9)],
+                ],
+                [("0", "0"), ("0", "2"), ("7", "0"), ("7", "2"), ("8", "0")],
+                ["a", "b", "c", "d", "e"],
+            ),
+        ],
+    )
+    def test_window_restarts_at_result_cap(
+        self, pages: list[list[tuple[str, int]]], expected_windows: list[tuple[str, str]], expected_ids: list[str]
+    ) -> None:
+        module = "products.warehouse_sources.sources.splunk_observability_cloud.splunk_observability_cloud"
+        with patch(f"{module}.EVENT_SEARCH_RESULT_CAP", 4), patch(f"{module}.EVENT_SEARCH_PAGE_SIZE", 2):
+            result = _driver().run("events", [self._events(page) for page in pages])
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert list(zip(result.params("start_time"), result.params("offset"))) == expected_windows
+        assert set(result.params("query")) == {"sf_eventType:*"}
+        assert set(result.params("order_by")) == {"sf_timestamp"}
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "wrap", "start_param", "end_param"),
+        [
+            ("events", "/v2/event/find", lambda rows: rows, "start_time", "end_time"),
+            (
+                "audit_events",
+                "/v2/audit/events",
+                lambda rows: {"count": len(rows), "results": rows},
+                "startTime",
+                "endTime",
+            ),
+        ],
+    )
+    def test_incremental_watermark_sets_start_time(
+        self, endpoint: str, path: str, wrap: Any, start_param: str, end_param: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=wrap([{"id": "a", "timestamp": 1767225600000}]))],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.requests[0].path == path
+        assert result.requests[0].param(start_param) == "1767225600000"
+        assert result.requests[0].param(end_param) is not None
+        assert result.rows[0]["timestamp"] == datetime(2026, 1, 1, tzinfo=UTC)
+
+    def test_resume_continues_saved_window_and_skips_boundary_events(self) -> None:
+        result = _driver().run(
+            "events",
+            [self._events([("a", 1767225600000), ("b", 1767225600000)])],
+            resume_state=SplunkObservabilityCloudResumeConfig(
+                offset=2000, event_start_ms=1767225600000, event_boundary_ids=["a"]
+            ),
+        )
+
+        assert result.raised is None
+        assert (result.requests[0].param("start_time"), result.requests[0].param("offset")) == (
+            "1767225600000",
+            "2000",
+        )
+        # A resumed full refresh appends, so an event the interrupted attempt wrote must not repeat.
+        assert [row["id"] for row in result.rows] == ["b"]
 
 
 def _sse_lines(events: list[tuple[str, dict[str, Any]]]) -> list[str]:

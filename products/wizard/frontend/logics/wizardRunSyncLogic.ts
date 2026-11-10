@@ -13,6 +13,7 @@ import {
     selectors,
 } from 'kea'
 
+import { ApiError } from 'lib/api-error'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
@@ -33,7 +34,12 @@ import { loadWizardRunArtifacts } from '../lib/wizardApi'
 import { wizardRunIsActive } from '../lib/wizardRunDisplay'
 
 const RUN_POLL_MS = 30_000
-const RUN_DISCOVERY_POLL_MS = 5_000
+// Discovery only finds runs started outside this tab (the CLI). Streams and refreshWatchedRun cover active runs,
+// so it can be slow: a user with no runs is checked on focus only, a user with runs once a minute. A view that
+// is waiting for a CLI run to appear (onboarding) opts into the fast tick with awaitRuns.
+const RUN_DISCOVERY_TICK_MS = 5_000
+const RUN_DISCOVERY_POLL_MS = 60_000
+const RUN_DISCOVERY_MIN_GAP_MS = 30_000
 
 const RUN_LIST_LIMIT = 100
 // Leave HTTP/1.1 connections available for requests and other app streams.
@@ -44,6 +50,11 @@ type RunStreamState = Pick<
     'status' | 'stage' | 'error_code' | 'error_message' | 'updated_at' | 'started_at' | 'finished_at'
 > &
     WizardRunTaskListApi
+
+function checkRunsRetryDelayMs(error: unknown): number {
+    const retryAfterSeconds = error instanceof ApiError ? Number(error.headers?.get('Retry-After')) : NaN
+    return retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : RUN_POLL_MS
+}
 
 function streamRunPatch(state: RunStreamState): Partial<WizardRunApi> {
     return {
@@ -72,6 +83,8 @@ export interface wizardRunSyncLogicValues {
     userRuns: WizardRunApi[]
     activeUserRuns: WizardRunApi[]
     watchedRunIds: Record<string, string[]>
+    awaitingRunSources: Record<string, boolean>
+    awaitingRuns: boolean
     activeWatchedRuns: WizardRunApi[]
     tasksByRunId: Record<string, readonly WizardRunTaskApi[]>
     artifactsByRunId: Record<string, WizardRunArtifactApi[]>
@@ -102,6 +115,7 @@ export interface wizardRunSyncLogicActions {
     runDataFailed: (runId: string) => { runId: string }
     connectRuns: () => { value: true }
     watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
+    awaitRuns: (source: string, waiting: boolean) => { source: string; waiting: boolean }
     refreshWatchedRun: () => { value: true }
 }
 
@@ -127,12 +141,17 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
         runDataFailed: (runId: string) => ({ runId }),
         connectRuns: true,
         watchRuns: (source: string, runIds: string[]) => ({ source, runIds }),
+        awaitRuns: (source: string, waiting: boolean) => ({ source, waiting }),
         refreshWatchedRun: true,
     }),
     reducers({
         watchedRunIds: [
             {} as Record<string, string[]>,
             { watchRuns: (state, { source, runIds }) => ({ ...state, [source]: runIds }) },
+        ],
+        awaitingRunSources: [
+            {} as Record<string, boolean>,
+            { awaitRuns: (state, { source, waiting }) => ({ ...state, [source]: waiting }) },
         ],
         runs: [
             [] as WizardRunApi[],
@@ -193,6 +212,10 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
                 user ? runs.filter((run) => run.created_by_id === user.id) : [],
         ],
         activeUserRuns: [(s) => [s.userRuns], (runs: WizardRunApi[]): WizardRunApi[] => runs.filter(wizardRunIsActive)],
+        awaitingRuns: [
+            (s) => [s.awaitingRunSources],
+            (sources: Record<string, boolean>): boolean => Object.values(sources).some(Boolean),
+        ],
         activeWatchedRuns: [
             (s) => [s.runs, s.watchedRunIds],
             (runs: WizardRunApi[], watched: Record<string, string[]>): WizardRunApi[] => {
@@ -205,10 +228,13 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
     }),
     listeners(({ actions, cache, props: logicProps, values }) => ({
         checkRuns: async ({ recentOnly }) => {
-            if (cache.checking || !logicProps.projectId || !values.user) {
+            // Focus, stream updates and user reloads all call this, so only a shared cooldown keeps
+            // them from retrying a throttled list request back to back.
+            if (cache.checking || !logicProps.projectId || !values.user || Date.now() < cache.checkRunsBlockedUntil) {
                 return
             }
             cache.checking = true
+            cache.lastCheckStartedAt = Date.now()
             const disposables = cache.disposables
             const knownRunIds = new Set(values.runs.map((run) => run.id))
             try {
@@ -216,6 +242,7 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
                 let offset = 0
                 while (true) {
                     const page = await wizardRunsList(logicProps.projectId, {
+                        created_by_id: values.user.id,
                         limit: RUN_LIST_LIMIT,
                         offset,
                     })
@@ -237,7 +264,8 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
                 if (!recentOnly) {
                     cache.historyLoaded = true
                 }
-            } catch {
+            } catch (error) {
+                cache.checkRunsBlockedUntil = Date.now() + checkRunsRetryDelayMs(error)
                 return
             } finally {
                 cache.checking = false
@@ -334,7 +362,10 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
             }
         },
         connectRuns: () => {
-            const streamedRuns = values.activeWatchedRuns.slice(0, MAX_RUN_STREAMS)
+            // A created run has no worker yet, so its stream would sit idle. refreshWatchedRun picks up the transition.
+            const streamedRuns = values.activeWatchedRuns
+                .filter((run) => run.status === 'running')
+                .slice(0, MAX_RUN_STREAMS)
             const activeRunIds = streamedRuns.map((run) => run.id)
             const connectedRunIds: string[] = cache.connectedRunIds ?? []
 
@@ -366,24 +397,41 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
             }
         },
     })),
-    events(({ actions, cache }) => ({
+    events(({ actions, cache, values }) => ({
         afterMount: () => {
             cache.runDataVersions = {}
             cache.runDataRequests = {}
             cache.runDataFailures = {}
+            cache.checkRunsBlockedUntil = 0
+            cache.lastCheckStartedAt = 0
             actions.checkRuns()
             cache.disposables.add(() => {
                 const timer = window.setInterval(() => actions.refreshWatchedRun(), RUN_POLL_MS)
                 return () => window.clearInterval(timer)
             }, 'active-run-poll')
             cache.disposables.add(() => {
-                const discoverRuns = (): void => actions.checkRuns(true)
-                const timer = window.setInterval(discoverRuns, RUN_DISCOVERY_POLL_MS)
-                window.addEventListener('focus', discoverRuns)
-                discoverRuns()
+                const discoverRuns = (minGapMs: number, recentOnly = true): void => {
+                    if (Date.now() - cache.lastCheckStartedAt >= minGapMs) {
+                        actions.checkRuns(recentOnly)
+                    }
+                }
+                const onFocus = (): void => discoverRuns(RUN_DISCOVERY_MIN_GAP_MS)
+                const timer = window.setInterval(() => {
+                    if (values.awaitingRuns) {
+                        discoverRuns(0)
+                    } else if (!cache.historyLoaded) {
+                        // Until one full list succeeds, an empty userRuns only means the first request failed.
+                        discoverRuns(RUN_DISCOVERY_POLL_MS, false)
+                    } else if (values.userRuns.length) {
+                        discoverRuns(RUN_DISCOVERY_POLL_MS)
+                    }
+                }, RUN_DISCOVERY_TICK_MS)
+                window.addEventListener('focus', onFocus)
+                // The disposable re-runs this setup when a hidden tab becomes visible, which is the catch-up check.
+                onFocus()
                 return () => {
                     window.clearInterval(timer)
-                    window.removeEventListener('focus', discoverRuns)
+                    window.removeEventListener('focus', onFocus)
                 }
             }, 'run-discovery-poll')
         },

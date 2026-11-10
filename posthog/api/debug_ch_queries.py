@@ -187,6 +187,7 @@ _PRECOMPUTE_PRODUCTS: dict[str, dict[str, Any]] = {
         "eligible_live_query_types": (
             "web_overview_query",
             "web_overview_preaggregated_query",
+            "web_overview_dimensional_query",
             "web_overview_no_join_query",
             "web_overview_session_id_set_query",
             "stats_table_main_query",
@@ -201,6 +202,9 @@ _PRECOMPUTE_PRODUCTS: dict[str, dict[str, Any]] = {
             "stats_table_preaggregated_query",
             "stats_table_preaggregated_path_breakdown_query",
             "stats_table_preaggregated_entry_bounce_query",
+            "stats_table_dimensional_query",
+            "stats_table_dimensional_path_breakdown_query",
+            "stats_table_dimensional_entry_bounce_query",
             "web_goals_query",
             "web_vitals_path_breakdown_query",
         ),
@@ -615,8 +619,14 @@ class DebugCHQueries(viewsets.ViewSet):
                 raise exceptions.ValidationError("experiment_id must be a positive integer.")
 
         metric_type_filter = request.query_params.get("metric_type") or None
-        if metric_type_filter is not None and metric_type_filter not in {"mean", "funnel", "ratio", "retention"}:
-            raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention.")
+        if metric_type_filter is not None and metric_type_filter not in {
+            "mean",
+            "funnel",
+            "ratio",
+            "retention",
+            "quantile",
+        }:
+            raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention, quantile.")
 
         funnel_order_type_filter = request.query_params.get("funnel_order_type") or None
         if funnel_order_type_filter is not None:

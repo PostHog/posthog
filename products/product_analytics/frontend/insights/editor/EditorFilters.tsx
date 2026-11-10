@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 import { Suspense, lazy } from 'react'
 
-import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { retryImport } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -92,6 +92,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     } = useValues(insightVizDataLogic(insightProps))
 
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!querySource) {
         return null
@@ -163,7 +164,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             show: !isRetention,
             defaultExpanded: true,
             headerExtra:
-                isFunnels && (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
+                !todayRailNav &&
+                isFunnels &&
+                (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
                     <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
                         {/* span so the tooltip has a ref-able anchor — FunnelVizType is a plain function component */}
                         <span className="inline-flex">
@@ -264,47 +267,24 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
                 {
                     key: 'stickinessCriteria',
-                    label: () => (
-                        <div className="flex">
-                            <span>Stickiness Criteria</span>
-                            <Tooltip
-                                closeDelayMs={200}
-                                title={
-                                    <div className="deprecated-space-y-2">
-                                        <div>
-                                            The stickiness criteria defines how many times a user must perform an event
-                                            inside of a given interval in order to be considered "sticky."
-                                        </div>
-                                    </div>
-                                }
-                            >
-                                <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                            </Tooltip>
-                        </div>
+                    label: 'Stickiness Criteria',
+                    tooltip: (
+                        <>
+                            The stickiness criteria defines how many times a user must perform an event inside of a
+                            given interval in order to be considered "sticky."
+                        </>
                     ),
                     component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
                     show: isStickiness,
                 },
                 {
                     key: 'cumulativeStickiness',
-                    label: () => (
-                        <div className="flex">
-                            <span>Compute as</span>
-                            <Tooltip
-                                closeDelayMs={200}
-                                title={
-                                    <div className="deprecated-space-y-2">
-                                        <div>
-                                            Choose how to compute stickiness values. Non-cumulative shows exact numbers
-                                            for each day count, while cumulative shows users active for at least that
-                                            many days.
-                                        </div>
-                                    </div>
-                                }
-                            >
-                                <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                            </Tooltip>
-                        </div>
+                    label: 'Compute as',
+                    tooltip: (
+                        <>
+                            Choose how to compute stickiness values. Non-cumulative shows exact numbers for each day
+                            count, while cumulative shows users active for at least that many days.
+                        </>
                     ),
                     component: CumulativeStickinessFilter as (props: EditorFilterProps) => JSX.Element | null,
                     show: isStickiness,
@@ -324,52 +304,33 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 { key: 'breakdown', component: Breakdown, show: hasBreakdown },
                 {
                     key: 'attribution',
-                    label: () => (
-                        <div className="flex">
-                            <span>Breakdown attribution</span>
-                            <Tooltip
-                                closeDelayMs={200}
-                                interactive
-                                title={
-                                    <div className="deprecated-space-y-2">
-                                        <div>
-                                            When breaking down funnels, it's possible that the same properties don't
-                                            exist on every event. For example, if you want to break down by browser on a
-                                            funnel that contains both frontend and backend events.
-                                        </div>
-                                        <div>
-                                            In this case, you can choose from which step the properties should be
-                                            selected from by modifying the attribution type. There are four modes to
-                                            choose from:
-                                        </div>
-                                        <ul className="list-disc pl-4">
-                                            <li>
-                                                First touchpoint: the first property value seen in any of the steps is
-                                                chosen.
-                                            </li>
-                                            <li>
-                                                Last touchpoint: the last property value seen from all steps is chosen.
-                                            </li>
-                                            <li>
-                                                All steps: the property value must be seen in all steps to be considered
-                                                in the funnel.
-                                            </li>
-                                            <li>
-                                                Specific step: only the property value seen at the selected step is
-                                                chosen.
-                                            </li>
-                                        </ul>
-                                        <div>
-                                            Read more in the{' '}
-                                            <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
-                                                documentation.
-                                            </Link>
-                                        </div>
-                                    </div>
-                                }
-                            >
-                                <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                            </Tooltip>
+                    label: 'Breakdown attribution',
+                    tooltip: (
+                        <div className="deprecated-space-y-2">
+                            <div>
+                                When breaking down funnels, it's possible that the same properties don't exist on every
+                                event. For example, if you want to break down by browser on a funnel that contains both
+                                frontend and backend events.
+                            </div>
+                            <div>
+                                In this case, you can choose from which step the properties should be selected from by
+                                modifying the attribution type. There are four modes to choose from:
+                            </div>
+                            <ul className="list-disc pl-4">
+                                <li>First touchpoint: the first property value seen in any of the steps is chosen.</li>
+                                <li>Last touchpoint: the last property value seen from all steps is chosen.</li>
+                                <li>
+                                    All steps: the property value must be seen in all steps to be considered in the
+                                    funnel.
+                                </li>
+                                <li>Specific step: only the property value seen at the selected step is chosen.</li>
+                            </ul>
+                            <div>
+                                Read more in the{' '}
+                                <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
+                                    documentation.
+                                </Link>
+                            </div>
                         </div>
                     ),
                     component: FunnelAttribution,

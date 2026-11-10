@@ -16,7 +16,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, RelatedTo, ReportLink
+from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, RelatedTo, ReportLink, SourceIssue
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
@@ -1065,6 +1065,61 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,attaches",
+    [
+        (SignalReport.Status.READY, True),
+        (SignalReport.Status.PENDING_INPUT, True),
+        (SignalReport.Status.RESOLVED, False),
+        (SignalReport.Status.SUPPRESSED, False),
+        (SignalReport.Status.FAILED, False),
+    ],
+)
+async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_source_issue(ateam, status, attaches):
+    triggering_signal_id = uuid.uuid4()
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=status, title="Scout report", triggering_signal_id=triggering_signal_id
+    )
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=SourceIssue.github("acme/widgets", 42),
+        attribution=ArtefactAttribution.system(),
+    )
+    semantic = NewReportMatch(
+        title="Exports time out", summary="", match_metadata=NoMatchMetadata(reason="nothing similar")
+    )
+    with (
+        patch(f"{GROUPING_MODULE_PATH}.fetch_source_signal_matches", return_value={}),
+        patch(f"{GROUPING_MODULE_PATH}.match_signal_to_report", new=AsyncMock(return_value=semantic)) as semantic_match,
+    ):
+        match = await match_signal_to_report_activity(
+            MatchSignalToReportInput(
+                team_id=ateam.id,
+                description="Exports time out on large date ranges",
+                source_product="github",
+                source_type="issue",
+                source_id="2001",
+                sync_with_source=True,
+                queries=[],
+                query_results=[],
+                report_contexts={},
+                source_issue_url="https://github.com/Acme/Widgets/issues/42",
+            )
+        )
+
+    if attaches:
+        assert isinstance(match, ExistingReportMatch)
+        assert match.report_id == str(report.id)
+        assert match.match_metadata.parent_signal_id == str(triggering_signal_id)
+        assert match.source_issue_matched is True
+        semantic_match.assert_not_awaited()
+    else:
+        assert match is semantic
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize("researching,pending_is_driver", [(False, False), (True, False), (True, True)])
 async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(
     ateam, patch_side_effects, researching, pending_is_driver
@@ -1582,6 +1637,37 @@ async def test_deleted_report_emits_matched_deleted_telemetry(ateam, patch_side_
     assert properties["report_id"] == str(report.id)
     assert properties["source_id"] == input_.source_id
     assert properties["source_product"] == "conversations"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind", ["trial_source", "free_system_source", "unfunded_source"])
+async def test_exhausted_trial_preserves_admitted_signal_promotion(ateam, kind):
+    from products.signals.backend.spend import record_llm_spend
+    from products.signals.backend.trial.policy import TrialPolicy
+
+    inputs = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)
+    if kind == "free_system_source":
+        inputs.source_product = SignalSourceProduct.HEALTH_CHECKS
+
+    def exhaust():
+        grant = TrialPolicy(ateam).claim(user_id=42)
+        record_llm_spend(
+            "accepted-signal",
+            team_id=ateam.id,
+            signal_id=inputs.signal_id if kind == "trial_source" else str(uuid.uuid4()),
+            stage="grouping",
+            token_cost_microusd=grant.allowance_microusd + 1,
+            trial_grant_id=str(grant.id),
+        )
+
+    with (
+        patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+        patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False),
+    ):
+        await database_sync_to_async(exhaust)()
+        result = await assign_and_emit_signal_activity(inputs)
+    assert result.promoted is (kind != "unfunded_source")
 
 
 # ---------------------------------------------------------------------------

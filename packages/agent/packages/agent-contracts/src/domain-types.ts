@@ -395,6 +395,7 @@ const taskRunStateFields = {
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),
   store_skills: optionalField(z.array(storeSkillStubSchema)),
+  store_skills_bridge: optionalField(z.boolean()),
   token_usage: optionalField(z.record(z.string(), z.unknown())),
 } satisfies z.ZodRawShape;
 
@@ -738,14 +739,11 @@ export type SignalReportActionability =
 
 /**
  * One or more `SignalReportStatus` values joined by commas, e.g. `potential` or `potential,candidate,ready`.
- * This looks horrendous but it's superb, trust me bro.
+ * Check the first status without expanding every possible combination.
  */
 export type CommaSeparatedSignalReportStatuses =
   | SignalReportStatus
-  | `${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`;
+  | `${SignalReportStatus},${string}`;
 
 export type SignalReportChartSize = "small" | "medium" | "large";
 

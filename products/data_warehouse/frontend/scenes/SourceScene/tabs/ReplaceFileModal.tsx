@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonModal, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -25,7 +24,6 @@ export function ReplaceFileModal({ sourceId }: { sourceId: string }): JSX.Elemen
         uploadPercent,
     } = useValues(logic)
     const { closeReplaceFile, selectFile, setFileFormat, submitReplaceFile } = useActions(logic)
-    const objectStorageSourcesEnabled = useFeatureFlag('DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES')
 
     const busyReason = isReplacing ? 'The file is being replaced' : undefined
 
@@ -81,11 +79,9 @@ export function ReplaceFileModal({ sourceId }: { sourceId: string }): JSX.Elemen
                         disabledReason={busyReason}
                     />
                 </LemonField.Pure>
-                {objectStorageSourcesEnabled && (
-                    <div className="text-xs text-secondary">
-                        Rows imported from this file count toward your data warehouse rows synced.
-                    </div>
-                )}
+                <div className="text-xs text-secondary">
+                    Rows imported from this file count toward your data warehouse rows synced.
+                </div>
                 {replaceStage === 'upload' ? (
                     <div className="flex flex-col gap-1" data-attr="replace-file-progress">
                         <LemonProgress percent={uploadPercent} />

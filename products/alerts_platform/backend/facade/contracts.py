@@ -34,6 +34,7 @@ class SourceKind(StrEnum):
     WAREHOUSE_SOURCE = "warehouse_source"
     WAREHOUSE_DESTINATION = "warehouse_destination"
     METRICS = "metrics"
+    TRACES = "traces"
 
 
 @frozen
@@ -273,6 +274,7 @@ class PlatformAlertCheckInput:
     # The calendar half of the schedule, so a source can tell when its own cadence has moved.
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    created_by_id: int | None = None
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -373,6 +375,7 @@ class PlatformAlertUpsert:
     # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
     # edits set, because a source row stores none.
     grouping: Grouping = Grouping()
+    created_by_id: int | None = None
 
 
 @frozen
@@ -1013,6 +1016,8 @@ class PlatformAlertConfigurationView:
     alerts: tuple[PlatformAlertSnapshot, ...]
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
+    created_by_id: int | None = None
+    first_enabled_at: datetime | None = None
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -1110,6 +1115,28 @@ class SourceConfigTeamCheck(Protocol):
     def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit) -> None: ...
 
 
+class SourceAdmission(Protocol):
+    """Decides whether a team may add an alert of the kind, or turn one on. The platform calls it on a
+    create, where `current` is None, and on an edit that turns the alert on, and on no other edit.
+
+    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
+    a native create. It is None on a create through the source, which sets the cadence itself.
+
+    It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
+    concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a
+    create and `InvalidPlatformAlertEdit` to refuse an edit.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        current: PlatformAlertConfigurationEdit | None,
+        edit: PlatformAlertConfigurationEdit,
+        check_interval_minutes: int | None,
+    ) -> None: ...
+
+
 class NativeAlertRemoveDestinations(Protocol):
     """Removes the destinations of an alert that is about to be deleted.
 
@@ -1129,6 +1156,8 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # The most alerts of the kind a team can have, or None for no cap.
+    max_per_team: int | None = None
     # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
     # destinations are `AlertDestination` rows from the start, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
@@ -1144,14 +1173,20 @@ class SourceConfigSpec:
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
     spans fields, such as one that reads `enabled`. `check_in_team` runs when a create or an edit
-    sets `source_config`. `mirror` runs in the edit's transaction. Without
+    sets `source_config`. `admit` runs on every create and every edit that turns an alert on through the
+    platform, and enforces the source's caps and plan entitlements. `mirror` runs in the edit's transaction. Without
     `create` or `delete`, the API cannot create or delete alerts of the kind, unless the kind is
     `native`: then the platform creates and deletes them itself, and the source keeps no row.
+
+    A kind can have both. `mirror` and `delete` then serve the alerts that have a source row, and
+    `native` serves the ones that have none. A create goes through `create`, unless `native_create`
+    says the team's new alerts get no source row.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     check_in_team: SourceConfigTeamCheck | None = None
+    admit: SourceAdmission | None = None
     mirror: SourceEditMirror | None = None
     create: SourceCreate | None = None
     delete: SourceDelete | None = None
@@ -1160,6 +1195,8 @@ class SourceConfigSpec:
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
     native: NativeAlertLifecycle | None = None
+    # For a kind with both `create` and `native`: whether a team's new alert gets no source row.
+    native_create: Callable[[int], bool] | None = None
     # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
@@ -1169,14 +1206,15 @@ class SourceConfigSpec:
     # the other kinds and the platform's own pages closed.
     access_flag: str | None = None
 
-    def __post_init__(self) -> None:
-        # The source-row hooks write a row a native kind does not have.
-        if self.native is not None and (self.mirror or self.create or self.delete):
-            raise ValueError("A native kind keeps no source row, so it cannot register mirror, create or delete.")
-
     @property
     def creatable(self) -> bool:
         return self.native is not None or self.create is not None
+
+    def creates_natively(self, team_id: int) -> bool:
+        """Whether a create for the team makes only the configuration, with no source row."""
+        if self.native is None:
+            return False
+        return self.create is None or (self.native_create is not None and self.native_create(team_id))
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
@@ -1431,6 +1469,28 @@ class MessageLink:
 class MessageImage:
     url: str
     alt_text: str
+
+
+# Marks the block where a source's image goes, so an image that renders after the message lands replaces it.
+SLACK_IMAGE_SLOT_BLOCK_ID: Final = "alert_image"
+
+
+@frozen
+class LateImageResult:
+    """What adding a late image to an evaluation's Slack messages did.
+
+    `waiting` counts the Slack destinations with no message for the evaluation yet, because its
+    delivery has not sent it, or because the destination is not delivered natively.
+    """
+
+    edited: int
+    waiting: int
+
+    def __add__(self, other: LateImageResult) -> LateImageResult:
+        return LateImageResult(edited=self.edited + other.edited, waiting=self.waiting + other.waiting)
+
+
+NO_LATE_IMAGE: Final = LateImageResult(edited=0, waiting=0)
 
 
 @frozen

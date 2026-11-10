@@ -37,6 +37,8 @@ from rest_framework.response import Response
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -47,10 +49,10 @@ from posthog.auth import (
     WebhookSignatureAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.llm.billing import BILLABLE_AI_PRODUCTS
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
-from posthog.tasks.usage_report import POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -59,7 +61,6 @@ MAX_PRODUCT_KEY_LENGTH = 64
 MAX_DATE_STRING_LENGTH = 32
 
 SUPPORTED_PRODUCTS = frozenset({"posthog_code"})
-BILLABLE_AI_PRODUCTS = frozenset(POSTHOG_AI_PRODUCTS + POSTHOG_CODE_AI_PRODUCTS)
 
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
@@ -568,8 +569,12 @@ def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     return {"items": rows[:limit], "truncated": len(rows) > limit}
 
 
+def _hogql_context(team: Team, database: Database) -> HogQLContext:
+    return HogQLContext(team_id=team.pk, team=team, database=database)
+
+
 def _fetch_summary(
-    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str
+    team: Team, database: Database, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str
 ) -> dict[str, Any]:
     query = parse_select(
         """
@@ -593,6 +598,7 @@ def _fetch_summary(
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendSummary",
     )
     row = (result.results or [(0, 0.0, 0, 0.0, 0.0)])[0]
@@ -609,7 +615,7 @@ def _fetch_summary(
 
 
 def _fetch_by_product(
-    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, limit: int
+    team: Team, database: Database, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, limit: int
 ) -> dict[str, Any]:
     query = parse_select(
         """
@@ -633,6 +639,7 @@ def _fetch_by_product(
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendByProduct",
     )
     rows = [
@@ -649,6 +656,7 @@ def _fetch_by_product(
 
 def _fetch_by_tool(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -685,6 +693,7 @@ def _fetch_by_tool(
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendByTool",
     )
     rows = [
@@ -701,6 +710,7 @@ def _fetch_by_tool(
 
 def _fetch_by_model(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -735,6 +745,7 @@ def _fetch_by_model(
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendByModel",
     )
     rows = [
@@ -752,6 +763,7 @@ def _fetch_by_model(
 
 def _fetch_by_day(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -787,6 +799,7 @@ def _fetch_by_day(
             "limit": ast.Constant(value=BY_DAY_MAX_ROWS + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         # HogQL wraps `timestamp` in the team's configurable timezone by default, which would
         # shift the day buckets; days here are documented as UTC, so pin them.
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
@@ -807,6 +820,7 @@ def _fetch_by_day(
 
 def _fetch_by_day_model(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -836,6 +850,7 @@ def _fetch_by_day_model(
             "limit": ast.Constant(value=BY_DAY_MODEL_TOP_MODELS),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendByDayModelTopModels",
     )
     top_models = [row[0] for row in (top_models_result.results or []) if row[0] is not None]
@@ -876,6 +891,7 @@ def _fetch_by_day_model(
         query=query,
         placeholders=placeholders,
         team=team,
+        context=_hogql_context(team, database),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         query_type="PersonalSpendByDayModel",
     )
@@ -894,6 +910,7 @@ def _fetch_by_day_model(
 
 def _fetch_by_bucket(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -951,6 +968,7 @@ def _fetch_by_bucket(
             "limit": ast.Constant(value=MAX_TIME_BUCKETS + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         # Buckets are documented as UTC; pin them like by_day does.
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         query_type="PersonalSpendByBucket",
@@ -1004,12 +1022,14 @@ def _compute_spend_analysis(
         logger.exception("personal_spend.team_missing", team_id=team_id)
         raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
 
+    database = Database.create_for_posthog_tables(team)
+
     # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
     # in the existing per-product Prometheus + cost-attribution dashboards alongside the
     # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
-        summary = _fetch_summary(team, email, from_dt, to_dt, product)
-        by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
+        summary = _fetch_summary(team, database, email, from_dt, to_dt, product)
+        by_tool = _fetch_by_tool(team, database, email, from_dt, to_dt, product, limit)
         scoped = summary["scoped_cost_usd"] or 0.0
         # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
         # contribute to every tool. `share_of_scoped` is independent per row, so agents can
@@ -1019,13 +1039,13 @@ def _compute_spend_analysis(
 
         payload = {
             "summary": summary,
-            "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
+            "by_product": _fetch_by_product(team, database, email, from_dt, to_dt, limit),
             "by_tool": by_tool,
-            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
-            "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
-            "by_day_model": _fetch_by_day_model(team, email, from_dt, to_dt, product),
+            "by_model": _fetch_by_model(team, database, email, from_dt, to_dt, product, limit),
+            "by_day": _fetch_by_day(team, database, email, from_dt, to_dt, product),
+            "by_day_model": _fetch_by_day_model(team, database, email, from_dt, to_dt, product),
             **(
-                {"by_bucket": _fetch_by_bucket(team, email, from_dt, to_dt, product, bucket_minutes)}
+                {"by_bucket": _fetch_by_bucket(team, database, email, from_dt, to_dt, product, bucket_minutes)}
                 if bucket_minutes is not None
                 else {}
             ),

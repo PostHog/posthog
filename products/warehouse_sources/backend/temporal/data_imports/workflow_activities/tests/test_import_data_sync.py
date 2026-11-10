@@ -45,7 +45,6 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
-    IMPORT_RIDE_OUT_FLAG,
     DurableProgress,
     RideOutConfig,
 )
@@ -107,14 +106,24 @@ def _passthrough(fn, *, executor=None):
     return _inner
 
 
+def _without_oauth_fields(source_mock: Any) -> None:
+    # The store asks the source class where its OAuth pointer is. A MagicMock answer is not an integration id.
+    if isinstance(source_mock, mock.Mock):
+        source_mock.in_use_oauth_slot.return_value = None
+        source_mock.in_use_oauth_pointer.return_value = None
+
+
 @contextlib.contextmanager
 def _patched_activity(source_mock, model=None, schema=None):
     """Patch out every dependency import_data_activity_sync touches before source setup."""
+    _without_oauth_fields(source_mock)
     if model is None:
         model = mock.MagicMock()
         model.pipeline_version = ExternalDataJob.PipelineVersion.V3
         model.pipeline.source_type = "MongoDB"
         model.pipeline.job_inputs = {}
+        # The source has no credentials row, so the store reads `job_inputs` as stored.
+        model.pipeline.credentials_integration_id = None
         model.folder_path = mock.Mock(return_value="dataset")
 
     if schema is None:
@@ -1262,11 +1271,13 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 
 @contextlib.contextmanager
 def _patched_activity_reaching_run(source_mock, schema, api_version=None, workflow_run_id=None):
+    _without_oauth_fields(source_mock)
     model = mock.MagicMock()
     model.workflow_run_id = workflow_run_id
     model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
+    model.pipeline.credentials_integration_id = None
     model.pipeline.api_version = api_version
     model.folder_path = mock.Mock(return_value="dataset")
 
@@ -1282,7 +1293,6 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None, workfl
         mock.patch.object(module, "bind_job_context"),
         mock.patch.object(module, "trim_source_job_inputs", new=mock.AsyncMock()),
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_schema_flag_enabled", return_value=False),
         mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
         mock.patch.object(
@@ -1643,6 +1653,7 @@ def _probe_model() -> mock.MagicMock:
     model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "Postgres"
     model.pipeline.job_inputs = {}
+    model.pipeline.credentials_integration_id = None
     model.folder_path = mock.Mock(return_value="dataset")
     return model
 
@@ -2226,24 +2237,20 @@ async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "flag_enabled,handoffs_are_free,grace,shutdown_grace,expected",
+    "handoffs_are_free,grace,shutdown_grace,expected",
     [
-        pytest.param(True, True, 7200, 0.0, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
+        pytest.param(True, 7200, 0.0, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
         # The ride-out starts when the shutdown grace ends, so its deadline leaves that time out.
         pytest.param(
-            True, True, 7200, 60.0, RideOutConfig(grace_seconds=7140.0, max_seconds=1800.0), id="after_shutdown_grace"
+            True, 7200, 60.0, RideOutConfig(grace_seconds=7140.0, max_seconds=1800.0), id="after_shutdown_grace"
         ),
         # The worker falls back to a five-minute graceful shutdown when the setting is unset.
-        pytest.param(
-            True, True, None, 0.0, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"
-        ),
+        pytest.param(True, None, 0.0, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"),
         # Holding the worker past the deadline on the retry path would cost an attempt at the hand-off.
-        pytest.param(True, False, 7200, 0.0, None, id="off_when_a_handoff_uses_a_retry_attempt"),
-        pytest.param(False, True, 7200, 0.0, None, id="off_when_the_flag_is_off"),
+        pytest.param(False, 7200, 0.0, None, id="off_when_a_handoff_uses_a_retry_attempt"),
     ],
 )
-async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
-    flag_enabled: bool,
+async def test_the_pipeline_rides_out_only_with_free_handoffs(
     handoffs_are_free: bool,
     grace: int | None,
     shutdown_grace: float,
@@ -2258,15 +2265,10 @@ async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
     source.source_for_pipeline.return_value = mock.MagicMock()
     schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
 
-    with (
-        _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock,
-        mock.patch.object(module, "is_schema_flag_enabled", return_value=flag_enabled) as flag_check,
-    ):
+    with _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock:
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
 
     assert run_mock.await_args.kwargs["ride_out"] == expected
-    if handoffs_are_free:
-        flag_check.assert_called_once_with(schema, IMPORT_RIDE_OUT_FLAG)
     assert isinstance(run_mock.await_args.kwargs["progress"], DurableProgress)
 
 

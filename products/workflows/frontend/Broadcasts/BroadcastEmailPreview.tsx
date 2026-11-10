@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSend } from '@posthog/icons'
 import { LemonButton, LemonSearchableSelect, Spinner } from '@posthog/lemon-ui'
 
+import { createDisabledReason } from './broadcastLifecycle'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
@@ -55,6 +56,7 @@ export function BroadcastEmailPreview({
                         size="small"
                         icon={<IconSend />}
                         onClick={() => setModalOpen(true)}
+                        disabledReason={createDisabledReason()}
                         data-attr="broadcast-open-test-email"
                     >
                         Send test email

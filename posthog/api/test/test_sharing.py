@@ -29,8 +29,9 @@ from posthog.api.sharing_publish_gate import dashboard_filter_leaves
 from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import ActivityLog, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import ActivityLog, OrganizationMembership, Team
 from posthog.models.data_color_theme import DataColorTheme
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -46,6 +47,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -246,12 +248,29 @@ class TestSharing(APIBaseTest):
         expected_access_method: DashboardAccessMethod,
         mock_record_access: Mock,
     ) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
 
         response = self.client.get(path.format(token=config.access_token))
 
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
+
+    @parameterized.expand(["shared_dashboard", "shared", "embedded"])
+    def test_shared_password_submission_outside_management_ip_policy(self, route: str) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, password_required=True
+        )
+        _, password = SharePassword.create_password(sharing_configuration=config, created_by=self.user)
+        url = f"/{route}/{config.access_token}"
+
+        incorrect = self.client.post(url, {"password": "incorrect-password"})
+        correct = self.client.post(url, {"password": password})
+
+        assert incorrect.status_code == status.HTTP_401_UNAUTHORIZED, incorrect.content
+        assert correct.status_code == status.HTTP_200_OK, correct.content
+        assert correct.json()["shareToken"]
 
     @patch("posthog.api.sharing.render_template")
     @covers_authentication(SharingPasswordProtectedAuthentication)

@@ -2,14 +2,12 @@
 
 A parallel run. The production insight fleet evaluates the same alerts against
 `AlertConfiguration` and notifies their destinations. This decides what the platform would have
-said, and asks for a delivery for the alerts the platform owns and for the alerts in
-`LIVE_DELIVERY_INSIGHT_ALERT_IDS`. An owned alert sends without the platform's live delivery flag.
-Every other alert on the list still sends only to projects on that flag.
+said, and asks for a delivery only for the alerts the platform owns.
 
 Each platform row resolves to its production alert through `legacy_configuration_id`, because
 `check_alert_for_insight` reads the insight, the threshold and the condition off that model. The
 query runs the way production runs it, and the verdict comes from the shared machine under
-`INSIGHT_ALERT_POLICY`, applied to the platform's own state. `add_alert_check` is the production
+`insight_alert_policy`, applied to the platform's own state. `add_alert_check` is the production
 writer, and nothing here calls it.
 
 A check that production skips without a query is skipped here too, so both stacks answer the
@@ -34,19 +32,30 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
+from posthog.models.user import User
 from posthog.query_cache.single_flight import skip_query_single_flight
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
+from posthog.tasks.alerts.utils import (
+    CHART_RENDER_TIMEOUT,
+    AlertEvaluationResult,
+    InsightChartRenderFailed,
+    render_alert_insight_chart_or_raise,
+    skip_because_of_weekend,
+)
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
-from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
+from products.alerts.backend.insight_alert_state_machine import (
+    INSIGHT_ALERT_POLICY,
+    insight_alert_policy,
+    insight_snapshot,
+)
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -87,6 +96,7 @@ from products.alerts_platform.backend.facade.grouping import (
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
+    AlertPolicy,
     AlertSnapshot,
     AlertState,
     CheckInput,
@@ -148,6 +158,10 @@ class ChartRenderPoolFull(Exception):
     """Every chart render slot is taken. The activity retries later, holding no worker slot meanwhile."""
 
 
+class ChartRenderTimedOut(Exception):
+    """The export ran out of time, so the firing goes out without its chart."""
+
+
 # How many threads of the shared AI pool the parallel run may hold, so a stalled platform check
 # never takes more than this from production. A thread counts until it ends, not until Temporal
 # gives up on its attempt. Created per worker process and used only from the activity's event loop.
@@ -179,11 +193,6 @@ EVALUATED_INTERVALS = frozenset(
 )
 
 
-# The production insight alerts whose platform evaluations ask for a native delivery while production
-# still owns them, as a test. The platform's live delivery flag still has to be on for the project.
-# The list stays short because production also sends for these alerts, so each one sends twice.
-LIVE_DELIVERY_INSIGHT_ALERT_IDS: Final = frozenset({"01a11d6f-598e-0000-8529-4bcb65526f6d"})
-
 # Which event each announced kind's destinations listen on. A resolve is left out, because
 # production never announces one and the analytics platform team has not agreed to start. A kind
 # with no event id reaches no destination.
@@ -214,7 +223,7 @@ _RECURRENCE: dict[str, tuple[int, str | None]] = {
 }
 
 # What an edit to an insight alert can change on its copy. The check refreshes these, and the due
-# time follows from them, so it is left to the next advance.
+# time follows from them, so it is left to the next advance. `take_ownership` changes the creator.
 SETTINGS_FIELDS: Final = (
     "name",
     "source_config",
@@ -222,7 +231,13 @@ SETTINGS_FIELDS: Final = (
     "check_interval_minutes",
     "recurrence_unit",
     "anchor_time",
+    "created_by_id",
 )
+
+
+def interval_of(check_interval_minutes: int) -> str | None:
+    """The insight cadence a platform alert's `check_interval_minutes` stands for, or None for one insight has not."""
+    return next((interval for interval, (minutes, _) in _RECURRENCE.items() if minutes == check_interval_minutes), None)
 
 
 def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
@@ -254,6 +269,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
         schedule_restriction=alert.schedule_restriction,
         next_check_at=alert.next_check_at,
         snooze_until=alert.snoozed_until,
+        created_by_id=alert.created_by_id,
     )
 
 
@@ -575,16 +591,15 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
     paging destination needs one resolve for every trigger. An alert with no such destination gets
     no incident action, so its edges start no delivery.
     """
+    # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
+    # A source-owned alert is the insight stack's to send.
+    if check.legacy_configuration_id is None or not check.owned_by_platform:
+        return None
+    legacy_id = str(check.legacy_configuration_id)
     kinds = [group.kind for group in outcome.groups]
     if outcome.failure is not None:
         kinds.append(outcome.failure.kind)
     sends_messages = any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds)
-    # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
-    if check.legacy_configuration_id is None:
-        return None
-    legacy_id = str(check.legacy_configuration_id)
-    if not check.owned_by_platform and legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
-        return None
     actions = _incident_actions(check, outcome)
     if actions and not configured_destination_template_ids(
         team_id=check.team_id,
@@ -606,7 +621,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         incident_actions=actions,
         sends_messages=sends_messages,
         source_alert_url=_alert_url(check, legacy_id),
-        owned_by_platform=check.owned_by_platform,
+        owned_by_platform=True,
         overflowed=outcome.overflowed,
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome, actions),
@@ -619,7 +634,7 @@ def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutc
     A failed check moves no instance, so its incident stays open with its firing. Closing it would
     leave a re-enabled alert that still breaches firing with no incident.
     """
-    policy = INSIGHT_ALERT_POLICY if check.grouping.mode == GroupingMode.SINGLE else GROUPED_INSIGHT_ALERT_POLICY
+    policy = _policy(check) if check.grouping.mode == GroupingMode.SINGLE else GROUPED_INSIGHT_ALERT_POLICY
     return {
         group.grouping_key: action
         for group in outcome.groups
@@ -669,6 +684,11 @@ def _snapshot(
         firing_started_at=instance.firing_started_at,
         snooze_until=snooze_until,
     )
+
+
+def _policy(check: PlatformAlertCheckInput) -> AlertPolicy:
+    """The policy production runs for the alert, read from the detector the copy stores."""
+    return insight_alert_policy(check.condition.get("detector"))
 
 
 def _evaluation_key(check: PlatformAlertCheckInput, cutoff: datetime) -> str:
@@ -735,6 +755,7 @@ def _decide(
         unsnoozed = apply_unsnooze(snapshot)
         snapshot = replace(snapshot, state=unsnoozed.new_state, consecutive_failures=unsnoozed.consecutive_failures)
 
+    _run_as_copy_creator(check, alert)
     # Production's tags, so ClickHouse workload management treats the query the way it treats
     # production's and its cost is grouped the same way in the query log. The user is the
     # platform's own, so the parallel run never takes from production's per-user budget.
@@ -777,15 +798,16 @@ def _decide(
         )
     except LLMDetectorPausedError as error:
         # As production: no retry, and the alert stays enabled so it resumes once access or credits return.
-        return _verdict(
+        return _errored_stays_enabled(
             check,
             snapshot,
-            CheckInput(threshold_breached=False, error_message=str(error)),
+            alert,
             now=now,
-            skip=SkipReason.QUERY_FAILED,
-            context=_context(alert),
+            message=str(error),
             check_detail={ERROR_CODE_KEY: LLM_DETECTOR_PAUSED_ERROR_CODE},
         )
+    except AlertDataUnavailableError as error:
+        return _errored_stays_enabled(check, snapshot, alert, now=now, message=str(error))
     except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
         return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
@@ -817,6 +839,16 @@ def _ai_detector_not_copied(check: PlatformAlertCheckInput, alert: AlertConfigur
     if check.owned_by_platform or not is_llm_detector_config(alert.detector_config):
         return False
     return not is_llm_detector_config(check.condition.get("detector"))
+
+
+def _run_as_copy_creator(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> None:
+    """Makes the creator the copy records the user the check's queries run as. A copy the creator
+    backfill has not reached records none, and one whose user is gone records an id that loads no
+    one. Both keep the alert row's, because a check with no user disables the alert."""
+    if check.created_by_id is None or check.created_by_id == alert.created_by_id:
+        return
+    if creator := User.objects.filter(id=check.created_by_id).first():
+        alert.created_by = creator
 
 
 def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> PlatformAlertCheckInput:
@@ -860,6 +892,31 @@ def _broken(
         skip=SkipReason.BROKEN_CONFIG,
         disable=True,
         source_detail=_context(alert),
+    )
+
+
+def _errored_stays_enabled(
+    check: PlatformAlertCheckInput,
+    snapshot: AlertSnapshot,
+    alert: AlertConfiguration,
+    *,
+    now: datetime,
+    message: str,
+    check_detail: dict[str, Any] | None = None,
+) -> PlatformAlertOutcome:
+    """A check that reached no verdict, but that a later check can, such as one whose history is still short.
+
+    As production, it errors and the copy stays enabled. `AlertDataUnavailableError` subclasses
+    `AlertExtractionError`, so its catch must come before the one that sends the copy to `_broken`.
+    """
+    return _verdict(
+        check,
+        snapshot,
+        CheckInput(threshold_breached=False, error_message=message),
+        now=now,
+        skip=SkipReason.QUERY_FAILED,
+        context=_context(alert),
+        check_detail=check_detail,
     )
 
 
@@ -913,6 +970,7 @@ MAX_TOTAL_DETAIL_CHARS: Final = 200_000
 # A breakdown value can be muted on its own, which production cannot express, so the platform's
 # mute applies: the value is still judged and only its announcement is held. A snooze of the
 # production alert never reaches here, because `_decide` records that check without a query.
+# Built on the statistical policy alone, because the AI detector is refused on a breakdown insight.
 GROUPED_INSIGHT_ALERT_POLICY: Final = replace(INSIGHT_ALERT_POLICY, mute_gates_notification_only=True)
 
 
@@ -941,6 +999,8 @@ def _decide_grouped(
         )
     except ClickHouseBudgetFull:
         return None
+    except AlertDataUnavailableError as error:
+        return _errored_stays_enabled(check, snapshot, alert, now=now, message=str(error))
     except AlertExtractionError as error:
         return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
@@ -1024,10 +1084,12 @@ def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> b
 
 
 def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
-    """Render the chart a firing of this alert sends, or None when none applies or the render fails.
+    """Render the chart a firing of this alert sends, or None when none applies.
 
     The evaluation workflow calls this after the check, so the render never holds the check's slot.
-    Raises `ChartRenderPoolFull` when the render pool has no room.
+    Raises `ChartRenderPoolFull` when the render pool has no room, `ChartRenderTimedOut` when the
+    export used its whole time limit and returned nothing, and `InsightChartRenderFailed` when the
+    render fails otherwise.
     """
     if not admit_evaluation_slots(
         [alert_id],
@@ -1040,7 +1102,14 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
         alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
         if alert is None:
             return None
-        chart = render_alert_insight_chart(alert)
+        started = time.monotonic()
+        try:
+            chart = render_alert_insight_chart_or_raise(alert)
+        except InsightChartRenderFailed as error:
+            # A timed-out export fails like any other, so only its duration tells the two apart.
+            if time.monotonic() - started >= CHART_RENDER_TIMEOUT.total_seconds():
+                raise ChartRenderTimedOut() from error
+            raise
         return (
             RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
         )
@@ -1166,7 +1235,7 @@ def _verdict(
     context: dict[str, Any] | None = None,
     check_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
-    outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
+    outcome = evaluate_alert_check(snapshot, check_input, now, policy=_policy(check))
     source_detail: dict[str, Any] | None
     if firing is not None and outcome.notification == NotificationAction.FIRE:
         source_detail = _firing_detail(check, *firing, breach_details=breach_details)
@@ -1256,7 +1325,7 @@ def _recorded(
         new_state=outcome.new_state.value,
         notified=notified,
         failed=failed,
-        firing_episode=decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY),
+        firing_episode=decide_firing_episode(snapshot, outcome, now, policy=_policy(check)),
         value=value,
         error_message=error_message,
         query_duration_ms=query_duration_ms,

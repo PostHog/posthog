@@ -13,6 +13,7 @@ export {
     FilterCheckboxSubMenu,
     FilterClearItem,
     FilterMenuTrigger,
+    type FilterMenuOpenTiming,
     type FilterOption,
     FilterRadioSubMenu,
     FilterSearchSubMenu,

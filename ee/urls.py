@@ -66,19 +66,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.health_check_admin import (
-        health_check_list_view,
-        health_check_runs_fragment_view,
-        health_check_trigger_view,
-    )
-    from posthog.admin.admins.notebook_markdown_migration_admin import (
-        notebook_markdown_migration_run_view,
-        notebook_markdown_migration_stats_view,
-        notebook_markdown_migration_view,
-    )
-    from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
     from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
     admin_urlpatterns = [
@@ -92,12 +79,12 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
         path(
             "admin/resave-cohorts/",
-            admin.site.admin_view(resave_cohorts_view),
+            MovedToConsole.page_redirect("Re-save cohorts", "/admin/console/tools/resave-cohorts/"),
             name="resave-cohorts",
         ),
         path(
             "admin/distinct-id-usage/",
-            admin.site.admin_view(distinct_id_usage_view),
+            MovedToConsole.page_redirect("Distinct ID usage", "/admin/console/tools/distinct-id-usage/"),
             name="distinct-id-usage",
         ),
         path(
@@ -107,43 +94,48 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/tophog/",
-            admin.site.admin_view(tophog_dashboard_view),
+            MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"),
             name="tophog-dashboard",
         ),
         path(
             "admin/tophog/restrictions/",
-            admin.site.admin_view(tophog_restrictions_view),
+            MovedToConsole.page_redirect("TopHog restrictions", "/admin/console/tools/tophog/"),
             name="tophog-restrictions",
         ),
         path(
             "admin/health-checks/",
-            admin.site.admin_view(health_check_list_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/"),
             name="health-checks",
         ),
         path(
             "admin/health-checks/<str:kind>/",
-            admin.site.admin_view(health_check_trigger_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
             name="health-check-trigger",
         ),
         path(
             "admin/health-checks/<str:kind>/runs/",
-            admin.site.admin_view(health_check_runs_fragment_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
             name="health-check-runs",
         ),
         path(
             "admin/notebook-markdown-migration/",
-            admin.site.admin_view(notebook_markdown_migration_view),
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
             name="notebook-markdown-migration",
         ),
+        # The old page fetched these JSON endpoints itself, so a bookmark of one lands on the tool page.
         path(
             "admin/notebook-markdown-migration/stats/",
-            admin.site.admin_view(notebook_markdown_migration_stats_view),
-            name="notebook-markdown-migration-stats",
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
         ),
         path(
             "admin/notebook-markdown-migration/run/",
-            admin.site.admin_view(notebook_markdown_migration_run_view),
-            name="notebook-markdown-migration-run",
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
         ),
         path(
             "admin/logout/",

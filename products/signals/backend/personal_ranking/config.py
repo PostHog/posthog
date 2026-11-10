@@ -48,9 +48,9 @@ _POOL_KEYS = frozenset({"source", "size", "name"})
 class ReasonLimits:
     """The longest reason, in characters, of an entry in each tier."""
 
-    top: int = 240
-    worth_a_look: int = 160
-    later: int = 100
+    top: int = 140
+    worth_a_look: int = 110
+    later: int = 80
 
 
 @frozen
@@ -95,9 +95,9 @@ TICK_SHARE_OF_SHARED_BUILDS = 0.8
 _TICK_MAXIMUMS: dict[str, int] = {
     "target_interval_minutes": 1440,
     "active_days": 90,
-    "max_pairs_per_tick": 500,
-    "max_concurrency": 20,
-    "max_tick_builds_per_day": 10000,
+    "max_pairs_per_tick": 2000,
+    "max_concurrency": 50,
+    "max_tick_builds_per_day": 50000,
 }
 
 
@@ -108,18 +108,18 @@ class PersonalRankingConfig:
     reasoning_effort: ReasoningEffort = "low"
     # The `for_you_recommended` pool reads reports created in this window.
     window_days: int = 14
-    for_you_recommended_pool: int = 10
+    for_you_recommended_pool: int = 20
     # No window, so older reports with new activity come in too.
-    for_you_updated_pool: int = 5
-    assigned_pool: int = 5
+    for_you_updated_pool: int = 10
+    assigned_pool: int = 10
     # The pools in merge order. Empty uses `default_pools`, which take their sizes from the `*_pool` fields.
     pools: tuple[CandidatePool, ...] = ()
-    max_candidates: int = 30
+    max_candidates: int = 40
     # The model ranks only this many candidates. The others follow in model order. At most `max_limit`.
-    rank_top: int = 10
+    rank_top: int = 25
     # The most entries in each tier. The validator moves an entry past a cap down one tier and keeps its rank.
     top_max: int = 5
-    worth_a_look_max: int = 10
+    worth_a_look_max: int = 15
     # The entries that get a `next_step`, and the most a caller can ask for.
     default_limit: int = 25
     max_limit: int = 50
@@ -129,7 +129,7 @@ class PersonalRankingConfig:
     # Names of owned and watched objects from the activity summary, each.
     max_object_names: int = 8
     focus_max_chars: int = 500
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = 90.0
     max_completion_tokens: int = 16000
     # The `for_me` endpoint reuses a stored list this many minutes old or newer while its inputs are the same.
     freshness_minutes: int = 60
@@ -169,7 +169,7 @@ _MAXIMUMS: dict[str, int] = {
     "build_burst": 20,
     "builds_per_hour": 120,
     "builds_per_day": 500,
-    "max_builds_per_day": 10000,
+    "max_builds_per_day": 50000,
     "max_rows_per_person": 100,
     "reason_max_chars": 500,
 }
@@ -351,6 +351,11 @@ def parse_config(payload: Any) -> PersonalRankingConfig:
             "rank_top": min(ints["rank_top"], max_limit),
         },
     )
+
+
+def list_limit(config: PersonalRankingConfig, limit: int | None) -> int:
+    """The entries a build or a read lists: the caller's `limit`, else `default_limit`, at most `max_limit`."""
+    return min(max(limit or config.default_limit, 1), config.max_limit)
 
 
 def effective_config(config: PersonalRankingConfig) -> dict[str, Any]:

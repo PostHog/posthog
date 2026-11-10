@@ -31,15 +31,22 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.activity_summary import read as activity_summary_read
+from products.signals.backend.activity_logging import log_source_configs_disabled
+from products.signals.backend.activity_summary import (
+    read as activity_summary_read,
+    render as activity_summary_render,
+    search as activity_summary_search,
+)
+from products.signals.backend.activity_summary.prompt import ActivitySummaryMode as ActivitySummaryMode
 from products.signals.backend.activity_summary.read import (
+    ActivitySummaryStatus as ActivitySummaryStatus,
     ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
 )
 from products.signals.backend.activity_summary.search import (
     ActivitySummarySearchResult as ActivitySummarySearchResult,
-    SearchMode,
+    MatchKind as MatchKind,
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
@@ -69,6 +76,10 @@ from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalS
 from products.signals.backend.facade.source_scouts import (
     SOURCE_TEMPLATE_HASH_METADATA_KEY,
     SOURCE_TEMPLATE_METADATA_KEY,
+)
+from products.signals.backend.hybrid_search import (
+    SearchMode as SearchMode,
+    SemanticSearchUnavailable as SemanticSearchUnavailable,
 )
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
@@ -128,7 +139,12 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
-from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
+from products.signals.backend.spend import (
+    begin_signal_spend,
+    complete_signal_pipeline,
+    finalized_signal_ids,
+    signal_id_for,
+)
 from products.signals.backend.spend_billing import system_source_exempt
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
@@ -143,6 +159,11 @@ logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
+
+ActivitySummaryProductKey = activity_summary_render.Product
+ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT = activity_summary_read.DEFAULT_VERSIONS_LIMIT
+ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT = activity_summary_search.DEFAULT_LIMIT
+ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT = activity_summary_search.MAX_LIMIT
 
 
 @frozen
@@ -342,11 +363,15 @@ def set_signal_source_types_enabled(
     with transaction.atomic():
         Team.objects.select_for_update().only("id").get(id=team_id)
         if not enabled:
-            SignalSourceConfig.objects.filter(
+            disabled = SignalSourceConfig.objects.filter(
                 team_id=team_id,
                 source_product=source_product,
                 source_type__in=source_types,
-            ).update(enabled=False)
+                enabled=True,
+            )
+            disabled_rows = list(disabled)
+            disabled.update(enabled=False)
+            log_source_configs_disabled(disabled_rows)
             return
         for source_type in source_types:
             row, _ = SignalSourceConfig.objects.update_or_create(
@@ -749,9 +774,12 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                     obj.enabled = True
                     obj.save(update_fields=["enabled", "updated_at"])
             else:
-                SignalSourceConfig.objects.filter(
+                disabled = SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
-                ).update(enabled=False)
+                )
+                disabled_rows = list(disabled)
+                disabled.update(enabled=False)
+                log_source_configs_disabled(disabled_rows)
 
 
 # Each source carries two names: the label, which is the product it comes from, and the watch, which
@@ -1005,6 +1033,9 @@ async def emit_signal(
     )
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
         return False
+
+    if system_source_exempt(source_product):
+        await database_sync_to_async(begin_signal_spend)(team_id=team.id, signal_id=signal_id, billing_exempt=True)
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.

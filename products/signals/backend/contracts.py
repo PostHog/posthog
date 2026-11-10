@@ -60,6 +60,8 @@ class AlertScope(enum.StrEnum):
     INVESTIGATED_ONLY = "investigated_only"
     # Every insight alert that starts to fire, also alerts without the investigation agent.
     ALL_FIRING_ALERTS = "all_firing_alerts"
+    # No alert becomes a signal. Alert checks, notifications, and investigations still run.
+    OFF = "off"
 
 
 # ── Alert name patterns ─────────────────────────────────────────────────────────
@@ -104,6 +106,20 @@ DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
         (SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
         (SignalSourceProduct.ANALYTICS, SignalSourceType.ANOMALY_INVESTIGATION),
         (SignalSourceProduct.ANALYTICS, SignalSourceType.ALERT_FIRING),
+    }
+)
+
+
+# ── Issue filters ───────────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key holding a compiled error tracking filter. The same filter is saved
+# on every error tracking row, and emission drops a signal it excludes before the steering gate.
+# The error tracking facade compiles the bytecode on the server, so a client cannot store its own.
+ISSUE_FILTERS_KEY = "issue_filters"
+ISSUE_FILTER_SOURCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_CREATED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
     }
 )
 

@@ -34,6 +34,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -73,7 +74,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
-    IMPORT_RIDE_OUT_FLAG,
     DurableProgress,
     RideOutConfig,
 )
@@ -97,7 +97,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -748,9 +747,7 @@ async def _import_data_with_reporting(
             )
         # A deadline hand-off on the retry path would cost an attempt, so the same rule as preemption.
         ride_out: RideOutConfig | None = None
-        if inputs.handoffs_are_free and await database_sync_to_async_pool(is_schema_flag_enabled)(
-            schema, IMPORT_RIDE_OUT_FLAG
-        ):
+        if inputs.handoffs_are_free:
             # The ride-out's stopwatch starts when the monitor reports the shutdown, after the shutdown grace.
             ride_out = RideOutConfig(
                 grace_seconds=_graceful_shutdown_timeout_seconds() - shutdown_grace_seconds,
@@ -852,8 +849,16 @@ async def _import_data_with_reporting(
             )
 
             try:
-                stored_inputs = await SourceInputsStore.aload(model.pipeline)
-                config = new_source.parse_config(stored_inputs)
+                pipeline_job_inputs = await SourceInputsStore.aload(model.pipeline)
+            except UnreadableSourceInputsError as e:
+                # `job_inputs` that do not decode, or a stripped source whose credentials row is lost
+                # (`SourceCredentialsMissingError`), fail the same way on every attempt. Any other error, such as
+                # a database timeout while reading the credentials row, propagates so the activity retries.
+                await handle_non_retryable_error(
+                    job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
+                )
+            try:
+                config = new_source.parse_config(pipeline_job_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
