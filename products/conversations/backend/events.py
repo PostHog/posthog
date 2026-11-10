@@ -436,14 +436,21 @@ def _is_customer_email_verified(ticket: Ticket, customer_email: str) -> bool:
     )
 
 
+MAX_CUSTOMER_TRAIT_LENGTH = 500  # Mirrors the widget's cap on a trait value
+
+
+def _text_trait(traits: Mapping[str, object], key: str) -> str:
+    value = traits.get(key)
+    return value[:MAX_CUSTOMER_TRAIT_LENGTH] if isinstance(value, str) else ""
+
+
 def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:
     """Customer identity on the ticket, for workflow filters and analytics."""
-    traits = ticket.anonymous_traits or {}
-    # The ticket update API stores traits as any JSON value, so the email trait can be a non-string.
-    trait_email = traits.get("email")
-    customer_email = (trait_email if isinstance(trait_email, str) else "") or ticket.email_from or ""
+    # The ticket update API stores any JSON value as the traits, so neither the traits nor a trait has a fixed type.
+    traits = ticket.anonymous_traits if isinstance(ticket.anonymous_traits, dict) else {}
+    customer_email = _text_trait(traits, "email") or ticket.email_from or ""
     properties = {
-        "customer_name": traits.get("name", ""),
+        "customer_name": _text_trait(traits, "name"),
         "customer_email": customer_email,
         "customer_email_verified": _is_customer_email_verified(ticket, customer_email),
     }

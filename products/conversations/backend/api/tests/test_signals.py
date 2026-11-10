@@ -722,13 +722,14 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("new_tag", [], ["sf-lead"], ["sf-lead"]),
-            ("existing_tag", ["sf-lead"], ["sf-lead"], []),
-            ("two_new_tags", ["billing"], ["billing", "sf-lead", "urgent"], ["sf-lead", "urgent"]),
+            ("new_tag", [], ["sf-lead"], "json", ["sf-lead"]),
+            ("existing_tag", ["sf-lead"], ["sf-lead"], "json", []),
+            ("two_new_tags", ["billing"], ["billing", "sf-lead", "urgent"], "json", ["sf-lead", "urgent"]),
+            ("form_encoded_tag", [], ["sf-lead"], "multipart", ["sf-lead"]),
         ]
     )
     def test_ticket_patch_emits_one_event_per_new_tag(
-        self, mock_capture, _name, existing_tags, patched_tags, expected_tags
+        self, mock_capture, _name, existing_tags, patched_tags, request_format, expected_tags
     ):
         for name in existing_tags:
             self.ticket.tagged_items.create(tag=Tag.objects.create(name=name, team=self.team))
@@ -737,7 +738,7 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
                 {"tags": patched_tags},
-                format="json",
+                format=request_format,
             )
 
         assert response.status_code == status.HTTP_200_OK, response.content

@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -16,6 +17,7 @@ from posthog.settings import SITE_URL
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.events import (
     EVENT_SOURCE,
+    MAX_CUSTOMER_TRAIT_LENGTH,
     _get_customer_properties,
     _resolve_groups_from_analytics,
     build_ticket_tag_added_event,
@@ -36,6 +38,24 @@ from products.customer_analytics.backend.facade import contracts as ca_contracts
 def _capture_ticket_tag_added(ticket: Ticket, tag_id: str, tag_name: str) -> None:
     event = build_ticket_tag_added_event(ticket, tag_id, tag_name)
     capture_ticket_tag_added(event, event_uuid=str(uuid.uuid4()), timestamp="2026-11-09T12:00:00+00:00")
+
+
+class TestCustomerProperties(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "text_over_the_cap",
+                dict.fromkeys(("name", "email"), "n" * (MAX_CUSTOMER_TRAIT_LENGTH + 1)),
+                "n" * MAX_CUSTOMER_TRAIT_LENGTH,
+            ),
+            ("non_text_traits", {"name": {"first": "Ada"}, "email": 42}, ""),
+            ("non_object_traits", ["Ada"], ""),
+        ]
+    )
+    def test_name_and_email_are_capped_text(self, _name: str, traits: object, expected: str) -> None:
+        properties = _get_customer_properties(Ticket(anonymous_traits=traits))
+
+        assert (properties["customer_name"], properties["customer_email"]) == (expected, expected)
 
 
 class TestConversationEvents(BaseTest):
