@@ -51,4 +51,34 @@ describe('accountAutomationsLogic', () => {
         expect(logic.values.loadFailed).toBe(false)
         expect(logic.values.runs?.count).toBe(0)
     })
+
+    it.each(['success', 'failure'])('discards a superseded page %s', async (outcome) => {
+        listRuns.mockResolvedValue({ results: [], count: 25, next: null, previous: null })
+        logic = accountAutomationsLogic({ accountId: 'account' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        let settle!: () => void
+        listRuns.mockImplementationOnce(
+            () =>
+                new Promise((resolve, reject) => {
+                    settle = () => {
+                        if (outcome === 'success') {
+                            resolve({ results: [], count: 10, next: null, previous: null })
+                        } else {
+                            reject(new Error('Superseded request failed'))
+                        }
+                    }
+                })
+        )
+        await expectLogic(logic, () => logic.actions.setPage(2)).toDispatchActions(['loadRuns'])
+        await expectLogic(logic, () => logic.actions.setPage(3)).toDispatchActions(['loadRunsSuccess'])
+        settle()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.page).toBe(3)
+        expect(logic.values.runs?.count).toBe(25)
+        expect(logic.values.loadFailed).toBe(false)
+        expect(logic.values.runsLoading).toBe(false)
+    })
 })

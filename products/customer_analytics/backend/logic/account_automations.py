@@ -8,9 +8,10 @@ from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
-from pydantic import BaseModel, Field, ValidationError
-
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -23,43 +24,22 @@ from posthog.schema_enums import ProductKey
 
 from products.customer_analytics.backend.facade.contracts import AccountAutomation
 from products.workflows.backend.facade.api import get_workflow_names
-from products.workflows.backend.facade.workflows import get_workflow
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
-class RunEvent(BaseModel):
-    event: str = ""
-    distinct_id: str = ""
-    properties: dict[str, object] = Field(default_factory=dict)
+@frozen
+class AccountRunsQuery:
+    sql: str
+    parameters: dict[str, object]
 
 
-class RunContext(BaseModel):
-    event: RunEvent = Field(default_factory=RunEvent)
-    accountAudience: bool = False
-
-
-def decode_run_context(value: str) -> RunContext:
-    try:
-        decoded = value if value.startswith("{") else gzip.decompress(base64.b64decode(value)).decode()
-        return RunContext.model_validate_json(decoded)
-    except (ValueError, OSError, EOFError, ValidationError):
-        return RunContext()
-
-
-def matches_account(context: RunContext, account_id: str, external_id: str | None) -> bool:
-    event = context.event
-    if event.event.startswith("$account_"):
-        return event.distinct_id == f"account:{account_id}" or (
-            external_id is not None and event.properties.get("account_external_id") == external_id
-        )
-    return (
-        context.accountAudience
-        and event.event == "$batch_hog_flow_invocation"
-        and external_id is not None
-        and event.distinct_id == external_id
-    )
+@frozen
+class WorkflowStep:
+    action_id: str
+    action_type: str
+    name: str
 
 
 @frozen
@@ -161,23 +141,103 @@ def get_expected_resume_at(
     return resume_at if resume_at is not None and resume_at > now else None
 
 
-def list_account_event_ids(team: Team, external_id: str) -> list[str]:
-    event_ids: list[str] = []
-    last_uuid = "00000000-0000-0000-0000-000000000000"
-    while True:
-        events = execute_hogql_query(
-            """SELECT uuid FROM events WHERE startsWith(event, '$account_')
-            AND properties.account_external_id = {external_id}
-            AND uuid > toUUID({last_uuid}) ORDER BY uuid LIMIT 10000""",
-            team=team,
-            placeholders={"external_id": ast.Constant(value=external_id), "last_uuid": ast.Constant(value=last_uuid)},
-            workload=Workload.ONLINE,
-        )
-        page_ids = [str(row[0]) for row in events.results or []]
-        event_ids.extend(page_ids)
-        if len(page_ids) < 10000:
-            return event_ids
-        last_uuid = page_ids[-1]
+def get_account_runs_query(
+    *, team: Team, account_id: str, external_id: str | None, workflow_ids: set[str]
+) -> AccountRunsQuery:
+    after = timezone.now() - timedelta(days=30)
+    context = HogQLContext(team_id=team.pk, team=team, enable_select_queries=True, limit_top_select=False)
+    event_query, _ = prepare_and_print_ast(
+        parse_select(
+            """SELECT toString(uuid) FROM events
+            WHERE startsWith(event, '$account_')
+                AND (properties.account_id = {account_id}
+                    OR (empty(coalesce(toString(properties.account_id), '')) AND {has_external_id}
+                        AND properties.account_external_id = {external_id}))
+                AND toString(uuid) IN (
+                    SELECT event_uuid FROM posthog.hog_invocation_results
+                    WHERE function_kind = 'hog_flow' AND function_id IN {workflow_ids}
+                        AND scheduled_at >= {after} AND event_uuid != ''
+                )""",
+            placeholders={
+                "account_id": ast.Constant(value=account_id),
+                "has_external_id": ast.Constant(value=external_id is not None),
+                "external_id": ast.Constant(value=external_id or ""),
+                "workflow_ids": ast.Constant(value=list(workflow_ids)),
+                "after": ast.Constant(value=after),
+            },
+        ),
+        context=context,
+        dialect="clickhouse",
+    )
+    return AccountRunsQuery(
+        sql=f"""WITH candidates AS (
+            SELECT function_id, invocation_id FROM hog_invocation_results
+            WHERE team_id = %(team_id)s AND function_kind = 'hog_flow'
+                AND function_id IN %(workflow_ids)s AND scheduled_at >= %(after)s
+                AND (distinct_id IN %(identities)s OR event_uuid GLOBAL IN ({event_query}))
+        ), latest_runs AS (
+            SELECT function_id, invocation_id,
+                argMax(tuple(status, first_scheduled_at, is_deleted, event_uuid,
+                    parent_run_id, distinct_id, invocation_globals), version) AS latest
+            FROM hog_invocation_results
+            WHERE team_id = %(team_id)s AND function_kind = 'hog_flow'
+                AND function_id IN %(workflow_ids)s AND scheduled_at >= %(after)s
+                AND (function_id, invocation_id) IN candidates
+            GROUP BY function_id, invocation_id
+        ), if(startsWith(latest.7, '{{'), latest.7,
+            decompress(base64Decode(if(startsWith(latest.7, 'H4sI'), latest.7, %(empty_context)s)), 'gzip')) AS context,
+        JSONExtractString(context, 'event', 'event') AS trigger_event,
+        JSONExtractString(context, 'event', 'properties', 'account_id') AS stored_account_id
+        SELECT function_id, invocation_id, latest.1 AS status,
+            latest.2 AS triggered_at, latest.5 AS parent_run_id
+        FROM latest_runs
+        WHERE latest.3 = 0 AND (
+            (startsWith(trigger_event, '$account_') AND (
+                stored_account_id = %(account_id)s
+                OR (stored_account_id = '' AND (
+                    JSONExtractString(context, 'event', 'distinct_id') = %(account_identity)s
+                    OR (%(has_external_id)s AND JSONExtractString(context, 'event', 'properties', 'account_external_id') = %(external_id)s)
+                ))
+            ))
+            OR (JSONExtractBool(context, 'accountAudience') AND trigger_event = '$batch_hog_flow_invocation'
+                AND %(has_external_id)s AND latest.6 = %(external_id)s)
+            OR latest.4 GLOBAL IN ({event_query})
+        )""",
+        parameters={
+            **context.values,
+            "team_id": team.pk,
+            "workflow_ids": list(workflow_ids),
+            "after": after,
+            "account_id": account_id,
+            "account_identity": f"account:{account_id}",
+            "identities": [f"account:{account_id}"] + ([external_id] if external_id is not None else []),
+            "external_id": external_id or "",
+            "has_external_id": external_id is not None,
+            "empty_context": base64.b64encode(gzip.compress(b"{}")).decode(),
+        },
+    )
+
+
+def get_workflow_steps(
+    *, team: Team, workflow_ids: set[str], user_access_control: "UserAccessControl"
+) -> dict[str, list[WorkflowStep]]:
+    response = execute_hogql_query(
+        """SELECT id, arrayMap(action -> tuple(JSONExtractString(action, 'id'),
+            JSONExtractString(action, 'type'), JSONExtractString(action, 'name')),
+            JSONExtractArrayRaw(actions)) FROM system.hog_flows WHERE id IN {workflow_ids}""",
+        team=team,
+        placeholders={"workflow_ids": ast.Constant(value=list(workflow_ids))},
+        user=user_access_control.user,
+        user_access_control=user_access_control,
+        workload=Workload.ONLINE,
+    )
+    return {
+        str(workflow_id): [
+            WorkflowStep(action_id=action_id, action_type=action_type, name=name)
+            for action_id, action_type, name in actions
+        ]
+        for workflow_id, actions in response.results or []
+    }
 
 
 def list_account_runs(
@@ -189,45 +249,30 @@ def list_account_runs(
     user_access_control: "UserAccessControl",
     page: PageRequest,
 ) -> Page[AccountAutomation]:
-    tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+    tag_queries(product=ProductKey.CUSTOMER_ANALYTICS, feature=Feature.QUERY)
     names = get_workflow_names(team_id=team.pk, workflow_ids=workflow_ids)
     if not names:
         return Page(results=[], count=0)
-    event_ids = list_account_event_ids(team, external_id) if external_id is not None else []
-
+    query = get_account_runs_query(team=team, account_id=account_id, external_id=external_id, workflow_ids=set(names))
+    count = sync_execute(
+        f"SELECT count() FROM ({query.sql})",
+        query.parameters,
+        workload=Workload.ONLINE,
+        team_id=team.pk,
+    )[0][0]
+    if not count or page.offset >= count:
+        return Page(results=[], count=count)
     rows = sync_execute(
-        """WITH candidates AS (
-            SELECT function_id, invocation_id FROM hog_invocation_results
-            WHERE team_id = %(team_id)s AND function_kind = 'hog_flow'
-                AND function_id IN %(workflow_ids)s AND scheduled_at >= %(after)s
-                AND (distinct_id IN %(identities)s OR event_uuid IN %(event_ids)s)
-        )
-        SELECT function_id, invocation_id,
-            argMax(tuple(status, first_scheduled_at, is_deleted, invocation_globals, event_uuid, parent_run_id), version) AS latest
-        FROM hog_invocation_results
-        WHERE team_id = %(team_id)s AND function_kind = 'hog_flow'
-            AND function_id IN %(workflow_ids)s
-            AND (function_id, invocation_id) IN candidates
-        GROUP BY function_id, invocation_id""",
-        {
-            "team_id": team.pk,
-            "workflow_ids": list(names),
-            "after": timezone.now() - timedelta(days=30),
-            "identities": [f"account:{account_id}"] + ([external_id] if external_id is not None else []),
-            "event_ids": event_ids,
-        },
+        f"{query.sql} ORDER BY triggered_at DESC, invocation_id DESC, function_id DESC LIMIT %(limit)s OFFSET %(offset)s",
+        {**query.parameters, "limit": page.limit, "offset": page.offset},
         workload=Workload.ONLINE,
         team_id=team.pk,
     )
     runs: list[AccountAutomation] = []
     log_sources: dict[tuple[str, str], str] = {}
-    for workflow_id, invocation_id, (status, triggered_at, is_deleted, stored, event_uuid, parent_run_id) in rows:
+    for workflow_id, invocation_id, status, triggered_at, parent_run_id in rows:
         run_key = (workflow_id, invocation_id)
         log_sources[run_key] = parent_run_id or workflow_id
-        if is_deleted:
-            continue
-        if event_uuid not in event_ids and not matches_account(decode_run_context(stored), account_id, external_id):
-            continue
         runs.append(
             AccountAutomation(
                 workflow_id=workflow_id,
@@ -240,10 +285,9 @@ def list_account_runs(
             )
         )
 
-    ordered = sorted(runs, key=lambda run: (run.triggered_at, run.invocation_id), reverse=True)
-    selected = ordered[page.offset : page.offset + page.limit]
+    selected = runs
     if not selected:
-        return Page(results=[], count=len(ordered))
+        return Page(results=[], count=count)
     logs = sync_execute(
         """SELECT log_source_id, instance_id, timestamp, message FROM log_entries
         WHERE team_id = %(team_id)s AND log_source = 'hog_flow'
@@ -261,22 +305,18 @@ def list_account_runs(
     for workflow_id, invocation_id, timestamp, message in logs:
         by_run.setdefault((workflow_id, invocation_id), []).append((timestamp.replace(tzinfo=UTC), message))
     results = []
-    workflows = {
-        workflow_id: get_workflow(
-            team_id=team.pk, workflow_id=workflow_id, user_access_control=user_access_control, required_level="viewer"
-        )
-        for workflow_id in {run.workflow_id for run in selected}
-    }
+    workflows = get_workflow_steps(
+        team=team, workflow_ids={run.workflow_id for run in selected}, user_access_control=user_access_control
+    )
     for run in selected:
-        workflow_actions = workflows[run.workflow_id].actions
-        actions = workflow_actions if isinstance(workflow_actions, list) else []
+        actions = workflows.get(run.workflow_id, [])
         run_logs = by_run.get((log_sources[(run.workflow_id, run.invocation_id)], run.invocation_id), [])
         completed_step = get_last_completed_step(
             run_logs,
-            exit_action_ids={action["id"] for action in actions if action.get("type") == "exit"},
+            exit_action_ids={action.action_id for action in actions if action.action_type == "exit"},
         )
         step_name = next(
-            (action.get("name") for action in actions if completed_step and action["id"] == completed_step.action_id),
+            (action.name for action in actions if completed_step and action.action_id == completed_step.action_id),
             None,
         )
         results.append(
@@ -289,7 +329,7 @@ def list_account_runs(
                         run_logs,
                         now=timezone.now(),
                         delay_action_ids={
-                            action["id"] for action in actions if action.get("type") in {"delay", "delay_until"}
+                            action.action_id for action in actions if action.action_type in {"delay", "delay_until"}
                         },
                     )
                     if run.status == "running"
@@ -297,4 +337,4 @@ def list_account_runs(
                 ),
             )
         )
-    return Page(results=results, count=len(ordered))
+    return Page(results=results, count=count)

@@ -1,8 +1,10 @@
+import gzip
 import json
+import base64
 from datetime import timedelta
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest, _create_event
 
 from django.utils import timezone
 
@@ -23,7 +25,9 @@ from products.customer_analytics.backend.test.factories import create_account
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
-class TestAccountAutomations(ClickhouseTestMixin, APIBaseTest):
+class TestAccountAutomations(ClickhouseTestMixin, NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self) -> None:
         super().setUp()
         self.account = create_account(team_id=self.team.pk, name="Example", external_id="example")
@@ -47,8 +51,20 @@ class TestAccountAutomations(ClickhouseTestMixin, APIBaseTest):
         event_uuid: str = "",
         trigger_age_days: int = 3,
         schedule_age_days: int = 0,
+        properties: dict[str, str | None] | None = None,
+        compressed: bool = True,
     ) -> None:
         now = timezone.now()
+        context = json.dumps(
+            {
+                "accountAudience": account_audience,
+                "event": {
+                    "event": event,
+                    "distinct_id": distinct_id,
+                    "properties": properties if properties is not None else {"account_external_id": "example"},
+                },
+            }
+        )
         sync_execute(
             INSERT_HOG_INVOCATION_RESULT_SQL,
             {
@@ -72,16 +88,9 @@ class TestAccountAutomations(ClickhouseTestMixin, APIBaseTest):
                 "person_id": "",
                 "version": version,
                 "is_deleted": deleted,
-                "invocation_globals": json.dumps(
-                    {
-                        "accountAudience": account_audience,
-                        "event": {
-                            "event": event,
-                            "distinct_id": distinct_id,
-                            "properties": {"account_external_id": "example"},
-                        },
-                    }
-                ),
+                "invocation_globals": base64.b64encode(gzip.compress(context.encode())).decode()
+                if compressed
+                else context,
             },
         )
 
@@ -167,19 +176,51 @@ class TestAccountAutomations(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(self.url.replace(f"/{self.team.pk}/", f"/{other_team.pk}/"))
         assert response.status_code == 404
 
-    @parameterized.expand([0, 45])
-    def test_user_triggered_account_event_is_discovered_by_event_uuid(self, event_age_days: int) -> None:
+    @parameterized.expand(
+        [(0, "example", True), (45, "example", True), (0, None, True), (0, "changed", True), (0, "example", False)]
+    )
+    def test_user_triggered_account_event_is_discovered_by_event_uuid(
+        self, event_age_days: int, external_id: str | None, stable_id: bool
+    ) -> None:
+        self.account.external_id = external_id
+        self.account.save()
         event_uuid = _create_event(
             team=self.team,
             event="$account_updated",
             distinct_id="staff",
             timestamp=timezone.now() - timedelta(days=event_age_days),
-            properties={"account_external_id": "example"},
+            properties={
+                **({"account_id": str(self.account.id)} if stable_id else {}),
+                "account_external_id": "example",
+            },
         )
         invocation_id = str(uuid4())
         self.seed(invocation_id, event_uuid=event_uuid)
         result = self.client.get(self.url).json()["results"]
         assert [row["invocation_id"] for row in result] == [invocation_id]
+
+    @parameterized.expand([True, False])
+    def test_account_pages_exclude_person_runs_and_count_all_matches(self, compressed: bool) -> None:
+        expected = []
+        for age in [3, 1, 2]:
+            run_id = str(uuid4())
+            self.seed(run_id, distinct_id=f"account:{self.account.id}", trigger_age_days=age, compressed=compressed)
+            expected.append((age, run_id))
+        self.seed(str(uuid4()), event="$pageview", distinct_id=f"account:{self.account.id}", compressed=compressed)
+        self.seed(str(uuid4()), event="$batch_hog_flow_invocation", distinct_id="example", compressed=compressed)
+        self.seed(
+            str(uuid4()),
+            distinct_id="example",
+            properties={"account_id": str(uuid4()), "account_external_id": "example"},
+            compressed=compressed,
+        )
+        response = self.client.get(self.url, {"limit": 1, "offset": 1})
+        assert response.status_code == 200, response.content
+        assert response.json()["count"] == 3
+        assert [row["invocation_id"] for row in response.json()["results"]] == [sorted(expected)[1][1]]
+        response = self.client.get(self.url, {"limit": 1, "offset": 3})
+        assert response.json()["count"] == 3
+        assert response.json()["results"] == []
 
     def test_restricted_workflow_names_and_runs_are_hidden(self) -> None:
         self.organization.available_product_features = [
@@ -199,10 +240,14 @@ class TestAccountAutomations(ClickhouseTestMixin, APIBaseTest):
             access_level="viewer",
         )
         self.seed(str(uuid4()), distinct_id=f"account:{self.account.id}")
+        self.flow = visible
+        visible_run_id = str(uuid4())
+        self.seed(visible_run_id, distinct_id=f"account:{self.account.id}")
         self.client.force_login(reader)
         response = self.client.get(self.url)
         assert response.status_code == 200, response.content
-        assert response.json()["results"] == []
+        assert [row["invocation_id"] for row in response.json()["results"]] == [visible_run_id]
+        assert response.json()["results"][0]["workflow_name"] == "Visible"
 
     @parameterized.expand(["hog_flow:read", "person:read", "event:read"])
     def test_api_key_requires_workflow_and_data_scopes(self, missing_scope: str) -> None:

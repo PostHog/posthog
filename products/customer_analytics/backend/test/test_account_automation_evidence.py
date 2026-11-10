@@ -1,6 +1,3 @@
-import gzip
-import json
-import base64
 from datetime import UTC, datetime, timedelta
 
 from django.test import SimpleTestCase
@@ -9,46 +6,12 @@ from parameterized import parameterized
 
 from products.customer_analytics.backend.logic.account_automations import (
     CompletedWorkflowStep,
-    decode_run_context,
     get_expected_resume_at,
     get_last_completed_step,
-    matches_account,
 )
 
 
 class TestAccountRunEvidence(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("system", {"event": {"event": "$account_updated", "distinct_id": "account:abc"}}, True),
-            (
-                "actor",
-                {
-                    "event": {
-                        "event": "$account_updated",
-                        "distinct_id": "staff",
-                        "properties": {"account_external_id": "example"},
-                    }
-                },
-                True,
-            ),
-            (
-                "batch",
-                {"accountAudience": True, "event": {"event": "$batch_hog_flow_invocation", "distinct_id": "example"}},
-                True,
-            ),
-            ("person_batch", {"event": {"event": "$batch_hog_flow_invocation", "distinct_id": "example"}}, False),
-            ("person_event", {"event": {"event": "$pageview", "distinct_id": "account:abc"}}, False),
-            (
-                "other_account",
-                {"event": {"event": "$account_updated", "properties": {"account_external_id": "other"}}},
-                False,
-            ),
-        ]
-    )
-    def test_account_identity_from_compressed_saved_context(self, _name: str, context: dict, expected: bool) -> None:
-        stored = base64.b64encode(gzip.compress(json.dumps(context).encode())).decode()
-        assert matches_account(decode_run_context(stored), "abc", "example") is expected
-
     @parameterized.expand(
         [
             ("transition", ["Executing action a", "Workflow moved to action b"], 1),

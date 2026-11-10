@@ -7,6 +7,9 @@ The `customer-analytics-automations-widget` feature flag controls the tab, widge
 Each execution has its own row, including repeated runs of one workflow.
 Account events and account-audience batch runs appear here.
 Person-triggered product events do not.
+Account events match their stable account ID, including accounts without an external ID or whose external ID has changed.
+Event discovery only considers events referenced by retained runs.
+ClickHouse filters, counts, and paginates runs before returning rows. Workflow step metadata is read in one batch for the page.
 
 Rows link to the workflow with an inline status chip.
 Separate columns show the original trigger time, last completed step, and expected resume time for a current delay.

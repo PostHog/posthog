@@ -35,7 +35,7 @@ export function AccountAutomationsExpansion({
     return (
         <div className="min-w-0">
             {loadFailed ? (
-                <LemonBanner type="error" action={{ children: 'Retry', onClick: loadRuns }}>
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadRuns() }}>
                     Couldn’t load automations. Try again.
                 </LemonBanner>
             ) : !runs && runsLoading ? (
