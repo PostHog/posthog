@@ -297,6 +297,12 @@ race with CI. It can't reuse `Pipeline._only_pending_attestations`: that method 
 any failing gate other than the deny-list, and a migrations deny always drags the tier gate to
 T2-never with it, so it answers False for every PR it exists to catch.
 
+The engine records the checks it waited on in `classification.attestations`, and the server acts on that record, never on the policy.
+After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, the engine's own test for pending.
+It then queues a re-review through the same gates as the external re-review, the inbox exclusion included, and at most `_ATTESTATION_WAKES_PER_HEAD` times per head.
+Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll costs one request per waiting run.
+A check that fails after an approval dismisses nothing, so that approval stands until the next head change.
+
 ## Temporal specifics
 
 - Registering a new activity requires adding it to `temporal/registry.py` — the

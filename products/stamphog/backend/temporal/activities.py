@@ -105,7 +105,12 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
+from products.stamphog.backend.tasks.tasks import (
+    pending_attestation_checks,
+    queue_routing_after_verdict,
+    request_rereview_after_external_review,
+    rereview_once_attestations_reported,
+)
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
@@ -1975,7 +1980,21 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
-    return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
+    return {
+        "verdict": str(parsed.verdict),
+        "waited_on_external_review": _waited_on_external_review(run),
+        "waits_on_attestations": bool(pending_attestation_checks(run)),
+    }
+
+
+@activity.defn
+@asyncify
+def poll_pending_attestations(input: StamphogReviewInput) -> dict:
+    """Queue a re-review once every check this WAIT is pending on has reported.
+
+    ``done`` tells the workflow to stop polling. An error raises, so Temporal retries the poll.
+    """
+    return {"done": rereview_once_attestations_reported(_load_run(input))}
 
 
 def _notify_finished_review(
