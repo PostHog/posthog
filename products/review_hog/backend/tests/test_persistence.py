@@ -8,6 +8,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.ownership.paths import PathOwnership
+
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ChunkSetArtefact,
@@ -1307,11 +1309,7 @@ class TestPRSnapshot(BaseTest):
         assert pipeline is not None
         assert [f.filename for f in pipeline.pr_files] == ["src/a.py"]
 
-    @parameterized.expand([("owned_file", ["ci.yml"]), ("ownership_not_readable", [])])
-    def test_the_devex_lens_session_reviews_only_the_files_the_devex_team_owns(
-        self, _name: str, owned: list[str]
-    ) -> None:
-        # A session with an empty scope would review the whole PR, as the main session already does.
+    def test_the_devex_lens_session_reviews_only_devex_owned_files_and_fails_without_any(self) -> None:
         report_id = upsert_review_report(
             team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha1")
         )
@@ -1338,12 +1336,17 @@ class TestPRSnapshot(BaseTest):
             review_design=REVIEW_DESIGN_SINGLE_AGENT,
         )
 
-        with patch("products.review_hog.backend.temporal.activities._devex_lens_files", return_value=owned):
-            if not owned:
-                with self.assertRaises(ApplicationError):
-                    _prepare_single_agent_prompt(lens_input, 1, True, "lens", devex_lens=True)
-                return
+        activities = "products.review_hog.backend.temporal.activities"
+        with patch(f"{activities}.fetcher_for_team"), patch(f"{activities}.resolve_path_owners") as path_owners:
+            path_owners.return_value = PathOwnership(
+                team_by_path={"ci.yml": "team-devex", "app.py": "team-surveys"}, registry={}, resolved=True
+            )
             prompt = _prepare_single_agent_prompt(lens_input, 1, True, "lens", devex_lens=True)
+            path_owners.return_value = PathOwnership(
+                team_by_path={"ci.yml": "team-surveys", "app.py": "team-surveys"}, registry={}, resolved=True
+            )
+            with self.assertRaises(ApplicationError):
+                _prepare_single_agent_prompt(lens_input, 1, True, "lens", devex_lens=True)
 
         assert "Review the changes in these files: `ci.yml`." in prompt
 
