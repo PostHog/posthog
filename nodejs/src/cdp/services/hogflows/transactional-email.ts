@@ -1,8 +1,11 @@
+import { randomUUID } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
 import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+
+import { clickableHrefs } from '../messaging/helpers/clickable-links'
 
 export const MAX_COPY_RECIPIENTS = 10
 
@@ -87,8 +90,16 @@ const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
 export const marketingEmailStep = (hogFlow: HogFlow): EmailStep | undefined =>
     hogFlow.actions.find(isMarketingEmailStep)
 
-const CODE_SEND_UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/
-const LIQUID_UNSUBSCRIBE_LINK = /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/
+const CODE_SEND_UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
+const LIQUID_UNSUBSCRIBE_LINK = /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/g
+
+const hasClickableUnsubscribeLink = (body: { html?: string; text?: string }, placeholder: RegExp): boolean => {
+    if (!body.html) {
+        return (body.text ?? '').search(placeholder) !== -1
+    }
+    const link = `unsubscribe-link-${randomUUID()}`
+    return clickableHrefs(body.html.replace(placeholder, link)).includes(link)
+}
 
 const hasAddresses = (value: unknown): boolean =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
@@ -104,8 +115,8 @@ export const marketingSendRefusal = (
     }
     const email = action.config.inputs.email?.value ?? {}
     const hasUnsubscribeLink = send?.content
-        ? CODE_SEND_UNSUBSCRIBE_PLACEHOLDER.test(send.content.html || send.content.text || '')
-        : LIQUID_UNSUBSCRIBE_LINK.test(email.html || email.text || '')
+        ? hasClickableUnsubscribeLink(send.content, CODE_SEND_UNSUBSCRIBE_PLACEHOLDER)
+        : hasClickableUnsubscribeLink(email, LIQUID_UNSUBSCRIBE_LINK)
     if (!hasUnsubscribeLink) {
         return 'unsubscribe_link_required'
     }

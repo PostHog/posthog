@@ -1760,6 +1760,9 @@ importers:
       generic-pool:
         specifier: ^3.7.1
         version: 3.9.0
+      htmlparser2:
+        specifier: ^9.1.0
+        version: 9.1.0
       https-proxy-agent:
         specifier: ^7.0.6
         version: 7.0.6(supports-color@10.2.2)

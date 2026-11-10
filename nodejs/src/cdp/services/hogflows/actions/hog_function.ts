@@ -479,7 +479,7 @@ export class HogFunctionHandler implements ActionHandler {
             const message =
                 marketingRefusal === 'copies_not_allowed'
                     ? 'Skipping send: a marketing email cannot have cc or bcc recipients.'
-                    : 'Skipping send: a marketing email needs {{ unsubscribe_url }} in its body.'
+                    : 'Skipping send: a marketing email needs a link to {{ unsubscribe_url }} that readers can click.'
             this.recordSkippedEmail(hogFunctionInvocation, action, marketingRefusal, hogExecutorOptions)
             return {
                 finished: true,

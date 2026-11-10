@@ -15,11 +15,13 @@ import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import { readFileSync } from 'fs'
 import { createServer } from 'http'
 import { Redis } from 'ioredis'
 import jsonwebtoken from 'jsonwebtoken'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
+import { join } from 'path'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
 import supertest from 'supertest'
@@ -120,6 +122,23 @@ jest.mock('node:dns/promises', () => ({
 // Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =
     process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+
+const UNSUBSCRIBE_LINK_CASES = z
+    .array(
+        z.object({ name: z.string(), html: z.string(), text: z.string(), has_unsubscribe_link: z.boolean() }).strict()
+    )
+    .parse(
+        parseJSON(
+            readFileSync(join(__dirname, '../../../products/messaging/backend/unsubscribe_link_cases.json'), 'utf8')
+        )
+    )
+
+const EXPECTED_UNSUBSCRIBE_LINK_OUTCOMES = Object.fromEntries(
+    UNSUBSCRIBE_LINK_CASES.map(({ name, has_unsubscribe_link }) => [
+        name,
+        has_unsubscribe_link ? 'sent' : 'unsubscribe_link_required',
+    ])
+)
 
 describe('Workflows E2E (postgres-v2)', () => {
     jest.setTimeout(30000)
@@ -3458,7 +3477,6 @@ describe('Workflows E2E (email queue)', () => {
             await withPosthogRedis((redis) => redis.zadd(emailQuotaLimits, Date.now() / 1000 + 3600, team.api_token))
         }
 
-        // The API holds the job until the email worker starts, so a test can change what the worker sees.
         const deliver = async (workerDeps: typeof deps = deps, batchSize = hub.CONSUMER_BATCH_SIZE): Promise<void> => {
             emailWorker = new CdpCyclotronWorkerEmail(hub, workerDeps, new CyclotronJobQueuePostgresV2(batchSize, hub))
             await emailWorker.start()
@@ -3509,6 +3527,23 @@ describe('Workflows E2E (email queue)', () => {
                     })
                 )
             ).join('\n')
+
+        const sendOutcome = async (to: string, messageId?: string): Promise<string> => {
+            const [email, ...more] = await emailsTo(to)
+            const clickable = email?.html ? await clickThroughLinks(email.html) : email?.text
+            if (email && more.length === 0 && (await preferencesLinkOwners(clickable)).includes(to)) {
+                return 'sent'
+            }
+            if (!email && messageId) {
+                let stored: StoredEmailStatus | undefined
+                await waitForExpect(async () => {
+                    stored = await storedEmailStatus(clickhouse, team.id, messageId)
+                    expect(stored?.status).toEqual('failed')
+                }, 15000)
+                return stored!.reason
+            }
+            return `delivered ${[email, ...more].filter(Boolean).length} email(s) without the recipient's link`
+        }
 
         const expectStoredStatus = async (messageId: string, expected: StoredEmailStatus): Promise<void> => {
             await waitForExpect(async () => {
@@ -4127,6 +4162,80 @@ describe('Workflows E2E (email queue)', () => {
                 expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
             })
             expect(await queryCyclotronJobs()).toHaveLength(1)
+        })
+
+        it('sends a marketing code send exactly when Django would accept its unsubscribe link', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const sends = []
+            for (const row of UNSUBSCRIBE_LINK_CASES) {
+                const to = `reader-${new UUIDT().toString()}@example.com`
+                const content = {
+                    subject: 'News',
+                    ...(row.html && { html: row.html }),
+                    ...(row.text && { text: row.text }),
+                }
+                const res = await post('code', flow, {
+                    to,
+                    distinct_id: 'reader',
+                    send: { ...codeSend(newsletter), content },
+                })
+                sends.push({ name: row.name, to, refusal: res.status === 202 ? null : res.body.error })
+            }
+            await deliver()
+
+            const outcomes = Object.fromEntries(
+                await Promise.all(
+                    sends.map(async ({ name, to, refusal }) => [name, refusal ?? (await sendOutcome(to))])
+                )
+            )
+            expect(outcomes).toEqual(EXPECTED_UNSUBSCRIBE_LINK_OUTCOMES)
+        })
+
+        it('sends a marketing template send exactly when Django would accept the unsubscribe link of its email step', async () => {
+            const sends = []
+            for (const row of UNSUBSCRIBE_LINK_CASES) {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
+                const to = `reader-${new UUIDT().toString()}@example.com`
+                const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
+                expect(res.status).toEqual(202)
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET actions = $1 WHERE id = $2`,
+                    [
+                        JSON.stringify(
+                            sendFlow('template', 'transactional', { html: row.html, text: row.text }).actions
+                        ),
+                        flow.id,
+                    ],
+                    'test-change-hog-flow'
+                )
+                sends.push({ name: row.name, to, messageId: res.body.invocation_id })
+            }
+            await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+
+            const outcomes = Object.fromEntries(
+                await Promise.all(
+                    sends.map(async ({ name, to, messageId }) => [name, await sendOutcome(to, messageId)])
+                )
+            )
+            expect(outcomes).toEqual(EXPECTED_UNSUBSCRIBE_LINK_OUTCOMES)
+        })
+
+        it('skips a marketing template send whose Liquid points its unsubscribe link at another host', async () => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                sendFlow('template', 'transactional', {
+                    html: '{% assign unsubscribe_url = "https://redirect.example.com/?to=" | append: unsubscribe_url %}<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                    text: '',
+                })
+            )
+            const to = `reader-${new UUIDT().toString()}@example.com`
+
+            const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
+            expect(res.status).toEqual(202)
+            await deliver()
+
+            expect(await sendOutcome(to, res.body.invocation_id)).toEqual('unsubscribe_link_required')
         })
 
         it.each([

@@ -120,6 +120,7 @@
         "fastpriorityqueue": "^0.7.5",
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",
+        "htmlparser2": "^9.1.0",
         "https-proxy-agent": "^7.0.6",
         "husky": "catalog:",
         "ioredis": "^4.31.0",

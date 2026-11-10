@@ -34,6 +34,7 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
+import { clickableHrefs } from './helpers/clickable-links'
 import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -681,7 +682,8 @@ export class EmailService {
                 bcc: suppression.bcc,
             })
             if (this.lacksMarketingUnsubscribeLink(invocation, deliverableParams)) {
-                const skipReason = 'Skipping send: this marketing email has no unsubscribe link after rendering.'
+                const skipReason =
+                    'Skipping send: this marketing email has no unsubscribe link that readers can click after rendering.'
                 addLog('warn', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
                 this.emailStatusService?.queueSkippedSend(invocation, 'unsubscribe_link_required', isTest)
@@ -1424,9 +1426,20 @@ export class EmailService {
             return false
         }
         const recipient = params.to?.email && unquoteMailbox(params.to.email)
-        const links = (params.html || params.text || '').split(`${this.siteUrl}/messaging-preferences/`).slice(1)
-        return !links.some((link) => {
-            const owner = this.recipientTokensService.validatePreferencesToken(link.split('/')[0])
+        const preferencesPage = `${this.siteUrl}/messaging-preferences/`
+        const tokens = params.html
+            ? clickableHrefs(params.html).flatMap((href) => {
+                  const page = URL.canParse(href) ? new URL(href) : undefined
+                  const path = page ? `${page.origin}${page.pathname}` : ''
+                  const token = path.startsWith(preferencesPage) ? path.slice(preferencesPage.length) : ''
+                  return /^[^/]+\/$/.test(token) ? [token.slice(0, -1)] : []
+              })
+            : (params.text ?? '')
+                  .split(preferencesPage)
+                  .slice(1)
+                  .map((link) => link.split('/')[0])
+        return !tokens.some((token) => {
+            const owner = this.recipientTokensService.validatePreferencesToken(token)
             return owner.valid && owner.team_id === invocation.teamId && unquoteMailbox(owner.identifier) === recipient
         })
     }
