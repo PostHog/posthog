@@ -69,7 +69,7 @@ function waitUntilTimeOrAbort(action: Action, invocation: CyclotronJobInvocation
 
 function getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): DateTime {
     for (let daysAhead = 1; daysAhead <= DAYS_IN_WEEK; daysAhead++) {
-        const day = now.startOf('day').plus({ days: daysAhead })
+        const day = now.startOf('day').plus({ days: daysAhead }).startOf('day')
         if (isValidDay(day, dateConfig)) {
             return day
         }
