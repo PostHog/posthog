@@ -225,13 +225,26 @@ describe('SandboxEmailService', () => {
                 : null
             return Promise.resolve(recipient)
         })
-        return fakeDeps({
+        const mailbox: string[] = []
+        const claimedFor: string[] = []
+        const deps = fakeDeps({
             checkRecipient: (check) =>
                 checkSandboxRecipient(
                     { suppression: { isSuppressed: () => Promise.resolve(false) }, recipients },
                     check
                 ),
+            claimCaps: ({ storedAddress }) => {
+                claimedFor.push(storedAddress)
+                return Promise.resolve({ ok: true })
+            },
+            ses: {
+                send: (message) => {
+                    mailbox.push(message.to.address)
+                    return Promise.resolve({ status: 'accepted', messageId: 'ses-1' })
+                },
+            },
         })
+        return { deps, mailbox, claimedFor }
     }
 
     it.each([
@@ -239,7 +252,7 @@ describe('SandboxEmailService', () => {
         ['the padded address its unsubscribe link carried', ' member@example.com '],
         ['the stored member spelling', 'Member@Example.com'],
     ])('refuses a padded recipient who opted out under %s', async (_name, optedOutIdentifier) => {
-        const deps = withRecipientChecks({ [optedOutIdentifier]: { news: 'OPTED_OUT' } })
+        const { deps, mailbox, claimedFor } = withRecipientChecks({ [optedOutIdentifier]: { news: 'OPTED_OUT' } })
 
         await expect(
             new SandboxEmailService(deps).send(
@@ -251,8 +264,8 @@ describe('SandboxEmailService', () => {
                 })
             )
         ).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
-        expect(deps.ses.send).not.toHaveBeenCalled()
-        expect(deps.claimCaps).not.toHaveBeenCalled()
+        expect(mailbox).toEqual([])
+        expect(claimedFor).toEqual([])
     })
 
     it('reuses a cap claim held after an SES throttle only for the recipient it was claimed for', async () => {
@@ -299,12 +312,12 @@ describe('SandboxEmailService', () => {
         ['a reached frequency cap', { frequencyCap: capped }, { status: 'skipped', reason: 'frequency_capped' }],
         ['a reached frequency cap on a test send', { frequencyCap: capped, isTest: true }, accepted],
     ])('applies %s to a marketing send', async (_case, overrides, outcome) => {
-        const deps = withRecipientChecks()
+        const { deps, mailbox } = withRecipientChecks()
 
         await expect(
             new SandboxEmailService(deps).send(request({ categoryId: 'news', categoryType: 'marketing', ...overrides }))
         ).resolves.toEqual(outcome)
-        expect(deps.ses.send).toHaveBeenCalledTimes(outcome.status === 'accepted' ? 1 : 0)
+        expect(mailbox).toEqual(outcome.status === 'accepted' ? ['Member@Example.com'] : [])
     })
 
     it('gives up on a provisioning read the database never answers, and destroys that connection', async () => {
