@@ -3,7 +3,10 @@ import pkgutil
 import importlib
 from pathlib import Path
 
-from django.utils.module_loading import autodiscover_modules
+from django.apps import apps
+from django.utils.module_loading import module_has_submodule
+
+import structlog
 
 from posthog.admin.console.moved import MovedAction, MovedPage, MovedRecordResolver
 from posthog.admin.console.panels import Owner, Panel
@@ -16,6 +19,8 @@ KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 PK_PARAMETER = re.compile(r"<(?:\w+:)?pk>")
 # A shell module whose name ends in one of these registers panels, tools or moved URLs, and discover() imports it.
 CONTRIBUTION_SUFFIXES = ("_panels", "_tool", "_tools")
+
+logger = structlog.get_logger(__name__)
 
 
 def _check_metadata(kind: str, cls: type, key: str, title: str) -> None:
@@ -136,16 +141,29 @@ class ConsoleRegistry:
     def staff_groups(self) -> set[str]:
         return {owner.staff_group for owner in self.owners() if owner.staff_group is not None}
 
+    def contribution_modules(self) -> list[str]:
+        shell_modules = [
+            f"{__package__}.{module.name}"
+            for module in sorted(pkgutil.iter_modules([str(Path(__file__).parent)]), key=lambda module: module.name)
+            if module.name.endswith(CONTRIBUTION_SUFFIXES)
+        ]
+        app_modules = [
+            f"{app_config.name}.console"
+            for app_config in apps.get_app_configs()
+            if module_has_submodule(app_config.module, "console")
+        ]
+        return shell_modules + app_modules
+
     def discover(self) -> None:
         if self._discovered:
             return
-        for module in sorted(pkgutil.iter_modules([str(Path(__file__).parent)]), key=lambda module: module.name):
-            if module.name.endswith(CONTRIBUTION_SUFFIXES):
-                importlib.import_module(f"{__package__}.{module.name}")
-        autodiscover_modules("console")
-        # Set only after every import succeeds, so the next console request imports a failed module again and shows
-        # its error. The moved URL redirects are built once when the URLconf loads, so after a failed discovery they
-        # stay missing until the process restarts, while the rest of the app works.
+        # Each module imports on its own, so one that raises drops only its own panels, tools and moved URLs. It
+        # stays out until the process restarts, and the error log names it.
+        for module_name in self.contribution_modules():
+            try:
+                importlib.import_module(module_name)
+            except Exception:
+                logger.exception("admin_console_contribution_failed", module=module_name)
         self._discovered = True
 
 

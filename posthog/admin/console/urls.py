@@ -1,27 +1,17 @@
 from django.contrib import admin
 from django.urls import URLPattern, path, re_path
 
-import structlog
-
 from posthog.admin.console import views
 from posthog.admin.console.moved import MovedAction, MovedToConsole
 from posthog.admin.console.records import RECORD_TYPES
-from posthog.admin.console.registry import console
-
-logger = structlog.get_logger(__name__)
+from posthog.admin.console.registry import ConsoleRegistry, console
 
 
-def moved_url_patterns() -> list[URLPattern]:
+def moved_url_patterns(registry: ConsoleRegistry = console) -> list[URLPattern]:
     # Panels, tools and their console.py modules declare the old Django admin URLs they replaced, so a product
-    # moves its own URLs without editing this file. A contribution that raises must not stop the URLconf from
-    # loading, or every URL of the app would fail, so the moved redirects are left out instead.
-    try:
-        moved_urls = console.moved()
-    except Exception:
-        logger.exception("admin_console_moved_urls_failed")
-        return []
+    # moves its own URLs without editing this file.
     patterns = []
-    for moved in moved_urls:
+    for moved in registry.moved():
         if isinstance(moved, MovedAction):
             view = MovedToConsole.record_redirect(RECORD_TYPES[moved.record].plural, moved.target, moved.resolver)
             patterns.append(path(moved.old_path, view))

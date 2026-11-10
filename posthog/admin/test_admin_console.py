@@ -20,7 +20,7 @@ from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
-from django.urls import URLResolver, path, resolve
+from django.urls import URLResolver, resolve
 from django.urls.exceptions import Resolver404
 from django.urls.resolvers import RegexPattern
 from django.utils import timezone
@@ -388,19 +388,29 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
         match = resolve(request.path)
         return match.func(request, *match.args, **match.kwargs)
 
-    def test_a_contribution_that_raises_leaves_other_urls_working(self) -> None:
+    def test_a_contribution_that_raises_drops_only_its_own_moved_urls(self) -> None:
+        registry = ConsoleRegistry()
+
+        def import_contribution(module_name: str) -> None:
+            if module_name == "products.broken.backend.console":
+                raise RuntimeError("a console.py raised")
+            registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")
+
         with (
-            patch.object(console, "discover", side_effect=RuntimeError("a console.py raised")),
+            patch.object(
+                registry,
+                "contribution_modules",
+                return_value=["products.broken.backend.console", "products.working.backend.console"],
+            ),
+            patch("posthog.admin.console.registry.importlib.import_module", side_effect=import_contribution),
             capture_logs() as logs,
         ):
-            urlconf = URLResolver(
-                RegexPattern(r"^/"), [*moved_url_patterns(), path("api/ping/", HttpResponse, name="ping")]
-            )
+            urlconf = URLResolver(RegexPattern(r"^/"), moved_url_patterns(registry))
 
-        assert urlconf.resolve("/api/ping/").url_name == "ping"
-        with self.assertRaises(Resolver404):
-            urlconf.resolve("/admin/posthog/team/7/rebuild-cache/")
-        assert [log["event"] for log in logs] == ["admin_console_moved_urls_failed"]
+        assert urlconf.resolve("/admin/report/").route == "admin/report/"
+        assert [(log["event"], log["module"]) for log in logs] == [
+            ("admin_console_contribution_failed", "products.broken.backend.console")
+        ]
 
     @parameterized.expand(
         [
