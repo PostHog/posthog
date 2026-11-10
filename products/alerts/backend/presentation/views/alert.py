@@ -1946,9 +1946,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filters = self.request.query_params
         list_filters = AlertListFiltersSerializer(data=filters)
         list_filters.is_valid(raise_exception=True)
-        insights = Insight.objects.filter(
-            team_id=self.team_id, id__in={match.source_config.get("insight_id") for match in matches}
-        )
+        insights = self._viewable_insights().filter(id__in={match.source_config.get("insight_id") for match in matches})
         for name in ("insight", "insight_id"):
             if filters.get(name) is not None:
                 insights = insights.filter(id=filters[name])
@@ -1957,7 +1955,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             insights = insights.filter(
                 tagged_items__tag__name=tagify(insight_tag), tagged_items__tag__team_id=self.team_id
             )
-        insights = self.user_access_control.filter_queryset_by_access_level(insights)
         if _token_lacks_metrics_scope(self.request):
             insights = insights.exclude(
                 id__in=insights.filter(
