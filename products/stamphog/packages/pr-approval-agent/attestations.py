@@ -8,13 +8,15 @@ shape here. Adding one is policy data, not engine code.
 The publisher embeds the files it vouched for in the check summary as a marker:
 
     <!-- stamphog:v1 ["path", ...] -->
-    <!-- stamphog:v1 {"files": [...], "pr": N, "head_sha": "...", "merge_base": "...", "workflow_sha": "..."} -->
+    <!-- stamphog:v1 {"files": [...], "pr": N, "head_sha": "...", "merge_base": "...", "blobs": {"path": "sha"}} -->
 
-The object form also names the PR, head and merge base it proved, and the default-branch commit the
-publisher ran from. A lift from such a marker needs every one of those to match the review, and, when
-the entry declares `publisher_files`, the server's confirmation that those files are unchanged
-between `workflow_sha` and the default branch now (`publisher_files_current` on the check run). The
-list form carries no identity, so it lifts only when the entry declares no `publisher_files`.
+The object form also names the PR, head and merge base it proved, and each of them must match the
+review. `blobs` pins the default-branch files the publisher ran from, each to its blob sha or to null
+when the file was absent. When the entry declares `publisher_files`, a lift needs `blobs` to cover
+all of them, and the server's confirmation that the default branch still holds every pinned blob
+(`pinned_blobs_current` on the check run). A proof from an older publisher, or one made before a rule
+it read changed, therefore lifts nothing. The list form carries no identity, so it lifts only when
+the entry declares no `publisher_files`.
 
 Everything short of a complete proof lifts nothing: a run from another App, a non-success
 conclusion, no marker or more than one, a path outside the entry's `paths`, a file not in the diff.
@@ -126,8 +128,12 @@ def _proven_files(check_run: dict, attestation: Attestation, reviewed: ReviewedH
         or not reviewed.merge_base_sha
     ):
         return None
-    if attestation.publisher_files and check_run.get("publisher_files_current") is not True:
-        return None
+    if attestation.publisher_files:
+        blobs = payload.get("blobs")
+        if not isinstance(blobs, dict) or not set(attestation.publisher_files) <= set(blobs):
+            return None
+        if check_run.get("pinned_blobs_current") is not True:
+            return None
     return _string_set(payload.get("files"))
 
 
