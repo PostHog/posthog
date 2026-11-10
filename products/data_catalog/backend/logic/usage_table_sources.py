@@ -34,6 +34,8 @@ _TABLE_NAME = re.compile(r"[\w.\-]+")
 _NAME_COLUMNS = ("table_name", "name", "table")
 _NATIVE_PREFIXES = ("system.", "posthog.")
 _FILTERED_TABLE = re.compile(r"table_name\s*(?:=|in\s*\()\s*([^)\n]*)", re.IGNORECASE)
+# This also reads `ts` in `extract(day from ts)` as a table. A table counts only when a search also returned
+# it, so a column name rarely matches.
 _READ_TABLE = re.compile(r"(?:from|join)\s+([`\"\w.\-]+)", re.IGNORECASE)
 # A search prints a missing description as one of these.
 _EMPTY_DESCRIPTIONS = frozenset({"", "null", "none"})

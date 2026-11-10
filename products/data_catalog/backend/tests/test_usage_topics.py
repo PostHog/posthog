@@ -3,21 +3,31 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from products.data_catalog.backend.facade.contracts import TopicCoverage, TopicDefinition
+from products.data_catalog.backend.facade.contracts import (
+    TopicCluster,
+    TopicCoverage,
+    TopicDefinition,
+    TopicSessionCounts,
+)
 from products.data_catalog.backend.facade.enums import UsageSnapshotStatus
 from products.data_catalog.backend.logic.agent_sessions import session_notes
+from products.data_catalog.backend.logic.usage_judge import AIConsentMissing
 from products.data_catalog.backend.logic.usage_snapshots import previous_topic_list
 from products.data_catalog.backend.logic.usage_topics import (
     OTHER_TOPIC,
     CoverageVerdict,
+    LookupRow,
     NewTopicCandidate,
     ReadSession,
     SessionCoverage,
@@ -26,21 +36,28 @@ from products.data_catalog.backend.logic.usage_topics import (
     SessionReading,
     SessionText,
     TopicAssignmentUnavailable,
+    _load_topic_inputs,
+    _TopicInputs,
     asked_for_metric,
+    assign_question,
     build_session_lookups,
     build_topics,
+    collect_topics_into_snapshot,
     count_session_kinds,
     fetch_session_lookups,
     find_new_topics,
     group_into_topics,
     judge_coverage,
     merge_lookups,
+    name_topic_list,
     new_topics_to_add,
     ran_a_metric,
     read_session,
     session_coverage,
 )
 from products.data_catalog.backend.models import UsageSnapshot
+
+_MODULE = "products.data_catalog.backend.logic.usage_topics"
 
 
 def _session(session_id: str, *tools: str, person: str = "p1", notes: tuple[str, ...] = ("q",)) -> SessionText:
@@ -74,6 +91,12 @@ class _FakeClient:
         self.models: list[str] = []
         self.prompts: list[str] = []
         self.messages = SimpleNamespace(stream=self._stream)
+
+    async def __aenter__(self) -> "_FakeClient":
+        return self
+
+    async def __aexit__(self, *_: Any) -> bool:
+        return False
 
     def _stream(self, *, model: str, max_tokens: int, messages: list[dict[str, str]]) -> _FakeStream:
         self.models.append(model)
@@ -109,7 +132,12 @@ class TestTopicCoverage(SimpleTestCase):
         ]
     )
     def test_session_coverage(
-        self, _name: str, adapted: bool, ran_metric: bool, verdict: CoverageVerdict | None, expected: str
+        self,
+        _name: str,
+        adapted: bool,
+        ran_metric: bool,
+        verdict: CoverageVerdict | None,
+        expected: SessionCoverage,
     ) -> None:
         assert session_coverage(adapted, ran_metric, verdict) == expected
 
@@ -216,7 +244,18 @@ class TestTopicCoverage(SimpleTestCase):
             ),
         ]
 
-        lookups = build_session_lookups(rows)
+        lookups = build_session_lookups(
+            LookupRow(
+                session=session,
+                tool=tool,
+                event=event,
+                is_error=bool(is_error),
+                raw_input=raw_input,
+                raw_output=raw_output,
+                sql=sql,
+            )
+            for session, tool, event, is_error, raw_input, raw_output, sql in rows
+        )
 
         assert lookups["a"].read_descriptions is True
         assert "revenue|Monthly revenue" in lookups["a"].steps[0].split("\n")
@@ -316,12 +355,20 @@ class TestNewTopicThreshold(SimpleTestCase):
 
         assert bool(added) is expected
 
-    def test_two_candidates_with_one_title_keep_only_the_larger(self) -> None:
-        added = new_topics_to_add(
-            [self._candidate("Replay", 3, 3), self._candidate("Replay", 5, 3)], topic_sessions=40, existing_titles=set()
-        )
+    @parameterized.expand(
+        [
+            ("room_for_both", set(), [("Replay", 5), ("Flags", 4)]),
+            ("one_slot_left_goes_to_the_larger", {str(n) for n in range(29)}, [("Replay", 5)]),
+        ]
+    )
+    def test_two_candidates_with_one_title_keep_only_the_larger(
+        self, _name: str, existing: set[str], expected: list[tuple[str, int]]
+    ) -> None:
+        candidates = [self._candidate("Replay", 3, 3), self._candidate("Flags", 4, 3), self._candidate("Replay", 5, 3)]
 
-        assert [len(candidate.members) for candidate in added] == [5]
+        added = new_topics_to_add(candidates, topic_sessions=40, existing_titles=existing)
+
+        assert [(candidate.definition.title, len(candidate.members)) for candidate in added] == expected
 
 
 class TestReadSession(SimpleTestCase):
@@ -350,6 +397,12 @@ class TestReadSession(SimpleTestCase):
                 True,
             ),
             (
+                "explaining_a_saved_insight_is_a_lookup",
+                '{"purpose": "explain", "kind": "analysis", "catalog_check": true, "question": "Weekly usage?"}',
+                SessionKind.LOOKUP,
+                "Weekly usage?",
+            ),
+            (
                 "catalog_check_counts_only_for_analysis",
                 '{"kind": "lookup", "catalog_check": true, "question": ""}',
                 SessionKind.LOOKUP,
@@ -369,6 +422,7 @@ class TestReadSession(SimpleTestCase):
             ("session_notes", "</notes>"),
             ("coverage_question", "</main_question>"),
             ("coverage_steps", "</steps>"),
+            ("topic_list_questions", "</questions>"),
         ]
     )
     def test_logged_text_cannot_close_a_prompt_tag(self, call: str, closing_tag: str) -> None:
@@ -377,11 +431,13 @@ class TestReadSession(SimpleTestCase):
 
         def respond(prompt: str) -> str:
             prompts.append(prompt)
-            return "{}"
+            return '{"topics": []}'
 
         client = _FakeClient(respond)
         if call == "session_notes":
             async_to_sync(read_session)(client, _session("s", notes=(hostile,)))  # type: ignore[arg-type]
+        elif call == "topic_list_questions":
+            async_to_sync(name_topic_list)(client, ["q", hostile])  # type: ignore[arg-type]
         else:
             steps = (hostile,) if call == "coverage_steps" else ("step",)
             question = hostile if call == "coverage_question" else "q"
@@ -422,6 +478,22 @@ class TestGroupIntoTopics(SimpleTestCase):
         assert not any(prompt.startswith("These questions fit none") for prompt in client.prompts)
         with self.assertRaises(TopicAssignmentUnavailable):
             async_to_sync(group_into_topics)(client, sessions[1:], previous, _no_heartbeat)  # type: ignore[arg-type]
+
+    @parameterized.expand(
+        [
+            ("a_topic_number", "Topic 2", "Flags"),
+            ("an_explicit_zero_is_other", "0", OTHER_TOPIC),
+            ("an_empty_reply_fails", "", None),
+            ("a_reply_without_a_number_fails", "None of them fit.", None),
+            ("a_number_outside_the_list_fails", "7", None),
+        ]
+    )
+    def test_assign_question(self, _name: str, reply: str, expected: str | None) -> None:
+        definitions = [TopicDefinition(title="Revenue", description=""), TopicDefinition(title="Flags", description="")]
+
+        title = async_to_sync(assign_question)(_FakeClient(lambda _prompt: reply), "q", definitions)  # type: ignore[arg-type]
+
+        assert title == expected
 
     def test_first_scan_names_a_list_and_a_later_scan_keeps_it(self) -> None:
         sessions = [_read("a", "mrr", person="p1"), _read("b", "arr", person="p2")]
@@ -486,6 +558,116 @@ class TestGroupIntoTopics(SimpleTestCase):
             (candidate.definition.title, [member.session.session_id for member in candidate.members])
             for candidate in candidates
         ] == [("Null numbers", []), ("Odd numbers", ["b"]), ("Claimed again", ["c"])]
+
+
+def _reading(kind: str, question: str = "") -> tuple[str, ...]:
+    return (json.dumps({"purpose": "answer", "kind": kind, "catalog_check": True, "question": question}),)
+
+
+class TestCollectTopicsIntoSnapshot(SimpleTestCase):
+    _PREVIOUS = [TopicDefinition(title="Revenue", description="Money.")]
+    _LOOKUP = SessionText(session_id="c", person="p1", notes=_reading("lookup"), tools=frozenset({"execute-sql"}))
+
+    def _respond(self, prompt: str) -> str:
+        if prompt.startswith("Below are notes"):
+            # Each session's only note is the reading that the model returns for it.
+            return prompt.split("<notes>\n1. ")[1].split("\n</notes>")[0]
+        if prompt.startswith("Choose the one topic"):
+            return "1"
+        if "judge fails" in prompt:
+            raise RuntimeError("gateway unavailable")
+        return '{"metric": true, "description": false}'
+
+    @parameterized.expand(
+        [
+            (
+                "analysis_sessions",
+                [
+                    SessionText(
+                        session_id="ran",
+                        person="p1",
+                        notes=_reading("analysis", "Monthly revenue?"),
+                        tools=frozenset({"data-catalog-metric-run"}),
+                    ),
+                    SessionText(
+                        session_id="adapted",
+                        person="p2",
+                        notes=_reading("analysis", "Annual revenue?"),
+                        tools=frozenset({"execute-sql"}),
+                    ),
+                    _LOOKUP,
+                    SessionText(
+                        session_id="unjudged",
+                        person="p3",
+                        notes=_reading("analysis", "judge fails"),
+                        tools=frozenset({"metric-list"}),
+                    ),
+                ],
+                [
+                    TopicCluster(
+                        title="Revenue",
+                        description="Money.",
+                        session_count=3,
+                        people=3,
+                        coverage=TopicCoverage(metric=2, table=0, nothing=1),
+                    )
+                ],
+                TopicSessionCounts(analysis=3, lookup=1, automation=0, unclear=0, unread=0, coverage_unchecked=1),
+            ),
+            (
+                "no_analysis_sessions_keep_the_previous_list",
+                [_LOOKUP],
+                [],
+                TopicSessionCounts(analysis=0, lookup=1, automation=0, unclear=0, unread=0),
+            ),
+        ]
+    )
+    def test_writes_the_topic_sections(
+        self,
+        _name: str,
+        sessions: list[SessionText],
+        topics: list[TopicCluster],
+        counts: TopicSessionCounts,
+    ) -> None:
+        inputs = _TopicInputs(
+            sessions=sessions,
+            members={},
+            previous=self._PREVIOUS,
+            adapted_sessions=frozenset({"adapted"}),
+            window_start=datetime(2026, 10, 1, tzinfo=UTC),
+            window_end=datetime(2026, 10, 29, tzinfo=UTC),
+        )
+        lookups = {
+            "ran": SessionLookups(ran_metric=True, read_descriptions=False, steps=("Ran metric mrr",)),
+            "unjudged": SessionLookups(ran_metric=False, read_descriptions=True, steps=("Metadata search",)),
+        }
+        client = _FakeClient(self._respond)
+        with (
+            patch(f"{_MODULE}._load_topic_inputs", return_value=inputs),
+            patch(f"{_MODULE}._load_session_lookups", return_value=lookups),
+            patch(f"{_MODULE}.build_async_anthropic_client", return_value=client),
+            patch(f"{_MODULE}.write_payload_sections") as write,
+        ):
+            async_to_sync(collect_topics_into_snapshot)(
+                team_id=1, snapshot_id=uuid4(), telemetry_team_id=1, heartbeat=_no_heartbeat
+            )
+
+        written = write.call_args.kwargs
+        assert written["topics"] == topics
+        assert written["topic_definitions"] == self._PREVIOUS
+        assert written["topic_sessions"] == counts
+        judge_prompts = [prompt for prompt in client.prompts if prompt.startswith("You review one session")]
+        assert not any("Annual revenue?" in prompt for prompt in judge_prompts)
+
+
+class TestTopicInputs(BaseTest):
+    def test_refuses_to_scan_without_ai_consent(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        with patch(f"{_MODULE}.fetch_candidate_chains") as chains, pytest.raises(AIConsentMissing):
+            _load_topic_inputs(team_id=self.team.id, snapshot_id=uuid4(), telemetry_team_id=self.team.id)
+        chains.assert_not_called()
 
 
 class TestPreviousTopicList(BaseTest):
