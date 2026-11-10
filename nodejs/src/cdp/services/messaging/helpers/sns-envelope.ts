@@ -8,10 +8,6 @@ import { fetch } from '~/common/utils/request'
 
 import { SesEventBatchSchema, SesEventRecord, SesEventRecordSchema, sanitizeSesField } from './ses-events'
 
-/**
- * ---------- SNS envelope types ----------
- * If raw_message_delivery=false (default), SNS wraps your message in this envelope.
- */
 const SnsEnvelopeSchema = z.object({
     Type: z.enum(['SubscriptionConfirmation', 'Notification', 'UnsubscribeConfirmation']),
     MessageId: z.string(),
@@ -66,7 +62,6 @@ export class SnsEnvelopeVerifier {
     certCache: Record<string, Promise<string> | undefined> = {}
     protected allowedTopicArns: Set<string>
 
-    // An empty allowlist accepts every topic.
     constructor(allowedTopicArns: string[] = []) {
         this.allowedTopicArns = new Set(allowedTopicArns.map((arn) => arn.trim()).filter(Boolean))
     }
@@ -88,7 +83,6 @@ export class SnsEnvelopeVerifier {
     }
 
     private async fetchCert(url: string): Promise<string> {
-        // Validate that the URL is from AWS SNS
         if (!this.isValidSnsCertUrl(url)) {
             throw new Error(`Invalid SNS certificate URL: ${url}`)
         }
@@ -107,18 +101,15 @@ export class SnsEnvelopeVerifier {
         try {
             const parsedUrl = new URL(url)
 
-            // Must be HTTPS
             if (parsedUrl.protocol !== 'https:') {
                 return false
             }
 
-            // Must be from sns.{region}.amazonaws.com
             const hostname = parsedUrl.hostname
             if (!hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
                 return false
             }
 
-            // Must end with .pem
             if (!parsedUrl.pathname.endsWith('.pem')) {
                 return false
             }
@@ -137,7 +128,6 @@ export class SnsEnvelopeVerifier {
                 return false
             }
 
-            // Must be from sns.{region}.amazonaws.com
             if (!parsedUrl.hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
                 return false
             }
@@ -148,18 +138,13 @@ export class SnsEnvelopeVerifier {
         }
     }
 
-    /**
-     * Parse incoming body accounting for SNS raw vs envelope
-     */
     private parseIncomingBody(
         body: unknown
     ): { mode: 'raw'; records: SesEventRecord[] } | { mode: 'sns'; envelope: SnsEnvelope } {
-        // If it's already an object with "Type", it's probably the SNS envelope (raw=false)
         if (body && typeof body === 'object' && 'Type' in (body as any)) {
             return { mode: 'sns', envelope: SnsEnvelopeSchema.parse(body) }
         }
 
-        // raw_message_delivery=true → body is already the SES array
         const records = SesEventBatchSchema.parse(body)
         return { mode: 'raw', records }
     }
@@ -181,10 +166,6 @@ export class SnsEnvelopeVerifier {
         return [SesEventRecordSchema.parse(message)]
     }
 
-    /**
-     * Verify SNS signature
-     * Best practice: verify the signature unless you're behind a trusted ALB / private VPC.
-     */
     private async verifySnsSignature(envelope: SnsEnvelope): Promise<boolean> {
         if (!this.isValidSnsCertUrl(envelope.SigningCertURL)) {
             return false
@@ -200,9 +181,7 @@ export class SnsEnvelopeVerifier {
             throw new SnsCertificateUnavailableError(String(error))
         }
         try {
-            // 2) Build string to sign (per SNS docs)
             const stringToSign = this.buildStringToSign(envelope)
-            // 3) Verify
             const verifier = crypto.createVerify('RSA-SHA1') // SNS SignatureVersion=1 uses SHA1
             verifier.update(stringToSign, 'utf8')
             return verifier.verify(cert, envelope.Signature, 'base64')
@@ -211,14 +190,7 @@ export class SnsEnvelopeVerifier {
         }
     }
 
-    /**
-     * Build string to sign for SNS signature verification
-     */
     private buildStringToSign(m: SnsEnvelope): string {
-        // Follows AWS SNS docs for SignatureVersion=1
-        // For Notification:
-        //   "Message\n{Message}\nMessageId\n{MessageId}\nSubject\n{Subject}\nTimestamp\n{Timestamp}\nTopicArn\n{TopicArn}\nType\n{Type}\n"
-        // Subject line omitted if not present.
         const lines: string[] = []
         const pushKV = (k: string, v?: string) => {
             if (v !== undefined) {
@@ -245,7 +217,6 @@ export class SnsEnvelopeVerifier {
         return lines.join('\n') + '\n'
     }
 
-    // Throws when the body is neither an SNS envelope nor an SES record batch.
     async verify(
         body: unknown,
         { verifySignature = true }: { verifySignature?: boolean } = {}
@@ -279,9 +250,7 @@ export class SnsEnvelopeVerifier {
             }
         }
 
-        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
-        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
-        // AWS, but not from a specific topic — this narrows accepted sources to the configured topics.
+        // A valid signature proves the message came from AWS, not that it came from one of our topics.
         if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
             logger.warn('[SnsEnvelopeVerifier] Rejecting event from disallowed TopicArn', {
                 topicArn: parsed.envelope.TopicArn,
@@ -289,10 +258,8 @@ export class SnsEnvelopeVerifier {
             return { kind: 'reject', status: 403, error: 'SNS TopicArn not allowed' }
         }
 
-        // Handle confirmation flow
         if (parsed.mode === 'sns' && parsed.envelope.Type === 'SubscriptionConfirmation') {
             logger.info('[SnsEnvelopeVerifier] confirming subscription', { envelope: parsed.envelope })
-            // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
             const subscribeUrl = parsed.envelope.SubscribeURL
             if (subscribeUrl) {
                 if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {

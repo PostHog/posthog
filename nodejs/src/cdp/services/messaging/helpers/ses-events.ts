@@ -1,10 +1,5 @@
 import { z } from 'zod'
 
-/**
- * ---------- SES event types ----------
- * AWS posts an array of records in the "Message" (or directly as body if raw_message_delivery=true).
- * We model the common fields and create specific event detail types.
- */
 const SesMailSchema = z.object({
     timestamp: z.string(),
     source: z.string(), // From address
@@ -134,7 +129,6 @@ export type SesEventRecord = z.infer<typeof SesEventRecordSchema>
 
 const MAX_SES_FIELD_LENGTH = 1024
 
-// Strip control chars, neutralize rich-log bracket tokens, and cap length.
 export const sanitizeSesField = (value: string, max = MAX_SES_FIELD_LENGTH): string => {
     const cleaned = value
         .replace(/[\u0000-\u001f\u007f]/g, ' ')
