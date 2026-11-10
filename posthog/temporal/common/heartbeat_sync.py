@@ -95,7 +95,7 @@ class HeartbeaterSync:
                 self.stop_event,
                 interval,
                 self.details,
-                first_heartbeat_delay(heartbeat_timeout.total_seconds()),
+                first_heartbeat_delay(heartbeat_timeout.total_seconds(), 0.0),
             ),
             daemon=True,
         )

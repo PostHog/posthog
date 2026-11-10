@@ -250,16 +250,15 @@ class ManagedWorker:
 
 
 DEFAULT_MAX_CONCURRENT_TASKS = 50
-# The SDK sends heartbeats every min(0.8 * heartbeat_timeout, this), and each one is a billed action.
-MAX_HEARTBEAT_THROTTLE_INTERVAL = dt.timedelta(seconds=60)
 # Batch-export activities can stall their event loop, so they flush sooner to leave more of the timeout as margin.
 BATCH_EXPORTS_MAX_HEARTBEAT_THROTTLE_INTERVAL = dt.timedelta(seconds=5)
 
 
 def max_heartbeat_throttle_interval(task_queue: str) -> dt.timedelta:
+    """The SDK sends heartbeats every min(0.8 * heartbeat_timeout, this)."""
     if task_queue in (settings.BATCH_EXPORTS_TASK_QUEUE, settings.SYNC_BATCH_EXPORTS_TASK_QUEUE):
         return BATCH_EXPORTS_MAX_HEARTBEAT_THROTTLE_INTERVAL
-    return MAX_HEARTBEAT_THROTTLE_INTERVAL
+    return dt.timedelta(seconds=settings.TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS)
 
 
 def build_poller_autoscaling(

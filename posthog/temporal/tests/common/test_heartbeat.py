@@ -4,6 +4,8 @@ from typing import Any
 
 import pytest
 
+from django.test import override_settings
+
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -14,14 +16,16 @@ class ActivityFailed(Exception):
 
 
 @pytest.mark.parametrize(
-    "fail,expected_heartbeats",
+    "skip_short_runs,fail,expected_heartbeats",
     [
-        (False, []),
-        (True, [("cursor-1",)]),
+        (True, False, []),
+        (True, True, [("cursor-1",)]),
+        (False, False, [("cursor-1",)]),
+        (False, True, [("cursor-1",)]),
     ],
 )
-async def test_heartbeater_sends_details_on_exit_only_when_the_activity_fails(
-    fail: bool, expected_heartbeats: list[tuple[Any, ...]]
+async def test_heartbeater_exit_heartbeat(
+    skip_short_runs: bool, fail: bool, expected_heartbeats: list[tuple[Any, ...]]
 ) -> None:
     heartbeats: list[tuple[Any, ...]] = []
 
@@ -35,10 +39,11 @@ async def test_heartbeater_sends_details_on_exit_only_when_the_activity_fails(
     env.info = dataclasses.replace(env.info, heartbeat_timeout=timedelta(minutes=2))
     env.on_heartbeat = lambda *details: heartbeats.append(details)
 
-    if fail:
-        with pytest.raises(ActivityFailed):
+    with override_settings(TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS=skip_short_runs):
+        if fail:
+            with pytest.raises(ActivityFailed):
+                await env.run(short_activity)
+        else:
             await env.run(short_activity)
-    else:
-        await env.run(short_activity)
 
     assert heartbeats == expected_heartbeats

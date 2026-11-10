@@ -6,6 +6,8 @@ import asyncio
 import dataclasses
 import collections.abc
 
+from django.conf import settings
+
 from structlog import get_logger
 from temporalio import activity
 
@@ -14,9 +16,11 @@ from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 LOGGER = get_logger(__name__)
 
 
-def first_heartbeat_delay(heartbeat_timeout_seconds: float) -> float:
-    """Seconds to wait before the first heartbeat, leaving most of the timeout as margin."""
-    return heartbeat_timeout_seconds / 4
+def first_heartbeat_delay(heartbeat_timeout_seconds: float, interval: float) -> float:
+    """Seconds to wait before the first heartbeat, so activities that finish quickly send none."""
+    if settings.TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS:
+        return heartbeat_timeout_seconds / 4
+    return interval
 
 
 class Heartbeater:
@@ -24,7 +28,7 @@ class Heartbeater:
 
     This class manages two heartbeat tasks via a context manager:
     * A task that hearbeats regularly every 'heartbeat_timeout' / 'factor', starting
-      after a quarter of 'heartbeat_timeout', so short activities send no heartbeats.
+      later when `TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS` is on, so short activities send none.
     * A task that heartbeats after worker shutdown is detected.
 
     Attributes:
@@ -66,7 +70,9 @@ class Heartbeater:
             self.heartbeat_task = asyncio.create_task(
                 self._heartbeat_forever(
                     heartbeat_timeout.total_seconds() / self.factor,
-                    initial_delay=first_heartbeat_delay(heartbeat_timeout.total_seconds()),
+                    initial_delay=first_heartbeat_delay(
+                        heartbeat_timeout.total_seconds(), heartbeat_timeout.total_seconds() / self.factor
+                    ),
                 )
             )
 
@@ -105,7 +111,7 @@ class Heartbeater:
             await asyncio.wait(tasks_to_wait)
 
         # A retry resumes from these details. A completed activity has no retry to resume.
-        if exc_type is not None:
+        if exc_type is not None or not settings.TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS:
             activity.heartbeat(*self.details)
 
         self.heartbeat_task = None
