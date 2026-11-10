@@ -422,9 +422,10 @@ _MEAN = {**DEFINITIONS["mean"], "uuid": "m1"}
         ({**_MEAN, "breakdownFilter": {"breakdowns": None}}, True),
         ({**_MEAN, "breakdownFilter": None}, True),
         ({**_MEAN, "breakdownFilter": {"breakdowns": [OS_BREAKDOWN]}}, False),
+        ({**_MEAN, "value_format": {"type": "currency"}}, True),
     ],
 )
-def test_only_real_breakdowns_change_the_key(variant: dict, expected_equal: bool) -> None:
+def test_only_definition_changes_that_the_calculation_reads_change_the_key(variant: dict, expected_equal: bool) -> None:
     base_key = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=_MEAN).calculation_key()
     variant_key = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=variant).calculation_key()
     assert (variant_key == base_key) is expected_equal

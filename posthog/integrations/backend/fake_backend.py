@@ -20,6 +20,7 @@ from posthog.integrations.backend.protocol import NewIntegration, RowFilter, Row
 from posthog.integrations.contracts import (
     SOURCE_MARKER_CONFIG_KEY,
     ConfigValue,
+    CrossTeamFilter,
     FrozenIntegrationRecord,
     IntegrationConflict,
     IntegrationNotFound,
@@ -48,6 +49,46 @@ def _same_value(stored: object, value: ConfigValue) -> bool:
     if isinstance(stored, int | float) and isinstance(value, int | float):
         return stored == value
     return type(stored) is type(value) and stored == value
+
+
+_MISSING = object()
+
+
+def _config_value(config: Mapping[str, object], path: str) -> object:
+    value: object = config
+    for key in path.split("."):
+        if not isinstance(value, Mapping) or key not in value:
+            return _MISSING
+        value = value[key]
+    return value
+
+
+def _matches_cross_team(cross_team_filter: CrossTeamFilter, record: FrozenIntegrationRecord) -> bool:
+    f = cross_team_filter
+    if f.team_ids is not None and record.team_id not in f.team_ids:
+        return False
+    if record.team_id in f.exclude_team_ids:
+        return False
+    if f.created_by_ids is not None and record.created_by_id not in f.created_by_ids:
+        return False
+    if f.external_id is not None and record.integration_id != f.external_id:
+        return False
+    if f.after_id is not None and (record.id >= f.after_id if f.newest_first else record.id <= f.after_id):
+        return False
+    if f.has_config_key is not None and f.has_config_key not in record.config:
+        return False
+    config = record.config
+    if not all(key in config and _same_value(config[key], value) for key, value in f.where.items()):
+        return False
+    if not all(
+        key in config and any(_same_value(config[key], value) for value in values) for key, values in f.where_in.items()
+    ):
+        return False
+    # Postgres compares `UPPER(text)` for `iexact`.
+    return all(
+        isinstance(stored := _config_value(config, path), str) and stored.upper() == text.upper()
+        for path, text in f.where_iexact.items()
+    )
 
 
 def _lookup_id(value: object) -> int | None:
@@ -124,11 +165,13 @@ class FakeBackend:
 
     @staticmethod
     def _copy(record: FrozenIntegrationRecord) -> FrozenIntegrationRecord:
-        # A caller that changes a returned dict must not change the stored row.
+        # A caller that changes a returned dict must not change the stored row. Like Django, a secret
+        # field that cannot be decrypted is a raw string, not a dict.
+        secrets = record.sensitive_config
         return replace(
             record,
             config=copy.deepcopy(dict(record.config)),
-            sensitive_config=copy.deepcopy(dict(record.sensitive_config)),
+            sensitive_config=copy.deepcopy(dict(secrets) if isinstance(secrets, Mapping) else secrets),
         )
 
     @staticmethod
@@ -222,6 +265,16 @@ class FakeBackend:
                 raise IntegrationNotFound(f"No integration {id!r} with external id {external_id!r} in {scope!r}")
             return self._copy(record)
 
+    def list_across_teams(
+        self, scope: RowScope, cross_team_filter: CrossTeamFilter
+    ) -> builtins.list[IntegrationRecord]:
+        with self._lock:
+            rows = [record for record in self._scoped(scope) if _matches_cross_team(cross_team_filter, record)]
+        rows.sort(key=lambda record: record.id, reverse=cross_team_filter.newest_first)
+        if cross_team_filter.limit is not None:
+            rows = rows[: cross_team_filter.limit]
+        return [self._copy(record) for record in rows]
+
     def _with_key(self, new: NewIntegration) -> FrozenIntegrationRecord | None:
         # Postgres treats NULLs as distinct in a unique key, so rows without an external id never clash.
         if new.external_id is None:
@@ -278,6 +331,26 @@ class FakeBackend:
         with self._lock:
             del self._rows[self._row(scope, team_id, id).id]
 
+    def change_external_id(self, scope: RowScope, *, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        with self._lock:
+            record = self._row(scope, team_id, id)
+            if record.integration_id == external_id:
+                return self._copy(record)
+            if any(
+                (other.team_id, other.kind, other.integration_id) == (record.team_id, record.kind, external_id)
+                for other in self._rows.values()
+            ):
+                raise IntegrationConflict(
+                    f"Team {team_id} already has a {record.kind!r} integration with external id {external_id!r}"
+                )
+            moved = replace(
+                record,
+                integration_id=external_id,
+                display_name=_display_name(record.kind, external_id, record.config),
+            )
+            self._rows[record.id] = moved
+            return self._copy(moved)
+
     def _by_external_id(self, scope: RowScope, external_id: str) -> Iterable[FrozenIntegrationRecord]:
         return self._selected(scope, RowFilter(external_id=external_id))
 
@@ -300,9 +373,10 @@ class FakeBackend:
         # The lock covers the provider call, like the row lock of `DjangoBackend`.
         with self._lock:
             record = self._row(scope, team_id, id)
-            stale = stale_access_token is not None and record.access_token == stale_access_token
-            if not (stale or OauthIntegration(record).access_token_expired()):
+            stale = stale_access_token is not None and (record.access_token or "") == stale_access_token
+            expired = OauthIntegration(record).access_token_expired()
+            if not (stale or expired):
                 return TokenRefresh(record=self._copy(record), result="fresh")
             refreshed = self._patched(record, self._token_refresher(self._copy(record))) or record
-            result: TokenRefreshResult = "error" if refreshed.errors else "stale_token" if stale else "refreshed"
+            result: TokenRefreshResult = "error" if refreshed.errors else "refreshed" if expired else "stale_token"
             return TokenRefresh(record=self._copy(refreshed), result=result)
