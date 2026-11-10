@@ -625,6 +625,11 @@ describe('Hog Inputs', () => {
                 () => Promise.resolve([{ $integration_ref: team.id + 50 }]),
             ],
             [
+                'a team integration that the function is not configured with',
+                'oauth',
+                () => Promise.resolve({ $integration_ref: integrationId2 }),
+            ],
+            [
                 "another team's integration",
                 'oauth',
                 async () => {

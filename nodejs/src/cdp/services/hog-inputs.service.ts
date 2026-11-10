@@ -258,24 +258,24 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         inputs: Record<string, any>
     ): Promise<Record<string, any>> {
-        // Only an integration input holds a value that the server resolved. A reference elsewhere came from
-        // event data, and resolving it would put a secret where the event sender chose.
-        const integrationKeys = new Set(
-            allInputSchemas(hogFunction)
-                .filter((schema) => schema.type === 'integration' || schema.type === 'integration_multi')
-                .map((schema) => schema.key)
-        )
+        // Only an integration input holds a value that the server resolved, and only with an integration the
+        // function config selects for that key. A reference elsewhere came from event data (a mapping can reuse an
+        // integration key for event JSON), and resolving it would put a secret where the event sender chose.
+        const configuredIds = configuredIntegrationIds(hogFunction)
         const refEntries = Object.entries(inputs).filter(
             ([key, value]) =>
-                integrationKeys.has(key) &&
+                configuredIds.has(key) &&
                 (isIntegrationRef(value) || (Array.isArray(value) && value.some(isIntegrationRef)))
         )
         if (refEntries.length === 0) {
             return inputs
         }
 
-        const ids = refEntries.flatMap(([, value]) =>
-            (Array.isArray(value) ? value : [value]).filter(isIntegrationRef).map((ref) => ref[INTEGRATION_REF_KEY])
+        const ids = refEntries.flatMap(([key, value]) =>
+            (Array.isArray(value) ? value : [value])
+                .filter(isIntegrationRef)
+                .map((ref) => ref[INTEGRATION_REF_KEY])
+                .filter((id) => configuredIds.get(key)?.has(String(id)))
         )
         const integrations = await this.integrationManager.getMany(ids)
 
@@ -285,7 +285,10 @@ export class HogInputsService {
             if (!isIntegrationRef(value)) {
                 return value
             }
-            const resolved = this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction.team_id)
+            const id = value[INTEGRATION_REF_KEY]
+            const resolved = configuredIds.get(key)?.has(String(id))
+                ? this.resolveIntegration(integrations[id], hogFunction.team_id)
+                : null
             if (!resolved) {
                 throw new HogConfigurationError(
                     `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
@@ -392,6 +395,30 @@ const allInputSchemas = (hogFunction: HogFunctionType): NonNullable<HogFunctionT
     ...(hogFunction.inputs_schema ?? []),
     ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
 ]
+
+// For each integration input key, the ids that the function config or any of its mappings selects.
+const configuredIntegrationIds = (hogFunction: HogFunctionType): Map<string, Set<string>> => {
+    const integrationKeys = new Set(
+        allInputSchemas(hogFunction)
+            .filter((schema) => schema.type === 'integration' || schema.type === 'integration_multi')
+            .map((schema) => schema.key)
+    )
+    const ids = new Map<string, Set<string>>([...integrationKeys].map((key) => [key, new Set<string>()]))
+    for (const inputs of [hogFunction.inputs, ...(hogFunction.mappings ?? []).map((m) => m.inputs)]) {
+        for (const [key, input] of Object.entries(inputs ?? {})) {
+            const keyIds = ids.get(key)
+            if (!keyIds) {
+                continue
+            }
+            for (const id of Array.isArray(input?.value) ? input.value : [input?.value]) {
+                if (typeof id === 'number' || (typeof id === 'string' && id.length > 0)) {
+                    keyIds.add(String(id))
+                }
+            }
+        }
+    }
+    return ids
+}
 
 // A row with the `warehouse_source_type` key holds data warehouse source credentials. They are never Hog function
 // inputs. This matches the Python check: the key blocks with any value, and a config that is not an object blocks too.
