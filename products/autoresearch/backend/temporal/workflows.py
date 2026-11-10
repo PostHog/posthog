@@ -996,9 +996,10 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
             return _record_kickoff_skip(inp, AutoresearchPipeline.KickoffSkipReason.NOT_LAUNCHABLE, error=str(exc))
-        AutoresearchPipeline.objects.filter(pk=pipeline.pk, kickoff_skip_reason__isnull=False).update(
-            kickoff_skip_reason=None, kickoff_skip_detail=None, kickoff_skipped_at=None
-        )
+        if pipeline.kickoff_skip_reason:
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(
+                kickoff_skip_reason=None, kickoff_skip_detail=None, kickoff_skipped_at=None
+            )
     if rescue:
         logger.info("autoresearch_kickoff_training_rescue", pipeline_id=inp.pipeline_id)
         return KickoffTrainingResult(kicked_off=True, reason="rescue_unscorable")
@@ -1049,15 +1050,16 @@ def _record_kickoff_skip(
     error: str | None = None,
 ) -> KickoffTrainingResult:
     """Store on the pipeline why a due run did not start, so the API can show it, and log it. Call under the row lock."""
+    stored_detail = detail or error
     AutoresearchPipeline.objects.filter(pk=inp.pipeline_id).update(
-        kickoff_skip_reason=reason, kickoff_skip_detail=detail or error, kickoff_skipped_at=django_timezone.now()
+        kickoff_skip_reason=reason, kickoff_skip_detail=stored_detail, kickoff_skipped_at=django_timezone.now()
     )
     logger.warning(
         "autoresearch_kickoff_training_skipped",
         pipeline_id=inp.pipeline_id,
         team_id=inp.team_id,
         reason=reason.value,
-        detail=detail or error,
+        detail=stored_detail,
     )
     return KickoffTrainingResult(kicked_off=False, reason=reason.value, detail=detail, error=error)
 
