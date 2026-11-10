@@ -11,6 +11,7 @@ from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.error_tracking.backend.logic import team_flags
 from products.error_tracking.backend.logic.issue_tags import registry, runner
@@ -163,9 +164,14 @@ class TestRunIssueTaggers(BaseTest):
             "jev-model",
         )
 
-    @parameterized.expand([("issue_tags_off", False, True), ("ai_data_processing_not_approved", True, False)])
+    @parameterized.expand(
+        [
+            ("issue_tags_off", False, True, IssueTaggingSkipReason.DISABLED),
+            ("ai_data_processing_not_approved", True, False, IssueTaggingSkipReason.NO_TAGGER),
+        ]
+    )
     def test_reads_no_event_and_asks_no_model_when_no_tagger_applies(
-        self, _name: str, flag_on: bool, ai_approved: bool
+        self, _name: str, flag_on: bool, ai_approved: bool, expected: IssueTaggingSkipReason
     ) -> None:
         self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save()
@@ -178,7 +184,7 @@ class TestRunIssueTaggers(BaseTest):
         ):
             result = run_issue_taggers(self.team.id, issue.id, load_event_properties)
 
-        assert result == IssueTaggingSkipReason.NO_TAGGER
+        assert result == expected
         load_event_properties.assert_not_called()
         decide.assert_not_called()
 
@@ -270,6 +276,8 @@ class TestTagIssueCreatedActivity(BaseTest):
                 if isinstance(raised.exception, ApplicationError):
                     assert raised.exception.type == ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE
                     assert not raised.exception.non_retryable
+                    assert is_expected_activity_failure(raised.exception)
 
         outcomes.labels.assert_called_once_with(tagger=tagger, outcome=outcome)
+        outcomes.labels.return_value.inc.assert_called_once_with()
         assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()

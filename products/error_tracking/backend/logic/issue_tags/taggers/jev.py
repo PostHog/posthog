@@ -2,8 +2,7 @@ from collections.abc import Sequence
 
 import structlog
 
-from posthog.models import Team
-
+from products.error_tracking.backend.logic.issue_summaries import is_ai_data_processing_approved
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, JevTaggerConfig
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer, TagContext
@@ -20,14 +19,7 @@ class JevTagger:
     source = ErrorTrackingIssueTag.Source.JEV
 
     def applies(self, team_id: int) -> bool:
-        if not issue_tags_enabled(team_id):
-            return False
-        approved = (
-            Team.objects.filter(id=team_id)
-            .values_list("organization__is_ai_data_processing_approved", flat=True)
-            .first()
-        )
-        return bool(approved)
+        return issue_tags_enabled(team_id) and is_ai_data_processing_approved(team_id)
 
     def answer(self, context: TagContext, definitions: Sequence[IssueTagDefinition]) -> dict[str, TagAnswer]:
         """Ask every tag question in one decision request. Raises the ml_inference gateway errors unchanged."""

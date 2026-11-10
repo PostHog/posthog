@@ -42,7 +42,7 @@ SEVERITY_INFERENCE_RETRY_POLICY = common.RetryPolicy(
 SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
 # Alerts wait for inference, so a model outage must not hold them past this bound, retries included.
 SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
-ISSUE_TAGS_PATCH = "error-tracking-issue-tags"
+ISSUE_TAGS_PATCH = "error-tracking-issue-tags-activity"
 ISSUE_TAGS_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=2),
     maximum_interval=timedelta(seconds=30),

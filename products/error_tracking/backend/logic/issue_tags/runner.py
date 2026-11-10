@@ -8,6 +8,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.error_tracking.backend.logic.issue_tags import registry
+from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagContext, Tagger
 from products.error_tracking.backend.logic.issue_tags.taggers.jev import JevTagger
@@ -24,6 +25,7 @@ TAG_STATE_MAX_TOKENS = 2000
 
 
 class IssueTaggingSkipReason(StrEnum):
+    DISABLED = "disabled"
     TEAM_MISSING = "team_missing"
     ISSUE_MISSING = "issue_missing"
     NO_TAGGER = "no_tagger"
@@ -45,6 +47,8 @@ def run_issue_taggers(
     A tagger that raises does not stop the others. Its run carries the error, and the caller decides whether to retry.
     `load_event_properties` runs only when a tagger applies, so a team without one reads no event.
     """
+    if not issue_tags_enabled(team_id):
+        return IssueTaggingSkipReason.DISABLED
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:

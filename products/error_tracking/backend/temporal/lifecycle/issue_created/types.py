@@ -34,6 +34,15 @@ class SeverityInferenceSkipReason(StrEnum):
     SEVERITY_CHANGED = "severity_changed"
 
 
+class IssueTaggerOutcome(StrEnum):
+    ANSWERED = "answered"
+    DECISIONS_UNAVAILABLE = "decisions_unavailable"
+    UNAVAILABLE = "unavailable"
+    GATEWAY_REJECTED = "gateway_rejected"
+    FAILED = "failed"
+    EVENT_MISSING = "event_missing"
+
+
 @dataclasses.dataclass(frozen=True)
 class IssueCreatedWorkflowInputs:
     notification_id: str

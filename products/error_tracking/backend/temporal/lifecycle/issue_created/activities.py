@@ -45,6 +45,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedWorkflowInputs,
     IssueEmbeddingPreparationResult,
     IssueSeverityInferenceResult,
+    IssueTaggerOutcome,
     SeverityInferenceSkipReason,
 )
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
@@ -291,17 +292,17 @@ def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) ->
     return result
 
 
-def _tagger_outcome(inputs: IssueCreatedWorkflowInputs, run: "TaggerRun") -> str:
+def _tagger_outcome(inputs: IssueCreatedWorkflowInputs, run: "TaggerRun") -> IssueTaggerOutcome:
     """Name the outcome of one tagger run. `unavailable` is a transient gateway failure that a retry can fix."""
     match run.error:
         case None:
-            return "answered"
+            return IssueTaggerOutcome.ANSWERED
         case DecisionsDisabledError() | GatewayNotConfiguredError():
-            return "decisions_unavailable"
+            return IssueTaggerOutcome.DECISIONS_UNAVAILABLE
         case DecisionGatewayUnreachableError():
-            return "unavailable"
+            return IssueTaggerOutcome.UNAVAILABLE
         case DecisionGatewayError(status_code=status_code) if status_code == 429 or status_code >= 500:
-            return "unavailable"
+            return IssueTaggerOutcome.UNAVAILABLE
         case DecisionGatewayError(status_code=status_code):
             logger.warning(
                 "error_tracking_issue_tagger_rejected",
@@ -310,8 +311,8 @@ def _tagger_outcome(inputs: IssueCreatedWorkflowInputs, run: "TaggerRun") -> str
                 tagger=run.source,
                 status_code=status_code,
             )
-            return "gateway_rejected"
-    return "failed"
+            return IssueTaggerOutcome.GATEWAY_REJECTED
+    return IssueTaggerOutcome.FAILED
 
 
 @activity.defn
@@ -328,7 +329,7 @@ def tag_issue_created_activity(inputs: IssueCreatedWorkflowInputs) -> None:
         result = run_issue_taggers(inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs))
     except IssueCreatedEventNotFoundError:
         # The alert waits for this activity, so a missing event skips tags instead of retrying.
-        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome="event_missing").inc()
+        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=IssueTaggerOutcome.EVENT_MISSING).inc()
         return
     if isinstance(result, IssueTaggingSkipReason):
         ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=result).inc()
@@ -337,13 +338,13 @@ def tag_issue_created_activity(inputs: IssueCreatedWorkflowInputs) -> None:
     outcomes = [(run, _tagger_outcome(inputs, run)) for run in result]
     for run, outcome in outcomes:
         ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger=run.source, outcome=outcome).inc()
-    # A retry runs every tagger again. The writer logs no activity for an answer that did not change.
+    # A retry runs every tagger again. An unchanged answer writes no activity log row.
     for run, outcome in outcomes:
-        if outcome == "unavailable":
+        if outcome == IssueTaggerOutcome.UNAVAILABLE:
             raise NonReportableApplicationError(
                 "Tag model is unavailable", type=ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE
             ) from run.error
-        if outcome == "failed" and run.error is not None:
+        if outcome == IssueTaggerOutcome.FAILED and run.error is not None:
             raise run.error
 
 
