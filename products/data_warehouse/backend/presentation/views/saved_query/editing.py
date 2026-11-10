@@ -425,7 +425,7 @@ class DataWarehouseSavedQuerySerializer(
                 view.team_id,
                 view.id,
                 user=cast(User, request.user),
-                sync_frequency_interval=sync_frequency_to_sync_frequency_interval(sync_frequency),
+                frequency_target=sync_frequency_to_sync_frequency_interval(sync_frequency),
                 visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
                     bounds, self.user_access_control, team_id=view.team_id
                 ),
