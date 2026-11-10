@@ -32,7 +32,7 @@ PNPM_VERSION = re.compile(r"^pnpm@(\d+\.\d+\.\d+)$")
 
 
 class Refused(Exception):
-    """The update is outside what this proof covers; the message says why."""
+    """The update is outside what this proof covers. The message says why."""
 
 
 def package_name(spec: str) -> str:
@@ -118,7 +118,7 @@ def eligible_paths(changes: Iterable[tuple[str, str]]) -> list[str]:
 
 
 def lockfile_dir(path: str, exists: Callable[[str], bool]) -> str:
-    """The nearest directory at or above a changed file that holds a lockfile; "" is the root."""
+    """The nearest directory at or above a changed file that holds a lockfile. "" is the root."""
     directory = path.rpartition("/")[0]
     while True:
         if exists(join(directory, LOCKFILE)):
@@ -148,7 +148,7 @@ def _glob(pattern: str) -> re.Pattern[str]:
 
 
 def check_bump(label: str, old: str, new: str) -> None:
-    """Refuse anything but a same-operator, same-major registry range change; 0.x keeps its minor too."""
+    """Refuse anything but a same-operator, same-major registry range change. A 0.x range keeps its minor too."""
     before, after = RANGE.match(old), RANGE.match(new)
     if before is None or after is None:
         raise Refused(f"{label} changes from {old} to {new}, which is not a plain registry version change")
