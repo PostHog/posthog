@@ -13,7 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 PIPELINE_ROOTS = (
     "frontend/src/generated/*",
     "products/*/frontend/generated/*",
-    "nodejs/src/common/generated/*",
+    "nodejs/packages/common/src/generated/*",
+    "ingestion/node/packages/common/src/generated/*",
     "posthog/usage_ingestion/generated/*",
     "services/mcp/src/generated/*",
     "services/mcp/src/tools/generated/*",

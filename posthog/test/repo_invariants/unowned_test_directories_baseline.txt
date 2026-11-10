@@ -52,10 +52,6 @@ frontend/src/scenes/settings/project
 frontend/src/scenes/settings/user
 frontend/src/scenes/terminal
 frontend/src/styles
-nodejs/src/common/metrics
-nodejs/src/common/services
-nodejs/src/common/utils
-nodejs/src/servers
 playwright/e2e
 playwright/e2e/product-analytics
 posthog/admin

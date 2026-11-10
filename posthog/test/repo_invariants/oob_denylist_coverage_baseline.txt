@@ -1,4 +1,4 @@
-nodejs/src/ingestion/pipelines/errortracking/cymbal/client.ts
+ingestion/node/packages/ingestion/src/ingestion/pipelines/errortracking/cymbal/client.ts
 posthog/api/proxy_record_diagnostics.py
 posthog/api/utils.py
 posthog/dns_utils.py

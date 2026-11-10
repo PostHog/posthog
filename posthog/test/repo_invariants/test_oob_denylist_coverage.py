@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).parents[3]
 BASELINE = Path(__file__).parent / "oob_denylist_coverage_baseline.txt"
 REGENERATE = "python posthog/test/repo_invariants/test_oob_denylist_coverage.py"
 
-SCANNED_ROOTS = ("posthog", "products", "ee", "common", "nodejs/src", "rust")
+SCANNED_ROOTS = ("posthog", "products", "ee", "common", "nodejs/src", "nodejs/packages", "ingestion", "rust")
 SCANNED_SUFFIXES = (".py", ".ts", ".rs")
 RESOLUTION_MARKERS = (
     # Python
