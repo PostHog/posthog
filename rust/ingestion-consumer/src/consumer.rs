@@ -50,10 +50,11 @@ fn commit_tick(commit_interval: Duration) -> Duration {
 }
 
 /// The exit commit runs after the shutdown drain, inside
-/// [`crate::config::GRACEFUL_SHUTDOWN`]. Two attempts and the wait between
-/// them take at most 10.5 s.
+/// [`crate::config::GRACEFUL_SHUTDOWN`]. The attempts and the waits between
+/// them take at most 11 s.
+const EXIT_COMMIT_ATTEMPTS: u32 = 2;
 const EXIT_COMMIT_TIMEOUT: Duration = Duration::from_secs(5);
-const STALE_EPOCH_RETRY_WAIT: Duration = Duration::from_millis(500);
+const STALE_EPOCH_RETRY_WAIT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, thiserror::Error)]
 enum SyncCommitError {
@@ -305,22 +306,20 @@ impl IngestionConsumer {
         let Some(commit) = self.settlement.take_all() else {
             return;
         };
-        let mut result = self
-            .commit_offsets_sync(&commit.offsets, EXIT_COMMIT_TIMEOUT, "exit")
-            .await;
-        if result
-            .as_ref()
-            .is_err_and(SyncCommitError::is_stale_member_epoch)
-        {
+        for attempt in 1..=EXIT_COMMIT_ATTEMPTS {
+            let Err(err) = self
+                .commit_offsets_sync(&commit.offsets, EXIT_COMMIT_TIMEOUT, "exit")
+                .await
+            else {
+                return;
+            };
+            if attempt == EXIT_COMMIT_ATTEMPTS || !err.is_stale_member_epoch() {
+                warn!(error = %err, "Could not commit the processed offsets on exit");
+                return;
+            }
             // librdkafka expedites a heartbeat on this error, and its answer
             // carries the new epoch.
             tokio::time::sleep(STALE_EPOCH_RETRY_WAIT).await;
-            result = self
-                .commit_offsets_sync(&commit.offsets, EXIT_COMMIT_TIMEOUT, "exit")
-                .await;
-        }
-        if let Err(err) = result {
-            warn!(error = %err, "Could not commit the processed offsets on exit");
         }
     }
 
