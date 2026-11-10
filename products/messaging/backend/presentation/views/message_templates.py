@@ -964,6 +964,8 @@ class TransactionalEmailSendMixin:
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+            if queued.warnings:
+                outcome["warning_codes"] = [warning.code for warning in queued.warnings]
         except FieldNotAccepted as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise field_not_accepted_refusal(e.field) from None

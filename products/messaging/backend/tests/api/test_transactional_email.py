@@ -12,7 +12,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 
 import requests
@@ -978,7 +978,7 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_a_code_send_without_a_verified_sender_goes_out_from_the_sandbox_sender(
-        self, mock_post, _flag, _capture, _name, unverified_sender, pipeline_body, warned
+        self, mock_post, _flag, capture, _name, unverified_sender, pipeline_body, warned
     ):
         unverified = self._without_a_verified_sender(unverified_sender=unverified_sender)
         mock_post.return_value = MagicMock(status_code=202, json=lambda: pipeline_body)
@@ -990,9 +990,12 @@ class TestTransactionalEmail(APIBaseTest):
         assert (sandbox.integration_id, sandbox.created_by_id) == ("posthog-managed-sandbox", None)
         assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": sandbox.id}
         queued = {"message_id": pipeline_body["invocation_id"], "replayed": pipeline_body.get("replayed", False)}
+        reported = capture.call_args.kwargs["properties"]
         if not warned:
             assert response.json() == queued
+            assert "warning_codes" not in reported
             return
+        assert reported["warning_codes"] == ["sandbox_sender"]
         setup_url = self._setup_url(unverified)
         assert response.json() == {
             **queued,
@@ -1001,6 +1004,33 @@ class TestTransactionalEmail(APIBaseTest):
         (warning,) = response.json()["warnings"]
         assert "members of your organization" in warning["message"]
         assert setup_url in warning["agent_action"]
+
+    def test_a_sandbox_send_the_pipeline_accepted_keeps_its_message_id_when_the_database_fails_after(
+        self, mock_post, _flag, _capture
+    ):
+        unverified = self._without_a_verified_sender(unverified_sender=True)
+        accepted = False
+
+        def pipeline_accepts(*args: Any, **kwargs: Any) -> MagicMock:
+            nonlocal accepted
+            accepted = True
+            return MagicMock(
+                status_code=202, json=lambda: {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"}
+            )
+
+        def database_down_once_accepted(execute, sql, params, many, context):
+            if accepted:
+                raise OperationalError("the database went away")
+            return execute(sql, params, many, context)
+
+        mock_post.side_effect = pipeline_accepts
+        client = self._psak_client(["hog_flow:write"])
+        with connection.execute_wrapper(database_down_once_accepted):
+            response = client.post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json()["message_id"] == "invocation-1"
+        assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(unverified)]
 
     @parameterized.expand(
         [

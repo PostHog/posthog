@@ -61,6 +61,7 @@ from products.messaging.backend.models import FirstCodeSend, MessageCategory, Me
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.services.html_text import text_from_html
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
+from products.workflows.backend.facade.sandbox_email import provision_sandbox_sender
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
@@ -72,7 +73,6 @@ from products.workflows.backend.facade.transactional_emails import (
     create_transactional_email_workflow,
     resolve_transactional_email_sender,
     sending_domain_setup,
-    set_up_code_send_sandbox_sender,
     update_transactional_email_workflow,
 )
 
@@ -203,8 +203,6 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "domain at {setup_url} to send email.",
     ),
 }
-# These refusals name the page where the team verifies a sending domain.
-SANDBOX_REFUSAL_CODES = frozenset(code for code in PIPELINE_REFUSALS if code.startswith("sandbox_"))
 
 SANDBOX_SENDER_KIND = "email_sandbox"
 SANDBOX_SENDER_WARNING = (
@@ -554,10 +552,10 @@ def send_code_email(
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
-        accepted_send = _accepted_send(team, email)
+        accepted_send, sandbox_warning = _accepted_send(team, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key)
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
-    return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
+    return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, sandbox_warning=sandbox_warning)
 
 
 def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str, ...] = ()) -> None:
@@ -587,12 +585,13 @@ def _send_payload(
     return payload
 
 
-def _accepted_send(team: Team, email: CodeEmail) -> dict[str, Any]:
+def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWarning | None]:
+    sender, sandbox_warning = _code_send_sender(team, email)
     accepted: dict[str, Any] = {
         "content": _without_empty(
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
-        "from": _without_empty(_code_send_sender(team, email)),
+        "from": _without_empty(sender),
         "tracking": {"captureEngagement": email.capture_engagement},
     }
     if email.reply_to:
@@ -603,7 +602,7 @@ def _accepted_send(team: Team, email: CodeEmail) -> dict[str, Any]:
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
-    return accepted
+    return accepted, sandbox_warning
 
 
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
@@ -617,7 +616,7 @@ def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
     )
 
 
-def _code_send_sender(team: Team, email: CodeEmail) -> dict[str, Any]:
+def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWarning | None]:
     name, address = parseaddr(email.sender) if email.sender else ("", "")
     try:
         sender_id = code_send_sender_id(team_id=team.id, email=address or None)
@@ -633,8 +632,10 @@ def _code_send_sender(team: Team, email: CodeEmail) -> dict[str, Any]:
         if field := _field_the_sandbox_sender_cannot_send(email):
             setup_url = sending_domain_setup(team.id).setup_url
             raise SandboxFieldsUnsupported(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=setup_url), attr=field) from e
-        return {"integrationId": set_up_code_send_sandbox_sender(team)}
-    return {"integrationId": sender_id, "email": address, "name": name}
+        sandbox_sender_id = provision_sandbox_sender(team, None).id
+        logger.info("transactional_email_sandbox_sender_fallback", team_id=team.id)
+        return {"integrationId": sandbox_sender_id}, _sandbox_sender_warning(team.id)
+    return {"integrationId": sender_id, "email": address, "name": name}, None
 
 
 def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
@@ -663,6 +664,7 @@ def _queue(
     post: _PipelinePost,
     *,
     timeout: float = 10,
+    sandbox_warning: SendWarning | None = None,
 ) -> QueuedEmail:
     started_at = time.monotonic()
     try:
@@ -705,8 +707,9 @@ def _queue(
         if refusal is None:
             raise DeliveryUnavailable()
         error_class, message = refusal
-        if refusal_code in SANDBOX_REFUSAL_CODES:
-            message = message.format(setup_url=sending_domain_setup(team_id).setup_url)
+        if "{setup_url}" in message:
+            setup_url = sandbox_warning.setup_url if sandbox_warning else sending_domain_setup(team_id).setup_url
+            message = message.format(setup_url=setup_url)
         raise error_class(message)
 
     body = response.json()
@@ -714,7 +717,7 @@ def _queue(
         message_id=str(body["invocation_id"]),
         replayed=bool(body.get("replayed", False)),
         # The pipeline names the sender it used, so a replay warns the same way as the send it repeats.
-        warnings=(_sandbox_sender_warning(team_id),) if body.get("sender_kind") == SANDBOX_SENDER_KIND else (),
+        warnings=(sandbox_warning,) if sandbox_warning and body.get("sender_kind") == SANDBOX_SENDER_KIND else (),
     )
 
 

@@ -183,9 +183,7 @@ class SendWarningCode(LabeledStrEnum):
 class SendWarning:
     code: SendWarningCode
     message: str
-    # Where the team verifies a sending domain.
     setup_url: str
-    # The next step for an AI agent that made the send.
     agent_action: str
 
 

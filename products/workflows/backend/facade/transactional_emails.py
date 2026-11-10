@@ -16,7 +16,6 @@ from products.workflows.backend.services.transactional_email_workflows import (
     create_transactional_email_workflow,
     resolve_transactional_email_sender,
     sending_domain_setup,
-    set_up_code_send_sandbox_sender,
     update_transactional_email_workflow,
 )
 
@@ -34,6 +33,5 @@ __all__ = [
     "create_transactional_email_workflow",
     "resolve_transactional_email_sender",
     "sending_domain_setup",
-    "set_up_code_send_sandbox_sender",
     "update_transactional_email_workflow",
 ]

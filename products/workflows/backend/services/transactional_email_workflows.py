@@ -27,7 +27,6 @@ from products.workflows.backend.services.hog_flow_writes import create_workflow,
 from products.workflows.backend.services.sandbox_email.provisioning import (
     has_verified_own_sender,
     organization_blocked,
-    provision_sandbox_sender,
     sandbox_adoption_enabled,
 )
 
@@ -203,10 +202,6 @@ def code_send_sender_id(*, team_id: int, email: str | None) -> int:
 def code_send_sandbox_sender_available(team: Team) -> bool:
     """Whether a code send with no verified sender can go out from the team's sandbox sender instead."""
     return not has_verified_own_sender(team.id) and sandbox_adoption_enabled(team) and not organization_blocked(team)
-
-
-def set_up_code_send_sandbox_sender(team: Team) -> int:
-    return provision_sandbox_sender(team, None).id
 
 
 def sending_domain_setup(team_id: int) -> SendingDomainSetup:
