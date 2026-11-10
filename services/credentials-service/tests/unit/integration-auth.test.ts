@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { SignJWT } from 'jose'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
     IntegrationAuthError,
@@ -222,9 +222,20 @@ describe('integration token verification', () => {
         expect(await codeFor(verifier().verify(await mint({ iat: NOW_S - 90 })))).toBe('expired')
     })
 
+    // JwtVerifier reads the real clock, so pin it to the instant the tokens are minted at.
+    async function verifySecretsRoute(token: string): Promise<unknown> {
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(NOW_MS)
+        try {
+            return await new JwtVerifier(loader).verify(token).catch((err: unknown) => err)
+        } finally {
+            vi.useRealTimers()
+        }
+    }
+
     it('does not let the secrets route accept an integration token', async () => {
         const token = await mint({ claims: { keys: ['STRIPE_APP_SECRET_KEY'] } })
-        const outcome = await new JwtVerifier(loader).verify(token).catch((err: unknown) => err)
+        const outcome = await verifySecretsRoute(token)
 
         expect(outcome).toBeInstanceOf(AuthError)
         expect((outcome as AuthError).reason).toBe('bad_audience')
@@ -232,7 +243,7 @@ describe('integration token verification', () => {
 
     it('does not let the secrets route accept a token with both audiences', async () => {
         const token = await mint({ audience: [AUDIENCE, INTEGRATIONS_AUDIENCE], claims: { keys: ['A_KEY'] } })
-        const outcome = await new JwtVerifier(loader).verify(token).catch((err: unknown) => err)
+        const outcome = await verifySecretsRoute(token)
 
         expect((outcome as AuthError).reason).toBe('bad_audience')
     })
@@ -309,6 +320,7 @@ describe('integration authorization', () => {
         ['every allowed kind of a batch', ['slack', 'github'], ['slack', 'github'], null],
         ['a kind outside the token', ['slack'], 'github', 'forbidden_kind'],
         ['a batch with one kind outside the token', ['slack'], ['slack', 'github'], 'forbidden_kind'],
+        ['an empty kind list on a kind-narrowed token', ['slack'], [], 'forbidden_kind'],
         ['any kind when the token does not narrow', undefined, 'github', null],
     ])('handles %s', async (_label, kinds, kind, code) => {
         const g = await grant({ claims: kinds ? { kinds } : {} })
@@ -326,6 +338,7 @@ describe('integration authorization', () => {
         ['a batch with one ref outside the token', ['12'], ['12', '13'], 'forbidden_ref'],
         // A list cannot name its refs, so a ref-narrowed token must not reach it.
         ['a request that names no ref', ['12'], undefined, 'forbidden_ref'],
+        ['an empty ref list', ['12'], [], 'forbidden_ref'],
         ['any ref when the token does not narrow', undefined, '13', null],
     ])('handles %s', async (_label, refs, ref, code) => {
         const g = await grant({ claims: refs ? { refs } : {} })

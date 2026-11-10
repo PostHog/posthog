@@ -253,15 +253,24 @@ export class IntegrationGrant {
             throw this.error('forbidden_op', `operation ${op} needs an owner`)
         }
 
+        // An empty list names nothing, so `every` would pass vacuously. A narrowed token
+        // refuses it rather than let a route treat it as "all".
         const requestedKinds = asList(scope.kind)
-        if (kinds !== null && requestedKinds !== null && !requestedKinds.every((kind) => kinds.includes(kind))) {
+        if (
+            kinds !== null &&
+            requestedKinds !== null &&
+            (requestedKinds.length === 0 || !requestedKinds.every((kind) => kinds.includes(kind)))
+        ) {
             throw this.error('forbidden_kind', 'the token does not allow this kind')
         }
 
         // Fail closed: a ref-narrowed token must not reach a route that cannot name the refs
         // it touches, such as a list.
         const requestedRefs = asList(scope.ref)
-        if (refs !== null && (requestedRefs === null || !requestedRefs.every((ref) => refs.includes(ref)))) {
+        if (
+            refs !== null &&
+            (requestedRefs === null || requestedRefs.length === 0 || !requestedRefs.every((ref) => refs.includes(ref)))
+        ) {
             throw this.error('forbidden_ref', 'the token does not allow this ref')
         }
     }

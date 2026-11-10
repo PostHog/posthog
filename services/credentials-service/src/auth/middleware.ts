@@ -29,7 +29,9 @@ export interface IntegrationScopeSpec {
 export interface IntegrationAuthEnv<O extends IntegrationOp = IntegrationOp> {
     Variables: {
         integrationGrant: IntegrationGrant | undefined
-        integrationAuth: IntegrationAuth<O>
+        // `op` is widened so that stacked middlewares (say `read` then `refresh`) merge into one
+        // usable type instead of an impossible intersection of two op literals.
+        integrationAuth: Omit<IntegrationAuth<O>, 'op'> & { op: IntegrationOp }
     }
 }
 
@@ -93,6 +95,7 @@ export function createIntegrationAuth(
             }
             c.set('integrationAuth', auth)
             await next()
+            return undefined
         }
     }
 }
