@@ -3106,8 +3106,6 @@ export interface RefineScannerDraftResponseApi {
     changed_fields: DraftFieldEnumApi[]
     /** Each part of the instruction that could not be applied, addressed to the person. */
     could_not: string[]
-    /** The request's `refinement_index`, echoed back. */
-    refinement_index: number
 }
 
 export interface EstimateExperimentScopeApi {

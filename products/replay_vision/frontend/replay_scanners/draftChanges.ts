@@ -1,18 +1,14 @@
 import { objectsEqual } from 'lib/utils/objects'
 
-import type { RefineScannerDraftCurrentApi, RefineScannerDraftResponseApi } from '../generated/api.schemas'
+import type {
+    DraftFieldEnumApi,
+    RefineScannerDraftCurrentApi,
+    RefineScannerDraftResponseApi,
+} from '../generated/api.schemas'
 import type { ScannerConfig, ScannerFormValues } from './types'
 
-export type DraftChangedField =
-    | 'name'
-    | 'description'
-    | 'prompt'
-    | 'scanner_type'
-    | 'type_config'
-    | 'query'
-    | 'sampling'
-    | 'model'
-    | 'budget'
+/** The parts of a draft, as the refine endpoint reports them changed. */
+export type DraftChangedField = DraftFieldEnumApi
 
 function configWithoutPrompt(scanner: ScannerFormValues): object {
     if (!scanner.scanner_config) {
@@ -43,6 +39,11 @@ export function draftChanges(drafted: ScannerFormValues, saved: ScannerFormValue
     return (Object.keys(changed) as DraftChangedField[]).filter((field) => changed[field])
 }
 
+/** Whether the form's credit limit is on, read the way the editor reads it: a limit without the toggle counts as on. */
+export function creditLimitOn(scanner: ScannerFormValues): boolean {
+    return scanner.credit_limit_enabled ?? scanner.credit_limit != null
+}
+
 /** The form as the refine endpoint reads it: the create body's shape, with the limit only when it is on. */
 export function refineCurrentDraft(scanner: ScannerFormValues): RefineScannerDraftCurrentApi {
     return {
@@ -54,7 +55,7 @@ export function refineCurrentDraft(scanner: ScannerFormValues): RefineScannerDra
         sampling_mode: scanner.sampling_mode,
         sampling_rate: scanner.sampling_rate,
         model: scanner.model,
-        credit_limit: scanner.credit_limit_enabled ? (scanner.credit_limit ?? null) : null,
+        credit_limit: creditLimitOn(scanner) ? (scanner.credit_limit ?? null) : null,
         free_only: !!scanner.free_only,
     } as RefineScannerDraftCurrentApi
 }
@@ -63,7 +64,7 @@ export function refineCurrentDraft(scanner: ScannerFormValues): RefineScannerDra
 function applyRefinedConfig(
     next: ScannerFormValues,
     refined: RefineScannerDraftResponseApi,
-    changed: Set<string>
+    changed: Set<DraftChangedField>
 ): void {
     const refinedConfig = refined.scanner_config as ScannerConfig
     if (changed.has('scanner_type') || changed.has('type_config')) {
@@ -81,7 +82,7 @@ function applyRefinedConfig(
 function applyRefinedDials(
     next: ScannerFormValues,
     refined: RefineScannerDraftResponseApi,
-    changed: Set<string>
+    changed: Set<DraftChangedField>
 ): void {
     if (changed.has('query')) {
         // A null query is the model clearing the filter ("watch every recording"), not a missing one.
@@ -101,7 +102,7 @@ export function refinedFormValues(
     scanner: ScannerFormValues,
     refined: RefineScannerDraftResponseApi
 ): ScannerFormValues {
-    const changed = new Set<string>(refined.changed_fields)
+    const changed = new Set(refined.changed_fields)
     const next: ScannerFormValues = { ...scanner }
     if (changed.has('name')) {
         next.name = refined.name

@@ -100,8 +100,8 @@ _MAX_RATIONALE_LENGTH = 500
 MAX_REFINE_INSTRUCTION_LENGTH = 500
 _MAX_COULD_NOT = 5
 _MAX_COULD_NOT_LENGTH = 200
-# The draft request's own ceiling on a monthly credit budget.
-_MAX_REFINE_BUDGET = 100_000_000
+# The ceiling on a monthly credit budget a draft is sized to, from the request or from a refine instruction.
+MAX_DRAFT_CREDIT_BUDGET = 100_000_000
 _MAX_DRAFT_TAGS = 12
 _DEFAULT_SCALE = (0, 10)
 # Draft-only sanity bounds. Create accepts any min < max, but a drafted scale outside every plausible
@@ -308,6 +308,8 @@ class ScannerDraft:
     free_only: bool = False
     query_additions: dict[str, Any] | None = None
     narrowing_refusal: str | None = None
+    # A refine kept one of the "any" events, because the person's own filters stay required.
+    events_narrowed_for_kept_filters: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -338,9 +340,6 @@ class DraftField(models.TextChoices):
     SAMPLING = "sampling", "Sampling"
     MODEL = "model", "Model"
     BUDGET = "budget", "Budget"
-
-
-DRAFT_FIELDS: tuple[str, ...] = tuple(DraftField.values)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1520,11 +1519,15 @@ def _finalize(
     allowed_experiments: Sequence[_MatchedExperiment] = (),
     pinned_experiment: _MatchedExperiment | None = None,
     pinned_variants: Sequence[str] | None = None,
+    kept_filters: bool = False,
 ) -> ScannerDraft:
     """Normalize the model output; costing is applied by the caller.
 
     `pinned_variants` are the variants of `pinned_experiment` the user picked, or empty for every
     variant. When it is set, the model's variant is ignored.
+
+    `kept_filters` says a refine merges the result into a filter that keeps conditions of its own, which
+    the OR operand would make optional the same way it would the drafted pages.
     """
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
@@ -1596,7 +1599,9 @@ def _finalize(
     # cohort with the events as well, scanning a union the goal never asked for. It only survives
     # when the events are the entire filter.
     events_match: Literal["all", "any"] = parsed.filter_events_match
-    downgraded_match = events_match == "any" and bool(pages or kept_actions or kept_cohorts or event_properties)
+    drafted_filters = bool(pages or kept_actions or kept_cohorts or event_properties)
+    downgraded_match = events_match == "any" and (drafted_filters or kept_filters)
+    events_narrowed_for_kept_filters = downgraded_match and not drafted_filters and len(events) > 1
     if downgraded_match:
         # One event, not an AND of all of them: "any" means the events are alternatives, and
         # requiring one session to do every one of them matches almost nobody. A property filter's
@@ -1662,6 +1667,7 @@ def _finalize(
         query=query,
         sampling_mode=parsed.sampling_mode,
         model=parsed.model,
+        events_narrowed_for_kept_filters=events_narrowed_for_kept_filters,
     )
 
 
@@ -1959,6 +1965,20 @@ def _ground(
     return _Grounding(pages=pages, candidates=candidates, dead_events=dead_events, matches=matches)
 
 
+def _company_label(team: Team, include_business_context: bool) -> str:
+    if not include_business_context:
+        return ""
+    return " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
+
+
+def _pinned_variants(
+    chosen_query: dict[str, Any] | None, experiment_variants: Sequence[str] | None
+) -> tuple[str, ...] | None:
+    # With a chosen filter the user fixed the experiment scope too, so every variant is theirs unless
+    # they picked some. Without one, the model may still narrow the picked experiment to a variant.
+    return tuple(experiment_variants or ()) if chosen_query is not None or experiment_variants else None
+
+
 def draft_scanner_from_goal(
     *,
     team: Team,
@@ -1994,14 +2014,8 @@ def draft_scanner_from_goal(
     fields come back None and the wizard keeps its defaults.
     """
     pinned_experiment = _pinned_experiment(team, experiment_id, experiment_variants)
-    # With a chosen filter the user fixed the experiment scope too, so every variant is theirs unless
-    # they picked some. Without one, the model may still narrow the picked experiment to a variant.
-    pinned_variants = tuple(experiment_variants or ()) if chosen_query is not None or experiment_variants else None
-    company = (
-        " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
-        if include_business_context
-        else ""
-    )
+    pinned_variants = _pinned_variants(chosen_query, experiment_variants)
+    company = _company_label(team, include_business_context)
 
     grounding = _ground(team, goal, user_access_control, allowed_scopes)
     pages, candidates, matches = grounding.pages, grounding.candidates, grounding.matches
@@ -2099,21 +2113,13 @@ def refine_scanner_draft(
     Raises DraftError on model failure.
     """
     pinned_experiment = _pinned_experiment(team, experiment_id, experiment_variants)
-    pinned_variants = tuple(experiment_variants or ()) if chosen_query is not None or experiment_variants else None
+    pinned_variants = _pinned_variants(chosen_query, experiment_variants)
     current_scope = config_experiment_scope(current.scanner_config) if current.scanner_type == "experiment" else None
     # The draft's own experiment, so a change that leaves the recordings alone keeps watching it.
-    current_experiment = (
-        pinned_experiment
-        if pinned_experiment is not None
-        else _pinned_experiment(team, current_scope["experiment_id"], None)
-        if current_scope is not None
-        else None
-    )
-    company = (
-        " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
-        if include_business_context
-        else ""
-    )
+    current_experiment = pinned_experiment
+    if current_experiment is None and current_scope is not None:
+        current_experiment = _pinned_experiment(team, current_scope["experiment_id"], None)
+    company = _company_label(team, include_business_context)
     grounding = _ground(team, f"{goal}\n{instruction}", user_access_control, allowed_scopes)
     matches = grounding.matches
     offered_experiments = (
@@ -2182,11 +2188,14 @@ def refine_scanner_draft(
         allowed_experiments=offered_experiments if parsed.revise_recordings else (),
         pinned_experiment=experiment_pin,
         pinned_variants=variant_pin,
+        kept_filters=parsed.revise_recordings and _has_kept_filters(current.query),
     )
     if revised.scanner_type == current.scanner_type:
         revised = replace(revised, scanner_config={**revised.scanner_config, **_undrafted_settings(current)})
-    budget_named = parsed.monthly_credit_budget is not None and parsed.monthly_credit_budget > 0
-    budget = min(parsed.monthly_credit_budget or 0, _MAX_REFINE_BUDGET) if budget_named else monthly_credit_budget
+    budget_named = False
+    budget = monthly_credit_budget
+    if (named := parsed.monthly_credit_budget) is not None and named > 0:
+        budget_named, budget = True, min(named, MAX_DRAFT_CREDIT_BUDGET)
     revised = replace(
         revised,
         name=revised.name if revised.name == current.name else _free_scanner_name(team.id, revised.name),
@@ -2199,26 +2208,17 @@ def refine_scanner_draft(
         or revised.model != current.model
         or revised.sampling_mode != current.sampling_mode
     )
-    merged_query = _merged_recordings_query(current.query, revised.query) if parsed.revise_recordings else current.query
-    any_event_dropped = (
-        parsed.revise_recordings
-        and (revised.query or {}).get("operand") == "OR"
-        and (merged_query or {}).get("operand") != "OR"
+    revised = replace(
+        revised,
+        query=_merged_recordings_query(current.query, revised.query) if parsed.revise_recordings else current.query,
     )
-    revised = replace(revised, query=merged_query)
-    if resolve:
-        revised = (
-            _settled_and_costed(revised, team=team, user=user, monthly_credit_budget=budget, chosen_query=chosen_query)
-            if parsed.revise_recordings
-            else _costed(
-                revised,
-                _solve_or_none(
-                    _budget_solver(revised, team=team, user=user, monthly_credit_budget=budget),
-                    revised.query,
-                    team_id=team.id,
-                ),
-            )
+    if resolve and parsed.revise_recordings:
+        revised = _settled_and_costed(
+            revised, team=team, user=user, monthly_credit_budget=budget, chosen_query=chosen_query
         )
+    elif resolve:
+        solver = _budget_solver(revised, team=team, user=user, monthly_credit_budget=budget)
+        revised = _costed(revised, _solve_or_none(solver, revised.query, team_id=team.id))
     if not resolve or revised.sampling_mode is None:
         revised = replace(
             revised,
@@ -2227,7 +2227,8 @@ def refine_scanner_draft(
             estimated_monthly_observations=None,
         )
     model_could_not = [line.strip()[:_MAX_COULD_NOT_LENGTH] for line in parsed.could_not if line.strip()]
-    could_not = [*([_KEPT_FILTERS_NOTE] if any_event_dropped else []), *model_could_not][:_MAX_COULD_NOT]
+    could_not = [*([_KEPT_FILTERS_NOTE] if revised.events_narrowed_for_kept_filters else []), *model_could_not]
+    could_not = could_not[:_MAX_COULD_NOT]
     return ScannerDraftRefinement(draft=revised, changed_fields=_changed_fields(current, revised), could_not=could_not)
 
 
@@ -2283,12 +2284,16 @@ def _merged_recordings_query(current: dict[str, Any] | None, drafted: dict[str, 
         merged["properties"] = properties
     else:
         merged.pop("properties", None)
-    if merged.get("operand") == "OR" and (kept or merged.get("console_log_filters")):
-        # The operand covers the whole query, so OR would make the kept filters optional. Same rule as the
-        # drafter: "any" only survives when the events are the entire filter, otherwise one event stays.
-        merged.pop("operand")
-        merged["events"] = (merged.get("events") or [])[:1]
     return merged
+
+
+def _has_kept_filters(query: dict[str, Any] | None) -> bool:
+    """Whether a refine that changes the recordings keeps conditions of the current filter besides its own."""
+    if not query:
+        return False
+    properties = query.get("properties")
+    kept = isinstance(properties, list) and any(not _is_drafted_property(p) for p in properties)
+    return kept or bool(query.get("console_log_filters"))
 
 
 def _current_draft_briefing(current: CurrentDraft) -> dict[str, Any]:
@@ -2307,24 +2312,25 @@ def _current_draft_briefing(current: CurrentDraft) -> dict[str, Any]:
 
 
 def _changed_fields(current: CurrentDraft, revised: ScannerDraft) -> list[str]:
-    """The parts of `revised` that differ from `current`, in `DRAFT_FIELDS` order."""
+    """The parts of `revised` that differ from `current`, in `DraftField` order."""
 
     def without_prompt(config: dict[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in config.items() if key != "prompt"}
 
     changed = {
-        "name": current.name.strip() != revised.name.strip(),
-        "description": current.description.strip() != revised.description.strip(),
-        "prompt": str(current.scanner_config.get("prompt") or "").strip()
+        DraftField.NAME: current.name.strip() != revised.name.strip(),
+        DraftField.DESCRIPTION: current.description.strip() != revised.description.strip(),
+        DraftField.PROMPT: str(current.scanner_config.get("prompt") or "").strip()
         != str(revised.scanner_config.get("prompt") or "").strip(),
-        "scanner_type": current.scanner_type != revised.scanner_type,
-        "type_config": without_prompt(current.scanner_config) != without_prompt(revised.scanner_config),
-        "query": (current.query or None) != (revised.query or None),
-        "sampling": (current.sampling_mode, current.sampling_rate) != (revised.sampling_mode, revised.sampling_rate),
-        "model": current.model != revised.model,
-        "budget": (current.free_only, current.credit_limit) != (revised.free_only, revised.credit_limit),
+        DraftField.SCANNER_TYPE: current.scanner_type != revised.scanner_type,
+        DraftField.TYPE_CONFIG: without_prompt(current.scanner_config) != without_prompt(revised.scanner_config),
+        DraftField.QUERY: (current.query or None) != (revised.query or None),
+        DraftField.SAMPLING: (current.sampling_mode, current.sampling_rate)
+        != (revised.sampling_mode, revised.sampling_rate),
+        DraftField.MODEL: current.model != revised.model,
+        DraftField.BUDGET: (current.free_only, current.credit_limit) != (revised.free_only, revised.credit_limit),
     }
-    return [field for field in DRAFT_FIELDS if changed[field]]
+    return [field.value for field in DraftField if changed[field]]
 
 
 def _budget_solver(

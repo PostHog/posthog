@@ -29,10 +29,12 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
+import { ScannerModelEnumApi } from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { freeCreditsCoverage } from '../../utils/quotaProjection'
+import type { DraftChangedField } from '../draftChanges'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { DEFAULT_GOAL_BUDGET, type DraftRefinementSummary, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerEditorSceneLogic, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
@@ -333,9 +335,7 @@ export function eligibleFilterGroups(
     ]
 }
 
-/** The landing step after a goal-based draft: the whole drafted config, ordered by comprehension,
- * with each section deep-linking into the wizard step that edits it. */
-export interface DraftRefineChip {
+interface DraftRefineChip {
     /** Sent with the refine for telemetry, so it stays a slug. */
     key: string
     label: string
@@ -345,7 +345,7 @@ export interface DraftRefineChip {
 const MAX_REFINE_CHIPS = 3
 
 /** Suggested changes for this draft, each one the refine can apply. */
-export function draftRefineChips(scanner: ReplayScanner): DraftRefineChip[] {
+function draftRefineChips(scanner: ReplayScanner): DraftRefineChip[] {
     const chips: DraftRefineChip[] = []
     if (scanner.free_only) {
         chips.push({
@@ -358,15 +358,27 @@ export function draftRefineChips(scanner: ReplayScanner): DraftRefineChip[] {
     if (scanner.scanner_type !== 'monitor' && scanner.scanner_type !== 'experiment') {
         chips.push({ key: 'yes_no_check', label: 'Make it a yes/no check', instruction: 'Make it a yes/no check' })
     }
-    if (scanner.model !== 'gemini-3.5-flash-lite') {
+    if (scanner.model !== ScannerModelEnumApi.Gemini35FlashLite) {
         chips.push({ key: 'cheaper_model', label: 'Use a cheaper model', instruction: 'Use the cheapest model' })
     }
     return chips.slice(0, MAX_REFINE_CHIPS)
 }
 
+const DRAFT_FIELD_LABELS: Record<DraftChangedField, string> = {
+    name: 'Name',
+    description: 'Description',
+    prompt: 'Prompt',
+    scanner_type: 'Scanner type',
+    type_config: 'Type settings',
+    query: 'Recordings',
+    sampling: 'Sampling',
+    model: 'Model',
+    budget: 'Budget',
+}
+
 /** One line on what the last refine did. */
-function refinementSummary(refinement: DraftRefinementSummary, labels: Record<string, string>): string {
-    const changed = refinement.changedFields.map((field) => labels[field] ?? field)
+function refinementSummary(refinement: DraftRefinementSummary, labels: Record<DraftChangedField, string>): string {
+    const changed = refinement.changedFields.map((field) => labels[field])
     const parts = [changed.length > 0 ? `Changed: ${changed.join(', ')}.` : 'Nothing changed.']
     if (refinement.couldNot.length > 0) {
         parts.push(`Could not: ${refinement.couldNot.join(' ')}`)
@@ -380,7 +392,7 @@ function DraftRefineBox({
     fieldLabels,
 }: {
     scannerId: string
-    fieldLabels: Record<string, string>
+    fieldLabels: Record<DraftChangedField, string>
 }): JSX.Element | null {
     const logic = replayScannerLogic({ id: scannerId })
     const { scanner, goalRefinementLoading, lastRefinement } = useValues(logic)
@@ -460,13 +472,13 @@ function DraftRefineBox({
 
 const REFINE_HIGHLIGHT_MS = 4000
 
-function anyRefined(refined: Set<string>, ...fields: string[]): boolean {
+function anyRefined(refined: Set<DraftChangedField>, ...fields: DraftChangedField[]): boolean {
     return fields.some((field) => refined.has(field))
 }
 
 /** The fields of the last refine, for a few seconds after it lands. */
-function useRecentlyRefinedFields(refinement: DraftRefinementSummary | null): Set<string> {
-    const [fields, setFields] = useState<Set<string>>(new Set())
+function useRecentlyRefinedFields(refinement: DraftRefinementSummary | null): Set<DraftChangedField> {
+    const [fields, setFields] = useState<Set<DraftChangedField>>(new Set())
     useEffect(() => {
         if (!refinement) {
             setFields(new Set())
@@ -479,6 +491,8 @@ function useRecentlyRefinedFields(refinement: DraftRefinementSummary | null): Se
     return fields
 }
 
+/** The landing step after a goal-based draft: the whole drafted config, ordered by comprehension,
+ * with each section deep-linking into the wizard step that edits it. */
 export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
     const {
@@ -745,17 +759,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
             <DraftRefineBox
                 scannerId={scannerId}
-                fieldLabels={{
-                    name: 'Name',
-                    description: 'Description',
-                    prompt: 'Prompt',
-                    scanner_type: 'Scanner type',
-                    type_config: 'Type settings',
-                    query: sectionLabels.triggers,
-                    sampling: 'Sampling',
-                    model: 'Model',
-                    budget: sectionLabels.budget,
-                }}
+                fieldLabels={{ ...DRAFT_FIELD_LABELS, query: sectionLabels.triggers, budget: sectionLabels.budget }}
             />
 
             <div className="flex items-center justify-end gap-2">

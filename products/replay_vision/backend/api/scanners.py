@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, cast
 from uuid import UUID
@@ -165,6 +167,7 @@ from products.replay_vision.backend.scanner_dashboard import (
     scanners_ready_for_dashboard,
 )
 from products.replay_vision.backend.scanner_draft import (
+    MAX_DRAFT_CREDIT_BUDGET,
     MAX_REFINE_INSTRUCTION_LENGTH,
     CurrentDraft,
     DraftError,
@@ -266,6 +269,9 @@ def _reported_entry_point(context: dict[str, Any], claimed: str | None) -> str |
         return claimed
     return source.value
 
+
+# A short telemetry key the client sends, such as an entry point or a suggestion chip.
+_TELEMETRY_SLUG_PATTERN = r"^[a-z0-9_]{1,64}$"
 
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
@@ -542,7 +548,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         ),
     )
     entry_point = serializers.RegexField(
-        r"^[a-z0-9_]{1,64}$",
+        _TELEMETRY_SLUG_PATTERN,
         required=False,
         allow_null=True,
         write_only=True,
@@ -2089,7 +2095,7 @@ class DraftScannerRequestSerializer(serializers.Serializer):
     monthly_credit_budget = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=100_000_000,
+        max_value=MAX_DRAFT_CREDIT_BUDGET,
         help_text=(
             "Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves "
             "`sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets "
@@ -2222,7 +2228,11 @@ class RefineScannerDraftCurrentSerializer(serializers.Serializer):
 
     name = serializers.CharField(max_length=255, help_text="The draft's current name.")
     description = serializers.CharField(
-        max_length=1000, allow_blank=True, required=False, default="", help_text="The draft's current description."
+        max_length=_MAX_DESCRIPTION_LENGTH,
+        allow_blank=True,
+        required=False,
+        default="",
+        help_text="The draft's current description.",
     )
     scanner_type = serializers.ChoiceField(choices=ScannerType.choices, help_text="The draft's current scanner type.")
     scanner_config = serializers.JSONField(
@@ -2307,7 +2317,7 @@ class RefineScannerDraftRequestSerializer(DraftScannerRequestSerializer):
         help_text="Which refine of this draft this is, starting at 1. Echoed back for telemetry.",
     )
     chip = serializers.RegexField(
-        r"^[a-z0-9_]{1,64}$",
+        _TELEMETRY_SLUG_PATTERN,
         required=False,
         allow_null=True,
         default=None,
@@ -2326,7 +2336,33 @@ class RefineScannerDraftResponseSerializer(DraftScannerResponseSerializer):
         child=serializers.CharField(),
         help_text="Each part of the instruction that could not be applied, addressed to the person.",
     )
-    refinement_index = serializers.IntegerField(help_text="The request's `refinement_index`, echoed back.")
+
+
+@contextmanager
+def _draft_experiment_errors() -> Iterator[None]:
+    """The drafter's experiment errors, as the 400 the person can act on."""
+    try:
+        yield
+    except UnwatchableExperimentError:
+        raise ValidationError(
+            {"experiment_id": "Pick a running experiment that splits people, not groups, into variants."}
+        )
+    except UnknownExperimentVariantError as error:
+        raise ValidationError({"query": f"The experiment has no variant named {error.variant!r}."})
+
+
+def _drafted_properties(drafted: ScannerDraft) -> dict[str, Any]:
+    """The telemetry the draft and the refine both report about the scanner they drafted."""
+    return {
+        "scanner_type": drafted.scanner_type,
+        # Whether the goal mapped to a real filter or fell back to no targeting.
+        "has_query": bool(drafted.query),
+        "has_experiment_targeting": drafted.scanner_type == ScannerType.EXPERIMENT,
+        "sampling_mode": drafted.sampling_mode,
+        "sampling_rate": drafted.sampling_rate,
+        "model": drafted.model,
+        "credit_limit": drafted.credit_limit,
+    }
 
 
 def _draft_response_body(drafted: ScannerDraft) -> dict[str, Any]:
@@ -3528,25 +3564,20 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         experiment_id = body.validated_data.get("experiment_id")
 
         try:
-            drafted = draft_scanner_from_goal(
-                team=self.team,
-                user=cast(User, request.user),
-                goal=goal,
-                monthly_credit_budget=monthly_credit_budget,
-                user_access_control=self.user_access_control,
-                include_business_context=include_business_context,
-                allowed_scopes=allowed_scopes,
-                experiment_id=experiment_id,
-                experiment_variants=scope.experiment_variants if scope else None,
-                free_only=free_only,
-                chosen_query=scope.query if scope else None,
-            )
-        except UnwatchableExperimentError:
-            raise ValidationError(
-                {"experiment_id": "Pick a running experiment that splits people, not groups, into variants."}
-            )
-        except UnknownExperimentVariantError as error:
-            raise ValidationError({"query": f"The experiment has no variant named {error.variant!r}."})
+            with _draft_experiment_errors():
+                drafted = draft_scanner_from_goal(
+                    team=self.team,
+                    user=cast(User, request.user),
+                    goal=goal,
+                    monthly_credit_budget=monthly_credit_budget,
+                    user_access_control=self.user_access_control,
+                    include_business_context=include_business_context,
+                    allowed_scopes=allowed_scopes,
+                    experiment_id=experiment_id,
+                    experiment_variants=scope.experiment_variants if scope else None,
+                    free_only=free_only,
+                    chosen_query=scope.query if scope else None,
+                )
         except DraftError as e:
             # The 503 below is deliberately uniform, so the reason only survives here.
             logger.warning(
@@ -3572,19 +3603,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "replay_vision_scanner_drafted",
             {
                 **draft_properties,
+                **_drafted_properties(drafted),
                 "success": True,
-                "scanner_type": drafted.scanner_type,
-                # Whether the goal mapped to a real filter or fell back to no targeting.
-                "has_query": bool(drafted.query),
                 "query_extended": bool(drafted.query_additions),
                 # Why proposed narrowing was not kept, so a prompt that keeps proposing dead filters shows up.
                 "narrowing_refusal": drafted.narrowing_refusal,
-                "has_experiment_targeting": drafted.scanner_type == ScannerType.EXPERIMENT,
                 "experiment_picked": experiment_id is not None,
-                "sampling_mode": drafted.sampling_mode,
-                "sampling_rate": drafted.sampling_rate,
-                "model": drafted.model,
-                "credit_limit": drafted.credit_limit,
                 "estimated_monthly_observations": drafted.estimated_monthly_observations,
             },
             team=self.team,
@@ -3609,11 +3633,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def _draft_budget(self, validated: dict[str, Any]) -> int:
         """The monthly credit budget a new draft is sized to."""
-        monthly_credit_budget = self._refine_budget(validated)
         if not validated["free_only"]:
-            return monthly_credit_budget
-        # A free-only draft saved after the free credits run out pauses before its first scan.
+            return validated["monthly_credit_budget"]
         cap = org_credit_cap(self.team.organization_id)
+        # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
+        monthly_credit_budget = free_credits_ceiling(cap)
+        # A free-only draft saved after the free credits run out pauses before its first scan.
         if quota_state_for_cap(self.team.organization_id, cap).credits_used >= monthly_credit_budget:
             raise ValidationError(
                 {
@@ -3631,7 +3656,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         """
         if not validated["free_only"]:
             return validated["monthly_credit_budget"]
-        # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
         return free_credits_ceiling(org_credit_cap(self.team.organization_id))
 
     def _draft_allowed_scopes(self, request: Request, validated: dict[str, Any]) -> list[str] | None:
@@ -3682,92 +3706,75 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not draft_refine_enabled(self.team, user):
             raise NotFound()
         self._check_draft_access()
+        properties: dict[str, Any] = {"team_id": self.team_id}
         try:
             body = RefineScannerDraftRequestSerializer(data=request.data)
             body.is_valid(raise_exception=True)
             validated = body.validated_data
+            # The instruction is customer text, so only its length goes into telemetry.
+            properties |= {
+                "instruction_length": len(validated["instruction"]),
+                "refinement_index": validated["refinement_index"],
+                "chip": validated["chip"],
+            }
             monthly_credit_budget = self._refine_budget(validated)
             allowed_scopes = self._draft_allowed_scopes(request, validated)
             current = validated["current"]
-            # The current draft's experiment reaches the model briefing too, so it gets the same check.
-            if (current_scope := config_experiment_scope(current["scanner_config"])) is not None:
+            experiment_id = validated.get("experiment_id")
+            # The current draft's experiment reaches the model briefing too, so it gets the same check,
+            # unless it is the picked experiment checked above.
+            current_scope = config_experiment_scope(current["scanner_config"])
+            if current_scope is not None and current_scope["experiment_id"] != experiment_id:
                 self._check_draft_experiment(current_scope["experiment_id"], allowed_scopes)
             if current["query"] is not None:
                 self._check_query_references(current["query"], allowed_scopes)
-        except ValidationError as error:
+            scope = validated.get("chosen_scope")
+            with _draft_experiment_errors():
+                refinement = refine_scanner_draft(
+                    team=self.team,
+                    user=user,
+                    goal=validated["goal"],
+                    instruction=validated["instruction"],
+                    current=CurrentDraft(**current),
+                    monthly_credit_budget=monthly_credit_budget,
+                    user_access_control=self.user_access_control,
+                    include_business_context=allowed_scopes is None,
+                    allowed_scopes=allowed_scopes,
+                    experiment_id=experiment_id,
+                    experiment_variants=scope.experiment_variants if scope else None,
+                    chosen_query=scope.query if scope else None,
+                )
+        except (ValidationError, DraftError) as error:
+            if isinstance(error, ValidationError):
+                # The field the request failed on, never what was in it.
+                failed_field = next(iter(error.detail), None) if isinstance(error.detail, dict) else None
+                failure: dict[str, Any] = {"failure_reason": "invalid_request", "failure_attr": failed_field}
+            else:
+                logger.warning("replay_vision.scanner_draft.refine_failed", team_id=self.team_id, reason=error.reason)
+                failure = {"failure_reason": error.reason}
             report_user_action(
                 user,
                 "replay_vision_scanner_draft_refined",
-                {
-                    "success": False,
-                    "failure_reason": "invalid_request",
-                    "failure_attr": next(iter(error.detail), None) if isinstance(error.detail, dict) else None,
-                    "team_id": self.team_id,
-                },
+                {**properties, "success": False, **failure},
                 team=self.team,
                 request=request,
             )
-            raise
-        scope = validated.get("chosen_scope")
-        refinement_index = validated["refinement_index"]
-        # The instruction is customer text, so only its length goes into telemetry.
-        refine_properties: dict[str, Any] = {
-            "instruction_length": len(validated["instruction"]),
-            "refinement_index": refinement_index,
-            "chip": validated["chip"],
-            "team_id": self.team_id,
-        }
-        try:
-            refinement = refine_scanner_draft(
-                team=self.team,
-                user=user,
-                goal=validated["goal"],
-                instruction=validated["instruction"],
-                current=CurrentDraft(**current),
-                monthly_credit_budget=monthly_credit_budget,
-                user_access_control=self.user_access_control,
-                include_business_context=allowed_scopes is None,
-                allowed_scopes=allowed_scopes,
-                experiment_id=validated.get("experiment_id"),
-                experiment_variants=scope.experiment_variants if scope else None,
-                chosen_query=scope.query if scope else None,
-            )
-        except UnwatchableExperimentError:
-            raise ValidationError(
-                {"experiment_id": "Pick a running experiment that splits people, not groups, into variants."}
-            )
-        except UnknownExperimentVariantError as error:
-            raise ValidationError({"query": f"The experiment has no variant named {error.variant!r}."})
-        except DraftError as e:
-            logger.warning("replay_vision.scanner_draft.refine_failed", team_id=self.team_id, reason=e.reason)
-            report_user_action(
-                user,
-                "replay_vision_scanner_draft_refined",
-                {**refine_properties, "success": False, "failure_reason": e.reason},
-                team=self.team,
-                request=request,
-            )
+            if isinstance(error, ValidationError):
+                raise
             return Response(
                 {"detail": "Couldn't update the draft right now. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        drafted = refinement.draft
         report_user_action(
             user,
             "replay_vision_scanner_draft_refined",
             {
-                **refine_properties,
+                **properties,
+                **_drafted_properties(refinement.draft),
                 "success": True,
                 "changed_fields": refinement.changed_fields,
                 "could_not_count": len(refinement.could_not),
-                "scanner_type": drafted.scanner_type,
-                "has_query": bool(drafted.query),
-                "has_experiment_targeting": drafted.scanner_type == ScannerType.EXPERIMENT,
-                "sampling_mode": drafted.sampling_mode,
-                "sampling_rate": drafted.sampling_rate,
-                "model": drafted.model,
-                "credit_limit": drafted.credit_limit,
             },
             team=self.team,
             request=request,
@@ -3775,10 +3782,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         return Response(
             RefineScannerDraftResponseSerializer(
                 {
-                    **_draft_response_body(drafted),
+                    **_draft_response_body(refinement.draft),
                     "changed_fields": refinement.changed_fields,
                     "could_not": refinement.could_not,
-                    "refinement_index": refinement_index,
                 }
             ).data
         )

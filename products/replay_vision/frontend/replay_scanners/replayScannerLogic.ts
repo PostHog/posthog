@@ -72,7 +72,13 @@ import {
     parseSortParam,
     serializeSortParam,
 } from '../utils/urlParams'
-import { draftChanges, refineCurrentDraft, refinedFormValues } from './draftChanges'
+import {
+    type DraftChangedField,
+    creditLimitOn,
+    draftChanges,
+    refineCurrentDraft,
+    refinedFormValues,
+} from './draftChanges'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
@@ -463,9 +469,21 @@ export interface DraftRefineRequest {
 
 /** What the last refine changed, for the review page's summary and highlights. */
 export interface DraftRefinementSummary {
-    changedFields: string[]
+    changedFields: DraftChangedField[]
     couldNot: string[]
-    at: number
+}
+
+/** The refine state of the draft in front of the person, all reset together when that draft is replaced. */
+interface DraftSession {
+    // Bumped on every replacement, so a refine still in flight can tell its draft is gone.
+    generation: number
+    // How many refines the draft went through, reported with its save.
+    refinementCount: number
+    lastRefinement: DraftRefinementSummary | null
+}
+
+function nextDraftSession(session: DraftSession): DraftSession {
+    return { generation: session.generation + 1, refinementCount: 0, lastRefinement: null }
 }
 
 /** The budget a refine re-solves against: the one the form shows, else the goal page's choice. */
@@ -476,7 +494,7 @@ function refineSpend(
     if (scanner.free_only) {
         return { free_only: true }
     }
-    if (scanner.credit_limit_enabled && scanner.credit_limit) {
+    if (creditLimitOn(scanner) && scanner.credit_limit) {
         return { monthly_credit_budget: scanner.credit_limit }
     }
     return {
@@ -575,6 +593,7 @@ export interface replayScannerLogicValues {
     creditLimitState: CreditLimitState
     creditLimitUnit: CreditLimitUnit
     draftGeneration: number
+    draftSession: DraftSession
     durationValidationError: string | null
     entryPoint: string | null
     estimateRequestVersion: number
@@ -1032,6 +1051,9 @@ export interface replayScannerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNew: (id: string) => boolean
+        draftGeneration: (draftSession: any) => number
+        refinementCount: (draftSession: any) => number
+        lastRefinement: (draftSession: any) => DraftRefinementSummary | null
         durationValidationError: (scanner: ScannerFormValues) => string | null
         stepErrors: (
             showScannerErrors: boolean,
@@ -1541,43 +1563,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scannerSaved: () => null,
             },
         ],
-        // Bumped whenever the draft in front of the person is replaced, so a refine still in flight can tell.
-        draftGeneration: [
-            0,
+        draftSession: [
+            { generation: 0, refinementCount: 0, lastRefinement: null } as DraftSession,
             {
-                draftScannerFromGoal: (generation) => generation + 1,
-                startFromScratch: (generation) => generation + 1,
-                discardScannerDraft: (generation) => generation + 1,
-                scannerSaved: (generation) => generation + 1,
-            },
-        ],
-        // How many refines the draft standing in front of the user went through, reported with its save.
-        refinementCount: [
-            0,
-            {
-                refineScannerDraftSuccess: (count, { goalRefinement }) => (goalRefinement ? count + 1 : count),
-                setRefinementCount: (_, { count }) => count,
-                draftScannerFromGoal: () => 0,
-                startFromScratch: () => 0,
-                discardScannerDraft: () => 0,
-                scannerSaved: () => 0,
-            },
-        ],
-        lastRefinement: [
-            null as DraftRefinementSummary | null,
-            {
-                refineScannerDraftSuccess: (state, { goalRefinement }) =>
+                refineScannerDraftSuccess: (session, { goalRefinement }) =>
                     goalRefinement
                         ? {
-                              changedFields: goalRefinement.changed_fields,
-                              couldNot: goalRefinement.could_not,
-                              at: Date.now(),
+                              ...session,
+                              refinementCount: session.refinementCount + 1,
+                              lastRefinement: {
+                                  changedFields: goalRefinement.changed_fields,
+                                  couldNot: goalRefinement.could_not,
+                              },
                           }
-                        : state,
-                draftScannerFromGoal: () => null,
-                startFromScratch: () => null,
-                discardScannerDraft: () => null,
-                scannerSaved: () => null,
+                        : session,
+                setRefinementCount: (session, { count }) => ({ ...session, refinementCount: count }),
+                draftScannerFromGoal: nextDraftSession,
+                startFromScratch: nextDraftSession,
+                discardScannerDraft: nextDraftSession,
+                scannerSaved: nextDraftSession,
             },
         ],
         // How the form standing in front of the user was built, sent with the create request so the
@@ -1917,6 +1921,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     selectors({
         isNew: [(_, p) => [p.id], (id: string) => id === 'new'],
+        draftGeneration: [(s) => [s.draftSession], (session: DraftSession): number => session.generation],
+        refinementCount: [(s) => [s.draftSession], (session: DraftSession): number => session.refinementCount],
+        lastRefinement: [
+            (s) => [s.draftSession],
+            (session: DraftSession): DraftRefinementSummary | null => session.lastRefinement,
+        ],
         // A duration filter that can't overlap Vision's scannable window would scan nothing (e.g. active time
         // > 1h, which the ceiling always skips). Surfaced as a save-blocking reason rather than a form error,
         // since kea-forms can't attach a scalar error to the object-typed `query` field.
@@ -2673,11 +2683,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 const refined = refinedFormValues(scanner, goalRefinement)
-                const changed = new Set<string>(goalRefinement.changed_fields)
+                const changed = goalRefinement.changed_fields
                 const scopeChanged = !objectsEqual(scannerExperimentScope(scanner), scannerExperimentScope(refined))
-                if (changed.size > 0) {
+                if (changed.length > 0) {
+                    // Persisted by the baseline listener below.
                     actions.resetScanner(refined)
-                    persistDraft()
                 }
                 if (scopeChanged) {
                     // The card names the old experiment and locks its variants, so drop it and load the new one.
@@ -2691,7 +2701,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 // Later edits are measured against the refined form, so the save reports what the person changed after it.
                 actions.setGoalDraftBaseline(values.scanner)
-                if (changed.has('query') || changed.has('sampling') || changed.has('model') || scopeChanged) {
+                // The estimate prices the sampling and the model too, not only the recordings it counts.
+                if (
+                    changed.includes('query') ||
+                    changed.includes('sampling') ||
+                    changed.includes('model') ||
+                    scopeChanged
+                ) {
                     actions.loadScannerEstimate()
                 }
             },

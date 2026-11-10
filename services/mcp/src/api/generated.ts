@@ -101250,8 +101250,6 @@ export namespace Schemas {
       changed_fields: DraftFieldEnum[];
       /** Each part of the instruction that could not be applied, addressed to the person. */
       could_not: string[];
-      /** The request's `refinement_index`, echoed back. */
-      refinement_index: number;
     }
 
     /**

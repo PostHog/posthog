@@ -74,7 +74,13 @@ from products.replay_vision.backend.queries.scanner_candidate_query import SETTL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_access import recording_viewer_access
-from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft, ScannerDraftRefinement
+from products.replay_vision.backend.scanner_draft import (
+    DraftError,
+    ScannerDraft,
+    ScannerDraftRefinement,
+    UnknownExperimentVariantError,
+    UnwatchableExperimentError,
+)
 from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.semantic_clusters import cluster_status
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
@@ -1943,7 +1949,6 @@ class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
         assert data["scanner_type"] == "scorer"
         assert data["changed_fields"] == ["scanner_type", "type_config"]
         assert data["could_not"] == []
-        assert data["refinement_index"] == 2
         assert refine.call_args.kwargs["current"].scanner_config == {"prompt": "Did the user get stuck?"}
         properties = report.call_args.args[2]
         assert report.call_args.args[1] == "replay_vision_scanner_draft_refined"
@@ -2075,6 +2080,25 @@ class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
         assert report.call_args.args[1] == "replay_vision_scanner_draft_refined"
         assert properties["success"] is False
         assert properties["failure_reason"] == "model_call_failed"
+
+    @parameterized.expand(
+        [
+            ("unwatchable_experiment", UnwatchableExperimentError(), "experiment_id"),
+            ("unknown_variant", UnknownExperimentVariantError("holdout"), "query"),
+        ]
+    )
+    def test_draft_refine_reports_an_experiment_it_cannot_watch(self, _name: str, error: Exception, attr: str) -> None:
+        resp, _, report = self._post(error=error)
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert resp.json()["attr"] == attr
+        properties = report.call_args.args[2]
+        assert report.call_args.args[1] == "replay_vision_scanner_draft_refined"
+        assert (properties["success"], properties["failure_reason"], properties["failure_attr"]) == (
+            False,
+            "invalid_request",
+            attr,
+        )
 
 
 class TestScannerDuplicateAction(_VisionAPITestCase):

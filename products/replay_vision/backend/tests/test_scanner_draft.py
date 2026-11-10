@@ -2370,14 +2370,18 @@ class TestRefineScannerDraft(_VisionAPITestCase):
         # The operand covers the whole query, so OR would make the kept country filter optional and admit
         # sessions from every country.
         country = {"type": "person", "key": "$geoip_country_code", "value": ["US"], "operator": "exact"}
-        drafted = {
-            "kind": "RecordingsQuery",
-            "operand": "OR",
-            "events": [{"id": "billing_upgraded", "type": "events"}, {"id": "billing_downgraded", "type": "events"}],
-        }
+        events = ["billing_upgraded", "billing_downgraded"]
 
-        merged = _merged_recordings_query({"kind": "RecordingsQuery", "properties": [country]}, drafted)
+        drafted = _finalize(
+            _draft(filter_events=events, filter_events_match="any"),
+            allowed_pages=[],
+            allowed_events=events,
+            team_id=1,
+            kept_filters=True,
+        )
+        merged = _merged_recordings_query({"kind": "RecordingsQuery", "properties": [country]}, drafted.query)
 
+        assert drafted.events_narrowed_for_kept_filters is True
         assert merged is not None
         assert "operand" not in merged
         assert merged["properties"] == [country]
