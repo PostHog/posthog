@@ -10,7 +10,15 @@ const SLOW_REQUEST_MS = 2000
 // This ratio therefore also sets how many mobile API requests Django traces end to end.
 const TRACE_SAMPLE_RATIO = 0.1
 
-type Log = (level: 'warn' | 'error', body: string, attributes: Record<string, string | number>) => void
+type LogRecord = {
+    level: 'warn' | 'error'
+    body: string
+    attributes: Record<string, string | number>
+    trace_id?: string
+    span_id?: string
+    trace_flags?: number
+}
+type Log = (record: LogRecord) => void
 
 let started = false
 let requestTracer = trace.getTracer(INSTRUMENTATION_NAME)
@@ -143,8 +151,8 @@ export async function instrumentApiRequest(
     const span = requestTracer.startSpan(`${method.toUpperCase()} ${route}`, { kind: SpanKind.CLIENT, attributes })
     const spanContext = span.spanContext()
     const traceparent = `00-${spanContext.traceId}-${spanContext.spanId}-${(spanContext.traceFlags ?? 0).toString(16).padStart(2, '0')}`
-    const traceIds: Record<string, string> = span.isRecording()
-        ? { trace_id: spanContext.traceId, span_id: spanContext.spanId }
+    const correlation = span.isRecording()
+        ? { trace_id: spanContext.traceId, span_id: spanContext.spanId, trace_flags: spanContext.traceFlags }
         : {}
     const startedAt = Date.now()
     try {
@@ -156,16 +164,12 @@ export async function instrumentApiRequest(
             span.setAttribute('http.response.status_code', status)
             if (failed) span.setStatus({ code: SpanStatusCode.ERROR })
             if (failed || durationMs >= SLOW_REQUEST_MS) {
-                log?.(
-                    failed ? 'error' : 'warn',
-                    failed ? 'Mobile API request failed' : 'Mobile API request completed',
-                    {
-                        ...attributes,
-                        'http.response.status_code': status,
-                        duration_ms: durationMs,
-                        ...traceIds,
-                    }
-                )
+                log?.({
+                    level: failed ? 'error' : 'warn',
+                    body: failed ? 'Mobile API request failed' : 'Mobile API request completed',
+                    attributes: { ...attributes, 'http.response.status_code': status, duration_ms: durationMs },
+                    ...correlation,
+                })
             }
         })
         return result
@@ -180,11 +184,11 @@ export async function instrumentApiRequest(
                     : 'NetworkError'
                 span.setAttribute('error.type', errorType)
                 span.setStatus({ code: SpanStatusCode.ERROR })
-                log?.('error', 'Mobile API request failed', {
-                    ...attributes,
-                    duration_ms: durationMs,
-                    'error.type': errorType,
-                    ...traceIds,
+                log?.({
+                    level: 'error',
+                    body: 'Mobile API request failed',
+                    attributes: { ...attributes, duration_ms: durationMs, 'error.type': errorType },
+                    ...correlation,
                 })
             })
         }

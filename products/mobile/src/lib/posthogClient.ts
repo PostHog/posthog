@@ -73,9 +73,7 @@ export function initAnalytics(): void {
     initMobileTelemetry(
         apiKey,
         process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST,
-        (level, body, attributes) => {
-            posthog.logger[level](body, attributes)
-        },
+        (record) => posthog.captureLog(record),
         () => isFeatureFlagEnabled(FEATURE_FLAGS.networkObservability)
     )
     const replay = new DemoReplay(posthog)

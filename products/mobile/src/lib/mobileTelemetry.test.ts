@@ -79,9 +79,11 @@ describe('mobileTelemetry', () => {
             instrumentApiRequest('/api/users/@me/', 'GET', () => Promise.reject(aborted), controller.signal)
         ).rejects.toBe(aborted)
         expect(log).toHaveBeenCalledWith(
-            'error',
-            'Mobile API request failed',
-            expect.objectContaining({ 'error.type': 'RequestTimeoutError' })
+            expect.objectContaining({
+                level: 'error',
+                body: 'Mobile API request failed',
+                attributes: expect.objectContaining({ 'error.type': 'RequestTimeoutError' }),
+            })
         )
     })
 })
