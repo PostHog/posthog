@@ -34,7 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
@@ -1562,6 +1562,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sessionId=query_data.get("sessionId", None),
         )
 
+    def _session_team_has_logs(self) -> bool:
+        try:
+            return team_has_logs(self.team, cache_negative=True)
+        except CH_TRANSIENT_ERRORS:
+            # The logs cluster drops connections for short periods. Replay shows an empty logs panel for
+            # the recording instead of an error. The answer is not cached, so the next recording open checks again.
+            logger.warning("logs_session_has_logs_check_unavailable", team_id=self.team_id, exc_info=True)
+            return False
+
     @staticmethod
     def _filter_analytics_props(query_data: dict) -> dict:
         """The filter-shape properties every logs aggregation action reports."""
@@ -1651,7 +1660,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
         try:
             # Replay asks for session logs on every recording open, and most of those teams send no logs.
-            if query.sessionId and not team_has_logs(self.team, cache_negative=True):
+            if query.sessionId and not self._session_team_has_logs():
                 results: list[Any] = []
             elif live_logs_checkpoint:
                 response = LogsQueryRunner(query, self.team).run(

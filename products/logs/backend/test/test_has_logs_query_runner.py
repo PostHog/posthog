@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
@@ -166,3 +168,24 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             # The empty-state poll ignores the negative cache, so it notices the first log straight away.
             self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
             self.assertEqual(mock_has_logs.return_value.run.call_count, 2)
+
+    @parameterized.expand([("socket_timeout", SocketTimeoutError), ("network", NetworkError)])
+    def test_session_query_returns_no_logs_when_has_logs_check_cannot_connect(self, _name, error_class):
+        cache.clear()
+        payload = {"query": {"dateRange": {"date_from": "-1h"}, "sessionId": "some-session"}}
+
+        with (
+            patch(
+                "products.logs.backend.has_logs_query_runner.execute_hogql_query",
+                side_effect=error_class("Code: 209. (logs-ch:9440)"),
+            ) as mock_execute,
+            patch("products.logs.backend.presentation.views.api.LogsQueryRunner") as mock_logs_runner,
+        ):
+            for _ in range(2):
+                response = self.client.post(f"/api/projects/{self.team.id}/logs/query", payload, format="json")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["results"], [])
+
+            mock_logs_runner.assert_not_called()
+            # The failed check is not cached, so the next recording open checks again.
+            self.assertEqual(mock_execute.call_count, 2)
