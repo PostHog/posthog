@@ -15,24 +15,37 @@ export interface CombinedGitlabProjects {
 }
 
 /**
- * Merges the project lists of several GitLab integrations. A project that two
- * tokens can open keeps the first integration, so a task always names one.
+ * Merges the project lists of several GitLab integrations. When two
+ * connections list the same project, the task uses the one whose token has
+ * every scope tasks need, else the first one listed.
  */
 export function combineGitlabProjects(
   results: ReadonlyArray<GitlabProjectsResult>,
 ): CombinedGitlabProjects {
   const projects: string[] = [];
   const integrationIdByProject: Record<string, number> = {};
+  const integrationsMissingScopes = new Set<number>();
   const missingScopes = new Set<string>();
   for (const { integrationId, response } of results) {
-    for (const scope of response?.missing_scopes ?? []) {
+    const scopesMissing = response?.missing_scopes ?? [];
+    if (scopesMissing.length > 0) {
+      integrationsMissingScopes.add(integrationId);
+    }
+    for (const scope of scopesMissing) {
       missingScopes.add(scope);
     }
     for (const project of response?.projects ?? []) {
       const key = project.path_with_namespace.toLowerCase();
-      if (key in integrationIdByProject) continue;
-      integrationIdByProject[key] = integrationId;
-      projects.push(project.path_with_namespace);
+      const existing = integrationIdByProject[key];
+      if (existing === undefined) {
+        projects.push(project.path_with_namespace);
+        integrationIdByProject[key] = integrationId;
+      } else if (
+        integrationsMissingScopes.has(existing) &&
+        scopesMissing.length === 0
+      ) {
+        integrationIdByProject[key] = integrationId;
+      }
     }
   }
   return {

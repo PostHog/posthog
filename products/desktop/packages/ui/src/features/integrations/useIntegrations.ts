@@ -340,9 +340,8 @@ export function useUserGithubRepositories(
 }
 
 /**
- * Projects that the connected gitlab.com tokens can open merge requests in,
- * with the integration to send for each, and the token scopes that coding
- * tasks need and a token lacks.
+ * The gitlab.com project of each connection, with the integration to send for
+ * each, and the token scopes that coding tasks need and a token lacks.
  */
 export function useGitlabProjects(
   integrationIds: ReadonlyArray<number>,
@@ -375,6 +374,14 @@ export function useGitlabProjects(
         })),
       ),
       isPending: enabled && results.some((result) => result.isPending),
+      // keepPreviousData can still hold an older result, so the error is
+      // reported even when some projects are listed.
+      isError: enabled && results.some((result) => result.isError),
+      retry: () => {
+        for (const result of results) {
+          if (result.isError) void result.refetch();
+        }
+      },
     }),
   });
 }

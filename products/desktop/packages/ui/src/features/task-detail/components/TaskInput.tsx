@@ -698,11 +698,18 @@ export function TaskInput({
     [setLastUsedCloudRepository],
   );
 
+  // A prefilled GitHub repository replaces any GitLab pick, so the task cannot
+  // be created in the GitLab project the composer showed before the prefill.
+  const applyRepositoryPrefill = useCallback((repo: string | null) => {
+    setSelectedGitlabProject(null);
+    setSelectedRepository(repo);
+  }, []);
+
   useEffect(() => {
     if (initialCloudRepository === undefined) return;
     overrideWorkspaceMode("cloud");
-    setSelectedRepository(initialCloudRepository?.toLowerCase() ?? null);
-  }, [initialCloudRepository, overrideWorkspaceMode]);
+    applyRepositoryPrefill(initialCloudRepository?.toLowerCase() ?? null);
+  }, [initialCloudRepository, overrideWorkspaceMode, applyRepositoryPrefill]);
 
   const handleRefreshRepositories = useCallback(() => {
     void refreshRepositories().catch((error) => {
@@ -854,7 +861,7 @@ export function TaskInput({
     lastUsedLocalMode: lastUsedLocalWorkspaceMode,
     mostRecentEnvironment: view.folderRunEnvironment,
     setSelectedDirectory,
-    setSelectedRepository,
+    setSelectedRepository: applyRepositoryPrefill,
     switchWorkspaceMode: overrideWorkspaceMode,
   });
 
@@ -894,17 +901,29 @@ export function TaskInput({
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
+  // Signal report tasks get their repository from the report on the server,
+  // which rejects a GitLab integration sent without a repository.
+  const hasReportAssociation = !!activeReportAssociation;
   const gitlabIntegrationIds = useMemo(
     () =>
-      gitlabTasksEnabled && workspaceMode === "cloud" && !repoOptional
+      gitlabTasksEnabled &&
+      workspaceMode === "cloud" &&
+      !repoOptional &&
+      !hasReportAssociation
         ? gitlabTaskIntegrations.map((integration) => integration.id)
         : [],
-    [gitlabTasksEnabled, workspaceMode, repoOptional, gitlabTaskIntegrations],
+    [
+      gitlabTasksEnabled,
+      workspaceMode,
+      repoOptional,
+      hasReportAssociation,
+      gitlabTaskIntegrations,
+    ],
   );
   const gitlabProjects = useGitlabProjects(
     gitlabIntegrationIds,
     gitlabSearchQuery,
-    gitlabIntegrationIds.length > 0,
+    gitlabIntegrationIds.length > 0 && isGitlabPickerOpen,
   );
   const activeGitlabProject =
     gitlabIntegrationIds.length > 0 ? selectedGitlabProject : null;
@@ -1588,6 +1607,8 @@ export function TaskInput({
                               onChange={handleGitlabProjectSelect}
                               projects={gitlabProjects.projects}
                               isLoading={gitlabProjects.isPending}
+                              loadFailed={gitlabProjects.isError}
+                              onRetry={gitlabProjects.retry}
                               missingScopes={gitlabProjects.missingScopes}
                               open={isGitlabPickerOpen}
                               onOpenChange={setIsGitlabPickerOpen}
