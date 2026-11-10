@@ -10,9 +10,10 @@ import { Hub, Team } from '~/types'
 
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { CyclotronInputType, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { deadlineAfter } from '../utils/deadline'
 import { classifyHogError } from '../utils/hog-error-classification'
+import { LIQUID_RENDER_LIMIT_MS } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -260,15 +261,43 @@ describe('Hog Inputs', () => {
             return deadline
         }
 
-        it.each([
-            ['hog', { value: 'x', templating: 'hog' as const, bytecode: ['_H', 1, 32, 'x'] }],
-            ['liquid', { value: '{{ event.event }}', templating: 'liquid' as const }],
+        it.each<[string, () => Promise<CyclotronInputType>]>([
+            [
+                'hog',
+                async () => ({
+                    value: 'x',
+                    templating: 'hog',
+                    bytecode: await compileHog('return event.properties.watched'),
+                }),
+            ],
+            ['liquid', () => Promise.resolve({ value: '{{ event.properties.watched }}', templating: 'liquid' })],
         ])('renders no %s input once the deadline it was given has passed', async (_templating, input) => {
-            const onlyThatInput = createHogFunction({ ...hogFunction, inputs: { only: input }, inputs_schema: [] })
+            const onlyThatInput = createHogFunction({
+                ...hogFunction,
+                inputs: { only: await input() },
+                inputs_schema: [],
+            })
+            let reads = 0
+            const properties = { ...globals.event.properties }
+            Object.defineProperty(properties, 'watched', {
+                enumerable: true,
+                get: () => {
+                    reads++
+                    return 'watched'
+                },
+            })
+            const watchedGlobals = { ...globals, event: { ...globals.event, properties } }
 
             await expect(
-                hogInputsService.buildInputs(onlyThatInput, globals, undefined, undefined, passedDeadline().signal)
+                hogInputsService.buildInputs(
+                    onlyThatInput,
+                    watchedGlobals,
+                    undefined,
+                    undefined,
+                    passedDeadline().signal
+                )
             ).rejects.toThrow('The verification deadline passed')
+            expect(reads).toBe(0)
         })
 
         it.each([
@@ -359,7 +388,10 @@ describe('Hog Inputs', () => {
             }
         )
 
-        it('renders no input after one whose render carries the clock past the deadline', async () => {
+        it.each<[string, Record<string, CyclotronInputType>]>([
+            ['an input before the last', { next: { value: '{{ event.event }}', templating: 'liquid', order: 1 } }],
+            ['the last input', {}],
+        ])('fails the inputs once %s carries the clock past the deadline in its render', async (_which, after) => {
             const deadlineMs = 50
             let now = performance.now()
             const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
@@ -369,7 +401,7 @@ describe('Hog Inputs', () => {
                     ...hogFunction,
                     inputs: {
                         slow: { value: '{{ event.properties.slow }}', templating: 'liquid', order: 0 },
-                        next: { value: '{{ event.event }}', templating: 'liquid', order: 1 },
+                        ...after,
                     },
                     inputs_schema: [],
                 })
@@ -396,39 +428,59 @@ describe('Hog Inputs', () => {
             }
         })
 
-        it('stops a hog render at the deadline rather than at its own longer timeout', async () => {
-            const deadlineMs = 50
-            const busyFor = 3000
-            const busy = await compileHog(
-                `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
-            )
-            const onlyBusy = createHogFunction({
-                ...hogFunction,
-                inputs: { busy: { value: 'busy', templating: 'hog', bytecode: busy } },
-                inputs_schema: [],
-            })
-            const mockedNow = jest.mocked(Date.now)
-            const fixedNow = mockedNow()
-            mockedNow.mockImplementation(() => performance.timeOrigin + performance.now())
-            try {
-                const deadline = deadlineAfter(deadlineMs)
-                const startedAt = Date.now()
-                const busyLong = {
-                    ...globals,
-                    event: {
-                        ...globals.event,
-                        properties: { ...globals.event.properties, busy_until: startedAt + busyFor },
-                    },
-                }
+        it.each<[string, number, () => Promise<CyclotronInputType>]>([
+            [
+                'hog',
+                3000,
+                async () => ({
+                    value: 'busy',
+                    templating: 'hog',
+                    bytecode: await compileHog(
+                        `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
+                    ),
+                }),
+            ],
+            [
+                'liquid',
+                LIQUID_RENDER_LIMIT_MS,
+                () =>
+                    Promise.resolve({
+                        value: '{% for a in (1..1000) %}{% for b in (1..1000) %}{% for c in (1..1000) %}x{% endfor %}{% endfor %}{% endfor %}',
+                        templating: 'liquid',
+                    }),
+            ],
+        ])(
+            'stops a %s render at the deadline rather than at its own longer limit of %d ms',
+            async (_templating, ownLimitMs, busyInput) => {
+                const deadlineMs = 50
+                const onlyBusy = createHogFunction({
+                    ...hogFunction,
+                    inputs: { busy: await busyInput() },
+                    inputs_schema: [],
+                })
+                const mockedNow = jest.mocked(Date.now)
+                const fixedNow = mockedNow()
+                mockedNow.mockImplementation(() => performance.timeOrigin + performance.now())
+                try {
+                    const deadline = deadlineAfter(deadlineMs)
+                    const startedAt = Date.now()
+                    const busyLong = {
+                        ...globals,
+                        event: {
+                            ...globals.event,
+                            properties: { ...globals.event.properties, busy_until: startedAt + ownLimitMs },
+                        },
+                    }
 
-                await expect(
-                    hogInputsService.buildInputs(onlyBusy, busyLong, undefined, undefined, deadline)
-                ).rejects.toMatchObject({ name: 'TimeoutError' })
-                expect(Date.now() - startedAt).toBeLessThan(busyFor / 2)
-            } finally {
-                mockedNow.mockReturnValue(fixedNow)
+                    await expect(
+                        hogInputsService.buildInputs(onlyBusy, busyLong, undefined, undefined, deadline)
+                    ).rejects.toMatchObject({ name: 'TimeoutError' })
+                    expect(Date.now() - startedAt).toBeLessThan(ownLimitMs / 2)
+                } finally {
+                    mockedNow.mockReturnValue(fixedNow)
+                }
             }
-        })
+        )
 
         it('fails a hog render that the deadline cuts short with the deadline error on a clock that reads whole milliseconds', async () => {
             const deadlineMs = 200

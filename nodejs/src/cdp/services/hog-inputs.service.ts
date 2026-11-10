@@ -71,7 +71,7 @@ export class HogInputsService {
         }
 
         // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
-        const liquidBudget = new LiquidRenderBudget()
+        const liquidBudget = new LiquidRenderBudget(signal)
 
         // Build a lookup of schema types for rendering and post-render coercion
         const schemaTypes: Record<string, string> = {}
@@ -97,7 +97,14 @@ export class HogInputsService {
                     : hogFunction.template_id === NATIVE_PUSH_TEMPLATE_ID
                       ? new Set([key])
                       : undefined
-                return formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
+                try {
+                    const rendered = formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
+                    throwIfDeadlinePassed(signal)
+                    return rendered
+                } catch (error) {
+                    throwIfDeadlinePassed(signal)
+                    throw error
+                }
             }
             if (templating === 'hog' && input?.bytecode) {
                 try {

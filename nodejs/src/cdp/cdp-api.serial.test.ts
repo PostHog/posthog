@@ -3583,6 +3583,42 @@ describe('CDP API', () => {
                 }
             )
 
+            it('answers 503, not a template refusal, when the text of a text-only email step renders into the deadline, and queues nothing', async () => {
+                const distinctId = await aPersonWithTheDistinctId()
+                const { id: flowId } = await insertHogFlow(
+                    transactionalFlow(
+                        'api',
+                        'active',
+                        'transactional',
+                        storedEmail({ text: renderThatOutlastsTheLiquidLimit })
+                    )
+                )
+                const realNow = performance.now.bind(performance)
+                let skippedMs = 0
+                let skippedAt = Infinity
+                const clock = jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
+                void personsDb.hold(queriesFor(distinctId)).then((held) => {
+                    skippedAt = realNow()
+                    skippedMs = ATTACHMENT_VERIFICATION_DEADLINE_MS - LIQUID_RENDER_LIMIT_MS / 2
+                    held.release()
+                })
+                try {
+                    const res = await sendWithFiles(newKey(), [reference(invoice)], {
+                        flowId,
+                        distinctId,
+                        acceptedSend: { tracking: { captureEngagement: false } },
+                    })
+                    const answeredAfterMs = realNow() - skippedAt
+
+                    expect(res.status).toBe(503)
+                    expect(res.body).toEqual({ error: 'delivery_unavailable' })
+                    expect(answeredAfterMs).toBeLessThan(LIQUID_RENDER_LIMIT_MS)
+                    expect(await queuedIds()).toEqual([])
+                } finally {
+                    clock.mockRestore()
+                }
+            })
+
             it('queues a send with files whose email step fails to render at accept, and logs none of its variables', async () => {
                 const secret = `reset-token-${randomUUID()}`
                 const options = await storedTemplateRendering({ html: '{% include variables.chunk %}' }, secret)
