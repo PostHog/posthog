@@ -7,11 +7,11 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuLabel,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
-    MenuLabel,
 } from '@posthog/quill'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -75,24 +75,19 @@ export function QuillDashboardReloadAction({
                     <DropdownMenuCheckboxItem
                         checked={autoRefresh.enabled}
                         onCheckedChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
-                        closeOnClick={false}
                     >
                         Auto refresh while on page
                     </DropdownMenuCheckboxItem>
                     {autoRefresh.enabled && (
                         <>
                             <DropdownMenuSeparator />
-                            <MenuLabel>Refresh interval</MenuLabel>
                             <DropdownMenuRadioGroup
                                 value={String(autoRefresh.interval)}
                                 onValueChange={(value) => setAutoRefresh(true, Number(value))}
                             >
+                                <DropdownMenuLabel>Refresh interval</DropdownMenuLabel>
                                 {intervalOptions.map((option) => (
-                                    <DropdownMenuRadioItem
-                                        key={option.value}
-                                        value={String(option.value)}
-                                        closeOnClick={false}
-                                    >
+                                    <DropdownMenuRadioItem key={option.value} value={String(option.value)}>
                                         {option.label}
                                     </DropdownMenuRadioItem>
                                 ))}

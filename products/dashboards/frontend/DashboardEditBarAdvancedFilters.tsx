@@ -176,7 +176,8 @@ export function DashboardEditBarAdvancedFilters({
             {todayRailNav ? (
                 <Button
                     variant="outline"
-                    size={overrideCount ? 'default' : 'icon'}
+                    size="icon"
+                    className="relative"
                     aria-label={overrideCount ? `Advanced options, ${overrideCount} active` : 'Advanced options'}
                     tooltip="Advanced options"
                     aria-expanded={visible}
@@ -184,7 +185,7 @@ export function DashboardEditBarAdvancedFilters({
                     data-attr="dashboard-advanced-filters"
                 >
                     <IconEllipsis />
-                    {overrideCount ? <Badge>{overrideCount}</Badge> : null}
+                    {overrideCount ? <Badge className="absolute top-0 right-0">{overrideCount}</Badge> : null}
                 </Button>
             ) : (
                 <LemonButton
