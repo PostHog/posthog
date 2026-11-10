@@ -2,6 +2,7 @@ import json
 import dataclasses
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.team import Team
@@ -11,7 +12,6 @@ from products.aeo.backend.engines import (
     ExaAnswerEngine,
     OpenAIWebSearchEngine,
     PerplexityWebSearchEngine,
-    perplexity_enabled,
 )
 from products.aeo.backend.runner import run_citation_checks
 
@@ -50,7 +50,7 @@ class Command(BaseCommand):
                     raise CommandError(f"Unknown engine '{name}' — choose from {sorted(ENGINES_BY_NAME)}")
                 # Until AEO_PERPLEXITY_ENABLED is on, Perplexity output must not be stored, so only a
                 # dry run (for example, to measure cost) may call it.
-                if name == "perplexity" and not perplexity_enabled() and not options["dry_run"]:
+                if name == "perplexity" and not settings.AEO_PERPLEXITY_ENABLED and not options["dry_run"]:
                     raise CommandError(
                         "The perplexity engine runs only with --dry-run until AEO_PERPLEXITY_ENABLED is on"
                     )

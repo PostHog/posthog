@@ -13,8 +13,6 @@ from django.test import override_settings
 import requests
 from parameterized import parameterized
 
-from posthog.egress.perplexity import PerplexityEgressBudgetExhausted
-
 from products.aeo.backend.engines import (
     GATEWAY_MAX_ATTEMPTS,
     OPENAI_MAX_OUTPUT_TOKENS,
@@ -510,6 +508,30 @@ PERPLEXITY_SEARCH_ITEM: dict[str, Any] = {
             [],
             "Answer from memory.",
         ),
+        (
+            "url_citation_annotations_win_over_markers",
+            _perplexity_body(
+                "PostHog does this.[1]",
+                PERPLEXITY_SEARCH_ITEM,
+                output=[
+                    PERPLEXITY_SEARCH_ITEM,
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "PostHog does this.[1]",
+                                "annotations": [
+                                    {"type": "url_citation", "url": "https://posthog.com/product-analytics"}
+                                ],
+                            }
+                        ],
+                    },
+                ],
+            ),
+            ["https://posthog.com/product-analytics"],
+            "PostHog does this.",
+        ),
     ]
 )
 def test_parse_perplexity_citations(_name: str, body: dict[str, Any], cited: list[str], answer: str) -> None:
@@ -566,36 +588,35 @@ def test_perplexity_response_error(_name: str, body: Any, expected: str | None) 
     assert perplexity_response_error(body) == expected
 
 
+GATEWAY_CONFIG = SimpleNamespace(url="https://gw.test/v1", api_key="k")
+
+
 @contextmanager
-def _perplexity_answers(**request_mock: Any) -> Iterator[MagicMock]:
+def _gateway_answers(**post_mock: Any) -> Iterator[MagicMock]:
     with (
-        override_settings(PERPLEXITY_API_KEY="pplx-fake-key"),
-        patch("products.aeo.backend.engines.pace_seconds_perplexity", return_value=0.0),
-        patch("products.aeo.backend.engines.admission_interval_perplexity", return_value=0.0),
-        patch("products.aeo.backend.engines.PERPLEXITY_BACKOFF", _SharedBackoff()),
-        patch("products.aeo.backend.engines.perplexity_request", **request_mock) as request,
+        patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=GATEWAY_CONFIG),
+        patch("products.aeo.backend.engines.gateway_post_json", **post_mock) as post,
     ):
-        yield request
+        yield post
 
 
-def _json_response(body: dict[str, Any], status: int = 200) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status
-    response._content = json.dumps(body).encode()
-    return response
-
-
-def test_perplexity_engine_sends_sonar_with_fast_web_search_and_records_the_answer() -> None:
+@override_settings(AEO_PERPLEXITY_MODEL="perplexity/sonar-pro")
+def test_perplexity_engine_sends_the_configured_model_with_web_search_to_the_gateway() -> None:
     body = _perplexity_body("PostHog does this.[2]", PERPLEXITY_SEARCH_ITEM)
-    with _perplexity_answers(return_value=_json_response(body)) as request:
-        check = PerplexityWebSearchEngine().run("best product analytics tool", trace_id="t1", custom_properties={})
+    with _gateway_answers(return_value=body) as post:
+        check = PerplexityWebSearchEngine().run(
+            "best product analytics tool", trace_id="t1", custom_properties={"aeo_prompt_id": "p1", "aeo_run_id": "r1"}
+        )
 
-    payload = request.call_args.kwargs["json"]
-    assert payload["model"] == "perplexity/sonar"
+    _session, url, headers, payload = post.call_args.args
+    assert url == "https://gw.test/v1/responses"
+    assert headers["Authorization"] == "Bearer k"
+    assert headers["X-PostHog-Trace-Id"] == "t1"
+    assert json.loads(headers["X-PostHog-Properties"]) == {"aeo_prompt_id": "p1", "aeo_run_id": "r1"}
+    assert payload["model"] == "perplexity/sonar-pro"
     assert payload["tools"] == [{"type": "web_search", "search_type": "fast"}]
-    assert request.call_args.kwargs["api_key"] == "pplx-fake-key"
     assert check.error is None
-    assert (check.engine, check.model) == ("perplexity-web-search", "perplexity/sonar")
+    assert (check.engine, check.model, check.trace_id) == ("perplexity-web-search", "perplexity/sonar-pro", "t1")
     assert check.cited_urls == ["https://posthog.com/product-analytics"]
     assert check.search_queries == PERPLEXITY_SEARCH_ITEM["queries"]
     assert check.cost_usd == 0.0071
@@ -603,16 +624,14 @@ def test_perplexity_engine_sends_sonar_with_fast_web_search_and_records_the_answ
 
 @parameterized.expand(
     [
-        ("budget_shed", {"side_effect": PerplexityEgressBudgetExhausted("shed")}, "egress_budget_exhausted"),
-        ("http_error", {"return_value": _json_response({"error": {"message": "bad"}}, status=400)}, "HTTPError"),
         ("connection_error", {"side_effect": requests.ConnectionError("down")}, "ConnectionError"),
-        ("failed_body", {"return_value": _json_response({"status": "failed", "output": []})}, "failed_response"),
+        ("failed_body", {"return_value": {"status": "failed", "output": []}}, "failed_response"),
     ]
 )
 def test_perplexity_engine_records_a_failed_check_instead_of_an_uncited_answer(
-    _name: str, request_mock: dict[str, Any], error_prefix: str
+    _name: str, post_mock: dict[str, Any], error_prefix: str
 ) -> None:
-    with _perplexity_answers(**request_mock):
+    with _gateway_answers(**post_mock):
         check = PerplexityWebSearchEngine().run("best product analytics tool", trace_id="t1", custom_properties={})
 
     assert check.error is not None and check.error.startswith(error_prefix)
@@ -621,18 +640,18 @@ def test_perplexity_engine_records_a_failed_check_instead_of_an_uncited_answer(
 
 @parameterized.expand(
     [
-        ("key_and_flag", "pplx-fake-key", True, True),
-        ("key_without_flag", "pplx-fake-key", False, False),
-        ("flag_without_key", "", True, False),
-        ("neither", "", False, False),
+        ("gateway_and_flag", GATEWAY_CONFIG, True, True),
+        ("gateway_without_flag", GATEWAY_CONFIG, False, False),
+        ("flag_without_gateway", None, True, False),
+        ("neither", None, False, False),
     ]
 )
-def test_perplexity_engine_registers_only_with_the_key_and_the_flag(
-    _name: str, api_key: str, enabled: bool, registered: bool
+def test_perplexity_engine_registers_only_with_the_gateway_and_the_flag(
+    _name: str, gateway: SimpleNamespace | None, enabled: bool, registered: bool
 ) -> None:
     with (
-        override_settings(PERPLEXITY_API_KEY=api_key, AEO_PERPLEXITY_ENABLED=enabled, EXA_API_KEY=""),
-        patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=None),
+        override_settings(AEO_PERPLEXITY_ENABLED=enabled, EXA_API_KEY=""),
+        patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=gateway),
     ):
         names = [engine.name for engine in available_engines()]
 
@@ -641,18 +660,19 @@ def test_perplexity_engine_registers_only_with_the_key_and_the_flag(
 
 @parameterized.expand(
     [
-        ("recording_while_disabled", "pplx-fake-key", False, [], "only with --dry-run"),
-        ("dry_run_without_a_key", "", False, ["--dry-run"], "PERPLEXITY_API_KEY"),
+        ("recording_while_disabled", GATEWAY_CONFIG, [], "only with --dry-run"),
+        ("dry_run_without_the_gateway", None, ["--dry-run"], "AI gateway is not configured"),
     ]
 )
 def test_run_command_refuses_perplexity_before_any_call(
-    _name: str, api_key: str, enabled: bool, extra_args: list[str], message: str
+    _name: str, gateway: SimpleNamespace | None, extra_args: list[str], message: str
 ) -> None:
     with (
-        override_settings(PERPLEXITY_API_KEY=api_key, AEO_PERPLEXITY_ENABLED=enabled),
-        patch("products.aeo.backend.engines.perplexity_request") as request,
+        override_settings(AEO_PERPLEXITY_ENABLED=False),
+        _gateway_answers() as post,
+        patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=gateway),
         pytest.raises(CommandError, match=message),
     ):
         call_command("run_aeo_citation_checks", "--team-id", "1", "--engines", "perplexity", *extra_args)
 
-    request.assert_not_called()
+    post.assert_not_called()
