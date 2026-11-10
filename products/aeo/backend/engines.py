@@ -13,8 +13,10 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 
 from __future__ import annotations
 
+import re
 import time
 import threading
+from collections.abc import Callable
 from dataclasses import field
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -24,6 +26,15 @@ from django.conf import settings
 import requests
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.perplexity import (
+    AGENT_ENDPOINT,
+    PERPLEXITY_API_BASE,
+    PerplexityEgressBudgetExhausted,
+    admission_interval_perplexity,
+    pace_seconds_perplexity,
+    perplexity_request,
+)
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import (
     GENERIC_VALUE_MAX_LEN,
@@ -65,12 +76,12 @@ class CitationCheck:
     model: str
     # URLs the answer actually cites, in first-mention order.
     cited_urls: list[str] = field(default_factory=list)
-    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic only).
+    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic and Perplexity only).
     retrieved_urls: list[str] = field(default_factory=list)
     # Search queries the model issued.
     search_queries: list[str] = field(default_factory=list)
     answer_text: str = ""
-    # Engine-reported cost (Exa). Gateway engines report cost on their
+    # Engine-reported cost (Exa, Perplexity). Gateway engines report cost on their
     # $ai_generation event instead — join via trace_id.
     cost_usd: float | None = None
     trace_id: str | None = None
@@ -163,6 +174,20 @@ class _SharedBackoff:
 GATEWAY_BACKOFF = _SharedBackoff()
 
 
+def _post_json_with_retries(send: Callable[[], requests.Response], backoff: _SharedBackoff) -> Any:
+    """Send and decode JSON, retrying throttled and transient errors a bounded number of
+    times; raises requests.RequestException once the attempts run out or on any other failure."""
+    for attempt in range(GATEWAY_MAX_ATTEMPTS):
+        backoff.wait()
+        response = send()
+        if response.status_code in RETRYABLE_STATUS_CODES and attempt < GATEWAY_MAX_ATTEMPTS - 1:
+            backoff.pause(_retry_delay_seconds(response, attempt))
+            continue
+        response.raise_for_status()
+        return response.json()
+    raise AssertionError("unreachable: the last attempt returns or raises")
+
+
 def gateway_post_json(
     session: requests.Session,
     url: str,
@@ -170,17 +195,9 @@ def gateway_post_json(
     payload: dict[str, Any],
     timeout: int = GATEWAY_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """POST and decode JSON, retrying throttled and transient errors a bounded number of
-    times; raises requests.RequestException once the attempts run out or on any other failure."""
-    for attempt in range(GATEWAY_MAX_ATTEMPTS):
-        GATEWAY_BACKOFF.wait()
-        response = session.post(url, headers=headers, json=payload, timeout=timeout)
-        if response.status_code in RETRYABLE_STATUS_CODES and attempt < GATEWAY_MAX_ATTEMPTS - 1:
-            GATEWAY_BACKOFF.pause(_retry_delay_seconds(response, attempt))
-            continue
-        response.raise_for_status()
-        return response.json()
-    raise AssertionError("unreachable: the last attempt returns or raises")
+    return _post_json_with_retries(
+        lambda: session.post(url, headers=headers, json=payload, timeout=timeout), GATEWAY_BACKOFF
+    )
 
 
 def _dedupe_urls(urls: list[str]) -> list[str]:
@@ -307,6 +324,96 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
         answer_text=answer if isinstance(answer, str) else "",
         cited_urls=_dedupe_urls(cited),
         cost_usd=cost.get("total") if isinstance(cost, dict) else None,
+    )
+
+
+# Numbered markers such as [3], and the source-typed form [web:3] that Perplexity's effort-level
+# prompts use. Both refer to a search_results entry by its id.
+_PERPLEXITY_CITATION_MARKER = re.compile(r"\[(?:web:)?(\d+)\]")
+
+
+def _perplexity_answer_text(body: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for item in body.get("output") or []:
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        for content in item.get("content") or []:
+            if isinstance(content, dict) and content.get("type") == "output_text":
+                text = content.get("text")
+                parts.append(text if isinstance(text, str) else "")
+    return "".join(parts)
+
+
+def perplexity_response_error(body: Any) -> str | None:
+    """Why an Agent API body cannot count as an answer, or None when it can.
+
+    The check fails closed: a body that is not completed, reports an error, has no output list,
+    or has no answer text is a failed check and never a zero-citation answer, so the scout can
+    tell "the engine broke" from "the citations disappeared"."""
+    if not isinstance(body, dict):
+        return "unexpected_response: body is not an object"
+    error = body.get("error")
+    if isinstance(error, dict):
+        return f"failed_response: {error.get('message') or error.get('type') or 'unknown'}"
+    status = body.get("status")
+    if status != "completed":
+        details = body.get("incomplete_details")
+        reason = details.get("reason") if isinstance(details, dict) else None
+        return f"{status or 'missing_status'}_response: {reason or 'unknown'}"
+    if not isinstance(body.get("output"), list):
+        return "unexpected_response: no output list"
+    if not _perplexity_answer_text(body).strip():
+        return "empty_response: no answer text"
+    return None
+
+
+def parse_perplexity_citations(body: dict[str, Any]) -> ParsedAnswer:
+    """Parse a completed Perplexity Agent API response that ran the web_search tool.
+
+    Retrieved = every search_results entry, in order. Cited = the entries the inline [n] markers
+    point at, in first-mention order. A marker whose id matches no entry is dropped. The markers
+    are removed from the recorded answer text, because the ids mean nothing once the result list
+    is gone.
+    """
+    url_by_id: dict[int, str] = {}
+    retrieved: list[str] = []
+    queries: list[str] = []
+
+    for item in body.get("output") or []:
+        if not isinstance(item, dict) or item.get("type") != "search_results":
+            continue
+        item_queries = item.get("queries")
+        if isinstance(item_queries, list):
+            queries.extend(query for query in item_queries if isinstance(query, str) and query)
+        results = item.get("results")
+        for result in results if isinstance(results, list) else []:
+            if not isinstance(result, dict):
+                continue
+            url = result.get("url")
+            if not isinstance(url, str) or not url:
+                continue
+            retrieved.append(url)
+            result_id = result.get("id")
+            if isinstance(result_id, int) and not isinstance(result_id, bool):
+                url_by_id.setdefault(result_id, url)
+
+    answer = _perplexity_answer_text(body)
+    cited = [
+        url_by_id[int(marker)] for marker in _PERPLEXITY_CITATION_MARKER.findall(answer) if int(marker) in url_by_id
+    ]
+
+    usage = body.get("usage")
+    cost = usage.get("cost") if isinstance(usage, dict) else None
+    total_cost = cost.get("total_cost") if isinstance(cost, dict) else None
+
+    return ParsedAnswer(
+        answer_text=_PERPLEXITY_CITATION_MARKER.sub("", answer),
+        cited_urls=_dedupe_urls(cited),
+        retrieved_urls=_dedupe_urls(retrieved),
+        search_queries=queries,
+        cost_usd=float(total_cost)
+        if isinstance(total_cost, int | float) and not isinstance(total_cost, bool)
+        else None,
     )
 
 
@@ -539,6 +646,100 @@ class ExaAnswerEngine:
         )
 
 
+PERPLEXITY_MODEL = "perplexity/sonar"
+PERPLEXITY_AGENT_URL = f"{PERPLEXITY_API_BASE}{AGENT_ENDPOINT}"
+# Connect fails fast; the read waits for a search plus a generated answer.
+PERPLEXITY_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 120.0)
+PERPLEXITY_EGRESS_SOURCE = "aeo_citation_checks"
+# A direct-model request has no default instructions, and Perplexity adds inline markers only
+# when the prompt asks for them. Without markers no result can count as cited.
+PERPLEXITY_CITATION_INSTRUCTIONS = (
+    "Answer the question using the web search results. After each sentence that uses a result, "
+    "cite it inline with its number in square brackets, like [1] or [1][2]. Cite only results you used, "
+    "and do not add a separate references section."
+)
+PERPLEXITY_BACKOFF = _SharedBackoff()
+
+
+class PerplexityWebSearchEngine:
+    """Perplexity's Sonar model with its web_search tool, through the Perplexity Agent API.
+
+    This engine calls Perplexity directly through posthog/egress/perplexity/ and not through the AI
+    gateway (see that domain's README for why). No $ai_generation event exists for these calls, so
+    the check records Perplexity's own reported cost.
+    """
+
+    name = "perplexity-web-search"
+    model = PERPLEXITY_MODEL
+
+    def __init__(self) -> None:
+        api_key = settings.PERPLEXITY_API_KEY
+        if not api_key:
+            raise ValueError("Perplexity is not configured (PERPLEXITY_API_KEY)")
+        self._api_key = api_key
+        self._sessions = _ThreadSessions(trust_env=True)
+        self._admission_lock = threading.Lock()
+        self._next_admission_at = 0.0
+
+    def _wait_for_admission(self) -> None:
+        # The runner calls engines from many threads. Admissions go through one lock and stay at
+        # least the BATCH admission interval apart, so a full run spreads over the budget window
+        # and is not shed once the lane's share is spent.
+        with self._admission_lock:
+            wait = max(pace_seconds_perplexity(Priority.BATCH), self._next_admission_at - time.monotonic())
+            if wait > 0:
+                time.sleep(wait)
+            self._next_admission_at = time.monotonic() + admission_interval_perplexity(Priority.BATCH)
+
+    def _send(self, payload: dict[str, Any]) -> requests.Response:
+        self._wait_for_admission()
+        return perplexity_request(
+            "POST",
+            PERPLEXITY_AGENT_URL,
+            api_key=self._api_key,
+            source=PERPLEXITY_EGRESS_SOURCE,
+            endpoint=AGENT_ENDPOINT,
+            priority=Priority.BATCH,
+            timeout=PERPLEXITY_TIMEOUT_SECONDS,
+            session=self._sessions.get(),
+            json=payload,
+        )
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        payload = {
+            "model": self.model,
+            "input": prompt,
+            "instructions": PERPLEXITY_CITATION_INSTRUCTIONS,
+            "tools": [{"type": "web_search", "search_type": "fast"}],
+            # One research step is what Perplexity's own fast effort level uses with web_search.
+            # Each extra step can run another billed search.
+            "max_steps": 1,
+            "max_output_tokens": MAX_ANSWER_TOKENS,
+        }
+        try:
+            body = _post_json_with_retries(lambda: self._send(payload), PERPLEXITY_BACKOFF)
+        except PerplexityEgressBudgetExhausted:
+            return CitationCheck(engine=self.name, model=self.model, error="egress_budget_exhausted")
+        except requests.RequestException as e:
+            return CitationCheck(engine=self.name, model=self.model, error=_request_error(e))
+        if (error := perplexity_response_error(body)) is not None:
+            return CitationCheck(engine=self.name, model=self.model, error=error)
+        parsed = parse_perplexity_citations(body)
+        return CitationCheck(
+            engine=self.name,
+            model=self.model,
+            cited_urls=parsed.cited_urls,
+            retrieved_urls=parsed.retrieved_urls,
+            search_queries=parsed.search_queries,
+            answer_text=parsed.answer_text,
+            cost_usd=parsed.cost_usd,
+        )
+
+
+def perplexity_enabled() -> bool:
+    return bool(settings.AEO_PERPLEXITY_ENABLED and settings.PERPLEXITY_API_KEY)
+
+
 def available_engines() -> list[CitationEngine]:
     """Engines the current configuration supports."""
     engines: list[CitationEngine] = []
@@ -547,4 +748,6 @@ def available_engines() -> list[CitationEngine]:
         engines.append(OpenAIWebSearchEngine())
     if settings.EXA_API_KEY:
         engines.append(ExaAnswerEngine())
+    if perplexity_enabled():
+        engines.append(PerplexityWebSearchEngine())
     return engines

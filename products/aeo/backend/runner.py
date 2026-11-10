@@ -59,7 +59,9 @@ def run_citation_checks(
     engines = engines if engines is not None else available_engines()
     if not engines:
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
-        return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
+        return _empty_summary(
+            team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY, PERPLEXITY_API_KEY)"
+        ), []
 
     checked_before = run_day_start(timezone.now())
     prompts = select_prompts(

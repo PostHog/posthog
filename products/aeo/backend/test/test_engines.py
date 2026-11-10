@@ -1,12 +1,19 @@
+import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.management import CommandError, call_command
+from django.test import override_settings
+
 import requests
 from parameterized import parameterized
+
+from posthog.egress.perplexity import PerplexityEgressBudgetExhausted
 
 from products.aeo.backend.engines import (
     GATEWAY_MAX_ATTEMPTS,
@@ -14,8 +21,10 @@ from products.aeo.backend.engines import (
     CitationCheck,
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
+    PerplexityWebSearchEngine,
     _SharedBackoff,
     anthropic_truncated_error,
+    available_engines,
     build_check_fields,
     gateway_post_json,
     is_target_url,
@@ -23,6 +32,8 @@ from products.aeo.backend.engines import (
     parse_anthropic_citations,
     parse_exa_citations,
     parse_openai_responses_citations,
+    parse_perplexity_citations,
+    perplexity_response_error,
     target_position,
     top_domains,
 )
@@ -432,3 +443,216 @@ def _fake_clock(on_first_sleep: Callable[[], None] | None = None) -> Iterator[Ma
         patch("products.aeo.backend.engines.time.sleep", side_effect=sleep) as sleep_mock,
     ):
         yield sleep_mock
+
+
+def _perplexity_body(answer: str, *search_items: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "id": "resp_1",
+        "object": "response",
+        "model": "perplexity/sonar",
+        "status": "completed",
+        "error": None,
+        "output": [
+            *search_items,
+            {
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": answer, "annotations": []}],
+            },
+        ],
+        "usage": {"cost": {"currency": "USD", "total_cost": 0.0071}},
+    }
+    body.update(overrides)
+    return body
+
+
+PERPLEXITY_SEARCH_ITEM: dict[str, Any] = {
+    "type": "search_results",
+    "queries": ["best product analytics tool", "product analytics comparison"],
+    "results": [
+        {"id": 1, "url": "https://rival.example.org/compare", "title": "Compare", "snippet": "", "date": None},
+        {"id": 2, "url": "https://posthog.com/product-analytics", "title": "Product analytics", "date": "2026-10-01"},
+        {"id": 3, "url": "https://community.example.net/thread", "title": "Thread"},
+    ],
+}
+
+
+@parameterized.expand(
+    [
+        (
+            "markers_map_to_ids_in_first_mention_order",
+            _perplexity_body("PostHog does this.[2] Others too.[1][2]", PERPLEXITY_SEARCH_ITEM),
+            ["https://posthog.com/product-analytics", "https://rival.example.org/compare"],
+            "PostHog does this. Others too.",
+        ),
+        (
+            "source_typed_markers",
+            _perplexity_body("A fact.[web:3]", PERPLEXITY_SEARCH_ITEM),
+            ["https://community.example.net/thread"],
+            "A fact.",
+        ),
+        (
+            "marker_with_no_matching_result_is_dropped",
+            _perplexity_body("A claim.[9] Another.[1]", PERPLEXITY_SEARCH_ITEM),
+            ["https://rival.example.org/compare"],
+            "A claim. Another.",
+        ),
+        (
+            "no_markers_cites_nothing",
+            _perplexity_body("An answer with no markers.", PERPLEXITY_SEARCH_ITEM),
+            [],
+            "An answer with no markers.",
+        ),
+        (
+            "no_search_results_item",
+            _perplexity_body("Answer from memory.[1]"),
+            [],
+            "Answer from memory.",
+        ),
+    ]
+)
+def test_parse_perplexity_citations(_name: str, body: dict[str, Any], cited: list[str], answer: str) -> None:
+    parsed = parse_perplexity_citations(body)
+    assert parsed.cited_urls == cited
+    assert parsed.answer_text == answer
+
+
+def test_parse_perplexity_retrieved_urls_queries_and_cost() -> None:
+    second_search: dict[str, Any] = {
+        "type": "search_results",
+        "queries": "not a list",
+        "results": [
+            {"id": 4, "url": "https://posthog.com/product-analytics"},
+            {"id": 5, "title": "no url"},
+            {"id": "6", "url": "https://docs.example.com/string-id"},
+            "not an object",
+        ],
+    }
+    parsed = parse_perplexity_citations(_perplexity_body("Cited.[6][4]", PERPLEXITY_SEARCH_ITEM, second_search))
+
+    assert parsed.retrieved_urls == [
+        "https://rival.example.org/compare",
+        "https://posthog.com/product-analytics",
+        "https://community.example.net/thread",
+        "https://docs.example.com/string-id",
+    ]
+    # Only an integer id can be cited, so a string id stays retrieved but never cited.
+    assert parsed.cited_urls == ["https://posthog.com/product-analytics"]
+    assert parsed.search_queries == ["best product analytics tool", "product analytics comparison"]
+    assert parsed.cost_usd == 0.0071
+
+
+@parameterized.expand(
+    [
+        ("completed_answer", _perplexity_body("An answer.[1]", PERPLEXITY_SEARCH_ITEM), None),
+        ("not_an_object", ["unexpected"], "unexpected_response: body is not an object"),
+        (
+            "failed_with_error",
+            _perplexity_body("", status="failed", error={"message": "upstream boom", "type": "server_error"}),
+            "failed_response: upstream boom",
+        ),
+        (
+            "incomplete_with_partial_text",
+            _perplexity_body("Partial", status="incomplete", incomplete_details={"reason": "max_output_tokens"}),
+            "incomplete_response: max_output_tokens",
+        ),
+        ("missing_status", {"output": []}, "missing_status_response: unknown"),
+        ("output_not_a_list", _perplexity_body("x", output={"type": "message"}), "unexpected_response: no output list"),
+        ("empty_answer", _perplexity_body("   ", PERPLEXITY_SEARCH_ITEM), "empty_response: no answer text"),
+    ]
+)
+def test_perplexity_response_error(_name: str, body: Any, expected: str | None) -> None:
+    assert perplexity_response_error(body) == expected
+
+
+@contextmanager
+def _perplexity_answers(**request_mock: Any) -> Iterator[MagicMock]:
+    with (
+        override_settings(PERPLEXITY_API_KEY="pplx-fake-key"),
+        patch("products.aeo.backend.engines.pace_seconds_perplexity", return_value=0.0),
+        patch("products.aeo.backend.engines.admission_interval_perplexity", return_value=0.0),
+        patch("products.aeo.backend.engines.PERPLEXITY_BACKOFF", _SharedBackoff()),
+        patch("products.aeo.backend.engines.perplexity_request", **request_mock) as request,
+    ):
+        yield request
+
+
+def _json_response(body: dict[str, Any], status: int = 200) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status
+    response._content = json.dumps(body).encode()
+    return response
+
+
+def test_perplexity_engine_sends_sonar_with_fast_web_search_and_records_the_answer() -> None:
+    body = _perplexity_body("PostHog does this.[2]", PERPLEXITY_SEARCH_ITEM)
+    with _perplexity_answers(return_value=_json_response(body)) as request:
+        check = PerplexityWebSearchEngine().run("best product analytics tool", trace_id="t1", custom_properties={})
+
+    payload = request.call_args.kwargs["json"]
+    assert payload["model"] == "perplexity/sonar"
+    assert payload["tools"] == [{"type": "web_search", "search_type": "fast"}]
+    assert request.call_args.kwargs["api_key"] == "pplx-fake-key"
+    assert check.error is None
+    assert (check.engine, check.model) == ("perplexity-web-search", "perplexity/sonar")
+    assert check.cited_urls == ["https://posthog.com/product-analytics"]
+    assert check.search_queries == PERPLEXITY_SEARCH_ITEM["queries"]
+    assert check.cost_usd == 0.0071
+
+
+@parameterized.expand(
+    [
+        ("budget_shed", {"side_effect": PerplexityEgressBudgetExhausted("shed")}, "egress_budget_exhausted"),
+        ("http_error", {"return_value": _json_response({"error": {"message": "bad"}}, status=400)}, "HTTPError"),
+        ("connection_error", {"side_effect": requests.ConnectionError("down")}, "ConnectionError"),
+        ("failed_body", {"return_value": _json_response({"status": "failed", "output": []})}, "failed_response"),
+    ]
+)
+def test_perplexity_engine_records_a_failed_check_instead_of_an_uncited_answer(
+    _name: str, request_mock: dict[str, Any], error_prefix: str
+) -> None:
+    with _perplexity_answers(**request_mock):
+        check = PerplexityWebSearchEngine().run("best product analytics tool", trace_id="t1", custom_properties={})
+
+    assert check.error is not None and check.error.startswith(error_prefix)
+    assert check.cited_urls == []
+
+
+@parameterized.expand(
+    [
+        ("key_and_flag", "pplx-fake-key", True, True),
+        ("key_without_flag", "pplx-fake-key", False, False),
+        ("flag_without_key", "", True, False),
+        ("neither", "", False, False),
+    ]
+)
+def test_perplexity_engine_registers_only_with_the_key_and_the_flag(
+    _name: str, api_key: str, enabled: bool, registered: bool
+) -> None:
+    with (
+        override_settings(PERPLEXITY_API_KEY=api_key, AEO_PERPLEXITY_ENABLED=enabled, EXA_API_KEY=""),
+        patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=None),
+    ):
+        names = [engine.name for engine in available_engines()]
+
+    assert ("perplexity-web-search" in names) is registered
+
+
+@parameterized.expand(
+    [
+        ("recording_while_disabled", "pplx-fake-key", False, [], "only with --dry-run"),
+        ("dry_run_without_a_key", "", False, ["--dry-run"], "PERPLEXITY_API_KEY"),
+    ]
+)
+def test_run_command_refuses_perplexity_before_any_call(
+    _name: str, api_key: str, enabled: bool, extra_args: list[str], message: str
+) -> None:
+    with (
+        override_settings(PERPLEXITY_API_KEY=api_key, AEO_PERPLEXITY_ENABLED=enabled),
+        patch("products.aeo.backend.engines.perplexity_request") as request,
+        pytest.raises(CommandError, match=message),
+    ):
+        call_command("run_aeo_citation_checks", "--team-id", "1", "--engines", "perplexity", *extra_args)
+
+    request.assert_not_called()

@@ -5,6 +5,7 @@ Answers two questions for a project: **are AI answer engines citing our domain**
 Everything is built from existing machinery:
 
 - **Prompt execution (Track A)** goes through the AI gateway (`AI_GATEWAY_URL`) using the providers' native web-search tools, so the citations are the models' real ones. Every call emits a `$ai_generation` event carrying cost, which lands in the gateway-key owner's project (not the checked team's) tagged with `team_id` for attribution. Citations are parsed from the **live response**, because the gateway's captured events intentionally drop web-search result payloads, so the cited URLs exist nowhere else.
+- **Perplexity** (off by default) runs `perplexity/sonar` with the `web_search` tool through the Perplexity Agent API. It calls Perplexity directly through `posthog/egress/perplexity/`, not through the gateway (that domain's README says why), so it emits no `$ai_generation` event and the check records Perplexity's reported cost instead. See [Perplexity engine](#perplexity-engine).
 - **Breadth (Track B)** uses Exa `/answer` — its citations are Exa's own (a proxy, not a measurement of ChatGPT/Claude behavior), useful as a cheap retrievability check and as a comparison baseline against Track A.
 - **Storage**: the citation record is a Postgres table read through HogQL as `system.aeo_citation_checks`, so insights, the SQL editor, the query API, and MCP all read it while the runner stays the only writer. Events were the first design and were wrong for this: anyone holding a project's public capture token can submit them, which would let a stranger forge citation results and feed text to the alerting scout. The prompt set is a second small table (`posthog_aeo_prompt`). No new ClickHouse tables.
 - **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads that table and files inbox/Slack reports on citation-rate drops or spikes. Engine-derived columns carry third-party text by nature, so the runner strips invisible characters and LLM framing markers before writing (`posthog/security/llm_prompt_sanitization.py`), and the scout drives findings from counts while quoting text inertly.
@@ -18,6 +19,8 @@ Environment (all default empty — the runner is a no-op until configured):
 | ------------------------------------------ | -------------------------------------------------------------- |
 | `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines. |
 | `EXA_API_KEY`                              | Enables the Exa engine.                                        |
+| `PERPLEXITY_API_KEY`                       | Perplexity API key. Enables nothing on its own.                |
+| `AEO_PERPLEXITY_ENABLED`                   | Default false. With `PERPLEXITY_API_KEY`, enables Perplexity.  |
 | `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.          |
 | `AEO_TARGET_DOMAINS`                       | Domains counted as "us" in citations (default `posthog.com`).  |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                        |
@@ -83,6 +86,26 @@ A run takes the whole prompt set, up to `AEO_MAX_PROMPTS_PER_RUN` (default 2,000
 It takes one prompt per topic in turn, so a capped run still samples every topic.
 Within a topic, prompts never checked come first, then the least recently checked, so a set larger than one run rotates, and a run cut short by a worker restart resumes on the next dispatch.
 
+## Perplexity engine
+
+`perplexity-web-search` sends each prompt to `POST https://api.perplexity.ai/v1/agent` with model `perplexity/sonar`, the `web_search` tool with `search_type: "fast"`, one research step, and instructions that ask for inline `[n]` citation markers.
+
+- **Off by default.** The engine runs only when `PERPLEXITY_API_KEY` is set **and** `AEO_PERPLEXITY_ENABLED` is true. Do not turn it on until legal confirms which Perplexity terms (the main API terms or the Search API addendum) cover the `web_search` output that the runner stores and shows.
+- **Parsing.** The `search_results` output item gives the search queries and the retrieved results. Each inline `[n]` (or `[web:n]`) marker in the answer maps to the result whose `id` is `n`, which gives the cited URLs in citation order. The markers are removed from the stored answer text. An answer without markers cites nothing.
+- **Failures.** A body that is not `completed`, carries an `error`, has no output list, or has no answer text is a failed check, never an uncited answer. So are HTTP errors and calls the egress budget sheds.
+- **Cost.** `cost_usd` is `usage.cost.total_cost` from the response: tokens plus about \$1 per 1,000 fast searches.
+- **Budget.** Calls draw on the `perplexity` egress budget (`PERPLEXITY_EGRESS_PER_MINUTE_BUDGET`, `PERPLEXITY_EGRESS_HOURLY_BUDGET`) on the `BATCH` lane, and the engine paces so a full run spreads over the budget instead of being shed.
+
+### Measure cost before you enable it
+
+With only `PERPLEXITY_API_KEY` set, the management command runs Perplexity in dry-run mode.
+It makes real, billed calls, records nothing, and prints the total engine-reported cost.
+Without `--dry-run` it refuses Perplexity until `AEO_PERPLEXITY_ENABLED` is on.
+
+```bash
+PERPLEXITY_API_KEY=<key> python manage.py run_aeo_citation_checks --team-id <id> --engines perplexity --limit 50 --dry-run
+```
+
 ## The table
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
@@ -92,13 +115,13 @@ Within a topic, prompts never checked come first, then the least recently checke
 | `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
 | `prompt_version`                                                         | The prompt version that ran. Null for checks recorded before prompts had versions.                                  |
 | `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `perplexity-web-search`.                                 |
 | `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
 | `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic and Perplexity expose retrieved results; others don't).                   |
 | `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
 | `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
-| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
+| `cost_usd` / `gateway_trace_id`                                          | Exa or Perplexity cost, or the trace id joining to the gateway's `$ai_generation` event (token + web-search costs). |
 
 ## The join (the product thesis)
 

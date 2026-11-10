@@ -47,6 +47,7 @@ ENGINE_LABELS = {
     "claude-web-search": "Claude",
     "openai-web-search": "ChatGPT",
     "exa-answer": "Exa",
+    "perplexity-web-search": "Perplexity",
 }
 
 
