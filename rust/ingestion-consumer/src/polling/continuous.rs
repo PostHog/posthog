@@ -335,6 +335,20 @@ mod tests {
     }
 
     #[test]
+    fn a_revoke_after_the_partitions_poll_was_submitted_admits_its_last_offset_again() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[10]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+
+        harness.revoke(0);
+        harness.receive(0, &[10]);
+        harness.after_the_batch_timeout();
+
+        assert_eq!(harness.submit(), HashMap::from([(p(0), (10, 10))]));
+    }
+
+    #[test]
     fn a_message_delivered_twice_is_charged_and_committed_once() {
         let mut harness = continuous(1_000);
         harness.receive(0, &[0, 1, 1, 2]);
