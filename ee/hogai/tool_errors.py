@@ -23,18 +23,29 @@ class MaxToolError(Exception):
     error_code: str | None = None
 
     def __init__(
-        self, message: str, *, error_type: MaxToolErrorType | None = None, error_code: str | None = None
+        self,
+        message: str,
+        *,
+        error_type: MaxToolErrorType | None = None,
+        error_code: str | None = None,
+        hint: str | None = None,
     ) -> None:
         """
         Args:
             message: Detailed, actionable error message that helps the LLM understand what went wrong
             error_code: Machine-readable name of the leaf failure, for analytics. It must hold no caller input.
+            hint: Recovery advice shown after the message. A summary truncates the message and keeps the hint whole.
         """
         super().__init__(message)
         if error_type is not None:
             self.error_type = error_type
         if error_code is not None:
             self.error_code = error_code
+        self.hint = hint
+
+    def __str__(self) -> str:
+        message = super().__str__()
+        return f"{message}\n\n{self.hint}" if self.hint else message
 
     @property
     def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
@@ -66,12 +77,14 @@ class MaxToolError(Exception):
             max_length: Maximum length of the error message before truncation
 
         Returns:
-            Formatted string with exception class name and truncated message
+            Formatted string with exception class name, truncated message and the whole hint
         """
         exception_name = self.__class__.__name__
-        exception_msg = str(self).strip()
+        exception_msg = super().__str__().strip()
         if len(exception_msg) > max_length:
             exception_msg = exception_msg[:max_length] + "…"
+        if self.hint:
+            exception_msg = f"{exception_msg}\n\n{self.hint}"
         return f"{exception_name}: {exception_msg}"
 
 
