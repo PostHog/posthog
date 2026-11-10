@@ -61,6 +61,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     LazyJoin,
     LazyTable,
+    SavedQuery,
     StringDatabaseField,
     Table,
     TableNode,
@@ -4547,8 +4548,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team)
 
-        assert str(database.get_table("events.summary").query) == "SELECT 1 AS value"
-        assert str(database.get_table("posthog.events.summary").query) == "SELECT 2 AS value"
+        for name, expected in (
+            ("events.summary", "SELECT 1 AS value"),
+            ("posthog.events.summary", "SELECT 2 AS value"),
+        ):
+            view = database.get_table(name)
+            assert isinstance(view, SavedQuery)
+            assert str(view.query) == expected
 
     def _print_with_v2_sessions(self, query: str) -> str:
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
