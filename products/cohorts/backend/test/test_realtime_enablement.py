@@ -62,7 +62,7 @@ class TestEnableRealtimeCohorts(BaseTest):
         super().setUp()
         self.peak_day_events = 500
         scan = mock.patch(
-            "products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events",
+            "products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events",
             side_effect=self._scan_estimate,
         )
         sizing = mock.patch(
@@ -203,7 +203,9 @@ class TestEnableRealtimeCohorts(BaseTest):
         # The operator accepts the scan volume through `create_cohort_backfill_run
         # --max-scan-events-per-day 0`. The person run fails while that run is still reconciling. A stamp
         # written since the grant must survive the rerun.
-        behavioral_run = create_team_backfill_run(self.team.id, CohortBackfillTrigger.TEAM_ENABLEMENT)
+        behavioral_run = create_team_backfill_run(
+            self.team.id, CohortBackfillTrigger.TEAM_ENABLEMENT, max_events_per_day=0
+        )
         runs = CohortBackfillRun.objects.for_team(self.team.id)
         runs.filter(id=behavioral_run.id).update(status=CohortBackfillRunStatus.RECONCILING)
         runs.filter(id=person_run.id).update(status=CohortBackfillRunStatus.FAILED)

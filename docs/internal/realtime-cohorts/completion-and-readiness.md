@@ -226,6 +226,7 @@ The same rollout flag lets the flag editor's cohort picker list these cohorts.
 
 Behind the same rollout flag, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `building`, `rebuilding`, `ready`, or `needs_attention`.
 A `daily` cohort whose criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS` also carries `reason: history_over_limit` and the limit in `history_limit_days`.
+A `needs_attention` cohort carries `reason: too_large_to_build` when the save path refused its behavioral run on the scan limit, see [backfill coordination](backfill-coordination.md#when-things-go-wrong).
 
 ### In the feature flags service
 

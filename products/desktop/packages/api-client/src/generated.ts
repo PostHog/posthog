@@ -5978,8 +5978,11 @@ export namespace Schemas {
     };
     /**
      * * `history_over_limit` - History over limit
+     * * `too_large_to_build` - Too large to build
      */
-    export type CohortRealtimeUnavailableReasonEnum = "history_over_limit";
+    export type CohortRealtimeUnavailableReasonEnum =
+        | "history_over_limit"
+        | "too_large_to_build";
     export type CohortRealtimeReadiness = {
         /**
          * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
@@ -6002,9 +6005,10 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+         * Why feature flags can't target the cohort, when PostHog knows. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. Other criteria can keep a cohort off realtime too. `too_large_to_build`, on a `needs_attention` cohort: its criteria match too many past events for PostHog to prepare it automatically. Null in every other case.
          *
          * * `history_over_limit` - History over limit
+         * * `too_large_to_build` - Too large to build
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**

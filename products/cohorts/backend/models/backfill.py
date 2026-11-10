@@ -225,6 +225,24 @@ class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class CohortBackfillRefusal(TeamScopedRootMixin, UUIDModel):
+    """A save-path behavioral run refused for the events it would scan.
+
+    It holds for the definition it judged, so a reader matches `shape_hash` against the cohort's
+    current behavioral hash rather than relying on an edit to delete the row.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # No database constraint, so creating the table takes no lock on posthog_cohort.
+    cohort = models.OneToOneField("cohorts.Cohort", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    shape_hash = models.CharField(max_length=64, default="")
+    message = models.TextField()
+    refused_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "cohort_backfill_refusals"
+
+
 # The chunks a run's readiness waits for. A trailing chunk carries a claim hold, and the seeder scans
 # it after readiness stamps, so every readiness query leaves it out. The seeder names the same rule
 # `readiness_chunk!()` in `store/completion.rs`.

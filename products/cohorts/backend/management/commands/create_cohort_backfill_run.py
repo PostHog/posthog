@@ -24,6 +24,7 @@ from products.cohorts.backend.backfill.pinning import (
     pin_person_conditions_for_cohorts,
 )
 from products.cohorts.backend.backfill.runs import (
+    BehavioralScanOverLimit,
     _validate_boundary_at,
     behavioral_backfill_ineligibility_reason,
     check_person_run_preconditions,
@@ -43,6 +44,20 @@ from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortB
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.realtime_teams import is_processing_team
+
+_SCAN_ESTIMATE_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseAtCapacity,
+    InternalCHQueryError,
+)
+
+
+def _scan_estimate_failed(error: Exception) -> CommandError:
+    return CommandError(
+        f"The scan estimate failed: {error}. Pass --max-scan-events-per-day 0 to create the run without it."
+    )
 
 
 def _parse_boundary_at(value: str | None) -> datetime | None:
@@ -143,29 +158,17 @@ class Command(BaseCommand):
                 self.stdout.write("Scan estimate: skipped, because the limit is 0")
             return
 
-        scan_estimate: BehavioralScanEstimate | None = None
-        if max_scan_events_per_day:
-            # Estimated before the creator locks the cohorts, so an edit in between can shift the names.
-            # The limit is a preflight, not a guarantee: the save path creates runs without it.
-            eligible = [
-                cohort
-                for cohort, reason in judge_team_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason)
-                if reason is None
-            ]
-            pinned = self._pin(team_id, eligible)
-            scan_estimate = self._scan_estimate(team_id, pinned, max_scan_events_per_day)
-            self._write_scan_estimate(scan_estimate, len(pinned["event_names"]))
-            if scan_estimate.over_limit:
-                raise CommandError(
-                    f"The run would scan {scan_estimate.peak_day_events} events on its busiest day "
-                    f"({scan_estimate.peak_day}), above the limit of {scan_estimate.max_events_per_day}. "
-                    "Narrow it with --cohort-ids, or pass --max-scan-events-per-day to accept the volume."
-                )
-
         try:
             run = create_team_backfill_run(
-                team_id, trigger, cohort_ids, boundary_at=boundary_at, scan_estimate=scan_estimate
+                team_id, trigger, cohort_ids, boundary_at=boundary_at, max_events_per_day=max_scan_events_per_day
             )
+        except BehavioralScanOverLimit as error:
+            self._write_scan_estimate(error.estimate, error.event_name_count)
+            raise CommandError(
+                f"{error} Narrow it with --cohort-ids, or pass --max-scan-events-per-day to accept the volume."
+            ) from error
+        except _SCAN_ESTIMATE_ERRORS as error:
+            raise _scan_estimate_failed(error) from error
         except (Team.DoesNotExist, ValueError) as error:
             raise CommandError(str(error)) from error
         except IntegrityError as error:
@@ -286,16 +289,8 @@ class Command(BaseCommand):
                 flag_calls_table=pinned["flag_calls_table"],
                 max_events_per_day=max_events_per_day,
             )
-        except (
-            ClickHouseQueryTimeOut,
-            ClickHouseEstimatedQueryExecutionTimeTooLong,
-            ClickHouseQueryMemoryLimitExceeded,
-            ClickHouseAtCapacity,
-            InternalCHQueryError,
-        ) as error:
-            raise CommandError(
-                f"The scan estimate failed: {error}. Pass --max-scan-events-per-day 0 to create the run without it."
-            ) from error
+        except _SCAN_ESTIMATE_ERRORS as error:
+            raise _scan_estimate_failed(error) from error
 
     def _write_scan_estimate(self, estimate: BehavioralScanEstimate, event_name_count: int) -> None:
         largest = ", ".join(f"{name} {count}" for name, count in estimate.largest_events(5)) or "none"

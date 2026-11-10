@@ -26,11 +26,13 @@ from products.cohorts.backend.backfill.sizing import (
     BehavioralScanEstimate,
     PersonSeedEstimate,
     PersonSeedEstimateScanCapExceeded,
+    estimate_behavioral_scan_events,
     estimate_person_seed_topic_bytes,
 )
 from products.cohorts.backend.models.backfill import (
     ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
     CohortBackfillKind,
+    CohortBackfillRefusal,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -263,6 +265,7 @@ class BackfillRefusalReason(StrEnum):
     SIZING_SCAN_CAP_EXCEEDED = "sizing_scan_cap_exceeded"
     DEFINITION_CHANGED = "definition_changed"
     FLAG_CALLS_TABLE_UNRESOLVED = "flag_calls_table_unresolved"
+    SCAN_OVER_LIMIT = "scan_over_limit"
 
 
 @frozen
@@ -281,6 +284,51 @@ class BackfillRunAttempt:
         return cls(run=None, reason=reason)
 
 
+def _pin_or_refuse_behavioral_cohort(cohort: Cohort) -> dict[str, Any] | BackfillRefusalReason:
+    ineligibility = behavioral_backfill_ineligibility_reason(cohort)
+    if ineligibility is not None:
+        logger.info(
+            "cohort_behavioral_backfill_ineligible",
+            team_id=cohort.team_id,
+            cohort_id=cohort.id,
+            reason=ineligibility,
+        )
+        return BackfillRefusalReason.COHORT_INELIGIBLE
+    if _active_participation_cohort_ids(cohort.team_id, [cohort.id], kind=CohortBackfillKind.BEHAVIORAL):
+        return BackfillRefusalReason.PARTICIPATION_ACTIVE
+    if _has_active_cohort_run(cohort.team_id, cohort.id, kind=CohortBackfillKind.BEHAVIORAL):
+        return BackfillRefusalReason.RUN_SLOT_OCCUPIED
+    try:
+        return pin_behavioral_run([cohort], cohort.team)
+    except FlagCallsTableUnresolved as error:
+        logger.warning(
+            "cohort_behavioral_backfill_flag_calls_table_unresolved",
+            team_id=cohort.team_id,
+            cohort_id=cohort.id,
+            error=str(error),
+        )
+        return BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED
+
+
+def _scan_over_limit_message(estimate: BehavioralScanEstimate) -> str:
+    return (
+        f"The run would scan {estimate.peak_day_events} events on its busiest day ({estimate.peak_day}), "
+        f"above the limit of {estimate.max_events_per_day}."
+    )
+
+
+class BehavioralScanOverLimit(ValueError):
+    def __init__(self, estimate: BehavioralScanEstimate, event_name_count: int) -> None:
+        super().__init__(_scan_over_limit_message(estimate))
+        self.estimate = estimate
+        self.event_name_count = event_name_count
+
+
+def _clear_refusals(team_id: int, cohort_ids: Iterable[int]) -> None:
+    """A run supersedes the refusal, so one that later fails does not read as refused again."""
+    CohortBackfillRefusal.objects.for_team(team_id).filter(cohort_id__in=cohort_ids).delete()
+
+
 def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: str) -> CohortBackfillRun | None:
     """The run, or ``None``, for callers that assert on the run and never on why one was refused."""
     return attempt_backfill_run_for_cohort(team_id, cohort_id, trigger_kind).run
@@ -296,6 +344,37 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
     if not is_processing_team(team_id, fresh=True):
         return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
+    # Unlocked pre-pass for the scan estimate: it is a ClickHouse round trip, so it must not run while
+    # the create path below holds the cohort row FOR UPDATE. The locked pass re-derives eligibility and
+    # the pin, and refuses if the pinned event names moved in between.
+    cohort = Cohort.objects.select_related("team").filter(id=cohort_id, team_id=team_id).first()
+    if cohort is None:
+        return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_MISSING)
+    pinned = _pin_or_refuse_behavioral_cohort(cohort)
+    if isinstance(pinned, BackfillRefusalReason):
+        return BackfillRunAttempt.refused(pinned)
+
+    max_events_per_day = settings.BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY
+    estimate: BehavioralScanEstimate | None = None
+    if max_events_per_day:
+        estimate = estimate_behavioral_scan_events(
+            team_id,
+            pinned["event_names"],
+            flag_calls_table=pinned["flag_calls_table"],
+            max_events_per_day=max_events_per_day,
+        )
+        if estimate.over_limit:
+            CohortBackfillRefusal.objects.for_team(team_id).update_or_create(
+                cohort=cohort,
+                defaults={
+                    "team_id": team_id,
+                    "shape_hash": cohort.behavioral_filters_shape_hash or "",
+                    "message": _scan_over_limit_message(estimate),
+                    "refused_at": django_timezone.now(),
+                },
+            )
+            return BackfillRunAttempt.refused(BackfillRefusalReason.SCAN_OVER_LIMIT)
+
     try:
         with transaction.atomic():
             cohort = (
@@ -306,30 +385,19 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
             )
             if cohort is None:
                 return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_MISSING)
-            ineligibility = behavioral_backfill_ineligibility_reason(cohort)
-            if ineligibility is not None:
-                logger.info(
-                    "cohort_behavioral_backfill_ineligible",
-                    team_id=team_id,
-                    cohort_id=cohort_id,
-                    reason=ineligibility,
-                )
-                return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_INELIGIBLE)
-            if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.BEHAVIORAL):
-                return BackfillRunAttempt.refused(BackfillRefusalReason.PARTICIPATION_ACTIVE)
-            if _has_active_cohort_run(team_id, cohort_id, kind=CohortBackfillKind.BEHAVIORAL):
-                return BackfillRunAttempt.refused(BackfillRefusalReason.RUN_SLOT_OCCUPIED)
-
-            try:
-                pinned = pin_behavioral_run([cohort], cohort.team)
-            except FlagCallsTableUnresolved as error:
+            locked_pinned = _pin_or_refuse_behavioral_cohort(cohort)
+            if isinstance(locked_pinned, BackfillRefusalReason):
+                return BackfillRunAttempt.refused(locked_pinned)
+            # The estimate counted the pre-pass event names. A racing edit that changed them dispatched its
+            # own debounced task, which owns the re-estimated run. The rest of the pin also follows settings
+            # and the clock, and no save re-dispatches a run refused over those.
+            if locked_pinned["event_names"] != pinned["event_names"]:
                 logger.warning(
-                    "cohort_behavioral_backfill_flag_calls_table_unresolved",
+                    "cohort_behavioral_backfill_definition_changed_during_sizing",
                     team_id=team_id,
                     cohort_id=cohort_id,
-                    error=str(error),
                 )
-                return BackfillRunAttempt.refused(BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
+                return BackfillRunAttempt.refused(BackfillRefusalReason.DEFINITION_CHANGED)
 
             filters_shape_hash = ensure_filters_shape_hash(cohort)
             behavioral_filters_shape_hash = cohort.behavioral_filters_shape_hash or ""
@@ -343,8 +411,8 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
                 scope=CohortBackfillScope.COHORT,
                 status=status,
                 timezone=cohort.team.timezone,
-                pinned=pinned,
-                preconditions=preconditions,
+                pinned=locked_pinned,
+                preconditions={**preconditions, **(estimate.as_preconditions() if estimate else {})},
                 blocked_reason=blocked_reason,
             )
             CohortBackfillRunCohort.objects.for_team(team_id).create(
@@ -355,6 +423,7 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
                 behavioral_filters_shape_hash=behavioral_filters_shape_hash,
                 pinned_filters=cohort.filters,
             )
+            _clear_refusals(team_id, [cohort_id])
             return BackfillRunAttempt.created(run)
     except IntegrityError:
         # A writer this transaction could not see won the unique-constraint race after the conflict
@@ -381,42 +450,62 @@ def _validate_boundary_at(trigger_kind: str, boundary_at: datetime | None) -> da
         raise ValueError("boundary_at falls outside the supported UTC range") from error
 
 
+def _behavioral_cohorts_for_team(team_id: int, requested_ids: set[int] | None, *, lock: bool) -> list[Cohort]:
+    queryset = Cohort.objects.select_related("team").filter(
+        team_id=team_id,
+        cohort_type=CohortType.REALTIME,
+        is_static=False,
+        deleted=False,
+    )
+    if lock:
+        queryset = queryset.select_for_update(of=("self",))
+    if requested_ids is not None:
+        queryset = queryset.filter(id__in=requested_ids)
+    cohorts = [cohort for cohort in queryset.order_by("id") if behavioral_backfill_ineligibility_reason(cohort) is None]
+    if requested_ids is not None and {cohort.id for cohort in cohorts} != requested_ids:
+        invalid_ids = sorted(requested_ids - {cohort.id for cohort in cohorts})
+        raise ValueError(f"Cohorts are not eligible realtime behavioral cohorts: {invalid_ids}")
+    if not cohorts:
+        raise ValueError(f"Team {team_id} has no eligible realtime behavioral cohorts")
+    return cohorts
+
+
 def create_team_backfill_run(
     team_id: int,
     trigger_kind: str,
     cohort_ids: Iterable[int] | None = None,
     created_by_id: int | None = None,
     boundary_at: datetime | None = None,
-    scan_estimate: BehavioralScanEstimate | None = None,
+    *,
+    max_events_per_day: int | None = None,
 ) -> CohortBackfillRun:
+    """Pass ``max_events_per_day=0`` to skip the scan estimate, which is how staff accept a run's volume."""
     if not is_processing_team(team_id, fresh=True):
         raise ValueError(f"Team {team_id} is not processed by the realtime cohort pipeline")
 
     boundary_at = _validate_boundary_at(trigger_kind, boundary_at)
+    if max_events_per_day is None:
+        max_events_per_day = settings.BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY
 
     requested_ids = set(cohort_ids) if cohort_ids is not None else None
-    with transaction.atomic():
-        team = Team.objects.get(id=team_id)
-        queryset = (
-            Cohort.objects.select_for_update(of=("self",))
-            .select_related("team")
-            .filter(
-                team_id=team_id,
-                cohort_type=CohortType.REALTIME,
-                is_static=False,
-                deleted=False,
-            )
+    team = Team.objects.get(id=team_id)
+    # Estimated unlocked for the same reason as in `attempt_backfill_run_for_cohort`.
+    cohorts = _behavioral_cohorts_for_team(team_id, requested_ids, lock=False)
+    pinned = pin_behavioral_run(cohorts, team)
+    preconditions, missing = check_run_preconditions()
+    if max_events_per_day:
+        estimate = estimate_behavioral_scan_events(
+            team_id,
+            pinned["event_names"],
+            flag_calls_table=pinned["flag_calls_table"],
+            max_events_per_day=max_events_per_day,
         )
-        if requested_ids is not None:
-            queryset = queryset.filter(id__in=requested_ids)
-        cohorts = [
-            cohort for cohort in queryset.order_by("id") if behavioral_backfill_ineligibility_reason(cohort) is None
-        ]
-        if requested_ids is not None and {cohort.id for cohort in cohorts} != requested_ids:
-            invalid_ids = sorted(requested_ids - {cohort.id for cohort in cohorts})
-            raise ValueError(f"Cohorts are not eligible realtime behavioral cohorts: {invalid_ids}")
-        if not cohorts:
-            raise ValueError(f"Team {team_id} has no eligible realtime behavioral cohorts")
+        if estimate.over_limit:
+            raise BehavioralScanOverLimit(estimate, len(pinned["event_names"]))
+        preconditions = {**preconditions, **estimate.as_preconditions()}
+
+    with transaction.atomic():
+        cohorts = _behavioral_cohorts_for_team(team_id, requested_ids, lock=True)
         conflicting_ids = _active_participation_cohort_ids(
             team_id, [cohort.id for cohort in cohorts], kind=CohortBackfillKind.BEHAVIORAL
         )
@@ -424,16 +513,16 @@ def create_team_backfill_run(
             raise ValueError(f"Cohorts already have active backfill runs: {sorted(conflicting_ids)}")
         if _has_active_team_run(team_id, kind=CohortBackfillKind.BEHAVIORAL):
             raise ValueError(f"Team {team_id} already has an active team backfill run (behavioral)")
+        locked_pinned = pin_behavioral_run(cohorts, team)
+        # Compares the event names only, for the reason given in `attempt_backfill_run_for_cohort`.
+        if locked_pinned["event_names"] != pinned["event_names"]:
+            raise ValueError("Cohort behavioral definitions changed during sizing; retry the run")
 
-        pinned = pin_behavioral_run(cohorts, team)
         hashes: dict[int, str] = {}
         behavioral_hashes: dict[int, str] = {}
         for cohort in cohorts:
             hashes[cohort.id] = ensure_filters_shape_hash(cohort)
             behavioral_hashes[cohort.id] = cohort.behavioral_filters_shape_hash or ""
-        preconditions, missing = check_run_preconditions()
-        if scan_estimate is not None:
-            preconditions = {**preconditions, **scan_estimate.as_preconditions()}
         status, blocked_reason = _run_status(missing)
         run = CohortBackfillRun.objects.for_team(team_id).create(
             team_id=team_id,
@@ -444,7 +533,7 @@ def create_team_backfill_run(
             status=status,
             boundary_at=boundary_at,
             timezone=team.timezone,
-            pinned=pinned,
+            pinned=locked_pinned,
             preconditions=preconditions,
             blocked_reason=blocked_reason,
         )
@@ -461,6 +550,7 @@ def create_team_backfill_run(
                 for cohort in cohorts
             ]
         )
+        _clear_refusals(team_id, [cohort.id for cohort in cohorts])
         return run
 
 

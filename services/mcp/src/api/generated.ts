@@ -27882,12 +27882,14 @@ export namespace Schemas {
 
     /**
      * * `history_over_limit` - History over limit
+     * * `too_large_to_build` - Too large to build
      */
     export type CohortRealtimeUnavailableReasonEnum = typeof CohortRealtimeUnavailableReasonEnum[keyof typeof CohortRealtimeUnavailableReasonEnum];
 
 
     export const CohortRealtimeUnavailableReasonEnum = {
       HistoryOverLimit: 'history_over_limit',
+      TooLargeToBuild: 'too_large_to_build',
     } as const;
 
     export interface CohortRealtimeReadiness {
@@ -27908,9 +27910,10 @@ export namespace Schemas {
       ready_at: string | null;
       /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
       build: CohortHistoryBuild | null;
-      /** A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+      /** Why feature flags can't target the cohort, when PostHog knows. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. Other criteria can keep a cohort off realtime too. `too_large_to_build`, on a `needs_attention` cohort: its criteria match too many past events for PostHog to prepare it automatically. Null in every other case.
        *
-       * * `history_over_limit` - History over limit */
+       * * `history_over_limit` - History over limit
+       * * `too_large_to_build` - Too large to build */
       reason: CohortRealtimeUnavailableReasonEnum | null;
       /**
          * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.

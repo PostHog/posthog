@@ -126,6 +126,7 @@ rules:
                               |ClusteringJob
                               |Cohort
                               |CohortBackfillChunk
+                              |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |RealtimeCohortRequest
@@ -671,6 +672,7 @@ rules:
                         |ClusteringJob
                         |Cohort
                         |CohortBackfillChunk
+                        |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |RealtimeCohortRequest
