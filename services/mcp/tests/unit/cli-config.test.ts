@@ -28,6 +28,25 @@ describe('CLI target configuration', () => {
         expect(args).toEqual(['feature-flag-get-all', '{}'])
     })
 
+    it.each(['"phx_example"\n', "'phx_example'", '  phx_example\r\n', '" phx_example "'])(
+        'strips whitespace and one pair of wrapping quotes from %j',
+        (value) => {
+            vi.stubEnv('POSTHOG_API_KEY', value)
+
+            expect(resolveCliConfig().apiKey).toBe('phx_example')
+        }
+    )
+
+    it.each(['"phx_exa\nmple"', 'phx_example"', 'phx_exa mple', '"phx_example\''])(
+        'rejects %j without echoing the key',
+        (value) => {
+            vi.stubEnv('POSTHOG_API_KEY', value)
+
+            expect(() => resolveCliConfig()).toThrow('The API key in POSTHOG_API_KEY contains invalid characters.')
+            expect(() => resolveCliConfig()).not.toThrow(/phx_exa/)
+        }
+    )
+
     it.each(['--project-id', '--organization-id'])('rejects a missing value for %s', (flag) => {
         expect(() => resolveCliConfig([flag])).toThrow(`Missing value for ${flag}`)
     })

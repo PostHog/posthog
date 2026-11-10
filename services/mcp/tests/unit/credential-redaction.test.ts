@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { redactCredentials, redactCredentialsInText } from '@/lib/credential-redaction'
+import { redactCredentials, redactCredentialsInText, redactError } from '@/lib/credential-redaction'
 import redactFailureLogsHooks from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
 import { GENERATED_TOOLS as ENGINEERING_ANALYTICS_TOOLS } from '@/tools/generated/engineering_analytics'
 import { GENERATED_TOOLS } from '@/tools/generated/logs'
@@ -109,6 +109,11 @@ describe('credential redaction', () => {
             name: 'a bearer token outside a header',
             input: 'request failed with Bearer generic-secret',
             expected: 'request failed with Bearer [REDACTED]',
+        },
+        {
+            name: 'a quoted bearer token',
+            input: 'Headers.append: "Bearer "generic-secret"" is an invalid header value.',
+            expected: 'Headers.append: "Bearer "[REDACTED]"" is an invalid header value.',
         },
         {
             name: 'a private PostHog token outside a header',
@@ -274,6 +279,20 @@ describe('credential redaction', () => {
         const redacted = redactFailureLogsHooks.afterResponse({} as Context, {}, response) as typeof response
 
         expect(redacted.jobs[0]!.lines.map((line) => line.text)).toEqual(expected)
+    })
+
+    it('masks credentials in the message, stack and cause chain of an error without mutating it', () => {
+        const cause = new TypeError(`Headers.append: "Bearer "${PERSONAL_KEY}"\n" is an invalid header value.`)
+        const error = Object.assign(new Error(`Could not reach the PostHog API: ${cause.message}`), { cause })
+
+        const redacted = redactError(error) as Error & { cause: Error }
+
+        expect(
+            [redacted.message, redacted.stack, redacted.cause.message, redacted.cause.stack].join('\n')
+        ).not.toContain(PERSONAL_KEY.slice(4))
+        expect(redacted).toMatchObject({ name: 'Error', cause: { name: 'TypeError' } })
+        expect(redacted.stack).toContain(__filename.split('/').pop())
+        expect(error.message).toContain(PERSONAL_KEY)
     })
 
     it('masks structured credential fields without mutating the response', () => {

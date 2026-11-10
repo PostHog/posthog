@@ -1,6 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { Schemas } from '@/api/generated'
+import { redactError } from '@/lib/credential-redaction'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 
@@ -677,7 +678,7 @@ export function handleToolError(
     }
 
     try {
-        getPostHogClient().captureException(mcpError, distinctId, properties)
+        getPostHogClient().captureException(redactError(mcpError), distinctId, properties)
     } catch {
         // Never let observability break the request.
     }

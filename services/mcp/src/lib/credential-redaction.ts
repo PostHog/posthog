@@ -2,6 +2,7 @@ import { assignKey, isRecord } from '@/lib/plain-object'
 
 export const REDACTED_VALUE = '[REDACTED]'
 const MAX_ENCODING_LAYERS = 8
+const MAX_CAUSE_DEPTH = 8
 const CREDENTIAL_NAME_FRAGMENTS = ['apikey', 'token', 'secret', 'password', 'passwd', 'credential', 'signature']
 const CREDENTIAL_NAMES = new Set(['key', 'pwd', 'auth', 'authorization', 'sig', 'code', 'jwt', 'session', 'sessionid'])
 
@@ -17,7 +18,7 @@ const QUOTED_VALUE_PATTERN = /^("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/
 const URL_PASSWORD_PATTERN = /\b[a-z][a-z\d+.-]*:\/\/[^\s/"'<>\\]*@/gi
 // Project tokens (phc_) are public; these prefixes identify private tokens in posthog/models/utils.py.
 const POSTHOG_TOKEN_PATTERN = /\b(?:phx|phs|pha|phr)_([A-Za-z0-9_-]{16,})/g
-const BEARER_PATTERN = /\bBearer\s+([^\s"'\\,;}]+)/gi
+const BEARER_PATTERN = /\bBearer\s+["']?([^\s"'\\,;}]+)/gi
 // The label check is a lookahead because two overlapping repeats around `PRIVATE KEY` backtrack quadratically.
 const PRIVATE_KEY_LABEL = '(?=[A-Z0-9 ]*?PRIVATE KEY)[A-Z0-9 ]*-----'
 export const PRIVATE_KEY_HEADER_PATTERN = new RegExp(`-----BEGIN ${PRIVATE_KEY_LABEL}`, 'g')
@@ -206,4 +207,19 @@ export function redactCredentials(value: unknown, rule: CredentialNameRule = isL
         return redacted
     }
     return value
+}
+
+/** Returns a copy of an error, and of its cause chain, with credentials masked in every message and stack. */
+export function redactError(error: unknown, rule: CredentialNameRule = isLogCredentialName, depth = 0): unknown {
+    if (!(error instanceof Error)) {
+        return redactCredentials(error, rule)
+    }
+    const redacted = new Error(redactCredentialsInText(error.message, rule))
+    redacted.name = error.name
+    redacted.stack = error.stack === undefined ? undefined : redactCredentialsInText(error.stack, rule)
+    const { cause } = error as Error & { cause?: unknown }
+    if (cause !== undefined && depth < MAX_CAUSE_DEPTH) {
+        ;(redacted as Error & { cause?: unknown }).cause = redactError(cause, rule, depth + 1)
+    }
+    return redacted
 }
