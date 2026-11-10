@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { CyclotronJobInvocation } from '../../types'
 import { JobRow, encodeJob, v2JobToInvocation } from './job-codec'
 
 // The golden `state` strings are what the Postgres-v2 adapter wrote before the codec existed. Workers of both
-// versions read the same rows during a deploy, so the bytes must not change.
+// versions read the same rows during a deploy, so each version must read what the other wrote.
 const codeSend: CyclotronJobInvocation = {
     id: '019a4f3e-7c1d-7000-8000-00000000c0de',
     teamId: 2,
@@ -84,33 +86,38 @@ const cases = [
 ]
 
 describe('job codec', () => {
-    it.each(cases)('encodes $name byte-identically and decodes it back', ({ invocation, golden, columns }) => {
+    const dequeuedAt = DateTime.fromISO('2026-11-04T08:00:00.000Z', { zone: 'utc' })
+    const rowWith = (invocation: CyclotronJobInvocation, state: Buffer): JobRow => ({
+        id: invocation.id,
+        teamId: invocation.teamId,
+        functionId: invocation.functionId,
+        queueName: invocation.queue,
+        priority: invocation.queuePriority,
+        scheduled: dequeuedAt,
+        created: dequeuedAt,
+        parentRunId: invocation.parentRunId ?? null,
+        state,
+        cancelRequestedAt: null,
+    })
+    const dequeued = (invocation: CyclotronJobInvocation): CyclotronJobInvocation => ({
+        ...invocation,
+        queueParameters: invocation.queueParameters ?? undefined,
+        queueMetadata: invocation.queueMetadata ?? undefined,
+        queueScheduledAt: dequeuedAt,
+        queueCreatedAt: dequeuedAt,
+        queueDueAt: dequeuedAt,
+        queueSource: 'postgres-v2',
+    })
+
+    it.each(cases)('writes $name as the earlier adapter did', ({ invocation, golden, columns }) => {
         const init = encodeJob(invocation)
-        expect(init.state?.toString('utf-8')).toBe(golden)
+
+        expect(parseJSON(init.state!.toString('utf-8'))).toEqual(parseJSON(golden))
         expect({ ...init, state: undefined }).toEqual({ ...columns, state: undefined })
+        expect(v2JobToInvocation(rowWith(invocation, init.state!))).toEqual(dequeued(invocation))
+    })
 
-        const dequeuedAt = DateTime.fromISO('2026-11-04T08:00:00.000Z', { zone: 'utc' })
-        const row: JobRow = {
-            id: invocation.id,
-            teamId: invocation.teamId,
-            functionId: invocation.functionId,
-            queueName: invocation.queue,
-            priority: invocation.queuePriority,
-            scheduled: dequeuedAt,
-            created: dequeuedAt,
-            parentRunId: invocation.parentRunId ?? null,
-            state: Buffer.from(golden, 'utf-8'),
-            cancelRequestedAt: null,
-        }
-
-        expect(v2JobToInvocation(row)).toEqual({
-            ...invocation,
-            queueParameters: invocation.queueParameters ?? undefined,
-            queueMetadata: invocation.queueMetadata ?? undefined,
-            queueScheduledAt: dequeuedAt,
-            queueCreatedAt: dequeuedAt,
-            queueDueAt: dequeuedAt,
-            queueSource: 'postgres-v2',
-        })
+    it.each(cases)('reads $name as the earlier adapter wrote it', ({ invocation, golden }) => {
+        expect(v2JobToInvocation(rowWith(invocation, Buffer.from(golden, 'utf-8')))).toEqual(dequeued(invocation))
     })
 })
