@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
+import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
+
 import { urls } from 'scenes/urls'
 
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
@@ -10,7 +12,7 @@ import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
-import { canCreateImplementationPr, canUnassignMe, hasOpenImplementationPr } from '../utils/reportActions'
+import { canCreateImplementationPr, canUnassignMe } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
