@@ -88,12 +88,25 @@ procs:
 
     ingestion-ai:
         sandbox: true
-        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-ai HTTP_SERVER_PORT=6747 ./bin/posthog-node'
+        shell: 'bin/wait-for-docker objectstorage && PLUGIN_SERVER_MODE=ingestion-ai HTTP_SERVER_PORT=6747 ./bin/posthog-node'
         capability: nodejs_ai_events
         ready_pattern: 'All systems go'
         groups:
             layer: Ingestion pipeline
             tech: Node
+        env:
+            # The AI consumer reads persons through PersonHog
+            PERSONHOG_ENABLED: 'true'
+            PERSONHOG_ADDR: '127.0.0.1:50052'
+            # Without a bucket it silently skips blob offload, so give it the same store the
+            # compose stacks use.
+            AI_BLOB_S3_BUCKET: ai-blobs
+            AI_BLOB_S3_PREFIX: 'aio/'
+            AI_BLOB_S3_ENDPOINT: 'http://objectstorage:19000'
+            AI_BLOB_S3_REGION: us-east-1
+            AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
+            AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
+            AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion-logs:
         sandbox: true
@@ -131,20 +144,10 @@ procs:
             layer: Ingestion pipeline
             tech: Node
         env:
-            # The combined-mode AI consumer reads persons through PersonHog; the
-            # event_ingestion capability pulls the personhog services in.
+            # Person and group writes go through PersonHog; the event_ingestion
+            # capability pulls the personhog services in.
             PERSONHOG_ENABLED: 'true'
             PERSONHOG_ADDR: '127.0.0.1:50052'
-            # Combined mode's AI consumer owns the events_plugin_ingestion_ai lane locally;
-            # without a bucket it silently skips blob offload, so give it the same store the
-            # compose stacks use.
-            AI_BLOB_S3_BUCKET: ai-blobs
-            AI_BLOB_S3_PREFIX: 'aio/'
-            AI_BLOB_S3_ENDPOINT: 'http://objectstorage:19000'
-            AI_BLOB_S3_REGION: us-east-1
-            AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
-            AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
-            AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion-sessionreplay:
         sandbox: true

@@ -20,7 +20,7 @@ capabilities:
 
     event_ingestion:
         description: 'Kafka-based event pipeline for event capture'
-        # The combined-mode ingestion server's AI consumer reads persons through PersonHog
+        # Person and group writes go through PersonHog
         requires: [core_infra, personhog]
         docker_profiles: []
 
@@ -191,6 +191,7 @@ capabilities:
 
     nodejs_ai_events:
         description: 'Node.js AI events ingestion ($ai_* events)'
+        # Reads persons through PersonHog, which event_ingestion already requires
         requires: [event_ingestion]
         docker_profiles: []
 

@@ -323,7 +323,6 @@ services:
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            # The combined-mode AI consumer reads persons through PersonHog
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
         depends_on:
@@ -331,8 +330,6 @@ services:
             - redis7
             - clickhouse
             - kafka
-            # The combined AI consumer's blob store healthchecks the ai-blobs bucket at startup
-            - objectstorage
             - personhog-router
 
     ingestion-sessionreplay:
@@ -404,14 +401,21 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-ai
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # The AI consumer reads persons through PersonHog
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             - db
             - redis7
             - kafka
+            # The blob store healthchecks the ai-blobs bucket at startup
+            - objectstorage
+            - personhog-router
 
     ingestion-logs:
         extends:
