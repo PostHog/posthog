@@ -366,7 +366,10 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.ref)).toEqual(['template-receipt'])
     })
 
-    it('pages through a folder the shared tree cut to its first page, and nothing else', async () => {
+    it.each([
+        ['pages through a folder the shared tree cut to its first page, and nothing else', 200],
+        ['keeps the cached files of a cut folder whose next page fails', 500],
+    ])('%s', async (_name, nextPageStatus) => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing')
         const requests: URLSearchParams[] = []
@@ -376,7 +379,7 @@ describe('workflowFoldersLogic', () => {
                     const params = new URL(request.url).searchParams
                     requests.push(params)
                     return [
-                        200,
+                        nextPageStatus,
                         paginated(
                             params.get('parent') === 'Billing'
                                 ? [

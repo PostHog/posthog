@@ -1006,6 +1006,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         // so the view puts back what it indexed, and pages on through a cut folder, instead of reloading the project.
         [projectTreeDataLogic.actionTypes.pruneClosedFolders]: () => actions.restoreFileIndex(),
         [projectTreeDataLogic.actionTypes.loadFolderSuccess]: () => actions.restoreFileIndex(),
+        [projectTreeDataLogic.actionTypes.loadFolderFailure]: () => actions.restoreFileIndex(),
         [projectTreeDataLogic.actionTypes.createSavedItem]: () => {
             cache.changes = changeCount(cache) + 1
         },
@@ -1040,7 +1041,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         restoreFileIndex: () => {
             const present = new Set(Object.values(values.folders).flatMap((files) => files.map((entry) => entry.id)))
             const missing = [...fileIndex(cache).values()].filter((entry) => !present.has(entry.id))
-            const evicted = missing.filter((entry) => !(parentPath(entry.path) in values.folders))
+            // A folder whose next page failed is not loaded again, so its cached files go back like evicted ones.
+            const evicted = missing.filter((entry) => {
+                const folder = parentPath(entry.path)
+                return !(folder in values.folders) || values.folderStates[folder] === 'error'
+            })
             if (evicted.length) {
                 projectTreeDataLogic.actions.addLoadedResults({
                     searchTerm: '',
