@@ -2,8 +2,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.contrib.admin import AdminSite
-from django.test import RequestFactory, override_settings
+from django.test import Client, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -14,7 +13,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.workflows.backend.admin.sandbox_sender_organization_block_admin import SandboxSenderOrganizationBlockAdmin
 from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 
@@ -117,18 +115,26 @@ class TestWorkflowEmailSandbox(APIBaseTest):
         assert [created.status_code, verified.status_code, updated.status_code] == [400, 400, 400]
         assert _sandbox_rows(self.team.id) == [sandbox_row]
 
-    def test_admin_records_who_blocked_the_organization(self) -> None:
-        request = RequestFactory().get("/admin/workflows/sandboxsenderorganizationblock/add/")
-        request.user = self.user
-        model_admin = SandboxSenderOrganizationBlockAdmin(SandboxSenderOrganizationBlock, AdminSite())
-        initial = model_admin.get_changeform_initial_data(request)
+    @parameterized.expand([("own",), ("forged",), ("omitted",)])
+    @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+    def test_admin_records_who_blocked_the_organization(self, posted_creator: str) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        other_staff = User.objects.create_and_join(self.organization, "other-staff@example.com", None)
+        created_by = {
+            "own": {"created_by": self.user.pk},
+            "forged": {"created_by": other_staff.pk},
+            "omitted": {},
+        }[posted_creator]
+        admin_client = Client()
+        admin_client.force_login(self.user)
 
-        form = model_admin.get_form(request, obj=None)(
-            data={"organization": self.organization.pk, "reason": "abuse", "created_by": initial["created_by"]}
+        response = admin_client.post(
+            "/admin/workflows/sandboxsenderorganizationblock/add/",
+            {"organization": self.organization.pk, "reason": "abuse", **created_by},
         )
-        assert form.is_valid(), form.errors
-        form.save()
 
+        assert response.status_code == 302, response.content
         assert SandboxSenderOrganizationBlock.objects.get(organization=self.organization).created_by == self.user
 
 

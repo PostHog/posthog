@@ -11,41 +11,40 @@ import { sandboxSenderLogic } from './sandboxSenderLogic'
 
 describe('sandboxSenderLogic', () => {
     it('reads and sets up the sandbox sender in the selected environment rather than its project', async () => {
-        const environmentId = MOCK_DEFAULT_TEAM.id + 1
-        const requestedIds: string[] = []
+        const projectId = String(MOCK_DEFAULT_TEAM.id)
+        const environmentId = String(MOCK_DEFAULT_TEAM.id + 1)
+        const sendersByEnvironment: Record<string, number> = { [projectId]: 99 }
         initKeaTests()
-        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: environmentId })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: Number(environmentId) })
         useMocks({
             get: {
-                '/api/projects/:team_id/workflow_email_sandbox/status/': (req: any) => {
-                    requestedIds.push(String(req.params.team_id))
-                    return [
-                        200,
-                        {
-                            integration_id: null,
-                            from_address: 'sandbox@example.com',
-                            display_name: 'Example via PostHog',
-                            organization_blocked: false,
-                            adoption_enabled: true,
-                        },
-                    ]
-                },
+                '/api/projects/:team_id/workflow_email_sandbox/status/': (req: any) => [
+                    200,
+                    {
+                        integration_id: sendersByEnvironment[req.params.team_id] ?? null,
+                        from_address: 'sandbox@example.com',
+                        display_name: 'Example via PostHog',
+                        organization_blocked: false,
+                        adoption_enabled: true,
+                    },
+                ],
             },
             post: {
                 '/api/projects/:team_id/workflow_email_sandbox/provision/': (req: any) => {
-                    requestedIds.push(String(req.params.team_id))
-                    return [200, { integration_id: 11 }]
+                    sendersByEnvironment[req.params.team_id] ??= 11
+                    return [200, { integration_id: sendersByEnvironment[req.params.team_id] }]
                 },
             },
         })
         const logic = sandboxSenderLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSandboxStatusSuccess'])
+        expect(logic.values.sandboxStatus?.integration_id).toBeNull()
 
         logic.actions.provisionSandboxSender('channels')
         await expectLogic(logic).toDispatchActions(['setSandboxIntegrationId'])
 
-        expect(requestedIds).toEqual([String(environmentId), String(environmentId)])
+        expect(sendersByEnvironment).toEqual({ [projectId]: 99, [environmentId]: 11 })
         expect(logic.values.sandboxStatus?.integration_id).toEqual(11)
         logic.unmount()
     })
