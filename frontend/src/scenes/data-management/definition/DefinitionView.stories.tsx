@@ -126,6 +126,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-04-30',
         pageUrl: urls.eventDefinition(MOCK_EVENT_DEFINITION.id),
+        featureFlags: [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
         // The event page's properties and matching-events loaders never settle because their endpoints are not mocked.
         testOptions: {
             waitForLoadersToDisappear: false,
@@ -177,7 +178,6 @@ export const PropertyDefinitionUsage: Story = {
     parameters: {
         pageUrl: urls.propertyDefinition(MOCK_PROPERTY_DEFINITION.id),
         testOptions: { waitForLoadersToDisappear: true },
-        featureFlags: [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
     },
     decorators: [propertyUsageDecorator(4821, MOCK_INSIGHTS)],
 }
@@ -186,7 +186,6 @@ export const PropertyDefinitionUsageEmpty: Story = {
     parameters: {
         pageUrl: urls.propertyDefinition(MOCK_PROPERTY_DEFINITION.id),
         testOptions: { waitForLoadersToDisappear: true },
-        featureFlags: [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
     },
     decorators: [propertyUsageDecorator(0, [])],
 }
