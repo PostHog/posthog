@@ -11,6 +11,8 @@ from django.http import HttpRequest, HttpResponse, QueryDict
 from django.urls import reverse
 from django.utils import timezone
 
+from kombu.exceptions import OperationalError
+
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
@@ -18,6 +20,7 @@ from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.api.project_secret_api_key import revoke_exposed_project_secret_api_key
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, get_organization_personal_api_keys
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -342,14 +345,26 @@ def roll_organization_personal_api_keys(
     if previewed_at := form.cleaned_data["previewed_at"]:
         previewed = previewed.exclude(last_rolled_at__gte=previewed_at)
     keys = list(previewed)
+    not_notified: set[str] = set()
     # Each key is saved on its own, because the auth cache invalidation and the activity log run on per-row signals.
     for key in keys:
         old_mask_value = key.mask_value
         PersonalAPIKeySerializer(instance=key).roll(key)
-        send_personal_api_key_exposed.delay(key.user_id, key.id, old_mask_value, more_info)
         _log_change(request, key, "Rolled key.")
-    if keys:
+        try:
+            send_personal_api_key_exposed.delay(key.user_id, key.id, old_mask_value, more_info)
+        except OperationalError as error:
+            # The key already has its new value, so a broker outage must not stop the roll of the other keys.
+            capture_exception(error)
+            not_notified.add(key.user.email)
+    if keys and not not_notified:
         messages.success(request, f"Rolled {pluralize(len(keys), 'personal API key')} and notified the owners.")
+    elif keys:
+        messages.success(request, f"Rolled {pluralize(len(keys), 'personal API key')}.")
+        messages.warning(
+            request,
+            f"Could not email these owners: {', '.join(sorted(not_notified))}. Tell them that their keys changed.",
+        )
     _report_skipped(request, form, len(keys))
     return None
 

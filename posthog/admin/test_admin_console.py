@@ -24,6 +24,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from kombu.exceptions import OperationalError
 from loginas import settings as la_settings
 from parameterized import parameterized
 from structlog.testing import capture_logs
@@ -1507,6 +1508,25 @@ class TestAdminConsoleApiKeys(BaseTest):
         assert "confirm_token" not in preview.context
         assert "too many to change at once" in preview.content.decode()
         assert PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).count() == 2
+
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_rolling_all_keys_continues_when_an_email_cannot_be_queued(self, exposed: MagicMock) -> None:
+        exposed.delay.side_effect = [OperationalError("broker unavailable"), None]
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/roll-all/"
+
+        preview = self.client.post(url, {"reason": "Keys leaked"})
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert not PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).exists()
+        assert (
+            LogEntry.objects.filter(object_id__in=[key.pk for key in keys], change_message="Rolled key.").count() == 2
+        )
+        assert [str(message) for message in get_messages(confirmed.wsgi_request)] == [
+            "Rolled 2 personal API keys.",
+            f"Could not email these owners: {self.user.email}. Tell them that their keys changed.",
+        ]
 
     @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
