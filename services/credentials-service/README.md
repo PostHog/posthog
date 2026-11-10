@@ -254,6 +254,9 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_http_request_duration_seconds{method,route,status}` | request latency                                               |
 | `credentials_service_audit_dropped_total{reason}`                        | read audit rows lost: `queue_full` or `write_failed`          |
 | `credentials_service_audit_written_total`                                | read audit rows written by the async queue                    |
+| `credentials_service_audit_exported_total{outcome}`                      | audit rows sent to capture: `sent` or `failed` (retried)      |
+| `credentials_service_audit_export_lag_seconds`                           | age of the oldest audit row not exported yet, 0 when none     |
+| `credentials_service_audit_retention_deleted_total`                      | audit rows deleted for age                                    |
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
@@ -306,6 +309,23 @@ An advisory lock makes two Jobs that start together run one after the other.
 Infra runs pg_partman for the daily partitions: `create_parent('public.audit_log', 'occurred_at', '1 day', p_premake => 7, p_default_table => false)`, because the migration already made the default partition.
 Set pg_partman up before the service writes audit rows.
 Rows that land in the default partition stop pg_partman from making a partition for that day, until they are moved with `partition_data_proc`.
+
+### Audit export and retention
+
+When `CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED=true`, every pod runs an export loop.
+It needs `CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST` and `CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY`.
+Optional: `..._AUDIT_EXPORT_BATCH_SIZE` (500), `..._AUDIT_EXPORT_INTERVAL_SECONDS` (10), `..._AUDIT_EXPORT_TIMEOUT_MS` (10000).
+The loop posts rows that have no `exported_at` to `/batch/` as `$credentials_access` events, and then sets `exported_at`.
+One pod at a time exports: it holds `pg_try_advisory_lock`, and it selects batches with `FOR UPDATE SKIP LOCKED`.
+A failed send keeps the rows for the next pass. The row id is the event `uuid`, so a repeat send does not create a second event.
+The distinct id is always `credentials-service`, with `$process_person_profile` off. The user id is an event property.
+An event carries key names in `fields`, never values. It carries no `details` and no `jti`.
+The request uses plain `fetch`, so it goes direct unless Node itself is set to use the proxy environment.
+
+`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS` (default 30, maximum 60) sets how long rows stay in Postgres.
+A loop deletes older rows in batches every hour, under its own advisory lock.
+It deletes rows that are not exported yet too, so alert on `credentials_service_audit_export_lag_seconds`.
+When infra runs pg_partman on `audit_log`, dropping partitions replaces this loop.
 
 ## Integrations API
 

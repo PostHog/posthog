@@ -54,6 +54,19 @@ export interface DatabaseConfig {
     poolSize: number
 }
 
+/** Where audit rows are sent as `$credentials_access` events. */
+export interface AuditExportConfig {
+    /** Base URL of the capture host. The service posts to `/batch/` on it. */
+    host: string
+    /** The project API key of the receiving project. */
+    apiKey: string
+    batchSize: number
+    intervalSeconds: number
+    timeoutMs: number
+}
+
+export const MAX_AUDIT_RETENTION_DAYS = 60
+
 export interface Config {
     port: number
     host: string
@@ -90,6 +103,12 @@ export interface Config {
 
     /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
     kms?: KmsConfig
+
+    /** Set when CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED is `true`. Without it no audit row leaves the database. */
+    auditExport?: AuditExportConfig
+
+    /** Audit rows older than this are deleted. Needs the database. */
+    auditRetentionDays: number
 }
 
 function intFromEnv(key: string, fallback: number, min = 0): number {
@@ -171,6 +190,34 @@ export function loadDatabaseConfig(): DatabaseConfig | undefined {
         return undefined
     }
     return { url, poolSize: intFromEnv('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE', 20, 1) }
+}
+
+function auditExportFromEnv(): AuditExportConfig | undefined {
+    if (process.env.CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED !== 'true') {
+        return undefined
+    }
+    const host = process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST
+    const apiKey = process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY
+    if (!host || !apiKey) {
+        throw new Error(
+            'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED=true needs CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST and CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY'
+        )
+    }
+    return {
+        host: httpUrlFromEnv('CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST', host),
+        apiKey,
+        batchSize: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_BATCH_SIZE', 500, 1),
+        intervalSeconds: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_INTERVAL_SECONDS', 10, 1),
+        timeoutMs: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_TIMEOUT_MS', 10_000, 1),
+    }
+}
+
+function auditRetentionDaysFromEnv(): number {
+    const days = intFromEnv('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS', 30, 1)
+    if (days > MAX_AUDIT_RETENTION_DAYS) {
+        throw new Error(`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS must be at most ${MAX_AUDIT_RETENTION_DAYS}`)
+    }
+    return days
 }
 
 function kmsFromEnv(env: string): KmsConfig | undefined {
@@ -255,6 +302,13 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         reloadSeconds: intFromEnv('CREDENTIALS_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
+
+        auditRetentionDays: auditRetentionDaysFromEnv(),
+    }
+
+    const auditExport = auditExportFromEnv()
+    if (auditExport) {
+        config.auditExport = auditExport
     }
 
     const database = loadDatabaseConfig()

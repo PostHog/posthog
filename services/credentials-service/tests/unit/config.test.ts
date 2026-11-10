@@ -178,3 +178,53 @@ describe('loadConfig database', () => {
         expect(() => loadConfig()).toThrow('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE')
     })
 })
+
+describe('loadConfig audit', () => {
+    const KEYS = [
+        'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+        'CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS',
+    ]
+
+    afterEach(() => {
+        for (const key of KEYS) {
+            delete process.env[key]
+        }
+    })
+
+    it('leaves the export off and keeps 30 days when nothing is set', () => {
+        const config = loadConfig()
+        expect(config.auditExport).toBeUndefined()
+        expect(config.auditRetentionDays).toBe(30)
+    })
+
+    it('turns the export on with a host and a key', () => {
+        process.env.CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED = 'true'
+        process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST = 'https://capture.example.com'
+        process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY = 'phc_fake'
+        expect(loadConfig().auditExport).toMatchObject({ host: 'https://capture.example.com', batchSize: 500 })
+    })
+
+    it.each([
+        ['no host or key', { CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true' }],
+        [
+            'a host that is not http',
+            {
+                CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'ftp://x',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
+            },
+        ],
+        ['retention above the maximum', { CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS: '61' }],
+        ['retention of zero', { CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS: '0' }],
+    ])('fails the boot on %s', (_label, env) => {
+        Object.assign(process.env, env)
+        expect(() => loadConfig()).toThrow()
+    })
+
+    it('accepts the maximum retention', () => {
+        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = '60'
+        expect(loadConfig().auditRetentionDays).toBe(60)
+    })
+})
