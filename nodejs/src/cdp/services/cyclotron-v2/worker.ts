@@ -222,6 +222,66 @@ function assertSelfRowAffected(rowCount: number | null, jobId: string, kind: str
     }
 }
 
+// Both CTEs pick the due jobs with the lowest (priority, scheduled) through
+// idx_cyclotron_jobs_dequeue `(queue_name, priority, scheduled)`. They differ in how far
+// they read when fewer due jobs exist than the limit.
+//
+// The single scan cannot use `scheduled <= NOW()` as a bound, because `priority` sits
+// between `queue_name` and `scheduled` in the index and Postgres before 18 has no skip
+// scan. It reads every future-scheduled job of the queue (delays and waits) before it
+// stops, so an empty poll pays for the whole backlog.
+const SINGLE_SCAN_AVAILABLE_CTE = `WITH available AS (
+    SELECT id
+    FROM cyclotron_jobs
+    WHERE status = 'available'
+      AND queue_name = $1
+      AND scheduled <= NOW()
+    ORDER BY priority ASC, scheduled ASC
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)`
+
+// Reads one priority at a time. `priorities` finds each distinct priority of the queue with
+// one index descent per value. With an equality on `priority`, `scheduled <= NOW()` bounds
+// each range scan. Each priority locks at most `limit` due rows, and the outer sort keeps
+// the `limit` lowest of those across priorities. A poll with due jobs in several priorities
+// therefore locks more rows than it takes. Locking only the kept rows in a second step
+// would make concurrent workers select the same rows and come back empty.
+const PER_PRIORITY_AVAILABLE_CTE = `WITH RECURSIVE priorities AS (
+    (SELECT priority
+     FROM cyclotron_jobs
+     WHERE status = 'available' AND queue_name = $1
+     ORDER BY priority
+     LIMIT 1)
+    UNION ALL
+    SELECT (SELECT next.priority
+            FROM cyclotron_jobs next
+            WHERE next.status = 'available'
+              AND next.queue_name = $1
+              AND next.priority > p.priority
+            ORDER BY next.priority
+            LIMIT 1)
+    FROM priorities p
+    WHERE p.priority IS NOT NULL
+),
+available AS (
+    SELECT due.id
+    FROM priorities p
+    CROSS JOIN LATERAL (
+        SELECT id, priority, scheduled
+        FROM cyclotron_jobs
+        WHERE status = 'available'
+          AND queue_name = $1
+          AND priority = p.priority
+          AND scheduled <= NOW()
+        ORDER BY scheduled ASC
+        LIMIT $2
+        FOR UPDATE SKIP LOCKED
+    ) due
+    ORDER BY due.priority ASC, due.scheduled ASC
+    LIMIT $2
+)`
+
 export class CyclotronV2Worker {
     private pool: Pool
     protected isConsuming = false
@@ -234,6 +294,7 @@ export class CyclotronV2Worker {
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
+    private readonly perPriorityDequeue: boolean
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = createCyclotronPool('worker', {
@@ -251,6 +312,7 @@ export class CyclotronV2Worker {
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
         this.fairDequeue = config.queueName === 'email'
+        this.perPriorityDequeue = config.perPriorityDequeue ?? false
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -317,17 +379,9 @@ export class CyclotronV2Worker {
 
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
+        const available = this.perPriorityDequeue ? PER_PRIORITY_AVAILABLE_CTE : SINGLE_SCAN_AVAILABLE_CTE
         const result = await this.pool.query<RawJobRow>(
-            `WITH available AS (
-                SELECT id
-                FROM cyclotron_jobs
-                WHERE status = 'available'
-                  AND queue_name = $1
-                  AND scheduled <= NOW()
-                ORDER BY priority ASC, scheduled ASC
-                LIMIT $2
-                FOR UPDATE SKIP LOCKED
-            )
+            `${available}
             UPDATE cyclotron_jobs
             SET status = 'running',
                 lock_id = $3,

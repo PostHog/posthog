@@ -222,6 +222,8 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
+    // Selects the per-priority dequeue in worker.ts for every queue except email. Defaults to false.
+    perPriorityDequeue?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

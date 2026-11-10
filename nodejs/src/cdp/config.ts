@@ -63,6 +63,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    // Dequeues postgres-v2 queues one priority at a time, so a poll stops reading at the
+    // last due job instead of walking every future-scheduled job of the queue. The email
+    // queue ignores it, because it dequeues in fair order (fairDequeueJobs in worker.ts).
+    CDP_CYCLOTRON_PER_PRIORITY_DEQUEUE: boolean
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
@@ -334,6 +338,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_PER_PRIORITY_DEQUEUE: false,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,

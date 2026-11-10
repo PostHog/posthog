@@ -26,6 +26,10 @@ import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const QUEUE = 'test-queue'
+const DEQUEUE_MODES = [
+    ['single scan', false],
+    ['per priority', true],
+] as const
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -1239,23 +1243,71 @@ describe('Cyclotron V2', () => {
             expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
         })
 
-        it('respects priority ordering (lower number = higher priority)', async () => {
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 2 })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 0 })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 1 })
+        it.each(DEQUEUE_MODES)(
+            'respects priority ordering (lower number = higher priority), %s',
+            async (_mode, perPriorityDequeue) => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 2 })
+                await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 0 })
+                await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 1 })
 
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+                const worker = createWorker(QUEUE, { perPriorityDequeue })
+                const jobs = await dequeueOneBatch(worker)
 
-            expect(jobs.map((j) => j.priority)).toEqual([0, 1, 2])
-        })
+                expect(jobs.map((j) => j.priority)).toEqual([0, 1, 2])
+            }
+        )
 
-        it('skips future-scheduled jobs', async () => {
+        it.each(DEQUEUE_MODES)(
+            'fills a batch cut by batchMaxSize in priority order, then scheduled order, %s',
+            async (_mode, perPriorityDequeue) => {
+                const secondsAgo = (s: number): Date => new Date(Date.now() - s * 1000)
+                const futureUrgent = await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    priority: 0,
+                    scheduled: new Date(Date.now() + 60_000),
+                })
+                const oldestLowPriority = await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    priority: 2,
+                    scheduled: secondsAgo(3600),
+                })
+                const newerNormal = await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    priority: 1,
+                    scheduled: secondsAgo(10),
+                })
+                const olderNormal = await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    priority: 1,
+                    scheduled: secondsAgo(20),
+                })
+                const dueUrgent = await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    priority: 0,
+                    scheduled: secondsAgo(5),
+                })
+
+                const first = await dequeueOneBatch(createWorker(QUEUE, { batchMaxSize: 2, perPriorityDequeue }))
+                const second = await dequeueOneBatch(createWorker(QUEUE, { batchMaxSize: 2, perPriorityDequeue }))
+
+                expect(first.map((j) => j.id)).toEqual([dueUrgent, olderNormal])
+                expect(second.map((j) => j.id)).toEqual([newerNormal, oldestLowPriority])
+                const res = await assertPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [futureUrgent])
+                expect(res.rows[0].status).toBe('available')
+            }
+        )
+
+        it.each(DEQUEUE_MODES)('skips future-scheduled jobs, %s', async (_mode, perPriorityDequeue) => {
             const future = new Date(Date.now() + 60_000)
             await manager.createJob({ teamId: 1, queueName: QUEUE, scheduled: future })
             await manager.createJob({ teamId: 1, queueName: QUEUE })
 
-            const worker = createWorker()
+            const worker = createWorker(QUEUE, { perPriorityDequeue })
             const jobs = await dequeueOneBatch(worker)
 
             expect(jobs).toHaveLength(1)
@@ -1263,11 +1315,11 @@ describe('Cyclotron V2', () => {
             expect(await countByStatus('available')).toBe(1)
         })
 
-        it('only dequeues from the configured queue', async () => {
+        it.each(DEQUEUE_MODES)('only dequeues from the configured queue, %s', async (_mode, perPriorityDequeue) => {
             await manager.createJob({ teamId: 1, queueName: 'other-queue' })
             await manager.createJob({ teamId: 1, queueName: QUEUE })
 
-            const worker = createWorker()
+            const worker = createWorker(QUEUE, { perPriorityDequeue })
             const jobs = await dequeueOneBatch(worker)
 
             expect(jobs).toHaveLength(1)
@@ -1835,13 +1887,13 @@ describe('Cyclotron V2', () => {
             await expect(job.heartbeat()).rejects.toThrow(/already released/)
         })
 
-        it('concurrent workers get disjoint batches', async () => {
+        it.each(DEQUEUE_MODES)('concurrent workers get disjoint batches, %s', async (_mode, perPriorityDequeue) => {
             for (let i = 0; i < 10; i++) {
                 await manager.createJob({ teamId: 1, queueName: QUEUE })
             }
 
-            const worker1 = createWorker(QUEUE, { batchMaxSize: 5 })
-            const worker2 = createWorker(QUEUE, { batchMaxSize: 5 })
+            const worker1 = createWorker(QUEUE, { batchMaxSize: 5, perPriorityDequeue })
+            const worker2 = createWorker(QUEUE, { batchMaxSize: 5, perPriorityDequeue })
 
             const [batch1, batch2] = await Promise.all([dequeueOneBatch(worker1), dequeueOneBatch(worker2)])
 
