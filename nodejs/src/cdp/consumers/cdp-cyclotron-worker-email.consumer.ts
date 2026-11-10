@@ -74,9 +74,20 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         const plain: CyclotronJobInvocation[] = []
         const sends: Promise<void>[] = []
         const deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[] = []
+        const withFiles = invocations.filter((invocation) => fileBytesOf(invocation) !== null)
+        const hogFlows = withFiles.length
+            ? await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss([
+                  ...new Set(withFiles.map((invocation) => invocation.functionId)),
+              ])
+            : {}
         for (const invocation of invocations) {
             const fileBytes = fileBytesOf(invocation)
-            if (fileBytes === null || exceedsLargestSend(fileBytes) || invocation.cancelRequestedAt) {
+            if (
+                fileBytes === null ||
+                exceedsLargestSend(fileBytes) ||
+                invocation.cancelRequestedAt ||
+                !emailStepAhead(invocation, hogFlows[invocation.functionId])
+            ) {
                 plain.push(invocation)
                 continue
             }
@@ -153,6 +164,34 @@ function registryFor(config: PluginsServerConfig): InFlightRegistry {
     }
     logger.info('📧', 'The email worker admits sends with files', admission.limits)
     return new InFlightRegistry(admission.limits)
+}
+
+function emailStepAhead(invocation: CyclotronJobInvocation, hogFlow: HogFlow | null | undefined): boolean {
+    if (invocation.queueParameters?.type === 'email') {
+        return true
+    }
+    if (!hogFlow) {
+        return false
+    }
+    const currentActionId = (invocation.state as CyclotronJobInvocationHogFlow['state'] | null)?.currentAction?.id
+    const start = currentActionId ?? hogFlow.actions.find((action) => action.type === 'trigger')?.id
+    if (start === undefined || !hogFlow.actions.some((action) => action.id === start)) {
+        return hogFlow.actions.some((action) => action.type === 'function_email')
+    }
+    const seen = new Set<string>()
+    const ahead = [start]
+    while (ahead.length > 0) {
+        const id = ahead.pop()!
+        if (seen.has(id)) {
+            continue
+        }
+        seen.add(id)
+        if (hogFlow.actions.find((action) => action.id === id)?.type === 'function_email') {
+            return true
+        }
+        ahead.push(...hogFlow.edges.filter((edge) => edge.from === id).map((edge) => edge.to))
+    }
+    return false
 }
 
 function deferral(invocation: CyclotronJobInvocation): { invocation: CyclotronJobInvocation; scheduledAt: Date } {

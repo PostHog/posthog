@@ -247,6 +247,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     let workers: CdpCyclotronWorkerEmail[]
     let producer: EmailQueueOfOneTest
     let invoice: StoredFile
+    let integration: { id: number }
+    let template: { template_id: string }
     let backToRealClock: () => void = () => undefined
 
     const roomFor = (sends: number): InFlightLimits => ({
@@ -275,7 +277,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         cyclotron = await CyclotronProxy.start(new URL(hub.CYCLOTRON_NODE_DATABASE_URL!))
         mockProducerObserver.resetKafkaProducer()
 
-        const integration = await insertIntegration(hub.postgres, team.id, {
+        integration = await insertIntegration(hub.postgres, team.id, {
             id: team.id,
             kind: 'email',
             config: {
@@ -286,7 +288,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 provider: 'ses',
             },
         })
-        const template = await insertHogFunctionTemplate(hub.postgres, {
+        template = await insertHogFunctionTemplate(hub.postgres, {
             id: `template-email-worker-test-${team.id}`,
             name: 'Email worker test',
             code: 'sendEmail(inputs.email)',
@@ -303,40 +305,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 },
             ],
         })
-        hogFlow = await insertHogFlow(
-            hub.postgres,
-            new FixtureHogFlowBuilder()
-                .withTeamId(team.id)
-                .withStatus('active')
-                .withWorkflow({
-                    actions: {
-                        trigger: { type: 'trigger', config: { type: 'api' } },
-                        email: {
-                            type: 'function_email',
-                            config: {
-                                template_id: template.template_id,
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: recipient, name: 'Recipient' },
-                                            from: { integrationId: integration.id, email: 'sender@posthog-test.com' },
-                                            subject: 'Your invoice',
-                                            text: 'Your invoice is attached.',
-                                            html: '<p>Your invoice is attached.</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                        exit: { type: 'exit', config: {} },
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'email', type: 'continue' },
-                        { from: 'email', to: 'exit', type: 'continue' },
-                    ],
-                } as any)
-                .build()
-        )
+        hogFlow = await insertEmailFlow()
         invoice = await uploadAttachment(team.id, { filename: 'invoice.pdf', contentType: 'application/pdf' })
         producer = new EmailQueueOfOneTest(queueName, hub)
         await producer.startAsProducer()
@@ -354,6 +323,51 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             `${queueName}/%`,
         ])
     })
+
+    function insertEmailFlow(delayAfterEmail?: string, emailAfterDelay = false): Promise<HogFlow> {
+        const emailStep = {
+            type: 'function_email',
+            config: {
+                template_id: template.template_id,
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: recipient, name: 'Recipient' },
+                            from: { integrationId: integration.id, email: 'sender@posthog-test.com' },
+                            subject: 'Your invoice',
+                            text: 'Your invoice is attached.',
+                            html: '<p>Your invoice is attached.</p>',
+                        },
+                    },
+                },
+            },
+        }
+        const afterDelay = emailAfterDelay ? 'next_email' : 'exit'
+        return insertHogFlow(
+            hub.postgres,
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'api' } },
+                        email: emailStep,
+                        ...(delayAfterEmail && {
+                            delay: { type: 'delay', config: { delay_duration: delayAfterEmail } },
+                        }),
+                        ...(emailAfterDelay && { next_email: emailStep }),
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email', type: 'continue' },
+                        { from: 'email', to: delayAfterEmail ? 'delay' : 'exit', type: 'continue' },
+                        ...(delayAfterEmail ? [{ from: 'delay', to: afterDelay, type: 'continue' }] : []),
+                        ...(emailAfterDelay ? [{ from: 'next_email', to: 'exit', type: 'continue' }] : []),
+                    ],
+                } as any)
+                .build()
+        )
+    }
 
     async function startWorker(
         limits: InFlightLimits | null,
@@ -786,6 +800,43 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         await waitForExpect(() => expect(emailStatusOf(id)).toEqual(emailStatus))
         expect(delivered()).toEqual([])
     })
+
+    it.each([
+        {
+            next: 'finishes the run',
+            emailAfterDelay: false,
+            settles: async (id: string): Promise<unknown> => expect(await ended(id)).toBe('completed'),
+        },
+        {
+            next: 'defers its next email step like a fresh send',
+            emailAfterDelay: true,
+            settles: (id: string): Promise<unknown> => deferredRow(id, 1),
+        },
+    ])(
+        'after an email with files went out and a delay passed, $next while the room is taken, though the first due time is long past',
+        async ({ emailAfterDelay, settles }) => {
+            hogFlow = await insertEmailFlow('3s', emailAfterDelay)
+            await startWorker(roomFor(1))
+            const [id] = await enqueue(transactionalSend([invoice.metadata], waitedTooLong()))
+            const delayed = await waitForExpect(async () => {
+                const row = await jobRow(id)
+                expect({ status: row.status, inbox: delivered() }).toEqual({
+                    status: 'available',
+                    inbox: [['invoice.pdf']],
+                })
+                return row
+            })
+
+            bucket.answer = 'hold'
+            await enqueue(transactionalSend([invoice.metadata]))
+            await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+            expect(Date.now()).toBeLessThan(delayed.scheduled.getTime())
+
+            await settles(id)
+            expect(emailStatusOf(id)).toEqual({ status: 'sent', reason: '', sendingDomain: 'posthog-test.com' })
+            expect(delivered()).toEqual([['invoice.pdf']])
+        }
+    )
 
     it.each([
         {
