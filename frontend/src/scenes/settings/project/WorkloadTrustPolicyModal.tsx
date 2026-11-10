@@ -1,12 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { riskyScopeWarning } from 'lib/scopes'
 
+import { WorkloadConditionRows } from './WorkloadConditionRows'
+import { WorkloadProviderIcon } from './WorkloadProviderIcon'
+import { WorkloadSetupSnippet } from './WorkloadSetupSnippet'
+import { WorkloadSubjectFields } from './WorkloadSubjectFields'
 import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 
 export function WorkloadTrustPolicyModal(): JSX.Element {
@@ -18,27 +22,44 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
         scopeRows,
         scopeLevels,
         scopeSearchTerm,
-        editingPolicy,
         editingProvider,
-        conditionFields,
-        claimLabels,
+        showingSetup,
     } = useValues(workloadTrustPoliciesLogic)
-    const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm, setConditionValue } =
+    const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm } =
         useActions(workloadTrustPoliciesLogic)
 
     const isNew = editingPolicyId === 'new'
+    const close = (): void => setEditingPolicyId(null)
+
+    if (showingSetup && editingProvider?.setup_snippet && providers) {
+        return (
+            <LemonModal
+                title="Set up the workload"
+                isOpen={!!editingPolicyId}
+                onClose={close}
+                width="40rem"
+                footer={
+                    <LemonButton type="primary" onClick={close} data-attr="workload-trust-policy-setup-done">
+                        Done
+                    </LemonButton>
+                }
+            >
+                <WorkloadSetupSnippet provider={editingProvider} jobSettings={providers.job_settings} />
+            </LemonModal>
+        )
+    }
 
     return (
         <Form logic={workloadTrustPoliciesLogic} formKey="editingPolicy">
             <LemonModal
                 title={isNew ? 'Add trusted workload' : 'Edit trusted workload'}
                 isOpen={!!editingPolicyId}
-                onClose={() => setEditingPolicyId(null)}
+                onClose={close}
                 width="40rem"
                 hasUnsavedInput={editingPolicyChanged}
                 footer={
                     <>
-                        <LemonButton type="secondary" onClick={() => setEditingPolicyId(null)}>
+                        <LemonButton type="secondary" onClick={close}>
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -55,63 +76,30 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                 }
             >
                 <div className="deprecated-space-y-4">
-                    <LemonField name="name" label="Name">
-                        <LemonInput placeholder="Production deploys" maxLength={200} />
-                    </LemonField>
                     <LemonField name="issuer" label="Provider">
-                        <LemonSelect
+                        <LemonSegmentedButton
                             fullWidth
-                            placeholder="Choose a provider"
                             options={(providers?.supported ?? []).map((provider) => ({
                                 value: provider.issuer,
                                 label: provider.name,
+                                icon: <WorkloadProviderIcon providerKey={provider.key} />,
+                                'data-attr': `workload-trust-policy-provider-${provider.key}`,
                             }))}
                         />
                     </LemonField>
-                    <div className="flex flex-wrap gap-4">
-                        <LemonField
-                            name="subject_name"
-                            label={claimLabels.subjectName}
-                            help={editingProvider?.subject_name_claim.help_text || undefined}
-                            className="flex-1 min-w-60"
-                        >
-                            <LemonInput />
-                        </LemonField>
-                        <LemonField
-                            name="subject"
-                            label={claimLabels.subject}
-                            help={editingProvider?.subject_claim.help_text || undefined}
-                            className="flex-1 min-w-60"
-                        >
-                            <LemonInput />
-                        </LemonField>
-                    </div>
-                    {conditionFields.length > 0 ? (
+                    <WorkloadSubjectFields />
+                    {editingProvider?.condition_claims.length ? (
                         <LemonField
                             name="conditions"
-                            label="Conditions"
-                            help="A token matches only when it carries every value you set. Leave a field empty to allow any value."
+                            label="Which runs can get a token"
+                            help="A token matches only when it meets every condition."
                         >
-                            {() => (
-                                <div className="flex flex-wrap gap-4 w-full">
-                                    {conditionFields.map((claim) => (
-                                        <LemonField.Pure
-                                            key={claim.name}
-                                            label={claim.label}
-                                            help={claim.helpText || undefined}
-                                            className="flex-1 min-w-60"
-                                        >
-                                            <LemonInput
-                                                value={editingPolicy.conditions[claim.name] ?? ''}
-                                                onChange={(value) => setConditionValue(claim.name, value)}
-                                                data-attr={`workload-trust-policy-condition-${claim.name}`}
-                                            />
-                                        </LemonField.Pure>
-                                    ))}
-                                </div>
-                            )}
+                            {() => <WorkloadConditionRows />}
                         </LemonField>
                     ) : null}
+                    <LemonField name="name" label="Name">
+                        <LemonInput placeholder="Production deploys" maxLength={200} />
+                    </LemonField>
                     <LemonField
                         name="scopes"
                         label="Scopes"

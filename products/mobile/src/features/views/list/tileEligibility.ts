@@ -11,7 +11,8 @@ export interface TilesByEligibility {
 
 /** One short reason, shown after the tile's kind: "Line · Has 3 series". The home screen widget shows it too. */
 export function tileLimitReason(
-    tile: Pick<DashboardTileView, 'kind' | 'hasBreakdown' | 'seriesCount'>,
+    tile: Pick<DashboardTileView, 'kind' | 'hasBreakdown' | 'seriesCount'> &
+        Partial<Pick<DashboardTileView, 'capabilities' | 'kindLabel'>>,
     mode: TileMode
 ): string {
     if (tile.kind === 'text') {
@@ -23,7 +24,15 @@ export function tileLimitReason(
     if (mode === 'number' && tile.seriesCount > 1) {
         return `Has ${tile.seriesCount} series`
     }
-    return mode === 'number' ? 'Not a single number' : 'Not a chart over time'
+    if (mode === 'chart') {
+        return (
+            tile.capabilities?.chartReason ??
+            (tile.kindLabel === 'Big number'
+                ? 'Saved as a big number'
+                : 'This visualization cannot be pinned as a chart yet')
+        )
+    }
+    return 'Not a single number'
 }
 
 export function splitTilesByEligibility(tiles: readonly DashboardTileView[], mode: TileMode): TilesByEligibility {

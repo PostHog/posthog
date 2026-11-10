@@ -338,7 +338,7 @@ Organization admins set the retention in project and organization settings, and 
 `monthly_retention_events_cleanup_job` has six steps:
 
 - `update_plan_deletions` tracks each team's pass period in `TeamEventsPlanDeletion`: the set period, never past the plan's period, else the default period. It gives a row only to the teams where `should_delete_past_default_period` is true, and removes the rows of all other teams. A team without a row gets no pass, and its set period is never capped by its plan.
-  - `should_delete_past_default_period` needs enforcement and the `events-data-retention-deletion` flag. The flag gets each team's plan period and organization, so a rollout can target plans and leave out organizations.
+  - `should_delete_past_default_period` needs the `events-data-retention-deletion` flag on PostHog Cloud, and does not depend on query enforcement. Self-hosted never gets a pass. The flag gets each team's plan period and organization, so a rollout can target plans and leave out organizations.
   - A new row's first pass is at least 3 months out, so a team keeps its events for at least 3 months after the flag turns on.
   - Turning the flag off removes the team's row at the next run. A run that already finished `update_plan_deletions` still deletes for that team.
   - A shorter period, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
@@ -357,6 +357,25 @@ A pass completes only for a team that both plans include, and only when neither 
 The `update_plan_deletions` config has its own `team_ids`, which limits the rows it adds and removes.
 `monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere). It is stopped by default.
 Pass dates are dates in that local time zone, so the date shown in settings is the day its deletes start.
+
+A billing sync that lengthens the plan period writes the organization's rows straight away, so a downgrade soon after still sees the longer period.
+A billing sync that shortens the plan period checks each team's period under the previous and the new plan, each with its own standard retention feature.
+It does nothing more when no team's period gets shorter, for example when every team has a set period within the new plan.
+Otherwise it writes the rows of those teams straight away, the same way a settings save does.
+The sync then queues the Celery task `report_events_retention_shortened`, which sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.
+That pass date is empty when the deletion flag covers none of those teams.
+The send runs in a worker, so an ingestion outage never holds up the billing sync, and the task retries a failed send 5 times over up to about 15 minutes.
+The first billing sync of a new organization sends nothing, because the organization has no previous plan period.
+The Celery beat task `report_upcoming_events_deletions` runs daily at 15:00 UTC.
+On the day the next cleanup is exactly 14 days away, it reschedules the rows due at that cleanup, the same way a settings save does, so a period that got shorter since the pass was set moves the pass instead of announcing it.
+It then sends an `events retention deletion upcoming` event to the admins of each organization with a team still due, one organization at a time, whether the team downgraded or not.
+Every pass gets this event, every 3 months, and only teams behind the deletion flag have rows, so a team that joins the flag after a downgrade hears before its first pass.
+A team whose set period is at or below its pass's period is left out, because the monthly cleanup already deletes everything that pass would.
+A set period above the pass's period still sends.
+Only that one day sends, so nothing records what was sent.
+A failed send fails the task, which retries the same way as the shortened task, and a retry sends again to the organizations already sent.
+Workflows turn both events into emails.
+
 The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
 Both jobs and `squash_person_overrides` carry the `deletes_job_concurrency` tag. The Dagster deployment settings put a run-queue limit of 1 on that tag, so a second run of any of the three queues instead of starting.
 `sharded_events_json` keeps events dated before 2020, because it stores them in its 202001 partition and the delete addresses the event's own month.

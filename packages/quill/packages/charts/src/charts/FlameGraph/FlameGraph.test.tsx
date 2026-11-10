@@ -67,11 +67,15 @@ describe('FlameGraph', () => {
     })
 
     it('zooms into a clicked node and zooms back out with Escape and reset', () => {
-        const { chart } = renderFlame()
+        const onFocusChange = jest.fn()
+        const { chart } = renderFlame({ onFocusChange })
         expect(chart.flame.breadcrumb()).toEqual(['All'])
 
         fireEvent.click(chart.element, { clientX: 200, clientY: rowY(1) })
         expect(chart.flame.breadcrumb()).toEqual(['All', 'root', 'a'])
+        expect(onFocusChange).toHaveBeenLastCalledWith(
+            expect.objectContaining({ kind: 'node', node: expect.objectContaining({ name: 'a', depth: 1 }) })
+        )
 
         // Zoomed to `a`, its child `a1` now spans half the width instead of 30%.
         fireEvent.click(chart.element, { clientX: 390, clientY: rowY(2) })
@@ -82,6 +86,8 @@ describe('FlameGraph', () => {
 
         fireEvent.click(chart.flame.resetButton()!)
         expect(chart.flame.breadcrumb()).toEqual(['All'])
+        expect(onFocusChange).toHaveBeenLastCalledWith(null)
+        expect(onFocusChange).toHaveBeenCalledTimes(4)
     })
 
     it('zooms into a "+N more" bundle of small siblings', () => {

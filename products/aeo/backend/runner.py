@@ -15,11 +15,14 @@ gateway-key owner's project, not the checked team's, and carries the
 from __future__ import annotations
 
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Optional
+import datetime as dt
+import threading
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from typing import Any, Literal, Optional, TypeVar
 
 from django.conf import settings
-from django.db.models import F, Window
+from django.db import transaction
+from django.db.models import F, Q, QuerySet, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
@@ -43,22 +46,33 @@ def run_citation_checks(
     engines: Optional[list[CitationEngine]] = None,
     limit: Optional[int] = None,
     record: bool = True,
+    stop: Optional[threading.Event] = None,
 ) -> tuple[CitationRunSummary, list[dict[str, Any]]]:
-    """Run every active prompt against every engine; record the results.
+    """Run every due prompt against every engine; record the results.
 
     Returns (summary, per-check field values). Rows are written per prompt so an
-    interrupted run keeps the checks it already paid for. With record=False the
-    engines still run (and cost money) but nothing is written — smoke-test mode.
+    interrupted run keeps the checks it already paid for, and a later run skips
+    the prompts it covered. With record=False the engines still run (and cost
+    money) but nothing is written — smoke-test mode. Setting `stop` ends the run
+    after the prompt in hand and drops the queued ones.
     """
     engines = engines if engines is not None else available_engines()
     if not engines:
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
         return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
 
-    prompts = select_prompts(team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit)
+    checked_before = run_day_start(timezone.now())
+    prompts = select_prompts(
+        team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit, checked_before=checked_before
+    )
     if not prompts:
-        logger.warning("aeo_citation_run_no_prompts", team_id=team.id)
-        return _empty_summary(team, "no active prompts — run `seed_aeo_prompts` first"), []
+        if not _active_prompts(team).exists():
+            logger.warning("aeo_citation_run_no_prompts", team_id=team.id)
+            return _empty_summary(team, "no active prompts — run `seed_aeo_prompts` first"), []
+        logger.info("aeo_citation_run_nothing_due", team_id=team.id, checked_before=checked_before.isoformat())
+        return _empty_summary(
+            team, f"nothing due: every active prompt was checked since {checked_before.isoformat()}"
+        ), []
 
     run_id = str(uuid.uuid4())
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
@@ -73,29 +87,51 @@ def run_citation_checks(
     # this thread, so the workers never open their own Django connections.
     pool = ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY))
     futures = {pool.submit(_check_prompt, team, run_id, engines, target_domains, prompt): prompt for prompt in prompts}
+    stopped = False
+    done = 0
+    superseded = 0
+    pending: set[Future[PromptCheckResult]] = set(futures)
     try:
-        for done, future in enumerate(as_completed(futures), start=1):
-            try:
-                result = future.result()
-            except Exception as e:
-                # One prompt's unexpected engine error must not end a run that takes hours.
-                engine_failures += len(engines)
-                logger.exception(
-                    "aeo_citation_prompt_crashed",
-                    team_id=team.id,
-                    prompt_id=str(futures[future].id),
-                    error=str(e)[:300],
-                )
-                continue
-            engine_failures += result.failures
-            checks.extend(result.fields_per_engine)
-            if record and result.fields_per_engine:
-                if _record_prompt_checks(team, canonical_team_id, run_id, result.prompt, result.fields_per_engine):
-                    rows_written += len(result.fields_per_engine)
+        while pending:
+            finished, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in finished:
+                done += 1
+                try:
+                    result = future.result()
+                except Exception as e:
+                    # One prompt's unexpected engine error must not end a run that takes hours.
+                    engine_failures += len(engines)
+                    logger.exception(
+                        "aeo_citation_prompt_crashed",
+                        team_id=team.id,
+                        prompt_id=str(futures[future].id),
+                        error=str(e)[:300],
+                    )
                 else:
-                    write_failures += len(result.fields_per_engine)
-            if done % 100 == 0:
-                logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
+                    engine_failures += result.failures
+                    checks.extend(result.fields_per_engine)
+                    if record and result.fields_per_engine:
+                        outcome = _record_prompt_checks(
+                            team, canonical_team_id, run_id, result.prompt, result.fields_per_engine, checked_before
+                        )
+                        if outcome == "written":
+                            rows_written += len(result.fields_per_engine)
+                        elif outcome == "superseded":
+                            superseded += 1
+                        else:
+                            write_failures += len(result.fields_per_engine)
+                if done % 100 == 0:
+                    logger.info(
+                        "aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts)
+                    )
+            if stop is not None and not stopped and stop.is_set():
+                # Drop the queued prompts but keep draining the ones already running: their calls are
+                # paid for, and recording them keeps the next dispatch from repeating them.
+                stopped = True
+                logger.warning(
+                    "aeo_citation_run_stopped", team_id=team.id, run_id=run_id, done=done, total=len(prompts)
+                )
+                pending = _drop_queued(pool, pending)
     except BaseException:
         # A Celery time limit or a worker shutdown lands here. Drop the queued prompts so they
         # make no more paid calls whose results nobody records.
@@ -113,6 +149,8 @@ def run_citation_checks(
         cited=sum(1 for check in checks if check["cited"]),
         rows_written=rows_written,
         write_failures=write_failures,
+        error="stopped: the run lease was lost to a later dispatch" if stopped else None,
+        superseded=superseded,
     )
     logger.info(
         "aeo_citation_run_complete",
@@ -186,42 +224,100 @@ def _check_prompt(
     return PromptCheckResult(prompt=prompt, fields_per_engine=fields_per_engine, failures=failures)
 
 
+def _drop_queued(pool: ThreadPoolExecutor, pending: set[Future[_T]]) -> set[Future[_T]]:
+    """Cancel the prompts no worker has started and return the ones still running.
+
+    A future cancelled this way never gets the completion notice `wait` relies on, so it has to
+    leave the pending set by hand or the drain would block until the task time limit."""
+    pool.shutdown(wait=False, cancel_futures=True)
+    return {future for future in pending if not future.cancelled()}
+
+
+_T = TypeVar("_T")
+_RecordOutcome = Literal["written", "superseded", "failed"]
+
+
 def _record_prompt_checks(
-    team: Team, canonical_team_id: int, run_id: str, prompt: AEOPrompt, fields_per_engine: list[dict[str, Any]]
-) -> bool:
-    """Write one prompt's checks and mark the prompt checked. Called per prompt so a
-    mid-run crash keeps the completed checks; False when the write failed."""
+    team: Team,
+    canonical_team_id: int,
+    run_id: str,
+    prompt: AEOPrompt,
+    fields_per_engine: list[dict[str, Any]],
+    checked_before: dt.datetime,
+) -> _RecordOutcome:
+    """Claim the prompt for this run day, then write its checks. Called per prompt so a
+    mid-run crash keeps the completed checks.
+
+    The claim is a conditional update of `last_checked_at`: a run that lost its lease can still
+    have this prompt in flight while the dispatch that replaced it records the same prompt, and
+    whichever claims second drops its result instead of writing a duplicate."""
     prompt_rows = [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
+    # A prompt every engine failed on was not really checked, so leave it first in line for the next run.
+    answered = any(not fields["check_failed"] for fields in fields_per_engine)
     try:
         # The fail-closed manager refuses writes without a team scope, and none of the callers
         # (the Celery task, the management command) run inside one.
-        with team_scope(canonical_team_id):
+        with transaction.atomic(), team_scope(canonical_team_id):
+            # Two runs recording the same prompt serialize on its row, so the checks below see each
+            # other's writes. The prompt row is a quiet child row, never a hot parent.
+            locked = AEOPrompt.objects.for_team(team.id).select_for_update().filter(id=prompt.id).exists()
+            if answered:
+                still_due = Q(last_checked_at__isnull=True) | Q(last_checked_at__lt=checked_before)
+                claimed = locked and (
+                    AEOPrompt.objects.for_team(team.id)
+                    .filter(still_due, id=prompt.id)
+                    .update(last_checked_at=timezone.now())
+                )
+                if not claimed:
+                    logger.warning(
+                        "aeo_citation_prompt_superseded", team_id=team.id, run_id=run_id, prompt_id=str(prompt.id)
+                    )
+                    return "superseded"
+            elif (
+                AEOCitationCheck.objects.for_team(team.id)
+                .filter(prompt_id=prompt.id, created_at__gte=checked_before)
+                .exists()
+            ):
+                # Failures leave the prompt unclaimed, so a run that lost its lease could otherwise add a
+                # second set of failure rows next to the replacement run's.
+                logger.warning(
+                    "aeo_citation_prompt_superseded", team_id=team.id, run_id=run_id, prompt_id=str(prompt.id)
+                )
+                return "superseded"
             AEOCitationCheck.objects.bulk_create(prompt_rows)
-        # A prompt every engine failed on was not really checked, so leave it first in line for the next run.
-        if any(not fields["check_failed"] for fields in fields_per_engine):
-            AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
-        return False
-    return True
+        return "failed"
+    return "written"
 
 
-def select_prompts(team: Team, limit: int) -> list[AEOPrompt]:
-    """Pick up to `limit` active, unarchived prompts, alternating between topics.
+def run_day_start(now: dt.datetime) -> dt.datetime:
+    """The most recent run-day boundary at or before `now`, in UTC."""
+    boundary = now.astimezone(dt.UTC).replace(
+        hour=settings.AEO_RUN_DAY_START_UTC_HOUR, minute=0, second=0, microsecond=0
+    )
+    return boundary if boundary <= now else boundary - dt.timedelta(days=1)
 
-    Each run samples every topic: it takes one prompt per topic in turn, so a
-    single large topic cannot fill the run. Within a topic, prompts never checked
-    come first, then the least recently checked, so a set larger than one run
-    rotates. A small topic runs out of unchecked prompts first and is then
-    re-checked while larger topics still rotate.
+
+def select_prompts(team: Team, limit: int, *, checked_before: Optional[dt.datetime] = None) -> list[AEOPrompt]:
+    """Pick up to `limit` due prompts, alternating between topics.
+
+    A prompt is due when it is active, unarchived, and was never checked or was
+    last checked before `checked_before` (every active prompt when None). Each
+    run samples every topic: it takes one prompt per topic in turn, so a single
+    large topic cannot fill the run. Within a topic, prompts never checked come
+    first, then the least recently checked, so a set larger than one run rotates.
+    A small topic runs out of unchecked prompts first and is then re-checked
+    while larger topics still rotate.
     """
     freshness = [F("last_checked_at").asc(nulls_first=True), F("rank").desc(), F("created_at").asc()]
+    due = _active_prompts(team)
+    if checked_before is not None:
+        due = due.filter(Q(last_checked_at__isnull=True) | Q(last_checked_at__lt=checked_before))
     by_topic: dict[str, list[AEOPrompt]] = {}
     # The round-robin never takes more than `limit` prompts from one topic, so load no more than that.
     for prompt in (
-        AEOPrompt.objects.for_team(team.id)
-        .filter(active=True, archived_at__isnull=True)
-        .annotate(position_in_topic=Window(RowNumber(), partition_by=[F("topic")], order_by=freshness))
+        due.annotate(position_in_topic=Window(RowNumber(), partition_by=[F("topic")], order_by=freshness))
         .filter(position_in_topic__lte=limit)
         .order_by(*freshness)
     ):
@@ -234,6 +330,10 @@ def select_prompts(team: Team, limit: int) -> list[AEOPrompt]:
         selected.extend(queue[position] for queue in queues if position < len(queue))
         position += 1
     return selected[:limit]
+
+
+def _active_prompts(team: Team) -> QuerySet[AEOPrompt]:
+    return AEOPrompt.objects.for_team(team.id).filter(active=True, archived_at__isnull=True)
 
 
 def _empty_summary(team: Team, error: str) -> CitationRunSummary:

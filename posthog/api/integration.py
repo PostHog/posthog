@@ -320,6 +320,7 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
 _USAGE_TYPE_LABELS: dict[str, str] = {
     "warehouse_source": "data warehouse sources",
     "unreadable_warehouse_source": "data warehouse sources with unreadable settings",
+    "warehouse_destination": "data warehouse destinations",
     "workflow": "active workflows",
     "hog_function": "enabled data pipelines",
     "batch_export": "batch exports",
@@ -327,13 +328,13 @@ _USAGE_TYPE_LABELS: dict[str, str] = {
 
 
 def _integration_in_use_error(usages: list[IntegrationUsage]) -> ValidationError:
-    # Integration management does not grant read access to the sources that block deletion.
+    # Integration management does not grant read access to the sources and destinations that block deletion.
     types = [*_USAGE_TYPE_LABELS, *sorted({usage.type for usage in usages} - set(_USAGE_TYPE_LABELS))]
     used_by = [
         f"{_USAGE_TYPE_LABELS.get(usage_type, usage_type)}: "
         + (
             str(sum(usage.type == usage_type for usage in usages))
-            if usage_type in ("warehouse_source", "unreadable_warehouse_source")
+            if usage_type in ("warehouse_source", "unreadable_warehouse_source", "warehouse_destination")
             else ", ".join(sorted(usage.name for usage in usages if usage.type == usage_type))
         )
         for usage_type in types
@@ -976,7 +977,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         ):
             raise PermissionDenied("Changing push identity verification requires project admin access.")
 
-        # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
+        # `create` is a POST with upsert semantics: each kind's helper except email's does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
         # member. A Google account's creator can also reconnect it because its credentials are

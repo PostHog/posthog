@@ -716,6 +716,10 @@ export interface AnomalySearchResponseApi {
     watched_insights: number
     /** Insights with at least one scored bucket in the range. Results cover only these insights. */
     insights_scored_in_range: number
+    /** Distinct UTC days with a scored daily bucket of any insight series in the last 28 days. It does not follow the requested range, and it counts scores written before scoring was turned off. */
+    scored_days: number
+    /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
+    scored_history_ready: boolean
     /** The applied start of the range, in the project timezone. */
     date_from: string
     /** The applied end of the range, in the project timezone. */
@@ -765,6 +769,12 @@ export const AutonomyPriorityEnumApi = {
     P4: 'P4',
 } as const
 
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
 export interface SignalTeamConfigApi {
     readonly id: string
     /**
@@ -779,6 +789,14 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     default_slack_notification_channel?: string | null
+    /** Minimum report priority for the project's team Slack channel. P0 is highest. Null includes all reports, including reports without a priority. A set threshold excludes reports without a priority. Personal notification settings are separate.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    default_slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     /**
      * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
      * @nullable
@@ -2548,7 +2566,7 @@ export interface PaginatedSignalReportListListApi {
     previous?: string | null
     results: SignalReportListApi[]
     /**
-     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when your stored personal ranking ordered the page. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when a stored personal ranking ordered the page: the teammate's with scope=teammate, else yours. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
      * @nullable
      */
     ranker?: string | null
@@ -2564,6 +2582,8 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranking_pill?: boolean | null
+    /** Whether the rows carry their source metadata. False when the request passed include_source_metadata=false, or when the ClickHouse read failed or took too long. Then each row has an empty source_products and a null scout_name that do not mean the report has none. Load them with source_metadata. */
+    source_metadata_available?: boolean
 }
 
 /**
@@ -2836,6 +2856,47 @@ export interface EmitReportRequestApi {
     idempotency_key?: string | null
 }
 
+/**
+ * * `repair` - repair
+ * * `hint` - hint
+ */
+export type ReportQualityHintSeverityEnumApi =
+    (typeof ReportQualityHintSeverityEnumApi)[keyof typeof ReportQualityHintSeverityEnumApi]
+
+export const ReportQualityHintSeverityEnumApi = {
+    Repair: 'repair',
+    Hint: 'hint',
+} as const
+
+/**
+ * * `title` - title
+ * * `summary` - summary
+ */
+export type ReportQualityHintFieldEnumApi =
+    (typeof ReportQualityHintFieldEnumApi)[keyof typeof ReportQualityHintFieldEnumApi]
+
+export const ReportQualityHintFieldEnumApi = {
+    Title: 'title',
+    Summary: 'summary',
+} as const
+
+export interface ReportQualityHintApi {
+    /** Stable id of the quality check, e.g. `literal_newline_escapes`. */
+    check_id: string
+    /** `repair`: the text was fixed before it was stored. `hint`: the text was stored as sent.
+     *
+     * * `repair` - repair
+     * * `hint` - hint */
+    severity: ReportQualityHintSeverityEnumApi
+    /** The field the check matched.
+     *
+     * * `title` - title
+     * * `summary` - summary */
+    field: ReportQualityHintFieldEnumApi
+    /** What the check found and what to do next time. */
+    message: string
+}
+
 export interface EmitReportResponseApi {
     /**
      * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
@@ -2866,6 +2927,8 @@ export interface EmitReportResponseApi {
     remediation: string | null
     /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
     idempotent_replay: boolean
+    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    quality_hints: ReportQualityHintApi[]
 }
 
 /**
@@ -6890,6 +6953,74 @@ export interface SignalReportRefundSummaryResponseApi {
     quota_limited: boolean
 }
 
+/**
+ * * `keyword` - Keyword
+ * * `semantic` - Semantic
+ */
+export type ReportMatchKindEnumApi = (typeof ReportMatchKindEnumApi)[keyof typeof ReportMatchKindEnumApi]
+
+export const ReportMatchKindEnumApi = {
+    Keyword: 'keyword',
+    Semantic: 'semantic',
+} as const
+
+export interface SignalReportSearchHitApi {
+    /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+    id: string
+    /**
+     * The report title.
+     * @nullable
+     */
+    title: string | null
+    /** The report status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** The report priority, P0 to P4, or null.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi | null
+    /** When the report last changed. */
+    updated_at: string
+    /** A short excerpt of the summary, around the first query word it holds, or the summary's opening when it holds none. */
+    summary_snippet: string
+    /**
+     * The reason code from the latest dismissal of the report, or null.
+     * @nullable
+     */
+    dismissal_reason: string | null
+    /**
+     * The note a person wrote with the latest dismissal, or null.
+     * @nullable
+     */
+    dismissal_note: string | null
+    /** How the report matched: `keyword`, `semantic`, or both. */
+    match_kinds: ReportMatchKindEnumApi[]
+    /** The reciprocal rank fusion score. Higher is a better match. Compare it only within one response. */
+    score: number
+}
+
+export interface SignalReportSearchResponseApi {
+    /** The matching reports, best match first. */
+    results: SignalReportSearchHitApi[]
+    /** False when the results come from keywords only: a `keyword` search, or a `hybrid` search whose semantic search failed. */
+    semantic_available: boolean
+}
+
 export interface SignalReportSectionCountsApi {
     /** Ready reports with an implementation pull request. */
     pull_requests: number
@@ -7283,12 +7414,6 @@ export const RoleAtOrganizationEnumApi = {
     Other: 'other',
 } as const
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
 /**
  * @nullable
  */
@@ -7335,6 +7460,7 @@ export const SignalScoutConfigStatusEnumApi = {
  * * `no_output` - No output
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
+ * * `trial_scout_limit` - Free trial scout limit
  * * `retired` - Retired
  * * `background_removed` - Background removed
  */
@@ -7345,6 +7471,7 @@ export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
+    TrialScoutLimit: 'trial_scout_limit',
     Retired: 'retired',
     BackgroundRemoved: 'background_removed',
 } as const
@@ -7429,6 +7556,7 @@ export interface SignalScoutConfigApi {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `trial_scout_limit` - Free trial scout limit
      * * `retired` - Retired
      * * `background_removed` - Background removed */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
@@ -10300,6 +10428,8 @@ export interface EditReportResponseApi {
     decision_fields_set: string[]
     /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
     warnings: EditReportWarningApi[]
+    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    quality_hints: ReportQualityHintApi[]
     /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
     corroboration_collapsed: boolean
 }
@@ -10822,7 +10952,7 @@ export interface FleetFindingsSummaryApi {
  */
 export interface RememberRequestApi {
     /**
-     * Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`.
+     * Short stable ID for what you're tracking, e.g. `noise:<fingerprint>`; max 300 chars, the note goes in `content`. Unique per team; re-using a key overwrites the entry. Never embed a date, timestamp, or run id (that mints a new row every run). For run state, use one fixed key and keep the timestamp in `content`.
      * @maxLength 300
      */
     key: string
@@ -10976,6 +11106,72 @@ export interface PatchedSignalSourceConfigApi {
     readonly status?: SignalSourceSyncStatusEnumApi | null
 }
 
+export interface AlertPatternPreviewRequestApi {
+    /**
+     * Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.
+     * @maxItems 100
+     * @items.maxLength 1000
+     */
+    alert_allow_patterns?: string[]
+    /**
+     * Block patterns to try, as they would be saved in `config.alert_block_patterns`.
+     * @maxItems 100
+     * @items.maxLength 1000
+     */
+    alert_block_patterns?: string[]
+}
+
+/**
+ * * `passed` - passed
+ * * `blocked` - blocked
+ * * `not_allowed` - not_allowed
+ */
+export type AlertPatternPreviewOutcomeEnumApi =
+    (typeof AlertPatternPreviewOutcomeEnumApi)[keyof typeof AlertPatternPreviewOutcomeEnumApi]
+
+export const AlertPatternPreviewOutcomeEnumApi = {
+    Passed: 'passed',
+    Blocked: 'blocked',
+    NotAllowed: 'not_allowed',
+} as const
+
+export interface AlertPatternPreviewAlertApi {
+    /** The alert's id. */
+    id: string
+    /** The alert's name. Empty when the alert has no name. */
+    name: string
+    /**
+     * The insight's name, or its derived name when it has none.
+     * @nullable
+     */
+    insight_name: string | null
+    /** Short id of the insight the alert watches. */
+    insight_short_id: string
+    /** `passed` when the patterns let the alert through, `blocked` when it matches a block pattern, and `not_allowed` when allow patterns are set and it matches none of them.
+     *
+     * * `passed` - passed
+     * * `blocked` - blocked
+     * * `not_allowed` - not_allowed */
+    outcome: AlertPatternPreviewOutcomeEnumApi
+}
+
+export interface AlertPatternPreviewResponseApi {
+    /**
+     * Why the allow patterns could not be saved, or null when they are valid.
+     * @nullable
+     */
+    alert_allow_patterns_error: string | null
+    /**
+     * Why the block patterns could not be saved, or null when they are valid.
+     * @nullable
+     */
+    alert_block_patterns_error: string | null
+    /** The project's enabled alerts on insights you can view, newest first, each with what the patterns do to it. Empty while either pattern list has an error. */
+    alerts: AlertPatternPreviewAlertApi[]
+    /** True when the project has more enabled alerts than `alerts` lists. */
+    has_more: boolean
+}
+
 export interface SourceSpendApi {
     /** Product that emitted the signals. */
     source_product: string
@@ -11008,6 +11204,94 @@ export interface SpendOverviewApi {
     scouts: ScoutSpendApi[]
     /** Total scout run usage in the period. */
     scout_spend: SpendAmountApi
+}
+
+/**
+ * * `not_claimed` - Not claimed
+ * * `active` - Active
+ * * `exhausted` - Exhausted
+ */
+export type TrialGrantStatusEnumApi = (typeof TrialGrantStatusEnumApi)[keyof typeof TrialGrantStatusEnumApi]
+
+export const TrialGrantStatusEnumApi = {
+    NotClaimed: 'not_claimed',
+    Active: 'active',
+    Exhausted: 'exhausted',
+} as const
+
+/**
+ * * `continue_paid` - Continue under existing paid authorization
+ * * `add_payment_method` - Add a payment method
+ * * `increase_limit` - Increase the Self-driving spending limit
+ * * `enable_self_driving` - Enable paid Self-driving
+ * * `unavailable` - Billing status unavailable
+ */
+export type TrialContinuationEnumApi = (typeof TrialContinuationEnumApi)[keyof typeof TrialContinuationEnumApi]
+
+export const TrialContinuationEnumApi = {
+    ContinuePaid: 'continue_paid',
+    AddPaymentMethod: 'add_payment_method',
+    IncreaseLimit: 'increase_limit',
+    EnableSelfDriving: 'enable_self_driving',
+    Unavailable: 'unavailable',
+} as const
+
+export interface SelfDrivingTrialStatusApi {
+    /** Whether the one-time trial rollout is enabled for this organization. */
+    enabled: boolean
+    /** Whether the current rollout check succeeded. */
+    flag_confirmed: boolean
+    /** Effective trial policy version. */
+    policy_version: number
+    /** Whether the legacy reports-only trial still prevents implementation for this project. */
+    legacy_pr_restricted: boolean
+    /** Whether the current Self-driving plan has no recurring free allowance. */
+    billing_ready: boolean
+    /** Whether this project can explicitly claim its lifetime grant. */
+    eligible: boolean
+    /** Whether the current user has project-management permission to activate. */
+    can_activate: boolean
+    /** Unclaimed lifetime project grants in the organization. */
+    organization_grants_remaining: number
+    /**
+     * Lifetime project grant, shared with its environments.
+     * @nullable
+     */
+    grant_id: string | null
+    /** The project's lifetime trial state.
+     *
+     * * `not_claimed` - Not claimed
+     * * `active` - Active
+     * * `exhausted` - Exhausted */
+    grant_status: TrialGrantStatusEnumApi
+    /** Why the trial completed: cost_limit or report_limit. */
+    exhaustion_reason: string
+    /** Qualifying reports delivered since the claim, including hidden or deleted reports. */
+    reports_delivered: number
+    /** Admitted reports that have not yet qualified as delivered. */
+    reports_in_progress: number
+    /** Report limit for admitting new work; accepted pipelines may finish beyond it. */
+    report_limit: number
+    /** One-time allowance in millionths of a US dollar. */
+    allowance_microusd: number
+    /** Settled and known running costs, capped at the trial allowance. */
+    used_microusd: number
+    /** Whether the shared trial and billing limits block new work. */
+    new_work_paused: boolean
+    /** Enabled scouts across this project's environments. */
+    enabled_scouts: number
+    /** Maximum enabled scouts during the trial. */
+    scout_limit: number
+    /** On activation, all but the three oldest enabled scouts pause. */
+    scouts_to_pause: number
+    /** What happens to new work after the trial.
+     *
+     * * `continue_paid` - Continue under existing paid authorization
+     * * `add_payment_method` - Add a payment method
+     * * `increase_limit` - Increase the Self-driving spending limit
+     * * `enable_self_driving` - Enable paid Self-driving
+     * * `unavailable` - Billing status unavailable */
+    paid_continuation: TrialContinuationEnumApi
 }
 
 export interface MonthlySourceUsageApi {
@@ -11517,7 +11801,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order.
      */
     sort?: string
     /**
@@ -11692,6 +11976,52 @@ export type SignalsReportsPrCiStatusesParams = {
      */
     report_ids: string
 }
+
+export type SignalsReportsSearchParams = {
+    /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string
+    /**
+     * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false.
+     */
+    include_unlisted?: boolean
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /**
+     * What to look for: natural language, such as a description of the issue, or an exact string, such as an error message or an entity name.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    query: string
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the semantic search fails. `keyword` requires every query word in the title or the summary. Words such as `a` or `is` are too short to look up, so the keyword search leaves them out.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsReportsSearchSearchMode
+    /**
+     * Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included.
+     * @minLength 1
+     */
+    status?: string
+}
+
+export type SignalsReportsSearchSearchMode =
+    (typeof SignalsReportsSearchSearchMode)[keyof typeof SignalsReportsSearchSearchMode]
+
+export const SignalsReportsSearchSearchMode = {
+    Hybrid: 'hybrid',
+    Semantic: 'semantic',
+    Keyword: 'keyword',
+} as const
 
 export type SignalsReportsSectionCountsRetrieveParams = {
     /**

@@ -33,3 +33,4 @@ Each integration represents a connection to an external service like Slack, GitH
 - `config` structure varies by integration kind and may include account names, workspace IDs, or other non-secret metadata
 - Each (`team_id`, `kind`, `integration_id`) combination is unique
 - Most integrations are created via OAuth flows or file uploads, not direct API calls
+- A query returns at most the 500 newest integrations of the project
