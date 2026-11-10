@@ -4944,8 +4944,6 @@ def _validate_merge_keys(field: str, items: Any) -> None:
 
 
 class HogFlowListSummarySerializer(HogFlowSummarySerializer):
-    """One row of the workflows list: the summary fields and the workflow type, without the step graph."""
-
     type = serializers.ChoiceField(
         source="workflow_type",
         choices=HogFlowType.choices,

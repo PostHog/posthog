@@ -75,6 +75,46 @@ class TestWorkflowFolders(APIBaseTest):
             )
             self.assertEqual(restored.status_code, 200 if level == "editor" else 400, restored.content)
 
+    def test_workflow_viewers_cannot_place_or_unlink_a_workflow_file(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        template = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Shared email", "type": "email"},
+            format="json",
+        ).json()
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        entry = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"][0]
+        copy = {"path": "Copies/Shared email", "type": "message_template", "ref": template["id"]}
+        self.assertEqual(self.client.post(files_url, copy, format="json").status_code, 201)
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="viewer", organization_member_id=membership.id
+        )
+        self.client.force_login(viewer)
+
+        placed = self.client.post(files_url, {**copy, "path": "Viewer/Shared email"}, format="json")
+        shortcut = self.client.post(files_url, {**copy, "path": "Viewer/Shortcut", "shortcut": True}, format="json")
+        promoted = self.client.patch(f"{files_url}{shortcut.json()['id']}/", {"shortcut": False}, format="json")
+        folder = self.client.post(files_url, {"path": "Viewer/Folder", "type": "folder"}, format="json")
+        retyped = self.client.patch(
+            f"{files_url}{folder.json()['id']}/", {"type": "message_template", "ref": template["id"]}, format="json"
+        )
+        unlinked = self.client.delete(f"{files_url}{entry['id']}/")
+
+        self.assertEqual(
+            [placed.status_code, promoted.status_code, retyped.status_code, unlinked.status_code],
+            [403, 403, 403, 403],
+            [placed.content, promoted.content, retyped.content, unlinked.content],
+        )
+        rows = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"]
+        self.assertEqual(
+            sorted(row["path"] for row in rows if not row["shortcut"]), sorted([entry["path"], "Copies/Shared email"])
+        )
+
     def test_private_workflow_files_follow_member_grants(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -123,11 +163,14 @@ class TestWorkflowFolders(APIBaseTest):
         removed = self.client.delete(f"/api/projects/{self.team.id}/file_system_shortcut/{stale.id}/")
         self.assertEqual(removed.status_code, 204, removed.content)
 
-        alias = self.client.post(
+        placed = self.client.post(
             files_url, {"path": "Private renewal copy", "type": "hog_flow", "ref": workflow.id.hex}, format="json"
         )
-        self.assertEqual(alias.status_code, 201, alias.content)
-        alias_deleted = self.client.delete(f"{files_url}{alias.json()['id']}/")
+        self.assertEqual(placed.status_code, 403, placed.content)
+        alias = FileSystem.objects.create(
+            team=self.team, path="Private renewal copy", depth=1, type="hog_flow", ref=workflow.id.hex, shortcut=False
+        )
+        alias_deleted = self.client.delete(f"{files_url}{alias.id}/")
         self.assertEqual(alias_deleted.status_code, 404, alias_deleted.content)
         self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
 
@@ -359,6 +402,46 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(refused.json()["detail"], "Archive this workflow before you delete it.")
         self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/").status_code, 200)
         self.assertEqual(self.client.get(f"{files_url}{file['id']}/").json()["path"], "Campaigns/Welcome")
+
+    @parameterized.expand(
+        [
+            ("workflow_file_system_scopes_only", "hog_flows", ["file_system:read", "file_system:write"], 403, 200),
+            ("workflow_with_write_scope", "hog_flows", ["file_system:write", "hog_flow:write"], 200, 404),
+            (
+                "template_file_system_scopes_only",
+                "messaging_templates",
+                ["file_system:read", "file_system:write"],
+                403,
+                200,
+            ),
+            ("template_with_write_scope", "messaging_templates", ["file_system:write", "hog_flow:write"], 200, 404),
+        ]
+    )
+    def test_tree_delete_of_a_workflow_object_needs_the_workflow_write_scope(
+        self, _name: str, endpoint: str, scopes: list[str], delete_status: int, object_status: int
+    ) -> None:
+        if endpoint == "hog_flows":
+            object_id, file = self._workflow_file_in_folder("archived")
+        else:
+            object_id = self.client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/",
+                {"name": "Scoped email", "type": "email"},
+                format="json",
+            ).json()["id"]
+            file = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/", {"type": "message_template", "ref": object_id}
+            ).json()["results"][0]
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        deleted = self.client.delete(
+            f"/api/projects/{self.team.id}/file_system/{file['id']}/", HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        self.assertEqual(deleted.status_code, delete_status, deleted.content)
+        self.client.force_login(self.user)
+        stored = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/{object_id}/")
+        self.assertEqual(stored.status_code, object_status, stored.content)
 
     def test_deleting_workflow_through_the_project_tree_records_activity(self) -> None:
         workflow_id, file = self._workflow_file_in_folder("archived")
