@@ -13,8 +13,8 @@ const SENT_NOTICE = 'Your answer goes to PostHog, to improve setup.'
 const KEPT_NOTICE = 'Your answer stays on this machine.'
 
 const INSTRUCTIONS = [
-    `Ask the person: "${QUESTION}"`,
-    `Then pick the products in context.products that match their answer, and run \`${COMMAND}\` yourself.`,
+    `If you already know what the user wants PostHog for, from the conversation or the code, don't ask. Run \`${COMMAND}\` with that reason and the matching products in \`context.products\`.`,
+    `Otherwise ask the user: "${QUESTION}", then pick the products that match the answer and run the same command.`,
     'When nothing matches, pass --products product-analytics.',
     'Add --region eu only when they mention the EU or data residency.',
 ].join(' ')
