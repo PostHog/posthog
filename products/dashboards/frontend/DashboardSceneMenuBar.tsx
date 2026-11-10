@@ -25,6 +25,8 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { RenderKeybind } from 'lib/components/Shortcuts/RenderKeybind'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -45,6 +47,7 @@ import {
     SceneMenuBarMenu,
     SceneMenuBarPopover,
     SceneMenuBarSeparator,
+    SceneMenuBarShortcut,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
@@ -322,6 +325,9 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                             >
                                 <IconUndo />
                                 Undo layout change
+                                <SceneMenuBarShortcut>
+                                    <RenderKeybind keybind={[keyBinds.undo]} minimal />
+                                </SceneMenuBarShortcut>
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() => redoLayoutChange()}
@@ -337,6 +343,9 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                             >
                                 <IconRedo />
                                 Redo layout change
+                                <SceneMenuBarShortcut>
+                                    <RenderKeybind keybind={[keyBinds.redo]} minimal />
+                                </SceneMenuBarShortcut>
                             </SceneMenuBarItem>
                             <SceneMenuBarSeparator />
                         </>

@@ -3,13 +3,20 @@ import { useActions, useValues } from 'kea'
 import { IconUndo } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
+import { RenderKeybind } from 'lib/components/Shortcuts/RenderKeybind'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 const UNDO_DISABLED_REASON = 'Wait for the dashboard to finish saving'
+const UNDO_TOOLTIP = (
+    <span className="inline-flex items-center gap-1">
+        Undo the last layout change
+        <RenderKeybind keybind={[keyBinds.undo]} />
+    </span>
+)
 
-/** Layout changes save as they happen, so this is how an editor takes the last one back. */
 export function DashboardLayoutUndoButton(): JSX.Element | null {
     const { canUndoLayoutChange, tileSavesPending } = useValues(dashboardLogic)
     const { undoLayoutChange } = useActions(dashboardLogic)
@@ -26,7 +33,7 @@ export function DashboardLayoutUndoButton(): JSX.Element | null {
             variant="outline"
             data-attr="dashboard-layout-undo"
             onClick={undoLayoutChange}
-            tooltip="Undo the last layout change"
+            tooltip={UNDO_TOOLTIP}
             disabledReason={disabledReason}
         >
             <IconUndo />
@@ -39,7 +46,7 @@ export function DashboardLayoutUndoButton(): JSX.Element | null {
             data-attr="dashboard-layout-undo"
             icon={<IconUndo fontSize="16" />}
             onClick={undoLayoutChange}
-            tooltip="Undo the last layout change"
+            tooltip={UNDO_TOOLTIP}
             disabledReason={disabledReason}
         >
             Undo

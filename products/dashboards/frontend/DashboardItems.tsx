@@ -11,6 +11,8 @@ import 'scenes/dashboard/DashboardItems.scss'
 import { ApiError } from 'lib/api'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { objectsEqual } from 'lib/utils/objects'
 import { reportDashboardTileRepositioned } from 'scenes/dashboard/dashboardEvents'
@@ -23,6 +25,7 @@ import {
 } from 'scenes/dashboard/dashboardUtils'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
+import { Scene } from 'scenes/sceneTypes'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -163,6 +166,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         updateTileGroupSectionLayout,
         moveTileToSection,
         setCarryingTile,
+        undoLayoutChange,
+        redoLayoutChange,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     // dashboard_tiles is empty because this selector covers a whole group, not one tile; the
@@ -252,6 +257,27 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             placement
         )
     const canEditLayout = !!dashboard && canEditDashboard && isEditablePlacement && !isMobileView
+    // Inputs keep their own text undo, so the layout shortcuts stand down while one has focus.
+    useShortcut({
+        name: 'DashboardUndoLayoutChange',
+        keybind: [keyBinds.undo],
+        intent: 'Undo layout change',
+        interaction: 'function',
+        callback: undoLayoutChange,
+        scope: Scene.Dashboard,
+        disabled: !canEditLayout,
+        ignoreInEditable: true,
+    })
+    useShortcut({
+        name: 'DashboardRedoLayoutChange',
+        keybind: [keyBinds.redo],
+        intent: 'Redo layout change',
+        interaction: 'function',
+        callback: redoLayoutChange,
+        scope: Scene.Dashboard,
+        disabled: !canEditLayout,
+        ignoreInEditable: true,
+    })
     const className = clsx(
         'mb-8',
         canEditLayout ? 'dashboard-edit-mode dashboard-drop-space-end' : 'dashboard-view-mode'
