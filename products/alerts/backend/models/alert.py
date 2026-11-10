@@ -505,18 +505,54 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         active real-time count — an alert that already was an enabled real_time alert
         doesn't re-count against it.
         """
-        if calculation_interval != AlertCalculationInterval.REAL_TIME:
-            return None
-        if not enabled:
-            return None
-        already_active_real_time = (
-            existing is not None
-            and existing.calculation_interval == AlertCalculationInterval.REAL_TIME
-            and existing.enabled
-        )
-        if already_active_real_time:
+        if not cls._adds_active_real_time(
+            calculation_interval=calculation_interval, enabled=enabled, existing=existing
+        ):
             return None
         return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk) if existing else None)
+
+    @classmethod
+    def update_limit_error(
+        cls,
+        *,
+        team_id: int,
+        organization: Organization,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+        existing: AlertConfiguration,
+    ) -> str | None:
+        """The real-time limit an update would break, or None. Call it inside the update's transaction,
+        after the AI detector's admission, so the lock order matches `create_limit_error`'s. An update
+        that adds an active real-time alert holds the team's insight alert lock until the transaction
+        ends, so two updates cannot both pass the count. Any other update takes no lock."""
+        if not cls._adds_active_real_time(
+            calculation_interval=calculation_interval, enabled=enabled, existing=existing
+        ):
+            return None
+        # Deferred for the same reason as in `_counted`.
+        from products.alerts_platform.backend.facade.api import hold_cap_lock  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
+        return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk))
+
+    @staticmethod
+    def _adds_active_real_time(
+        *,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+        existing: AlertConfiguration | None,
+    ) -> bool:
+        # An alert that already was an enabled real-time alert doesn't count against the limit again.
+        return (
+            calculation_interval == AlertCalculationInterval.REAL_TIME
+            and enabled
+            and not (
+                existing is not None
+                and existing.calculation_interval == AlertCalculationInterval.REAL_TIME
+                and existing.enabled
+            )
+        )
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
