@@ -1,9 +1,10 @@
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
+import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
-import { register } from 'prom-client'
+import { Histogram, register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -23,6 +24,7 @@ import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executo
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CONSUMER_STOP_DEADLINE_MS } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '~/cdp/services/messaging/attachment-horizon'
+import { ATTACHMENT_SEND_DEADLINE_MS } from '~/cdp/services/messaging/email.service'
 import {
     InFlightLimits,
     InFlightRegistry,
@@ -68,7 +70,17 @@ async function metric(name: string, labels: Record<string, string> = {}): Promis
         .reduce((sum, sample) => sum + sample.value, 0)
 }
 
-const aMoment = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 500))
+// The worker records how long each phase of a batch took as that phase settles, failed or not. A failure leaves its
+// phase before anything can report it, so once the count moves, a report that does not wait has already been made.
+async function batchPhasesEnded(phase: 'invocations' | 'background'): Promise<number> {
+    const name = 'cdp_cyclotron_worker_phase_duration_seconds'
+    const samples = (await (register.getSingleMetric(name) as Histogram | undefined)?.get())?.values ?? []
+    return samples
+        .filter((sample) => sample.metricName === `${name}_count` && sample.labels.phase === phase)
+        .reduce((sum, sample) => sum + sample.value, 0)
+}
+
+const POLL_DELAY_MS = 10
 
 type JobRow = { status: string; scheduled: Date; lease: bigint | null; queueMetadata: Record<string, any> | undefined }
 type EmailStatus = { status: string; reason: string; sendingDomain: string }
@@ -86,6 +98,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     let workers: CdpCyclotronWorkerEmail[]
     let producer: EmailQueueOfOneTest
     let invoice: StoredFile
+    let backToRealClock: () => void = () => undefined
 
     const roomFor = (sends: number): InFlightLimits => ({
         budgetBytes: sends * estimateSend(invoice.metadata.sizeBytes).reservedBytes,
@@ -181,6 +194,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     })
 
     afterEach(async () => {
+        backToRealClock()
         cyclotron.releaseAll()
         bucket.release('refuse')
         await Promise.all(workers.map((worker) => worker.stop()))
@@ -192,11 +206,14 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         ])
     })
 
-    async function startWorker(limits: InFlightLimits | null): Promise<CdpCyclotronWorkerEmail> {
+    async function startWorker(
+        limits: InFlightLimits | null,
+        sesClient: SESv2Client = ses.client()
+    ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
             ...hub,
             CYCLOTRON_NODE_DATABASE_URL: cyclotron.url,
-            CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
+            CDP_CYCLOTRON_BATCH_DELAY_MS: POLL_DELAY_MS,
             CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 50,
             CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
             CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
@@ -208,7 +225,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             new EmailQueueOfOneTest(queueName, config),
             new InFlightRegistry(limits, () => 0)
         )
-        worker.emailService.sesV2Client = ses.client()
+        worker.emailService.sesV2Client = sesClient
         workers.push(worker)
         await worker.start()
         return worker
@@ -405,11 +422,12 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             const heldWrite = cyclotron.hold(writeOf(completes, jobs[heldIs].id))
             const writeFailures = (): Promise<number> =>
                 metric('cdp_cyclotron_v2_result_write_failures_total', { queue: queueName })
+            const backgroundsEnded = await batchPhasesEnded('background')
             await enqueue(jobs.withFiles, jobs.plain)
             await startWorker(roomFor(1))
             ;(await failingWrite).drop()
             const write = await heldWrite
-            await aMoment()
+            await waitForExpect(async () => expect(await batchPhasesEnded('background')).toBe(backgroundsEnded + 1))
             expect(await writeFailures()).toBe(0)
 
             write.release()
@@ -429,11 +447,12 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const failedBeside = (): Promise<number> =>
             metric('cdp_cyclotron_v2_result_write_failures_total', { queue: 'email' })
         const failedBesideBefore = await failedBeside()
+        const invocationsEnded = await batchPhasesEnded('invocations')
         await enqueue(send, lostRun)
         await startWorker(roomFor(1))
         ;(await lostRunFails).drop()
         const write = await sendWrite
-        await aMoment()
+        await waitForExpect(async () => expect(await batchPhasesEnded('invocations')).toBe(invocationsEnded + 2))
         expect(await loopErrors()).toBe(0)
 
         write.drop()
@@ -448,23 +467,100 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         // The SDK resolves credentials before it signs a request and does not abort that step, so a credentials
         // source that never answers leaves the call running past its deadline. SES itself cannot do that: the
         // SDK aborts a request it has sent.
-        const stallCredentials = (worker: CdpCyclotronWorkerEmail): void => {
-            worker.emailService.sesV2Client = ses.client({ credentials: () => new Promise(() => undefined) })
+        const stalledSes = (askedForCredentials: () => void = () => undefined): SESv2Client =>
+            ses.client({
+                credentials: () => {
+                    askedForCredentials()
+                    return new Promise(() => undefined)
+                },
+            })
+
+        const useFakeClock = (): number[] => {
+            jest.useFakeTimers({
+                doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
+            })
+            const sendDeadlinesStarted: number[] = []
+            // Node runs AbortSignal.timeout on a timer that jest does not replace, so the send deadline would pass on
+            // the real clock.
+            const timeout = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+                if (ms === ATTACHMENT_SEND_DEADLINE_MS) {
+                    sendDeadlinesStarted.push(Date.now())
+                }
+                const controller = new AbortController()
+                setTimeout(
+                    () =>
+                        controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+                    ms
+                )
+                return controller.signal
+            })
+            backToRealClock = () => {
+                timeout.mockRestore()
+                jest.useRealTimers()
+                backToRealClock = () => undefined
+            }
+            return sendDeadlinesStarted
+        }
+
+        // Moves the clock on a poll at a time, so the worker's loop wakes, until the check passes or `before` is
+        // reached. Each check reads Postgres, which gives the worker real time for its own queries.
+        async function onTheFakeClock<T>(check: () => Promise<T>, before: number): Promise<T> {
+            for (;;) {
+                try {
+                    return await check()
+                } catch (error) {
+                    if (Date.now() + POLL_DELAY_MS >= before) {
+                        throw error
+                    }
+                    await jest.advanceTimersByTimeAsync(POLL_DELAY_MS)
+                }
+            }
         }
 
         it('writes its result once its deadline and the wait for its call passed, before a stop that starts while it runs returns, and keeps its room taken', async () => {
-            const worker = await startWorker(roomFor(1))
-            stallCredentials(worker)
-            const enqueuedAt = Date.now()
             const [stuck] = await enqueue(transactionalSend([invoice.metadata]))
-            await waitForExpect(async () => expect((await jobRow(stuck)).status).toBe('running'))
-            const [next] = await enqueue(transactionalSend([invoice.metadata]))
-            await deferredRow(next, 1)
+            const clockStarted = Date.now()
+            const sendDeadlinesStarted = useFakeClock()
+            let callStarted = false
+            const worker = await startWorker(
+                roomFor(1),
+                stalledSes(() => (callStarted = true))
+            )
+            // Some steps before the SES call wait on timers, so the clock has to move for the send to get there.
+            await onTheFakeClock(async () => {
+                expect((await jobRow(stuck)).status).toBe('running')
+                expect(callStarted).toBe(true)
+            }, clockStarted + 1_000)
+            const [deadlineStarted] = sendDeadlinesStarted
+            const writeDue = deadlineStarted + callsCannotOutlast
 
-            await worker.stop()
+            // Short of the due time by less than the wait for its call, so a result written without that wait shows.
+            await jest.advanceTimersByTimeAsync(writeDue - 2_000 - Date.now())
+            // Postgres hands out a job by its own clock, which the fake clock is ahead of.
+            const [next] = await enqueue(
+                transactionalSend([invoice.metadata], { queueScheduledAt: DateTime.fromMillis(clockStarted) })
+            )
+            // The worker takes this send only after the queries it sent before, so a result it wrote too early has
+            // landed by the time the send is deferred for want of room.
+            await onTheFakeClock(async () => {
+                const row = await jobRow(next)
+                expect({ status: row.status, deferrals: row.queueMetadata?.attachmentDeferrals }).toEqual({
+                    status: 'available',
+                    deferrals: 1,
+                })
+            }, writeDue)
+            const beforeItIsDue = await jobRow(stuck)
+            expect({ status: beforeItIsDue.status, queueMetadata: beforeItIsDue.queueMetadata }).toEqual({
+                status: 'running',
+                queueMetadata: undefined,
+            })
+
+            const stopped = worker.stop()
+            await jest.advanceTimersByTimeAsync(writeDue - Date.now())
+            // The clock now stands far before the stop deadline, so the stop can return only once its work is done.
+            await stopped
 
             expect((await jobRow(stuck)).queueMetadata?.attachmentLoadRetries).toBe(1)
-            expect(Date.now() - enqueuedAt).toBeGreaterThanOrEqual(callsCannotOutlast)
             expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
             expect(delivered()).toEqual([])
         })
@@ -476,7 +572,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 metric('cdp_cyclotron_v2_consumer_loop_errors_total', { queue: queueName })
             const send = transactionalSend([invoice.metadata])
             await enqueue(send, lostRun)
-            stallCredentials(await startWorker(roomFor(1)))
+            await startWorker(roomFor(1), stalledSes())
             ;(await lostRunFails).drop()
 
             await waitForExpect(async () => expect(await loopErrors()).toBe(1), callsCannotOutlast + 5_000, 50)

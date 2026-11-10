@@ -1841,10 +1841,10 @@ describe('EmailService', () => {
             const outcomeOf = (result: Awaited<ReturnType<EmailService['executeSendEmail']>>) => ({
                 finished: result.finished,
                 error: result.error,
-                loadRetries: result.invocation.queueMetadata?.attachmentLoadRetries,
+                retryLater: (result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now(),
             })
-            const sent = { finished: true, error: undefined, loadRetries: undefined }
-            const retriedLoad = { finished: false, error: undefined, loadRetries: 1 }
+            const sent = { finished: true, error: undefined, retryLater: false }
+            const retriedLoad = { finished: false, error: undefined, retryLater: true }
 
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
@@ -1867,13 +1867,21 @@ describe('EmailService', () => {
             })
 
             // The SDK does not abort a call while it waits for its credentials, so this call outlives the deadline
-            // of the email before. The bucket cannot hold a download that way: an aborted download settles at once.
+            // of the email before, still holding that email's files. The bucket refuses every download while the
+            // call runs, so an email that loads its own files beside them fails to load them instead of sending.
             it.each([
-                ['loads its files and sends only once that call settles', true, sent, 1],
-                ['reschedules as a load retry, having loaded nothing, once its deadline passes', false, retriedLoad, 0],
+                [
+                    'loads its files and sends only once that call settles',
+                    true,
+                    sent,
+                    () => [
+                        { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
+                    ],
+                ],
+                ['reschedules as a load retry once its deadline passes', false, retriedLoad, () => []],
             ])(
                 'when a flow sends its next email inline while the SES call of the email before still waits for its credentials, it %s',
-                async (_name, credentialsArrive, expected, emailsSent) => {
+                async (_name, credentialsArrive, expected, inbox) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
                     let giveCredentials!: () => void
                     const credentials = new Promise<{ accessKeyId: string; secretAccessKey: string }>((resolve) => {
@@ -1881,101 +1889,113 @@ describe('EmailService', () => {
                             resolve({ accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' })
                     })
                     emailService.sesV2Client = ses.client({ credentials: () => credentials })
-                    let downloadsWhenItSettles: number | undefined
 
-                    const { first, second, downloadsOfTheFirst } = await inOneAdmission(async () => {
+                    const { first, second } = await inOneAdmission(async () => {
                         const first = await emailService.executeSendEmail(invocation)
-                        const downloadsOfTheFirst = bucket.downloads
+                        bucket.answer = 'refuse'
                         if (credentialsArrive) {
                             setTimeout(() => {
-                                downloadsWhenItSettles = bucket.downloads
+                                bucket.answer = 'pass'
                                 giveCredentials()
                             }, 300)
                         }
-                        return { first, second: await emailService.executeSendEmail(invocation), downloadsOfTheFirst }
+                        return { first, second: await emailService.executeSendEmail(invocation) }
                     })
 
                     expect(outcomeOf(first)).toEqual(retriedLoad)
                     expect(outcomeOf(second)).toEqual(expected)
-                    expect((downloadsWhenItSettles ?? bucket.downloads) - downloadsOfTheFirst).toBe(0)
-                    expect(ses.deliveredTo(recipient)).toHaveLength(emailsSent)
+                    expect(ses.deliveredTo(recipient)).toEqual(inbox())
                 }
             )
-
-            const loadRetry = { finished: false, error: undefined, loadRetries: 1, rescheduled: true, failed: false }
-            const sesMayHaveSent = {
-                finished: true,
-                error: expect.stringMatching(/^Failed to send email via SES: /),
-                loadRetries: undefined,
-                rescheduled: false,
-                failed: true,
-            }
 
             it.each([
                 [
                     'the bucket does not answer',
-                    'reschedules the send as a load retry',
                     () => {
                         bucket.answer = 'hold'
                     },
-                    loadRetry,
                 ],
                 [
                     'the SES client never gets its credentials',
-                    'reschedules the send as a load retry',
                     (emailService: EmailService) => {
                         emailService.sesV2Client = ses.client({ credentials: () => new Promise<never>(() => {}) })
                     },
-                    loadRetry,
                 ],
                 [
-                    'SES answers a throttle and the SDK is still backing off',
-                    'reschedules the send as a load retry, because SES refused every attempt',
+                    'SES refuses with a throttle and the SDK is still backing off',
                     (emailService: EmailService) => {
                         ses.answer = 'throttle'
                         emailService.sesV2Client = ses.client({ retryStrategy: oneRetryAfter(2_000) })
                     },
-                    loadRetry,
                 ],
+            ])(
+                'when %s past the deadline, retries the send later and delivers it with its files once',
+                async (_name, fault) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 1000 })
+                    fault(emailService)
+
+                    const retry = await emailService.executeSendEmail(invocation)
+                    expect({
+                        finished: retry.finished,
+                        error: retry.error,
+                        retryLater: retry.invocation.queueScheduledAt!.toMillis() > Date.now(),
+                        delivered: ses.deliveredTo(recipient),
+                    }).toEqual({ finished: false, error: undefined, retryLater: true, delivered: [] })
+
+                    bucket.answer = 'pass'
+                    ses.answer = 'accept'
+                    emailService.sesV2Client = ses.client()
+                    const result = await emailService.executeSendEmail(retry.invocation)
+
+                    expect(result.error).toBeUndefined()
+                    expect(result.finished).toBe(true)
+                    expect(ses.deliveredTo(recipient)).toEqual([
+                        { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
+                    ])
+                }
+            )
+
+            it.each([
                 [
                     'SES receives the request and does not answer',
-                    'fails the send without a retry, because SES may have sent it',
                     () => {
                         ses.answer = 'hold'
                     },
-                    sesMayHaveSent,
                 ],
                 [
                     'SES answers 200 and its body stalls',
-                    'fails the send without a retry, because SES accepted it',
                     () => {
                         ses.answer = 'stallBody'
                     },
-                    sesMayHaveSent,
                 ],
                 [
                     'the connection drops after the request went out and the SDK is still backing off',
-                    'fails the send without a retry, because SES may have sent it',
                     (emailService: EmailService) => {
                         ses.answer = 'dropConnection'
                         emailService.sesV2Client = ses.client({ retryStrategy: oneRetryAfter(2_000) })
                     },
-                    sesMayHaveSent,
                 ],
-            ])('when %s past the deadline, %s', async (_name, _outcome, hang, expected) => {
-                const emailService = sender({ attachmentSendDeadlineMs: 1000 })
-                hang(emailService)
+            ])(
+                'when %s past the deadline, fails the send without a retry, because SES may have sent it',
+                async (_name, fault) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 1000 })
+                    fault(emailService)
 
-                const result = await emailService.executeSendEmail(invocation)
+                    const result = await emailService.executeSendEmail(invocation)
 
-                expect({
-                    finished: result.finished,
-                    error: result.error,
-                    loadRetries: result.invocation.queueMetadata?.attachmentLoadRetries,
-                    rescheduled: (result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now(),
-                    failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                }).toEqual(expected)
-            })
+                    expect({
+                        finished: result.finished,
+                        error: result.error,
+                        failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
+                        delivered: ses.deliveredTo(recipient),
+                    }).toEqual({
+                        finished: true,
+                        error: expect.stringMatching(/^Failed to send email via SES: /),
+                        failed: true,
+                        delivered: [],
+                    })
+                }
+            )
 
             it.each([
                 [9, false, 'retries once more', false, undefined],
@@ -2006,6 +2026,25 @@ describe('EmailService', () => {
                     expect(ses.delivered).toEqual([])
                 }
             )
+
+            it('counts the load retries across reschedules and fails the send on the 11th try', async () => {
+                const emailService = sender()
+                bucket.answer = 'refuse'
+
+                let result = await emailService.executeSendEmail(invocation)
+                let tries = 1
+                while (!result.finished && tries < 20) {
+                    result = await emailService.executeSendEmail(result.invocation)
+                    tries++
+                }
+
+                expect({ tries, finished: result.finished, error: result.error }).toEqual({
+                    tries: 11,
+                    finished: true,
+                    error: expect.stringMatching(/^attachment_unavailable: .* in 11 tries,/),
+                })
+                expect(ses.delivered).toEqual([])
+            })
 
             it.each([
                 ['$workflows_email_sent', 'accept'],
