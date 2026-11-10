@@ -900,7 +900,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const id = raw.get('view') ?? 'all'
                 const explicit = raw.has('q') || raw.has('text') || raw.has('columns') || raw.has('added')
                 if (!values.available) {
-                    if (values.enabled && raw.has('view') && !explicit && cache.viewOnlyLink?.id !== id) {
+                    if (explicit && cache.urlMethod !== 'REPLACE') {
+                        // A followed link with its own state replaces an earlier view-only link, also to the same
+                        // view. The list replaces the URL with its own edits, and those edits keep the link.
+                        cache.viewOnlyLink = undefined
+                    } else if (!explicit && values.enabled && raw.has('view') && cache.viewOnlyLink?.id !== id) {
                         cache.viewOnlyLink = { id, baseline: values.value }
                     }
                     if (cache.editsWhileViewsLoad && cache.editsWhileViewsLoad.view !== id) {
@@ -1121,10 +1125,13 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }),
         }
     }),
-    urlToAction(({ actions }) => ({
-        [urls.workflows()]: () => actions.syncViewFromUrl(),
-        [urls.workflows('workflows')]: () => actions.syncViewFromUrl(),
-    })),
+    urlToAction(({ actions, cache }) => {
+        const sync = (_: unknown, __: unknown, ___: unknown, { method }: { method: string }): void => {
+            cache.urlMethod = method
+            actions.syncViewFromUrl()
+        }
+        return { [urls.workflows()]: sync, [urls.workflows('workflows')]: sync }
+    }),
     afterMount(({ actions, values, cache }) => {
         cache.loadedTeamId = values.currentTeamId
         actions.loadSavedViews()
