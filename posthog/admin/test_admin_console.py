@@ -380,6 +380,8 @@ class TestAdminConsoleViews(BaseTest):
     @parameterized.expand(
         [
             ("team_name", "team", None),
+            ("team_uuid", "team_uuid", None),
+            ("organization_id", "organization", None),
             ("user_email_in_another_case", "user", None),
             ("user_email_from_a_support_ticket", "user", "https://support.example.com/tickets/42"),
         ]
@@ -387,6 +389,10 @@ class TestAdminConsoleViews(BaseTest):
     def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
         if record == "team":
             query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        elif record == "team_uuid":
+            query, expected = str(self.team.uuid), f"/admin/console/teams/{self.team.pk}/"
+        elif record == "organization":
+            query, expected = str(self.organization.pk), f"/admin/console/organizations/{self.organization.pk}/"
         else:
             query, expected = self.user.email.upper(), f"/admin/console/users/{self.user.pk}/"
         params = {"q": query, **({"ticket": ticket} if ticket else {})}
