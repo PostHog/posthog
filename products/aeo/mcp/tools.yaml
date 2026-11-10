@@ -86,6 +86,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-get:
         operation: aeo_prompts_retrieve
+        enrich_url: 'prompts/{id}'
         enabled: true
         title: Get a tracked AI prompt
         description: >
@@ -114,6 +115,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-list:
         operation: aeo_prompts_list
+        enrich_url: 'prompts/{id}'
         enabled: true
         list: true
         title: List tracked AI prompts
@@ -151,6 +153,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-stats-get:
         operation: aeo_prompts_stats
+        enrich_url: 'prompts/{params.id}'
         enabled: true
         title: Get a tracked AI prompt's citation stats
         description: >
@@ -214,6 +217,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-update:
         operation: aeo_prompts_partial_update
+        enrich_url: 'prompts/{id}'
         enabled: true
         annotations:
             readOnly: false
