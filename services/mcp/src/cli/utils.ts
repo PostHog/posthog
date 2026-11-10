@@ -1,6 +1,15 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
+const EXEC_INVOCATION_PATTERN = /posthog:exec\(\{\s*"command":\s*"((?:\\.|[^"\\])*)"\s*\}\)/g
+
+export function replaceExecInvocations(text: string, toInvocation: (command: string) => string | undefined): string {
+    return text.replace(
+        EXEC_INVOCATION_PATTERN,
+        (match, command: string) => toInvocation(command.replace(/\\"/g, '"')) ?? match
+    )
+}
+
 export function errorCode(error: unknown): unknown {
     return typeof error === 'object' && error !== null && 'code' in error
         ? (error as { code?: unknown }).code

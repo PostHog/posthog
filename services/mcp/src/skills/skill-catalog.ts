@@ -1,6 +1,9 @@
 import { strFromU8, unzipSync } from 'fflate'
 import { parse as parseYaml } from 'yaml'
 
+export const PRODUCT_SKILL_ARCHIVE_URL =
+    'https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip'
+
 export const LEARN_OUTPUT_CHAR_LIMIT = 44_000
 
 // Also the cap applied after merging PostHog and project results in `learn -s`.
@@ -78,18 +81,21 @@ export class SkillCatalog {
     }
 
     static fromZip(bytes: Uint8Array, overlayBytes?: Uint8Array): SkillCatalog {
-        const skillsByName = indexSkillsByName(parseSkillArchive(bytes))
-        if (overlayBytes) {
-            for (const [name, skill] of indexSkillsByName(parseSkillArchive(overlayBytes))) {
-                if (skillsByName.has(name)) {
-                    // The product archive can be sha-pinned and the overlay is not, so the overlay never replaces a product skill.
-                    console.warn(`[SkillCatalog] overlay skill "${name}" ignored: a product skill has that name`)
-                    continue
-                }
-                skillsByName.set(name, skill)
+        const catalog = new SkillCatalog(sortByName(parseSkillArchive(bytes)))
+        return overlayBytes ? catalog.withOverlay(new SkillCatalog(parseSkillArchive(overlayBytes))) : catalog
+    }
+
+    withOverlay(overlay: SkillCatalog): SkillCatalog {
+        const skillsByName = new Map(this.skillsByName)
+        for (const [name, skill] of overlay.skillsByName) {
+            if (skillsByName.has(name)) {
+                // The product archive can be sha-pinned and the overlay is not, so the overlay never replaces a product skill.
+                console.warn(`[SkillCatalog] overlay skill "${name}" ignored: a product skill has that name`)
+                continue
             }
+            skillsByName.set(name, skill)
         }
-        return new SkillCatalog([...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name)))
+        return new SkillCatalog(sortByName([...skillsByName.values()]))
     }
 
     get size(): number {
@@ -378,15 +384,8 @@ export function formatLearnSearchResults(results: readonly LearnSearchResult[]):
     return fitLearnOutput(sections.join('\n\n'))
 }
 
-function indexSkillsByName(skills: readonly SkillDefinition[]): Map<string, SkillDefinition> {
-    const byName = new Map<string, SkillDefinition>()
-    for (const skill of skills) {
-        if (byName.has(skill.name)) {
-            throw new Error(`Duplicate skill name: "${skill.name}"`)
-        }
-        byName.set(skill.name, skill)
-    }
-    return byName
+function sortByName(skills: SkillDefinition[]): SkillDefinition[] {
+    return skills.sort((left, right) => left.name.localeCompare(right.name))
 }
 
 function parseSkillArchive(bytes: Uint8Array): SkillDefinition[] {

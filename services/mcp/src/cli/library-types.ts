@@ -79,3 +79,109 @@ export interface ApiToolLibrary {
     ): Promise<ApiToolResult<unknown>>
     flush(): Promise<void>
 }
+
+// The skills library (`dist/cli-skills.mjs`): PostHog's agent skills with the `learn` grammar of the
+// MCP server's exec tool, for CLIs that serve them without a login.
+
+/** The two release assets the PostHog skills come from, the same ones the MCP server loads. */
+export type SkillAssetName = 'product-skills' | 'context-mill'
+
+export interface SkillAssetStatus {
+    name: SkillAssetName
+    url: string
+    /**
+     * `network`: this load downloaded the asset, or the server answered 304 for the cached copy.
+     * `cache`: the download failed, so the copy in the cache folder served.
+     * `unavailable`: the download failed and the cache folder has no usable copy.
+     */
+    origin: 'network' | 'cache' | 'unavailable'
+    /** When the network last returned or confirmed the copy that served, as ISO 8601. Absent when unavailable. */
+    fetchedAt?: string
+    failure?: string
+}
+
+/** A file a `learn` command served. Only successful reads are listed. */
+export interface SkillRead {
+    source: 'posthog' | 'project'
+    skill: string
+    /** The file in the skill. A read of the skill itself serves `SKILL.md`. */
+    path: string
+    readKind: 'skill' | 'file' | 'file_search' | 'file_lines'
+}
+
+export type LearnOutput =
+    /** `learn` alone: the skill commands, in the caller's syntax. */
+    | { kind: 'overview'; commands: string[] }
+    | { kind: 'list'; skills: string[]; count: number; truncated: boolean }
+    /** Every other command: the text the exec tool returns, with commands in the caller's syntax. */
+    | { kind: 'text'; text: string }
+
+export interface LearnResult {
+    output: LearnOutput
+    reads: SkillRead[]
+    /** Where each asset came from. One with `origin: 'cache'` is older than the latest release. */
+    assets: SkillAssetStatus[]
+}
+
+export interface InstallableSkill {
+    id: string
+    name: string
+    description: string
+    tags: string[]
+}
+
+export interface InstalledSkill {
+    id: string
+    directory: string
+    fileCount: number
+}
+
+/** Why a skills call failed. `code` is stable, and `message` already uses the caller's command syntax. */
+export interface SkillsError {
+    code:
+        | 'offline'
+        | 'unknown_skill'
+        | 'unknown_file'
+        | 'unknown_topic'
+        | 'unavailable'
+        | 'usage'
+        | 'already_installed'
+        | 'install_failed'
+    message: string
+    assets?: SkillAssetStatus[]
+}
+
+export type SkillsResult<T> = { ok: true; value: T } | { ok: false; error: SkillsError }
+
+export type SkillsFetch = (
+    url: string,
+    init: { headers: Record<string, string>; signal: AbortSignal }
+) => Promise<Response>
+
+export interface SkillsLibraryOptions {
+    /**
+     * The folder that keeps the last good download of each asset. Every load downloads first, and
+     * reads this folder only when the download fails, or to answer a 304. Without it, nothing is cached.
+     */
+    cacheDir?: string
+    /** Replaces `learn` in the commands that served text names, as in `hog learn`. Defaults to `learn`. */
+    learnCommand?: string
+    fetch?: SkillsFetch
+    /** How long to wait for the response headers before the download counts as failed. Defaults to 5 seconds. */
+    responseTimeoutMs?: number
+    /** How long to wait for the whole response body. Defaults to 60 seconds. */
+    downloadTimeoutMs?: number
+    now?: () => number
+}
+
+export interface SkillsLibrary {
+    /** Runs a `learn` command, given as its words after `learn`, such as `['-s', 'session replay']`. */
+    learn(words: readonly string[]): Promise<SkillsResult<LearnResult>>
+    /** The skills `install` can write into a repository, as `posthog-cli api skill list` lists them. */
+    installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>>
+    /** Writes a skill into `.agents/skills/<id>` under `cwd`, as `posthog-cli api skill install` does. */
+    install(
+        id: string,
+        options: { cwd: string; force?: boolean }
+    ): Promise<SkillsResult<{ skill: InstalledSkill; assets: SkillAssetStatus[] }>>
+}

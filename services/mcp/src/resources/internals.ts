@@ -10,7 +10,8 @@ import {
 import { loadContextMillManifest } from './manifest-loader'
 import type { ContextMillManifest, ContextMillResource } from './manifest-types'
 
-const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
+export const CONTEXT_MILL_URL =
+    'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
 const OMNIBUS_ARCHIVE_PATTERN = /^omnibus-([a-z0-9]+(?:-[a-z0-9]+)*)\.zip$/
 // A fixed mtime keeps the repacked bytes, and so their sha, stable across refreshes of
@@ -156,8 +157,10 @@ export async function fetchAndExtractEntries(
     includeOmnibusSkills = true
 ): Promise<ContextMillArchiveContents> {
     const url = localUrl || CONTEXT_MILL_URL
-    const bytes = await defaultArchiveLoader(url, Boolean(localUrl))
-    const archive = unzipSync(bytes)
+    return extractContextMill(unzipSync(await defaultArchiveLoader(url, Boolean(localUrl))), includeOmnibusSkills)
+}
+
+export function extractContextMill(archive: Unzipped, includeOmnibusSkills = true): ContextMillArchiveContents {
     const manifest = loadManifestFromArchive(archive)
     return {
         entries: filterValidEntries(manifest.resources, archive),

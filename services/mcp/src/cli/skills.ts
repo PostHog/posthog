@@ -1,4 +1,4 @@
-import { unzipSync } from 'fflate'
+import { type Unzipped, unzipSync } from 'fflate'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
@@ -20,14 +20,19 @@ export interface SkillInstallResult {
     fileCount: number
 }
 
-async function loadSkills(): Promise<{ archive: ReturnType<typeof unzipSync>; entries: ContextMillResource[] }> {
+export interface InstallableSkills {
+    archive: Unzipped
+    entries: ContextMillResource[]
+}
+
+async function loadSkills(): Promise<InstallableSkills> {
     const archive = await fetchContextMillResources(process.env.POSTHOG_MCP_LOCAL_SKILLS_URL)
     const manifest = loadManifestFromArchive(archive)
     return { archive, entries: filterValidEntries(manifest.resources, archive) }
 }
 
-export async function listSkills(): Promise<SkillListItem[]> {
-    const { entries } = await loadSkills()
+export async function listSkills(source?: InstallableSkills): Promise<SkillListItem[]> {
+    const { entries } = source ?? (await loadSkills())
     return entries
         .map((entry) => ({
             id: entry.id,
@@ -54,10 +59,10 @@ function assertSafeSkillId(skillId: string): void {
 
 export async function installSkill(
     skillId: string,
-    opts: { cwd?: string; force?: boolean } = {}
+    opts: { cwd?: string; force?: boolean; source?: InstallableSkills } = {}
 ): Promise<SkillInstallResult> {
     const cwd = opts.cwd ?? process.cwd()
-    const { archive, entries } = await loadSkills()
+    const { archive, entries } = opts.source ?? (await loadSkills())
     const entry = entries.find((candidate) => candidate.id === skillId)
     if (!entry) {
         throw new Error(`Unknown skill "${skillId}". Run "posthog-cli api skill list" to see available skills.`)

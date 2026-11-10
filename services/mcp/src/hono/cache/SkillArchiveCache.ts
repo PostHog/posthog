@@ -1,10 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import { PRODUCT_SKILL_ARCHIVE_URL } from '@/skills/skill-catalog'
+
 import type { RedisLike } from './RedisCache'
 import { hashBytes, SharedBlobCache, type SharedBlobCacheOptions, type SharedBlobVersion } from './SharedBlobCache'
-
-export const DEFAULT_SKILL_ARCHIVE_URL =
-    'https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip'
 
 const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
 const ARCHIVE_DOWNLOAD_TIMEOUT_MS = 15_000
@@ -57,9 +56,9 @@ export class SkillArchiveCache extends SharedBlobCache {
     private readonly validateArchive: (bytes: Uint8Array) => void
 
     constructor(redis: RedisLike, opts: SkillArchiveCacheOptions = {}) {
-        const archiveUrl = opts.archiveUrl ?? DEFAULT_SKILL_ARCHIVE_URL
+        const archiveUrl = opts.archiveUrl ?? PRODUCT_SKILL_ARCHIVE_URL
         const urlNamespace =
-            archiveUrl === DEFAULT_SKILL_ARCHIVE_URL
+            archiveUrl === PRODUCT_SKILL_ARCHIVE_URL
                 ? NAMESPACE
                 : `${NAMESPACE}:${createHash('sha256').update(archiveUrl).digest('hex').slice(0, 16)}`
         const namespace = opts.expectedArchiveSha ? `${urlNamespace}:${opts.expectedArchiveSha}` : urlNamespace

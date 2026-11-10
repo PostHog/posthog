@@ -3,6 +3,8 @@ import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructi
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Tool, ZodObjectAny } from '@/tools/types'
 
+import { replaceExecInvocations } from './utils'
+
 const AGENT_HELP_HEADER = `# PostHog API guide for agents
 
 \`posthog-cli api\` is the agent-first interface to the PostHog API. It exposes the same tool surface as the PostHog MCP server's \`exec\` tool, so the reference below is the canonical guide for interacting with PostHog. Treat it as instructions to follow, not just documentation.
@@ -14,8 +16,6 @@ On top of the reference below, the CLI adds:
 - Destructive tools refuse to run without \`--confirm\`; add it only after verifying the exact target IDs.
 - \`posthog-cli api skill list\` and \`posthog-cli api skill install <skill-id>\` — install PostHog agent skills into \`.agents/skills/\`. Before starting a PostHog task, check the skill list for a match; if one exists, install it, read its \`SKILL.md\`, and follow it — skills contain task-specific workflows that individual tools do not.
 - \`posthog-cli api agents-md install [--path AGENTS.md]\` — install the PostHog steering snippet into a repository.`
-
-const EXEC_INVOCATION_PATTERN = /posthog:exec\(\{\s*"command":\s*"((?:\\.|[^"\\])*)"\s*\}\)/g
 
 function commandToCliInvocation(command: string): string {
     const braceIndex = command.indexOf('{')
@@ -29,10 +29,7 @@ function commandToCliInvocation(command: string): string {
  *  tool calls. The CLI exposes the identical command strings as \`posthog-cli api <cmd>\`,
  *  so rewriting invocations (instead of forking the templates) keeps one source of truth. */
 export function toCliSyntax(text: string): string {
-    return text
-        .replace(EXEC_INVOCATION_PATTERN, (_match, command: string) =>
-            commandToCliInvocation(command.replace(/\\"/g, '"'))
-        )
+    return replaceExecInvocations(text, commandToCliInvocation)
         .replace('### Using the `posthog` tool', '### Using `posthog-cli api`')
         .replace(
             'Pass CLI-style commands in the `command` parameter for all PostHog interactions.',
