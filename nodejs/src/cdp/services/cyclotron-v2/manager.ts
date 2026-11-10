@@ -156,8 +156,11 @@ export class CyclotronV2Manager {
     private pool: Pool
     private readonly depthLimit: number
     private readonly depthCheckIntervalMs: number
+    private readonly backgroundDepthCheck: boolean
     private depthCheckPromise: Promise<boolean> | null = null
     private depthCheckExpiresAt = 0
+    private lastDepthFull: boolean | null = null
+    private depthRefresh: Promise<boolean> | null = null
     private readonly reschedule: {
         floorSeconds: number
         wakeRatePerSecond: number
@@ -176,6 +179,7 @@ export class CyclotronV2Manager {
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
+        this.backgroundDepthCheck = config.backgroundDepthCheck ?? false
         this.reschedule = {
             floorSeconds: config.rescheduleFloorSeconds ?? 600,
             wakeRatePerSecond: config.rescheduleWakeRatePerSecond ?? 200,
@@ -816,7 +820,10 @@ export class CyclotronV2Manager {
         }
     }
 
-    private isFull(): Promise<boolean> {
+    private isFull(): Promise<boolean> | boolean {
+        if (this.backgroundDepthCheck) {
+            return this.isFullFromLastDepth()
+        }
         if (this.depthCheckPromise && Date.now() < this.depthCheckExpiresAt) {
             return this.depthCheckPromise
         }
@@ -824,6 +831,31 @@ export class CyclotronV2Manager {
         this.depthCheckPromise = this.queryDepth()
         this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
         return this.depthCheckPromise
+    }
+
+    private isFullFromLastDepth(): Promise<boolean> | boolean {
+        if (this.lastDepthFull === null) {
+            return this.refreshDepth()
+        }
+        if (Date.now() >= this.depthCheckExpiresAt) {
+            void this.refreshDepth()
+        }
+        return this.lastDepthFull
+    }
+
+    private refreshDepth(): Promise<boolean> {
+        if (!this.depthRefresh) {
+            this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
+            this.depthRefresh = this.queryDepth()
+                .then((full) => {
+                    this.lastDepthFull = full
+                    return full
+                })
+                .finally(() => {
+                    this.depthRefresh = null
+                })
+        }
+        return this.depthRefresh
     }
 
     private async queryDepth(): Promise<boolean> {

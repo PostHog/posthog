@@ -60,6 +60,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
+            | 'CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK'
         >
     ) {
         this.sanitizer = createInvocationSanitizer(config)
@@ -76,6 +77,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         this.manager = new CyclotronV2Manager({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             depthLimit: this.config.CYCLOTRON_SHARD_DEPTH_LIMIT,
+            backgroundDepthCheck: this.config.CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK,
         })
         await this.manager.connect()
     }

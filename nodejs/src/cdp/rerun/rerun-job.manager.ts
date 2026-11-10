@@ -17,6 +17,7 @@ export interface RerunJobManagerConfig {
     maxConnections?: number
     idleTimeoutMs?: number
     depthLimit?: number
+    backgroundDepthCheck?: boolean
     /** Mirror of the Django serializer cap (HOG_INVOCATION_RERUN_MAX_COUNT env var). */
     maxCount: number
     runStartPagingTeams?: string
@@ -44,6 +45,7 @@ export class RerunJobManager {
                 idleTimeoutMs: config.idleTimeoutMs,
             },
             depthLimit: config.depthLimit,
+            backgroundDepthCheck: config.backgroundDepthCheck,
         })
     }
 
