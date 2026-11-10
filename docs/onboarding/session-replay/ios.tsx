@@ -132,7 +132,8 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                     <CalloutBox type="fyi" title="SwiftUI support">
                         <Markdown>
                             SDK version 4.0 and later record SwiftUI, custom views and WebViews as screenshots. Earlier
-                            versions only support them if the `screenshotMode` option is enabled.
+                            versions only support them if the `screenshotMode` option is enabled. A `WKWebView` is
+                            masked whole while `maskAllTextInputs` or `maskAllImages` is on, as in this snippet.
                         </Markdown>
                     </CalloutBox>
                 </>
