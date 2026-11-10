@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -48,6 +49,16 @@ export function EmailDomainSetup(): JSX.Element {
     return (
         <div className="@container flex flex-col items-center px-4 py-8 @3xl:py-14">
             <div className="w-full max-w-160 flex flex-col gap-8">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    className="self-start"
+                    icon={<IconArrowLeft />}
+                    to={urls.workflows('channels')}
+                    data-attr="email-domain-back-to-workflows"
+                >
+                    Back to workflows
+                </LemonButton>
                 <StepIndicator phase={phase} />
                 <CurrentStep />
             </div>

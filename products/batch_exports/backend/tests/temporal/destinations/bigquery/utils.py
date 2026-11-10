@@ -251,18 +251,20 @@ async def assert_clickhouse_records_in_bigquery(
 
 
 async def key_file_integration(ateam, bigquery_config):
-    integration = await Integration.objects.acreate(
+    integration, _ = await Integration.objects.aget_or_create(
         team_id=ateam.pk,
         kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
         integration_id=f"{ateam.id}-{bigquery_config['client_email']}",
-        config={
-            "project_id": bigquery_config["project_id"],
-            "service_account_email": bigquery_config["client_email"],
-        },
-        sensitive_config={
-            "private_key": bigquery_config["private_key"],
-            "private_key_id": bigquery_config["private_key_id"],
-            "token_uri": bigquery_config["token_uri"],
+        defaults={
+            "config": {
+                "project_id": bigquery_config["project_id"],
+                "service_account_email": bigquery_config["client_email"],
+            },
+            "sensitive_config": {
+                "private_key": bigquery_config["private_key"],
+                "private_key_id": bigquery_config["private_key_id"],
+                "token_uri": bigquery_config["token_uri"],
+            },
         },
     )
     return integration
