@@ -1,7 +1,8 @@
-import re
 import json
 import hashlib
 from urllib.parse import quote, urlencode
+
+from posthog.hogql.escape_sql import escape_hogql_string
 
 from products.error_tracking.backend.facade.api import get_issue_basics
 from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
@@ -14,6 +15,7 @@ from products.web_analytics.backend.facade.rage_pages import (
     find_top_rage_element,
     find_top_rage_page,
 )
+from products.web_analytics.backend.rage_pages import RAGE_PATH
 
 RAGE_PAGE = "{people} rage-clicked on {page} in the last 7 days"
 RAGE_PAGE_DETAIL = "{clicks} rage clicks · Top element: ‘{element}’"
@@ -51,7 +53,6 @@ def _error_item(
 
 
 def _rage_replay_url(path: str) -> str:
-    pattern = "^" + "/(?:[0-9a-f-]{8,}|[0-9]+)".join(re.escape(part) for part in path.split("/…")) + "$"
     filters = {
         "date_from": "-7d",
         "date_to": None,
@@ -66,9 +67,7 @@ def _rage_replay_url(path: str) -> str:
                             "name": "$rageclick",
                             "type": "events",
                             "order": 0,
-                            "properties": [
-                                {"key": "$pathname", "type": "event", "operator": "regex", "value": pattern}
-                            ],
+                            "properties": [{"type": "hogql", "key": f"{RAGE_PATH} = {escape_hogql_string(path)}"}],
                         }
                     ],
                 }

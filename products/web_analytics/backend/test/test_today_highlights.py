@@ -11,18 +11,22 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+
 from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueBasics
 from products.today.backend.facade.contracts import HighlightContext
 from products.web_analytics.backend import today_highlights
 from products.web_analytics.backend.facade.rage_pages import ErrorsBeforeRage, RagePage
 from products.web_analytics.backend.facade.today_highlights import HIGHLIGHT_SOURCES
+from products.web_analytics.backend.rage_pages import RAGE_PATH
 
 ISSUE_ID = uuid.UUID("01890000-0000-7000-8000-000000000002")
 PAGE = RagePage(path="/checkout/…", people=12, clicks=340)
 ELEMENT_ITEM = (
     "12 users rage-clicked on /checkout/… in the last 7 days",
     "340 rage clicks · Top element: ‘Pay now’",
-    r"^/checkout/(?:[0-9a-f-]{8,}|[0-9]+)$",
+    "/checkout/…",
 )
 ERROR_ITEM = (
     "12 users rage-clicked on /checkout/… in the last 7 days",
@@ -91,17 +95,19 @@ class TestRage(SimpleTestCase):
                         (
                             f"12 users rage-clicked on {(path or '/')[:40]} in the last 7 days",
                             ELEMENT_ITEM[1],
-                            pattern,
+                            path,
                         )
                     ],
                 )
-                for path, pattern in [
-                    ("/", "^/$"),
-                    ("", "^$"),
-                    ("/checkout", "^/checkout$"),
-                    ("/cart/item.v2+(new)", r"^/cart/item\.v2\+\(new\)$"),
-                    ("/search/a&b#c", r"^/search/a\&b\#c$"),
-                    ("/…/items/…", r"^/(?:[0-9a-f-]{8,}|[0-9]+)/items/(?:[0-9a-f-]{8,}|[0-9]+)$"),
+                for path in [
+                    "/",
+                    "",
+                    "/checkout",
+                    "/cart/item.v2+(new)",
+                    "/search/a&b#c",
+                    "/…/items/…",
+                    "/orders/…foo",
+                    "/search/it's\\a-path",
                 ]
             ],
             ("no page", True, None, None, ErrorsBeforeRage(0, None, 0), True, []),
@@ -161,10 +167,19 @@ class TestRage(SimpleTestCase):
         actual = []
         for candidate in found.items:
             destination = candidate.url
-            if urlsplit(destination).path == "/replay/home":
-                filters = json.loads(parse_qs(urlsplit(destination).query)["filters"][0])
+            assert destination is not None
+            parsed_url = urlsplit(destination)
+            if parsed_url.path == "/replay/home":
+                filters = json.loads(parse_qs(parsed_url.query)["filters"][0])
                 event = filters["filter_group"]["values"][0]["values"][0]
-                destination = event["properties"][0]["value"]
+                page_filter = event["properties"][0]
+                predicate = parse_expr(page_filter["key"])
+                assert isinstance(predicate, ast.CompareOperation)
+                assert isinstance(predicate.right, ast.Constant)
+                assert isinstance(predicate.right.value, str)
+                self.assertEqual(predicate.op, ast.CompareOperationOp.Eq)
+                self.assertEqual(predicate.left, parse_expr(RAGE_PATH))
+                destination = predicate.right.value
                 self.assertEqual(
                     filters,
                     {
@@ -183,10 +198,8 @@ class TestRage(SimpleTestCase):
                                             "order": 0,
                                             "properties": [
                                                 {
-                                                    "key": "$pathname",
-                                                    "type": "event",
-                                                    "operator": "regex",
-                                                    "value": destination,
+                                                    "key": page_filter["key"],
+                                                    "type": "hogql",
                                                 }
                                             ],
                                         }
