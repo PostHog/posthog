@@ -7,7 +7,7 @@ import {
     Rect,
     extendGrid,
     isBoxed,
-    sameGrid,
+    sameLayer,
 } from 'scenes/session-recordings/player/playerFrameAmbientSampling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -47,7 +47,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         const observer = new MutationObserver(markDirty)
 
         const show = (next: AmbientLayer | null): void => {
-            if (sameGrid(next?.grid ?? null, current?.grid ?? null)) {
+            if (sameLayer(next, current)) {
                 return
             }
             current = next
@@ -77,13 +77,16 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             }
             observer.disconnect()
             observedDocument?.removeEventListener('scroll', markDirty, true)
+            observedDocument?.removeEventListener('load', markDirty, true)
             observer.observe(recordedDocument, {
                 subtree: true,
                 childList: true,
                 attributes: true,
                 characterData: true,
             })
+            // Neither event bubbles, so they are caught on the way down.
             recordedDocument.addEventListener('scroll', markDirty, true)
+            recordedDocument.addEventListener('load', markDirty, true)
             observedDocument = recordedDocument
             dirty = true
         }
@@ -113,8 +116,8 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             if (!dirty) {
                 return
             }
-            dirty = false
             const sampled = isBoxed(container, scaled) ? sampler.sample(recordedDocument, recording) : null
+            dirty = sampler.sawCanvas
             if (!sampled) {
                 show(null)
                 return
@@ -146,6 +149,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             clearInterval(interval)
             observer.disconnect()
             observedDocument?.removeEventListener('scroll', markDirty, true)
+            observedDocument?.removeEventListener('load', markDirty, true)
             canvases.forEach((canvas) => canvas.style.setProperty('opacity', '0'))
         }
     }, [player, showAmbientBackground])

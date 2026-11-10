@@ -59,6 +59,8 @@ export class AmbientFrameSampler {
     private canvasesThisSample = new Map<HTMLCanvasElement, Uint8ClampedArray | null>()
     private elementColorsThisSample = new Map<Element, Rgba | null>()
     onBackgroundImageLoad: (() => void) | null = null
+    // Canvases repaint without a DOM mutation, so a frame that shows one needs sampling again.
+    sawCanvas = false
 
     sample(doc: Document, recording: PlayerFrameDimensions): AmbientGrid | null {
         const view = doc.defaultView
@@ -67,6 +69,7 @@ export class AmbientFrameSampler {
         }
         this.canvasesThisSample.clear()
         this.elementColorsThisSample.clear()
+        this.sawCanvas = false
         const { columns, rows } = gridSize(recording)
         const fallback = this.documentColor(doc, view)
         const pixels = new Uint8ClampedArray(columns * rows * 4)
@@ -181,6 +184,7 @@ export class AmbientFrameSampler {
     }
 
     private canvasPixels(canvas: HTMLCanvasElement): Uint8ClampedArray | null {
+        this.sawCanvas = true
         if (!this.canvasesThisSample.has(canvas)) {
             this.canvasesThisSample.set(canvas, this.draw(canvas))
         }
@@ -240,11 +244,22 @@ export function extendGrid(grid: AmbientGrid, recording: Rect, area: Rect): { gr
     }
 }
 
-export function sameGrid(a: AmbientGrid | null, b: AmbientGrid | null): boolean {
+export function sameLayer(
+    a: { grid: AmbientGrid; area: Rect } | null,
+    b: { grid: AmbientGrid; area: Rect } | null
+): boolean {
     if (!a || !b) {
         return a === b
     }
-    return a.columns === b.columns && a.rows === b.rows && a.pixels.every((value, index) => value === b.pixels[index])
+    return (
+        a.area.left === b.area.left &&
+        a.area.top === b.area.top &&
+        a.area.width === b.area.width &&
+        a.area.height === b.area.height &&
+        a.grid.columns === b.grid.columns &&
+        a.grid.rows === b.grid.rows &&
+        a.grid.pixels.every((value, index) => value === b.grid.pixels[index])
+    )
 }
 
 export function averageColor(colors: (Rgba | null)[]): Rgba | null {
