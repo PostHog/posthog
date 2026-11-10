@@ -89,3 +89,38 @@ def test_a_failed_setup_stays_pending() -> None:
     deferred.run()
 
     assert (len(attempts), deferred.has_run, deferred.is_pending) == (2, True, False)
+
+
+def test_a_waiting_caller_retries_a_setup_that_failed() -> None:
+    deferred = DeferredSetup()
+    setup_started = threading.Event()
+    release_setup = threading.Event()
+    attempts: list[str] = []
+    errors: list[Exception] = []
+
+    def setup() -> None:
+        attempts.append(threading.current_thread().name)
+        if len(attempts) == 1:
+            setup_started.set()
+            release_setup.wait(timeout=5)
+            raise ConnectionError("ClickHouse is down")
+
+    def owner() -> None:
+        try:
+            deferred.run()
+        except ConnectionError as error:
+            errors.append(error)
+
+    deferred.defer(setup)
+    first = threading.Thread(target=owner, name="owner")
+    first.start()
+    setup_started.wait(timeout=5)
+    waiter = threading.Thread(target=deferred.run, name="waiter")
+    waiter.start()
+    release_setup.set()
+    first.join(timeout=5)
+    waiter.join(timeout=5)
+
+    assert attempts == ["owner", "waiter"]
+    assert len(errors) == 1
+    assert deferred.has_run

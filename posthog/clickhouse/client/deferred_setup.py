@@ -51,22 +51,28 @@ class DeferredSetup:
         finally:
             self._worker.active = False
 
+    def _pending(self) -> Callable[[], None] | None:
+        return self._setup
+
     def run(self) -> None:
-        if self._setup is None:
+        while self._setup is not None and not self.in_setup():
+            with self._lock:
+                setup = self._pending()
+                if setup is None:
+                    return
+                wait_for_other_thread = self._owner is not None
+                if not wait_for_other_thread:
+                    self._owner = threading.get_ident()
+                    self._finished.clear()
+            if wait_for_other_thread:
+                # A failed setup stays pending, so the next pass retries it here and raises its error
+                # instead of letting this caller query an incomplete schema.
+                self._finished.wait()
+                continue
+            self._run_owned(setup)
             return
-        if self.in_setup():
-            return
-        with self._lock:
-            setup = self._setup
-            if setup is None:
-                return
-            wait_for_other_thread = self._owner is not None
-            if not wait_for_other_thread:
-                self._owner = threading.get_ident()
-                self._finished.clear()
-        if wait_for_other_thread:
-            self._finished.wait()
-            return
+
+    def _run_owned(self, setup: Callable[[], None]) -> None:
         from django.test import override_settings  # noqa: PLC0415 (test-only code stays out of production imports)
 
         try:
