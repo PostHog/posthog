@@ -480,8 +480,8 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     @activity.defn(name="tag_issue_created_activity")
     async def tag_issue(inputs: IssueCreatedWorkflowInputs) -> None:
         tagged_severities[inputs.issue_id] = inputs.issue.severity
-        if alerted[inputs.issue_id].is_set():
-            tagged_after_alert.add(inputs.issue_id)
+        await asyncio.wait_for(alerted[inputs.issue_id].wait(), timeout=10)
+        tagged_after_alert.add(inputs.issue_id)
         if inputs.fingerprint == "tags-fail":
             raise ApplicationError("tag model unavailable", non_retryable=True)
 
@@ -658,10 +658,11 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     assert event_severities[rule_inputs.issue_id] == "high"
     assert event_severities[inference_unavailable_inputs.issue_id] == "high"
     assert event_severities[severity_changed_inputs.issue_id] == "low"
-    # Tags run after severity and before the alert. A failed tag run still notifies, and a merged issue gets no tags.
+    # Tags run after severity and the alert does not wait for them. A failed tag run still notifies, and a merged
+    # issue gets no tags.
     assert list(tagged_severities) == notified_issue_ids
     assert tagged_severities[heuristic_inputs.issue_id] == "critical"
-    assert tagged_after_alert == set()
+    assert tagged_after_alert == set(notified_issue_ids)
 
     # A merge onto a dormant issue notifies about the reopen, not about the source issue
     # that auto-merge just deleted.

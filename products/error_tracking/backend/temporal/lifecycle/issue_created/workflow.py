@@ -49,7 +49,6 @@ ISSUE_TAGS_RETRY_POLICY = common.RetryPolicy(
     maximum_attempts=3,
 )
 ISSUE_TAGS_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
-# The alert waits for the taggers too, so a model outage must not hold it past this bound, retries included.
 ISSUE_TAGS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
 SUMMARY_ON_WRITE_PATCH = "error-tracking-summary-on-write-activity"
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
@@ -134,8 +133,6 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
 
         # Runs before the alert and the side effects so that they carry the inferred severity.
         inputs = await self._with_inferred_severity(inputs)
-        if workflow.patched(ISSUE_TAGS_PATCH):
-            await self._tag_issue(inputs)
 
         # Patched: executions in flight when this activity shipped replay the old sequence.
         # Dispatch runs alongside the other side effects and is always awaited, so a
@@ -168,6 +165,8 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             if workflow.patched(SUMMARY_ON_WRITE_PATCH)
             else None
         )
+        # Patched, and awaited like the summary: nothing on the alert path reads tags.
+        tags = asyncio.create_task(self._tag_issue(inputs)) if workflow.patched(ISSUE_TAGS_PATCH) else None
         try:
             await workflow.execute_activity(
                 "emit_issue_created_internal_event_activity",
@@ -186,6 +185,8 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 await dispatch
             if summary is not None:
                 await summary
+            if tags is not None:
+                await tags
         return IssueCreatedWorkflowResult(
             notified=True,
             embedding_skipped_reason=preparation.skipped_reason,
@@ -229,12 +230,12 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 retry_policy=ISSUE_TAGS_RETRY_POLICY,
             )
         except ActivityError:
-            workflow.logger.warning("Issue tagging failed; notifying without tags")
+            workflow.logger.warning("Issue tagging failed; the issue keeps no tags from this run")
             (
                 workflow.metric_meter()
                 .create_counter(
                     "error_tracking_issue_created_tags_fail_open",
-                    "Issue-created workflows that went on without tags after the tag activity failed",
+                    "Issue-created workflows whose tag activity failed",
                 )
                 .add(1)
             )

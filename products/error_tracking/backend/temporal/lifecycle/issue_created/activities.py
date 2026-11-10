@@ -328,7 +328,7 @@ def tag_issue_created_activity(inputs: IssueCreatedWorkflowInputs) -> None:
     try:
         result = run_issue_taggers(inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs))
     except IssueCreatedEventNotFoundError:
-        # The alert waits for this activity, so a missing event skips tags instead of retrying.
+        # Tags are best effort, so a missing event skips them without a retry or an error tracking report.
         ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=IssueTaggerOutcome.EVENT_MISSING).inc()
         return
     if isinstance(result, IssueTaggingSkipReason):
