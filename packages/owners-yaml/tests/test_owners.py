@@ -1355,6 +1355,7 @@ def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
     _change(repo_with_a_gap, moves, writes)
     _git(repo_with_a_gap, "add", "-A")
     _git(repo_with_a_gap, "commit", "-q", "-m", "change")
+    _git(repo_with_a_gap, "restore", "--source=HEAD~1", "--worktree", ".")
     _change(repo_with_a_gap, {}, {"gap/uncommitted.py": "later = 1\n"})
 
     assert newly_unowned(repo_with_a_gap, "HEAD~1", committed_only=True) == expected

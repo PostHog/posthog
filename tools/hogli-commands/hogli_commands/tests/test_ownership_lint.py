@@ -94,6 +94,7 @@ class TestLintTestOwners:
     ) -> None:
         add("gap/test_new.py")
         git(tmp_path, "commit", "-q", "-m", "change")
+        (tmp_path / "gap/test_new.py").unlink()
         if not installed_package_has_the_check:
             monkeypatch.delattr(owners_yaml, "newly_unowned")
         registered = [check for check in ci_preflight.DIFF_CHECKS if check.key == "test-owners"]
