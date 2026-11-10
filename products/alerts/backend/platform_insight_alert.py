@@ -7,7 +7,7 @@ from uuid import UUID
 from django.db.models import prefetch_related_objects
 
 from posthog.models.user import User
-from posthog.schema_enums import AlertCalculationInterval
+from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import get_configuration
@@ -97,6 +97,44 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     if configuration is None or configuration.legacy_configuration_id is not None:
         return None
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
+
+
+def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
+    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None."""
+    configuration = get_configuration(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+    )
+    return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
+
+
+def presented_alert(configuration: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
+    """An unsaved alert that presents an insight alert with no insight row the way the API shows a
+    row. Its `save` and `delete` raise, because every write goes to the platform. None when its
+    insight is gone."""
+    alert = alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
+    if alert is None:
+        return None
+    alert.created_at = configuration.created_at
+    # The platform checked the alert from its creation, so its whole history is the platform's.
+    alert.owner_changed_at = configuration.created_at
+    # The schedule's minute, which a row keeps as its start time and the platform as its anchor.
+    alert.schedule_start_time = configuration.anchor_time
+    if alert.threshold is None:
+        # Every insight row has a threshold, and the API's readers expect one.
+        alert.threshold = Threshold(
+            team=alert.team, insight=alert.insight, configuration={"type": InsightThresholdType.ABSOLUTE.value}
+        )
+    # An unsaved threshold has no `created_at`, which the API's readers expect.
+    alert.threshold.created_at = configuration.created_at
+    # What the viewset annotates on a row. The platform's last check replaces it when there is one.
+    alert.last_value = None  # type: ignore[attr-defined]
+    for method in ("save", "delete"):
+        setattr(alert, method, _no_insight_row)
+    return alert
+
+
+def _no_insight_row(*args: object, **kwargs: object) -> None:
+    raise TypeError("This insight alert has no insight row. Write it through the platform.")
 
 
 def is_built_from_platform(alert: AlertConfiguration, configuration_id: UUID) -> bool:

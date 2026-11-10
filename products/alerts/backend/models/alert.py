@@ -243,21 +243,26 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             **derive_detector_event_fields(self.detector_config),
         }
 
-    @classmethod
-    def from_platform_view(cls, view: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
-        """An unsaved alert with the settings of a platform alert that has no insight row, or None
-        when its insight is gone."""
-        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
-            alert_from_platform,
-        )
-
-        return alert_from_platform(view, team_id=team_id, enabled=view.enabled)
-
     @property
     def platform_owned(self) -> bool:
         """The platform evaluates and delivers this alert. The insight stack may still evaluate it to
         compare, but it sends nothing for it."""
         return self.owner == PlatformAlertOwner.PLATFORM
+
+    @classmethod
+    def from_platform_view(cls, view: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
+        """An unsaved alert that presents a platform alert with no insight row the way an insight row
+        does, or None when its insight is gone. Its `save` and `delete` raise."""
+        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
+            presented_alert,
+        )
+
+        return presented_alert(view, team_id=team_id)
+
+    @property
+    def has_no_insight_row(self) -> bool:
+        """Whether `from_platform_view` built this alert, because only the platform keeps it."""
+        return self._state.adding and self.platform_owned
 
     @property
     def platform_owned_since(self) -> datetime | None:
