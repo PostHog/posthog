@@ -20,6 +20,7 @@
   - Single test: `hogli test path/to/test.py::TestClass::test_method`
   - Watch mode: `hogli test path/to/test.py --watch`
   - Changed files only: `hogli test --changed`
+  - No `test_posthog` database yet, as on a new box, or one a migration conflict broke: run `hogli db:prime-test-db`. It restores master CI's migrated schema in seconds, while `--create-db` replays every migration for over 10 minutes.
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`

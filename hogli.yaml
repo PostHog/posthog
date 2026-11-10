@@ -774,8 +774,9 @@ db:
         steps:
             - db:download-schema
             - db:restore-test-db
-        description: Download pre-migrated schema and prime the test_posthog database for
-            pytest --reuse-db
+        description: Download master CI's migrated schema and restore it into test_posthog
+            in seconds. Use it when the test database is missing or broken, instead of
+            pytest --create-db, which replays every migration (requires gh auth or GH_TOKEN)
         services:
             - postgresql
             - docker
