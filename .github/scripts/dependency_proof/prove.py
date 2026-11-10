@@ -26,7 +26,7 @@ from dependency_proof.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, Refused,
 YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 REGISTRY = "https://registry.npmjs.org/"
 RELEASE_AGE_LOOKUPS = 50
-# The whole block, since its entries are what the frozen registry view below must not exempt.
+# Matches the whole block, because the frozen registry view below must not exempt its entries.
 RELEASE_AGE_EXCLUSIONS = re.compile(rb"^minimumReleaseAgeExclude:\n(?:(?:[ \t]+.*|)\n)*", re.MULTILINE)
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 PULL_REQUEST_NUMBER = re.compile(r"[1-9][0-9]*")
@@ -45,7 +45,7 @@ class StrictLoader(YAML_LOADER):  # type: ignore[misc,valid-type]
     """Reads YAML with every scalar as text, no repeated keys and no aliases.
 
     The replay and the head lockfile are compared as the structures this loader builds, so it must
-    not read two different texts as one structure. Type coercion would: `1.10` and `1.1` are one
+    not read two different texts as one structure. Type coercion would, because `1.10` and `1.1` are one
     float. A repeated key would too, because this parser keeps the last value and pnpm's may not.
     """
 
@@ -201,7 +201,7 @@ def comparable(lockfile: bytes) -> dict[str, Any]:
     """The lockfile as pnpm reads it, without the one field the registry sets after resolution.
 
     npm's `deprecated` metadata follows the registry, not the resolution, so a replay cannot reproduce
-    it. Only a string under a `packages` entry is dropped, where pnpm writes it; anywhere else it has
+    it. Only a string under a `packages` entry is dropped, where pnpm writes it. Anywhere else it has
     to match the replay like every other key.
     """
     loaded = load_yaml(lockfile)

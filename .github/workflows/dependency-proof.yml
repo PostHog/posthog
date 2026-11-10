@@ -4,14 +4,14 @@ name: Dependency proof
 # request head. Everything here runs from the default branch: the triggering run only names a
 # head SHA, the pull request is looked up through the API, settings come from this commit, and
 # pnpm runs in the merge-base tree. Nothing from the pull request tree is executed.
-# The prover is .github/scripts/dependency_proof; the trigger is dependency-proof-trigger.yml.
+# The prover is .github/scripts/dependency_proof, and the trigger is dependency-proof-trigger.yml.
 
 on:
     workflow_run:
         workflows: [Dependency proof trigger]
         types: [completed]
 
-# Keyed by the proved head. `github.head_ref || github.ref` is the default branch on every
+# The group is keyed by the proved head. `github.head_ref || github.ref` is the default branch on every
 # `workflow_run`, which would put all pull requests in one group and drop pending runs, and a
 # dropped run leaves a required check missing.
 concurrency:
