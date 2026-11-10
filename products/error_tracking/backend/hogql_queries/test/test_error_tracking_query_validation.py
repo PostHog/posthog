@@ -19,7 +19,9 @@ class TestErrorTrackingQueryValidation(SimpleTestCase):
         runner = ErrorTrackingQueryRunner(
             query=query,
             team=Team(id=1),
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, useNewEventsSchema=False
+            ),
         )
         runner.validate()
 
@@ -31,7 +33,9 @@ class TestErrorTrackingQueryValidation(SimpleTestCase):
         runner = ErrorTrackingQueryRunner(
             query=query,
             team=Team(id=1),
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, useNewEventsSchema=False
+            ),
         )
 
         with self.assertRaises(ValidationError) as raised:
