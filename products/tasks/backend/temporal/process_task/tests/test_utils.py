@@ -1601,6 +1601,7 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "bot"},
             github_user_integration_id=str(user_integration.id),
+            team_id=1,
             repository=repository,
         )
 
