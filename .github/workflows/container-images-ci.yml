@@ -252,6 +252,16 @@ jobs:
             - name: Check out
               if: needs.changes.outputs.dockerfiles_changed == 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      Dockerfile
+                      *.Dockerfile
+                      Dockerfile.*
+                      /.hadolint.yaml
+                      /.hadolint.yml
+                      /hadolint.yaml
+                      /hadolint.yml
+                  sparse-checkout-cone-mode: false
 
             # Changed-Dockerfile list comes from the shared paths-filter in `changes`, so no
             # second changed-files action or full-history checkout. The job still always runs

@@ -9,8 +9,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.conf import settings
+from django.db import connection
 from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
+from django.test.utils import CaptureQueriesContext
 
 import psycopg
 import pytest_asyncio
@@ -441,6 +443,12 @@ class TestExternalDataSchema(APIBaseTest):
                     "nullable": True,
                     # Table has no index on `id`, so the warning UI will fire for this field.
                     "is_indexed": False,
+                    "recommended": True,
+                    "notes": [
+                        "Only marks new rows. Edits to existing rows don't sync.",
+                        "Not indexed, so each sync scans the whole table.",
+                        "Can be empty. Rows where it's empty never sync.",
+                    ],
                 },
                 # xmin is synthetic: advertised for any ordinary PG13+ table, unindexed by definition.
                 {
@@ -5203,6 +5211,28 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         results = response.json()["results"]
         assert len(results) > 0
         assert all(item["source"] is None for item in results)
+
+    def test_unrestricted_list_applies_pagination_before_loading_rows(self):
+        source, _ = self._create()
+        ExternalDataSchema.objects.bulk_create(
+            [ExternalDataSchema(name=f"schema_{index}", team=self.team, source=source) for index in range(10)]
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/?limit=5")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 11
+        assert len(response.json()["results"]) == 5
+        schema_table = ExternalDataSchema._meta.db_table
+        row_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if f'FROM "{schema_table}"' in query["sql"]
+            and f'ORDER BY "{schema_table}"."created_at" DESC' in query["sql"]
+        ]
+        assert row_queries
+        assert all("LIMIT 5" in query for query in row_queries)
 
     def test_retrieve_cross_team_is_404(self):
         other_team = create_team(organization=self.organization)

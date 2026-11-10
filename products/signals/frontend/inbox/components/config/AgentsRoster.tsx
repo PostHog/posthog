@@ -20,12 +20,14 @@ import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { issueFilterCount } from '../../errorTrackingIssueFilters'
 import { isExternalSignalSource } from '../../externalSignalSources'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
 import {
+    SOURCE_ISSUE_FILTERS_KEY,
     SignalAlertScope,
     SignalSourceConfig,
     SignalSourceConfigStatus,
@@ -36,6 +38,7 @@ import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { AlertNamePatterns } from './AlertNamePatterns'
 import { DataSourceSetupModal } from './DataSourceSetupModal'
+import { ErrorTrackingIssueFiltersModal } from './ErrorTrackingIssueFiltersModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
 import { SourceSteeringModal } from './SourceSteeringModal'
@@ -79,6 +82,37 @@ function linearTeamsSummary(config: SignalSourceConfig): string {
         return 'Reads issues from all Linear teams.'
     }
     return `Reads issues from ${count} Linear ${count === 1 ? 'team' : 'teams'}.`
+}
+
+// The rows normally hold the same filter. After a partial save, the largest one is what may filter.
+function errorTrackingFilterCount(configs: SignalSourceConfig[]): number {
+    return Math.max(0, ...configs.map((config) => issueFilterCount(config.config[SOURCE_ISSUE_FILTERS_KEY])))
+}
+
+function errorTrackingFiltersSummary(count: number): string {
+    if (count === 0) {
+        return 'Every new issue can reach your inbox.'
+    }
+    return `Only issues that match ${count} ${count === 1 ? 'filter' : 'filters'} reach your inbox.`
+}
+
+function errorTrackingSourceFilters(
+    configs: SignalSourceConfig[],
+    onChange: () => void,
+    disabledReason: string | undefined
+): SourceFilters {
+    const count = errorTrackingFilterCount(configs)
+    return {
+        summary: errorTrackingFiltersSummary(count),
+        changeLabel: count > 0 ? 'Change filters' : 'Add filters',
+        onChange,
+        disabledReason,
+    }
+}
+
+// Optimistic `new_` placeholder rows have nothing to write to until the reload lands.
+function persistedConfigs(configs: SignalSourceConfig[]): SignalSourceConfig[] | null {
+    return configs.length > 0 && configs.every((config) => !config.id.startsWith('new_')) ? configs : null
 }
 
 /** The entity rows are part of the source list, so an unbounded one would push every source below it off screen. */
@@ -390,6 +424,7 @@ function Expansion({
                                         type="secondary"
                                         size="xsmall"
                                         loading={enablingProduct}
+                                        disabledReason={product.enableDisabledReason}
                                         onClick={() => onEnableProduct(product)}
                                     >
                                         Turn it on
@@ -790,6 +825,7 @@ export function AgentsRoster(): JSX.Element {
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
     const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
+    const [issueFiltersConfigs, setIssueFiltersConfigs] = useState<SignalSourceConfig[] | null>(null)
 
     const scannerEntities = useMemo(
         (): RosterEntity[] =>
@@ -1047,30 +1083,30 @@ export function AgentsRoster(): JSX.Element {
     const renderAgent = useCallback(
         (agent: AgentRosterDefinition): JSX.Element => {
             const state = stateFor(agent.source)
-            // Steering needs a persisted row to write to, so optimistic `new_`
-            // placeholder rows wait until the reload lands. Disabled sources keep
-            // the control: enabling starts a sync immediately, so rules must be
-            // settable before the first sync runs.
-            const steeringConfigs =
-                agent.steerable &&
-                state.steeringConfigs.length > 0 &&
-                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
-                    ? state.steeringConfigs
-                    : null
-            const filters =
-                agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
-                    ? {
-                          summary: linearTeamsSummary(linearIssuesConfig),
-                          changeLabel: 'Change teams',
-                          onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
-                          // A save or reload can replace the row, and the picker reads it on open.
-                          disabledReason: isLinearIssuesToggling
-                              ? 'Saving'
-                              : sourceConfigsLoading
-                                ? 'Refreshing'
-                                : undefined,
-                      }
-                    : undefined
+            // Disabled sources keep the steering control: enabling starts a sync
+            // immediately, so rules must be settable before the first sync runs.
+            const steeringConfigs = agent.steerable ? persistedConfigs(state.steeringConfigs) : null
+            const errorTrackingConfigs =
+                agent.source === 'error_tracking' ? persistedConfigs(state.steeringConfigs) : null
+            const filters: SourceFilters | undefined = errorTrackingConfigs
+                ? errorTrackingSourceFilters(
+                      errorTrackingConfigs,
+                      () => setIssueFiltersConfigs(errorTrackingConfigs),
+                      state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined
+                  )
+                : agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
+                  ? {
+                        summary: linearTeamsSummary(linearIssuesConfig),
+                        changeLabel: 'Change teams',
+                        onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                        // A save or reload can replace the row, and the picker reads it on open.
+                        disabledReason: isLinearIssuesToggling
+                            ? 'Saving'
+                            : sourceConfigsLoading
+                              ? 'Refreshing'
+                              : undefined,
+                    }
+                  : undefined
             return (
                 <AgentRow
                     key={agent.source}
@@ -1172,6 +1208,13 @@ export function AgentsRoster(): JSX.Element {
             )}
 
             {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
+            {issueFiltersConfigs && (
+                <ErrorTrackingIssueFiltersModal
+                    key={issueFiltersConfigs.map((config) => config.id).join(',')}
+                    sourceConfigs={issueFiltersConfigs}
+                    onClose={() => setIssueFiltersConfigs(null)}
+                />
+            )}
             {steeringTarget && (
                 <SourceSteeringModal
                     key={steeringTarget.configs.map((config) => config.id).join(',')}
