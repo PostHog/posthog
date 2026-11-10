@@ -28,6 +28,7 @@ const VALUES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/custom_prope
 const ASSIGNMENTS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
 const ACCOUNT_SIDEBAR_CONFIG_ENDPOINT = 'api/projects/:team_id/user_customer_analytics_config/@me/'
 const ACCOUNT_VIEWS_ENDPOINT = 'api/projects/:team_id/account_views/'
+const COLUMN_CONFIGURATIONS_ENDPOINT = 'api/projects/:team_id/column_configurations/'
 const ACCOUNT_VIEW_ID = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
 const CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/custom_property_definitions/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
@@ -161,6 +162,7 @@ const meta: Meta = {
                     },
                 },
                 [ACCOUNT_VIEWS_ENDPOINT]: [accountView],
+                [COLUMN_CONFIGURATIONS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
                 [VALUES_ENDPOINT]: [],
                 [ASSIGNMENTS_ENDPOINT]: [],
                 [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: {

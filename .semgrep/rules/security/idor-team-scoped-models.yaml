@@ -200,6 +200,7 @@ rules:
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
+                              |ErrorTrackingIssueTag
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -432,6 +433,7 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
@@ -458,6 +460,8 @@ rules:
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
+                              |AlertReceiver
+                              |AlertRoute
                               |SupabaseAuthEmailConfig
                               |Survey
                               |SurveyResponseArchive
@@ -722,6 +726,7 @@ rules:
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
+                        |ErrorTrackingIssueTag
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -944,6 +949,7 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
@@ -970,6 +976,8 @@ rules:
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
+                        |AlertReceiver
+                        |AlertRoute
                         |SupabaseAuthEmailConfig
                         |Survey
                         |SurveyResponseArchive
