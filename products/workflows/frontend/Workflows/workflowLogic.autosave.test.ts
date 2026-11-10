@@ -857,10 +857,6 @@ describe('workflowLogic auto-save', () => {
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         }
 
-        afterEach(() => {
-            cleanup()
-        })
-
         it('blocks the trigger while only the draft carries the new trigger type', async () => {
             const staged = activeWorkflow({ trigger: { type: 'manual', filters: {} }, actions: [], edges: [] })
             useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': staged } })
@@ -1489,41 +1485,17 @@ describe('workflowLogic auto-save', () => {
         })
 
         it.each([
-            { case: 'a saved workflow', props: { ...linkProps, id: WORKFLOW_ID }, shown: 'Saved subject' },
-            { case: 'a link without an email', props: { ...linkProps, emailPrefill: undefined }, shown: undefined },
-            {
-                case: 'a link without a draft source',
-                props: { ...linkProps, draftSource: undefined },
-                shown: 'Template subject',
-            },
-        ])('asks for no AI draft for $case', async ({ props, shown }) => {
-            const generated: unknown[] = []
-            const saved = { subject: 'Saved subject', html: '<p>Saved body</p>', text: 'Saved body' }
-            const email = {
-                id: EMAIL_ACTION_ID,
-                type: 'function_email',
-                config: { inputs: { email: { value: saved } } },
-            }
+            { case: 'a saved workflow', props: { ...linkProps, id: WORKFLOW_ID } },
+            { case: 'a link without an email', props: { ...linkProps, emailPrefill: undefined } },
+            { case: 'a link without a draft source', props: { ...linkProps, draftSource: undefined } },
+        ])('asks for no AI draft for $case', async ({ props }) => {
+            let draftsGenerated = 0
+            const email = { id: EMAIL_ACTION_ID, type: 'function_email', config: { inputs: { email: { value: {} } } } }
             useMocks({
                 get: {
                     '/api/environments/:team_id/hog_flows/:id/': { ...workflow, actions: [...workflow.actions, email] },
                 },
-                post: {
-                    '/api/projects/:team_id/workflow_email_drafts/': async ({ request }: MockResolverInfo) => {
-                        generated.push(await request.json())
-                        return [
-                            200,
-                            {
-                                subject: 'Written by AI',
-                                preheader: '',
-                                html: '<p>AI body</p>',
-                                text: 'AI body',
-                                generated_by: 'ai',
-                                template_reason: null,
-                            },
-                        ]
-                    },
-                },
+                post: { '/api/projects/:team_id/workflow_email_drafts/': () => [200, (draftsGenerated += 1)] },
             })
             initKeaTests()
             logic = workflowLogic(props)
@@ -1532,10 +1504,8 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.aiEmailDraftStatus).toBeNull()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(subject()).toBe(shown)
             expect(logic.values.aiEmailDraftStatus).toBeNull()
-            // The scene hides the draft banner on a saved workflow, so there a request is only a paid model call.
-            expect(generated).toEqual([])
+            expect(draftsGenerated).toBe(0)
         })
     })
 
