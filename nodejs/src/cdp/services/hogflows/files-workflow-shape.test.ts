@@ -8,10 +8,13 @@ type Edges = SimpleHogFlowRepresentation['edges']
 type Expected = { emailStep: string } | { error: string; step: string | null }
 
 const trigger = { type: 'trigger', config: { type: 'api' } } as const
-const email = (category: 'transactional' | 'marketing' = 'transactional') =>
+const email = (
+    category: 'transactional' | 'marketing' = 'transactional',
+    config: { skip_frequency_cap?: boolean } = {}
+) =>
     ({
         type: 'function_email',
-        config: { template_id: 'template-email', inputs: {}, message_category_type: category },
+        config: { template_id: 'template-email', inputs: {}, message_category_type: category, ...config },
     }) as const
 const genericEmailFunction = {
     type: 'function',
@@ -112,6 +115,12 @@ describe('filesWorkflowShape', () => {
         [
             'a marketing email step whose frequency cap can hold it',
             { trigger, email: email('marketing'), exit },
+            [step('trigger', 'email'), step('email', 'exit')],
+            { error: 'workflow_can_wait', step: 'email' },
+        ],
+        [
+            'a marketing email step that skips the frequency cap, which the team sending cap can still hold',
+            { trigger, email: email('marketing', { skip_frequency_cap: true }), exit },
             [step('trigger', 'email'), step('email', 'exit')],
             { error: 'workflow_can_wait', step: 'email' },
         ],

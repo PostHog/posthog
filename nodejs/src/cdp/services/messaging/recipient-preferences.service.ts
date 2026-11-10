@@ -16,26 +16,6 @@ type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_p
 
 type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 
-// A generic function step saved through the API can run the push template, and it then sends like a push step.
-const asMessageAction = (action: HogFlowAction): MessageAction | null => {
-    if (['function_email', 'function_sms', 'function_push'].includes(action.type)) {
-        return action as MessageAction
-    }
-    if (action.type === 'function' && action.config.template_id === NATIVE_PUSH_TEMPLATE_ID) {
-        return { ...action, type: 'function_push' } as unknown as MessageAction
-    }
-    return null
-}
-
-const frequencyCapApplies = (action: MessageAction): boolean =>
-    action.config.message_category_type !== 'transactional' &&
-    !(action.type === 'function_email' && action.config.skip_frequency_cap === true)
-
-export const frequencyCapCanHold = (action: HogFlowAction): boolean => {
-    const messageAction = asMessageAction(action)
-    return messageAction !== null && frequencyCapApplies(messageAction)
-}
-
 // Why the send was skipped, so callers can render a user-facing log/metric that names the actual
 // reason instead of collapsing suppression and opt-out into a single "opted out" message.
 export type RecipientSkipReason = 'suppressed' | 'opted_out'
@@ -82,8 +62,13 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
     ): Promise<FrequencyCapCheck> {
-        const messageAction = asMessageAction(action)
-        if (!this.frequencyCap || !messageAction || !frequencyCapApplies(messageAction)) {
+        const messageAction = this.asMessageAction(action)
+        if (
+            !this.frequencyCap ||
+            !messageAction ||
+            messageAction.config.message_category_type === 'transactional' ||
+            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true)
+        ) {
             return { capped: false }
         }
         try {
@@ -139,7 +124,7 @@ export class RecipientPreferencesService {
         hogFlowAction: HogFlowAction,
         runOptOuts: MessageOptOutRecord[] = []
     ): Promise<RecipientSkipReason | null> {
-        const action = asMessageAction(hogFlowAction)
+        const action = this.asMessageAction(hogFlowAction)
         if (!action) {
             return null
         }
@@ -187,6 +172,17 @@ export class RecipientPreferencesService {
                 })
         )
         return result.skip
+    }
+
+    // A generic function step saved through the API can run the push template, and it then sends like a push step.
+    private asMessageAction(action: HogFlowAction): MessageAction | null {
+        if (['function_email', 'function_sms', 'function_push'].includes(action.type)) {
+            return action as MessageAction
+        }
+        if (action.type === 'function' && action.config.template_id === NATIVE_PUSH_TEMPLATE_ID) {
+            return { ...action, type: 'function_push' } as unknown as MessageAction
+        }
+        return null
     }
 
     private async isRecipientOptedOutOfAction(

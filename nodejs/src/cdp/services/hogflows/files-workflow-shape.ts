@@ -1,7 +1,5 @@
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 
-import { frequencyCapCanHold } from '../messaging/recipient-preferences.service'
-
 export type EmailStep = Extract<HogFlowAction, { type: 'function_email' }>
 
 export type FilesWorkflowRefusal = {
@@ -22,10 +20,10 @@ const shapeNotSupported = (reason: string): FilesWorkflowShape => ({
 const stepDoesNotFit = (action: HogFlowAction): FilesWorkflowShape =>
     shapeNotSupported(`The "${action.name}" step does not fit the workflow shape a send with files supports.`)
 
-const frequencyCapCanWait = (emailStep: EmailStep): FilesWorkflowShape => ({
+const marketingEmailCanWait = (emailStep: EmailStep): FilesWorkflowShape => ({
     refused: {
         error: 'workflow_can_wait',
-        reason: `The "${emailStep.name}" step can hold this send before its email goes out, so its files could expire first.`,
+        reason: `The "${emailStep.name}" step sends marketing email. Sending limits can hold it before it goes out, so its files could expire first.`,
         fix: 'Send files through a workflow whose transactional email step follows the trigger directly, or send this email without files.',
     },
 })
@@ -111,8 +109,8 @@ export const filesWorkflowShape = (hogFlow: HogFlow): FilesWorkflowShape => {
     if (outOfPlace) {
         return stepDoesNotFit(outOfPlace)
     }
-    if (frequencyCapCanHold(emailStep)) {
-        return frequencyCapCanWait(emailStep)
+    if (emailStep.config.message_category_type !== 'transactional') {
+        return marketingEmailCanWait(emailStep)
     }
     return hogFlow.email_sending_rate_limit ? sendingRateLimitCanWait() : { emailStep }
 }

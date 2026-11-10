@@ -3122,7 +3122,8 @@ describe('CDP API', () => {
                 steps: SimpleHogFlowRepresentation['actions'],
                 edges: SimpleHogFlowRepresentation['edges'],
                 category: 'transactional' | 'marketing' = 'transactional',
-                emailInputs: Record<string, CyclotronInputType> = {}
+                emailInputs: Record<string, CyclotronInputType> = {},
+                emailConfig: { skip_frequency_cap?: boolean } = {}
             ): Promise<HogFlow> =>
                 await insertHogFlow(
                     new FixtureHogFlowBuilder()
@@ -3139,6 +3140,7 @@ describe('CDP API', () => {
                                         template_id: 'template-email',
                                         inputs: emailInputs,
                                         message_category_type: category,
+                                        ...emailConfig,
                                     },
                                 },
                             },
@@ -3159,6 +3161,11 @@ describe('CDP API', () => {
                 [
                     'an email step the frequency cap can hold',
                     () => flowThrough({}, [step('trigger', 'email')], 'marketing'),
+                    'workflow_can_wait',
+                ],
+                [
+                    'a marketing email step that skips the frequency cap, which the team sending cap can still hold',
+                    () => flowThrough({}, [step('trigger', 'email')], 'marketing', {}, { skip_frequency_cap: true }),
                     'workflow_can_wait',
                 ],
             ]
