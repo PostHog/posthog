@@ -1094,6 +1094,13 @@ export const HomeWithoutAiAndNothingNew: Story = {
 }
 
 export const HomeOnNewProject: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+            FEATURE_FLAGS.TODAY_HOME_COMPOSER,
+        ],
+    },
     decorators: [
         keepNumbers([]),
         mswDecorator({

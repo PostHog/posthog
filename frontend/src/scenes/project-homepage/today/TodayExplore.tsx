@@ -15,7 +15,7 @@ export function TodayExplore(): JSX.Element {
     return (
         <section className="TodayHome__list" aria-labelledby={titleId}>
             <div className="TodayHome__headingRow">
-                <TodayHomeHeading id={titleId}>Explore</TodayHomeHeading>
+                <TodayHomeHeading id={titleId}>Try a product</TodayHomeHeading>
             </div>
             <ul className="TodayJumpList TodayJumpList--explore">
                 {exploreItems.map((item, position) => (

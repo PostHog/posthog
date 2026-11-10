@@ -30,7 +30,8 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, isNewProject, recentObjects, returnFocusReportId, useSampleData } = useValues(todayLogic)
+    const { greeting, recentObjects, recentsHasLoaded, frequentObjectsLoading, returnFocusReportId, useSampleData } =
+        useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
     const {
         currentProjectId,
@@ -104,7 +105,11 @@ export function TodayHomePage(): JSX.Element {
             </section>
             <div className="TodayHome__body">
                 <TodayPulseSection />
-                {isNewProject && recentObjects.length === 0 ? <TodayExplore /> : <TodayRecents />}
+                {recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
+                    <TodayExplore />
+                ) : (
+                    <TodayRecents />
+                )}
                 <TodayForYou />
             </div>
         </div>

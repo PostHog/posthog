@@ -50,7 +50,6 @@ export function TodayForYou(): JSX.Element {
         shownReportIds,
         moreReportsLoading,
         listExpanded,
-        isNewProject,
     } = useValues(todayLogic)
     const { showMoreForYou, setListExpanded, retryFailedLoads } = useActions(todayLogic)
 
@@ -62,7 +61,7 @@ export function TodayForYou(): JSX.Element {
             {!forYouReady ? (
                 <TodayRowsSkeleton />
             ) : forYouRows.rows.length === 0 ? (
-                !forYouFailedNote && <TodayForYouEmpty isNewProject={isNewProject} />
+                !forYouFailedNote && <TodayForYouEmpty />
             ) : (
                 <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
             )}

@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import {
     Button,
     Empty,
@@ -7,20 +9,25 @@ import {
     EmptyTitle,
     IconStack,
     IconStackItem,
+    Skeleton,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey } from '~/types'
-
+import { TodayGetStarted } from './TodayGetStarted'
+import { todayGetStartedLogic } from './todayGetStartedLogic'
 import { WATCHED_PRODUCT_ICONS } from './todayRowIcons'
 
-const WATCHED =
-    'Each day, PostHog checks your alerts, experiments, feature flags, workflows, support tickets and recordings.'
+export function TodayForYouEmpty(): JSX.Element {
+    const { stepsReady, allDone, hidden } = useValues(todayGetStartedLogic)
 
-export function TodayForYouEmpty({ isNewProject }: { isNewProject: boolean }): JSX.Element {
+    if (!stepsReady && !hidden) {
+        return <Skeleton className="h-40 w-full" />
+    }
+    if (!allDone && !hidden) {
+        return <TodayGetStarted />
+    }
     return (
         <Empty className="TodayEmpty" data-attr="today-for-you-empty">
             <EmptyHeader>
@@ -31,40 +38,21 @@ export function TodayForYouEmpty({ isNewProject }: { isNewProject: boolean }): J
                         </IconStackItem>
                     ))}
                 </IconStack>
-                <EmptyTitle>{isNewProject ? 'Send your first events' : 'Nothing needs you today'}</EmptyTitle>
+                <EmptyTitle>Nothing needs you today</EmptyTitle>
                 <EmptyDescription>
-                    {isNewProject
-                        ? `${WATCHED} When your project sends events, what needs you shows up here.`
-                        : `${WATCHED} When something changes that needs you, it shows up here.`}
+                    Each day, PostHog checks your alerts, experiments, feature flags, workflows, support tickets and
+                    recordings. When something changes that needs you, it shows up here.
                 </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-                {isNewProject ? (
-                    <Button
-                        size="sm"
-                        variant="primary"
-                        render={
-                            <LinkPrimitive
-                                to={urls.onboarding({
-                                    productKey: ProductKey.PRODUCT_ANALYTICS,
-                                    stepKey: OnboardingStepKey.INSTALL,
-                                })}
-                            />
-                        }
-                        data-attr="today-for-you-empty-install"
-                    >
-                        Install PostHog
-                    </Button>
-                ) : (
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        render={<LinkPrimitive to={urls.alerts()} />}
-                        data-attr="today-for-you-empty-alerts"
-                    >
-                        Set up alerts
-                    </Button>
-                )}
+                <Button
+                    size="sm"
+                    variant="outline"
+                    render={<LinkPrimitive to={urls.alerts()} />}
+                    data-attr="today-for-you-empty-alerts"
+                >
+                    Set up alerts
+                </Button>
             </EmptyContent>
         </Empty>
     )

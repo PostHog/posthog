@@ -37,9 +37,14 @@ export function ProjectNoticeSlot({
     noPaddingScene: boolean
 }): JSX.Element | null {
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { activeSceneId } = useValues(sceneLogic)
 
-    if (sceneMenuBarEnabled || sceneHidesProjectNotice(sceneConfig, activeSceneId)) {
+    if (
+        sceneMenuBarEnabled ||
+        sceneHidesProjectNotice(sceneConfig, activeSceneId) ||
+        (todayRailNav && activeSceneId === Scene.ProjectHomepage)
+    ) {
         return null
     }
 
