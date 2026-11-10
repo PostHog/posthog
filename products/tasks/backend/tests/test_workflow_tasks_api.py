@@ -845,6 +845,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # resolution, and its dispatch must carry the thread so status updates post there.
         assert run.state["interaction_origin"] == "workflow"
         assert run.state["pending_dispatch"]["slack_thread_context"] == {
+            "team_id": self.team.id,
             "integration_id": integration.id,
             "channel": "C0ALERTS",
             "thread_ts": "1700000000.000100",
