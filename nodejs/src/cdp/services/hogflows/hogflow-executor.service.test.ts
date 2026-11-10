@@ -10,6 +10,7 @@ import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
+import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
@@ -3878,14 +3879,14 @@ if (not res.success) { throw Error(res.error) }`,
             })
 
             it("holds the next email for its first suppression retry, not the delayed one's eighth, when the list cannot be read", async () => {
-                let unreadable: string | null = 'next@example.com'
-                const suppressionDb = {
-                    query: (...args: Parameters<PostgresRouter['query']>) =>
-                        unreadable && JSON.stringify(args[2] ?? []).includes(unreadable)
-                            ? Promise.reject(new Error('Connection terminated unexpectedly'))
-                            : hub.postgres.query(...args),
-                } as unknown as PostgresRouter
-                const { executor: runner } = createExecutor(createEmailService({ ses, suppressionDb }))
+                let listUnreadable = true
+                const suppressionDb = await postgresThatDropsConnections(
+                    hub.DATABASE_URL,
+                    (message) => listUnreadable && message.includes('next@example.com')
+                )
+                const { executor: runner } = createExecutor(
+                    createEmailService({ ses, suppressionDb: suppressionDb.postgres })
+                )
 
                 const held = await runAfterDelay(
                     runner,
@@ -3896,8 +3897,9 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(ses.delivered.map((email) => email.subject)).toEqual(['Delayed Email'])
                 expect(held.invocation.queueScheduledAt!.diff(DateTime.utc()).as('seconds')).toBeLessThanOrEqual(60)
 
-                unreadable = null
+                listUnreadable = false
                 const result = await runUntilHeld(runner, held.invocation)
+                await suppressionDb.close()
 
                 expect(result.finished).toBe(true)
                 expect(ses.delivered.map((email) => email.subject)).toEqual(['Delayed Email', 'Next Email'])

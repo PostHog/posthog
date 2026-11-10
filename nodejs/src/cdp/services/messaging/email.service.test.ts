@@ -3,7 +3,6 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
-import { AddressInfo, Socket, connect, createServer as createTcpServer } from 'node:net'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -19,6 +18,7 @@ import {
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
@@ -1638,37 +1638,6 @@ describe('EmailService', () => {
                     'test-capture-engagement-events'
                 )
             }
-            const postgresThatDropsConnectionsWhile = async (
-                dropping: () => boolean
-            ): Promise<{ postgres: PostgresRouter; close: () => Promise<void> }> => {
-                const upstream = new URL(hub.DATABASE_URL)
-                const sockets = new Set<Socket>()
-                const server = createTcpServer((client) => {
-                    const database = connect(Number(upstream.port || 5432), upstream.hostname)
-                    for (const socket of [client, database]) {
-                        sockets.add(socket)
-                        socket.on('error', () => undefined)
-                        socket.on('close', () => {
-                            client.destroy()
-                            database.destroy()
-                        })
-                    }
-                    client.on('data', (chunk: Buffer) => (dropping() ? client.destroy() : database.write(chunk)))
-                    database.pipe(client)
-                })
-                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-                const url = new URL(upstream)
-                url.host = `127.0.0.1:${(server.address() as AddressInfo).port}`
-                const postgres = new PostgresRouter({ DATABASE_URL: url.toString(), POSTGRES_CONNECTION_POOL_SIZE: 1 })
-                return {
-                    postgres,
-                    close: async () => {
-                        await postgres.end()
-                        sockets.forEach((socket) => socket.destroy())
-                        await new Promise((resolve) => server.close(resolve))
-                    },
-                }
-            }
             const untilDue = async (due: DateTime): Promise<void> => {
                 await new Promise((resolve) => setTimeout(resolve, Math.max(0, due.toMillis() - Date.now() + 50)))
             }
@@ -1752,7 +1721,10 @@ describe('EmailService', () => {
                     ['could not look up the tier', true],
                 ])('charges it once when the first try %s', async (_name, tierLookupFails) => {
                     let firstTry = true
-                    const teamConfigDb = await postgresThatDropsConnectionsWhile(() => firstTry && tierLookupFails)
+                    const teamConfigDb = await postgresThatDropsConnections(
+                        hub.DATABASE_URL,
+                        () => firstTry && tierLookupFails
+                    )
                     const emailService = sender({ teamDailyCap: 2, teamConfigDb: teamConfigDb.postgres })
                     bucket.answer = 'refuse'
 
