@@ -9,7 +9,7 @@ import {
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
 } from '@posthog/hog-engine/cdp/types'
-import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { PersonReadRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 

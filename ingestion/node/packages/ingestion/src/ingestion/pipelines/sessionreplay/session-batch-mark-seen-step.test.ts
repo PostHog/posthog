@@ -1,4 +1,5 @@
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
+import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
+
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'

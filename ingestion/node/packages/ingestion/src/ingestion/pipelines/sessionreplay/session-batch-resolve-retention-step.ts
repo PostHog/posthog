@@ -1,7 +1,7 @@
+import { ChunkProcessingStep } from '@posthog/ingestion-common/framework/base-chunk-pipeline'
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { drop, ok } from '~/ingestion/framework/results'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'

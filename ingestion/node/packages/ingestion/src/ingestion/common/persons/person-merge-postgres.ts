@@ -2,15 +2,15 @@ import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
-import { PERSON_MERGE_EVENTS_OUTPUT } from '@posthog/node-common/outputs/index'
-import { personMergeFailureCounter } from '@posthog/node-common/persons/metrics'
-import { PersonMessage } from '@posthog/node-common/persons/person-message'
-import { MergePersonUpdate, PendingPersonChanges } from '@posthog/node-common/persons/person-update-batch'
-import { isDistinctIdUnmergeable } from '@posthog/node-common/persons/person-utils'
+import { personMergeFailureCounter } from '@posthog/ingestion-common/persons/metrics'
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
+import { MergePersonUpdate, PendingPersonChanges } from '@posthog/ingestion-common/persons/person-update-batch'
+import { isDistinctIdUnmergeable } from '@posthog/ingestion-common/persons/person-utils'
 import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
-} from '@posthog/node-common/persons/repositories/person-repository'
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { PERSON_MERGE_EVENTS_OUTPUT } from '@posthog/node-common/outputs/index'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
 import { logger } from '@posthog/node-common/utils/logger'
 import { promiseRetry } from '@posthog/node-common/utils/retries'

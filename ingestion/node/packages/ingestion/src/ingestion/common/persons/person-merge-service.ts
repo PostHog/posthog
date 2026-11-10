@@ -2,18 +2,17 @@ import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { isDistinctIdUnmergeable } from '@posthog/node-common/persons/person-utils'
+import { emitIngestionWarning } from '@posthog/ingestion-common/ingestion-warnings'
+import { isDistinctIdUnmergeable } from '@posthog/ingestion-common/persons/person-utils'
 import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
-} from '@posthog/node-common/persons/repositories/person-repository'
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { timeoutGuard } from '@posthog/node-common/utils/db/utils'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 import { promiseRetry } from '@posthog/node-common/utils/retries'
 import { sleep } from '@posthog/node-common/utils/utils'
-
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
 import { PersonContext } from './person-context'
 import {

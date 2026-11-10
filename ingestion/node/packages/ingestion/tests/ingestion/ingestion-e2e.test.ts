@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
-import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
-import { fetchDistinctIds } from '@posthog/node-common/persons/repositories/test-helpers'
+import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import { fetchDistinctIds } from '@posthog/ingestion-common/persons/repositories/test-helpers'
+import { fetchPostgresPersons } from '@posthog/ingestion-common/testing/persons'
 import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
-import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '@posthog/node-common/testing/sql'
+import { createUserTeamAndOrganization, uniqueTestId } from '@posthog/node-common/testing/sql'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 

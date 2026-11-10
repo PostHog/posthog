@@ -1,4 +1,4 @@
-import { PostgresUse, handlePostgresError, isTransientPgError } from '@posthog/node-common/utils/db/postgres'
+import { PostgresUse, handlePostgresError, isTransientPgError } from '~/utils/db/postgres'
 
 describe('isTransientPgError', () => {
     it.each([

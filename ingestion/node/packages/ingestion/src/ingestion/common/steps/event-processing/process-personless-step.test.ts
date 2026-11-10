@@ -2,6 +2,8 @@ import { mockProducer } from '@posthog/node-common/testing/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
+import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
 import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
@@ -15,7 +17,6 @@ import {
 } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
-import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
 import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createOrganization, createTeam, getTeam } from '@posthog/node-common/testing/sql'
@@ -23,7 +24,6 @@ import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { EventHeaders, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 

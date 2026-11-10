@@ -1,10 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { isOkResult } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
-
-import { isOkResult } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { retryAfterFirstFailure } from './metrics-retry'

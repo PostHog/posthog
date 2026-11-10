@@ -1,7 +1,7 @@
 /** Types carried across the session replay pipeline steps (step-to-step data contracts). */
 import { Message } from 'node-rdkafka'
 
-import { KafkaDebugContext } from '~/ingestion/framework/helpers'
+import { KafkaDebugContext } from '@posthog/ingestion-common/framework/helpers'
 
 import { SessionKey } from './shared/types'
 

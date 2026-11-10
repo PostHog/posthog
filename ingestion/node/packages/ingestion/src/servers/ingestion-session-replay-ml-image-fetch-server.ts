@@ -1,6 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 
+import { TopHog } from '@posthog/ingestion-common/framework/tophog/tophog'
 import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
@@ -19,7 +20,6 @@ import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-produc
 import { CleanupResources } from '@posthog/node-common/servers/base-server'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {
     ConfigurationPolicyService,

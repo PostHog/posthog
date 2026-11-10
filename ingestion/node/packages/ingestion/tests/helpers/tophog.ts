@@ -1,4 +1,4 @@
-import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
+import { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/tophog'
 
 /** A topHog registry that swallows every record — for tests that assert
  * pipeline output, not metrics. */

@@ -1,8 +1,8 @@
-import { ReadOnlyGroupTypeManager } from '@posthog/node-common/groups/readonly-group-type-manager'
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
+import { ReadOnlyGroupTypeManager } from '@posthog/ingestion-common/groups/readonly-group-type-manager'
 import { createTestTeam } from '@posthog/node-common/testing/team'
 import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
 
-import { PipelineResultType } from '~/ingestion/framework/results'
 import { PreIngestionEvent, ProjectId, Team, TimestampFormat } from '~/types'
 
 import { createReadOnlyProcessGroupsStep } from './readonly-process-groups-step'

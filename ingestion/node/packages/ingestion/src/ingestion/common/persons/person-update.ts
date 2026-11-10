@@ -3,14 +3,14 @@ import { DateTime } from 'luxon'
 import {
     personProfileIgnoredPropertiesCounter,
     personProfileUpdateOutcomeCounter,
-} from '@posthog/node-common/persons/metrics'
+} from '@posthog/ingestion-common/persons/metrics'
+import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
 import {
     eventToPersonProperties,
     initialEventToPersonProperties,
     isFilteredPersonUpdateProperty,
-} from '@posthog/node-common/persons/person-property-utils'
-import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
-import { logger } from '@posthog/node-common/utils/logger'
+} from '@posthog/node-common/utils/person-property-utils'
 import { cloneObject } from '@posthog/node-common/utils/utils'
 
 import { InternalPerson } from '~/types'

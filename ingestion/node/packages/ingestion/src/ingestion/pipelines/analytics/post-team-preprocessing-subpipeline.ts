@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { ChunkPipelineBuilder } from '@posthog/ingestion-common/framework/builders/chunk-pipeline-builders'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
@@ -25,7 +26,6 @@ import {
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
-import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchEventSchemasStep } from '~/ingestion/pipelines/analytics/steps/prefetchEventSchemasStep'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'

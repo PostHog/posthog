@@ -1,17 +1,17 @@
 import { CdpProducerName } from '@posthog/hog-engine/cdp/outputs/producers'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { GroupReadRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
+import { createPersonHogClient } from '@posthog/ingestion-common/personhog/index'
+import { PersonHogGroupReadRepository } from '@posthog/ingestion-common/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from '@posthog/ingestion-common/personhog/personhog-person-read-repository'
+import { PersonReadRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import {
     createIngestionRedisConnectionConfig,
     createPosthogRedisConnectionConfig,
 } from '@posthog/node-common/config/redis-pools'
-import { GroupReadRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
-import { createPersonHogClient } from '@posthog/node-common/personhog/index'
-import { PersonHogGroupReadRepository } from '@posthog/node-common/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from '@posthog/node-common/personhog/personhog-person-read-repository'
-import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
 import { CleanupResources, NodeServer, ServerLifecycle } from '@posthog/node-common/servers/base-server'
 import { InternalCaptureService } from '@posthog/node-common/services/internal-capture'
 import { InternalFetchService } from '@posthog/node-common/services/internal-fetch'

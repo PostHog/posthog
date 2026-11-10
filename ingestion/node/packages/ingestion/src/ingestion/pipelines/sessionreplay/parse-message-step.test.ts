@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
 import { gzip, gzipSync } from 'zlib'
 
-import { PipelineResultType } from '~/ingestion/framework/results'
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 
 import { SessionRecordingIngesterMetrics } from './metrics'
 import {

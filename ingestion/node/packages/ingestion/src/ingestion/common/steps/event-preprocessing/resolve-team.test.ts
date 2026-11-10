@@ -1,3 +1,4 @@
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
 import { getMetricValues, resetMetrics } from '@posthog/node-common/testing/metrics'
@@ -5,7 +6,6 @@ import { createTestPipelineEvent } from '@posthog/node-common/testing/pipeline-e
 import { createTestTeam } from '@posthog/node-common/testing/team'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
-import { drop, ok } from '~/ingestion/framework/results'
 import { IncomingEvent } from '~/types'
 
 import { createResolveTeamStep } from './resolve-team'

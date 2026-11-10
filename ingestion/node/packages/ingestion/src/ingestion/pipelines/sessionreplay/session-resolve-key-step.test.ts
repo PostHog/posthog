@@ -1,4 +1,5 @@
-import { PipelineResult, isOkResult } from '~/ingestion/framework/results'
+import { PipelineResult, isOkResult } from '@posthog/ingestion-common/framework/results'
+
 import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'

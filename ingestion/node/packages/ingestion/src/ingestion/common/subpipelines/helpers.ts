@@ -1,4 +1,5 @@
-import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { OkResultWithContext } from '@posthog/ingestion-common/framework/pipeline.interface'
+
 import { EventHeaders, Team } from '~/types'
 
 /**

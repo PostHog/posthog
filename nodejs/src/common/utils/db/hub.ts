@@ -1,17 +1,17 @@
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
-import {
-    createIngestionRedisConnectionConfig,
-    createPosthogRedisConnectionConfig,
-} from '@posthog/node-common/config/redis-pools'
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
-import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
+import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
 import {
     buildGroupRepository,
     buildPersonRepository,
     createPersonHogClient,
-} from '@posthog/node-common/personhog/index'
-import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
+} from '@posthog/ingestion-common/personhog/index'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
+import {
+    createIngestionRedisConnectionConfig,
+    createPosthogRedisConnectionConfig,
+} from '@posthog/node-common/config/redis-pools'
 import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
 import { PostgresRouter, installPostgresTypeParsers } from '@posthog/node-common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'

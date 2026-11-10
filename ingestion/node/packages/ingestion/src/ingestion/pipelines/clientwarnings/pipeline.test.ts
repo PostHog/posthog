@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { createOkContext } from '@posthog/ingestion-common/framework/helpers'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import {
     APP_METRICS_OUTPUT,
@@ -17,7 +18,6 @@ import { TeamManager } from '@posthog/node-common/utils/team-manager'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { EventFilterManager } from '~/ingestion/common/event-filters'
-import { createOkContext } from '~/ingestion/framework/helpers'
 import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { ClientWarningsPipelineConfig, createClientWarningsPipeline } from './pipeline'

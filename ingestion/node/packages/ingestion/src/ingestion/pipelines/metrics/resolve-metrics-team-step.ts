@@ -1,9 +1,8 @@
+import { dlq, drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { isDevEnv } from '@posthog/node-common/utils/env-utils'
 import { logger } from '@posthog/node-common/utils/logger'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
-
-import { dlq, drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { metricMessageDlqCounter, metricMessageDroppedCounter } from './metrics'
 

@@ -1,7 +1,7 @@
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
-import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { OverflowLaneTTLRefreshStepInput, createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
 

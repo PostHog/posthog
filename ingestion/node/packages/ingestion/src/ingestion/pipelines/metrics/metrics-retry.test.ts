@@ -1,6 +1,5 @@
+import { pipelineRetryAttemptsHistogram } from '@posthog/ingestion-common/framework/metrics'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
-
-import { pipelineRetryAttemptsHistogram } from '~/ingestion/framework/metrics'
 
 import { retryAfterFirstFailure } from './metrics-retry'
 

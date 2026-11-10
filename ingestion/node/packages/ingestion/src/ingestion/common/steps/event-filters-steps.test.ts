@@ -1,3 +1,4 @@
+import { isDropResult, isOkResult, ok } from '@posthog/ingestion-common/framework/results'
 import { AppMetricsOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
@@ -8,7 +9,6 @@ import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
 import { FilterNode } from '~/ingestion/common/event-filters/schema'
 import { and, cond, not, or } from '~/ingestion/common/event-filters/test-helpers'
-import { isDropResult, isOkResult, ok } from '~/ingestion/framework/results'
 
 import {
     createApplyEventFiltersStep,

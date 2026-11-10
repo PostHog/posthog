@@ -28,7 +28,7 @@ EXTERNAL_PRODUCERS = {
     "services/mcp/src/resources/ui-apps.generated.ts": "services/mcp/scripts/generate-ui-apps.ts",
     "products/webmcp/frontend/execTool.generated.ts": "services/mcp/scripts/generate-webmcp-exec-tool.ts",
     "ingestion/rust/ingestion_warnings/warning_types.generated.json": (
-        "ingestion/node/packages/ingestion/src/ingestion/common/scripts/generate-ingestion-warning-types.ts"
+        "ingestion/node/packages/common/src/scripts/generate-ingestion-warning-types.ts"
     ),
 }
 

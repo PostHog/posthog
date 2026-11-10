@@ -10,16 +10,11 @@ import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transfo
 import { template as geoipTemplate } from '@posthog/hog-engine/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
-import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
-import { COOKIELESS_SENTINEL_VALUE } from '@posthog/node-common/persons/person-utils'
+import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import { COOKIELESS_SENTINEL_VALUE } from '@posthog/ingestion-common/persons/person-utils'
+import { fetchPostgresPersons } from '@posthog/ingestion-common/testing/persons'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
-import {
-    createTeam,
-    fetchPostgresPersons,
-    getFirstTeam,
-    getTeam,
-    resetTestDatabase,
-} from '@posthog/node-common/testing/sql'
+import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '@posthog/node-common/testing/sql'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'

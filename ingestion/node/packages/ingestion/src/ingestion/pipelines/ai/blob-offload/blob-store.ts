@@ -8,7 +8,8 @@ import {
     S3ServiceException,
 } from '@aws-sdk/client-s3'
 
-import { Component } from '~/ingestion/common/scopes'
+import { Component } from '@posthog/ingestion-common/scopes/index'
+
 import { aiBlobOffloadS3Duration, aiBlobOffloadS3Errors } from '~/ingestion/pipelines/ai/metrics'
 
 export type EnsureStoredOutcome = 'uploaded' | 'fresh' | 'touched'

@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
+import { Component, newScope } from '@posthog/ingestion-common/scopes/index'
 import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
@@ -11,7 +12,6 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
-import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import {
     ClientWarningsConsumerConfig,

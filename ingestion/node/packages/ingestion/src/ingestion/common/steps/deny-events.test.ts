@@ -1,6 +1,5 @@
+import { dlq, ok } from '@posthog/ingestion-common/framework/results'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
-
-import { dlq, ok } from '~/ingestion/framework/results'
 
 import { createDenyEventsStep } from './deny-events'
 

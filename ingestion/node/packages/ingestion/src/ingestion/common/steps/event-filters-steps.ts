@@ -1,12 +1,12 @@
+import { BeforeBatchStep } from '@posthog/ingestion-common/framework/batching-pipeline'
+import { PipelineResult, drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { AppMetricsOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 
 import { EventFilterManager, evaluateFilterTree } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
 import { eventFiltersEventsEvaluated } from '~/ingestion/common/event-filters/metrics'
-import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, Team } from '~/types'
 
 export interface EventFiltersBatchContext {

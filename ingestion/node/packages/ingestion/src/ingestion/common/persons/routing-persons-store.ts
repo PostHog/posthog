@@ -1,7 +1,7 @@
 import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { errorClassLabel } from '@posthog/node-common/personhog/metrics'
+import { errorClassLabel } from '@posthog/ingestion-common/personhog/metrics'
 import {
     personhogStoreShadowCompareFailedCounter,
     personhogStoreShadowComparedCounter,
@@ -12,11 +12,11 @@ import {
     personhogStoreShadowFoldRedriveCounter,
     personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
-} from '@posthog/node-common/persons/metrics'
-import { PersonMessage } from '@posthog/node-common/persons/person-message'
-import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+} from '@posthog/ingestion-common/persons/metrics'
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
+import { PersonRepositoryTransaction } from '@posthog/ingestion-common/persons/repositories/person-repository-transaction'
+import { CreatePersonResult } from '@posthog/ingestion-common/utils/db/db'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
-import { CreatePersonResult } from '@posthog/node-common/utils/db/db'
 import { logger } from '@posthog/node-common/utils/logger'
 import { promiseRetry, retryIfRetriable } from '@posthog/node-common/utils/retries'
 

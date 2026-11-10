@@ -3,6 +3,7 @@ import { mockProducer, mockProducerObserver } from '@posthog/node-common/testing
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { Component, newScope } from '@posthog/ingestion-common/scopes/index'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
@@ -10,7 +11,6 @@ import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { Component, newScope } from '~/ingestion/common/scopes'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { PipelineEvent, Team } from '~/types'
 
@@ -38,12 +38,12 @@ jest.mock('@posthog/node-common/kafka/consumer/index', () => ({
 
 // The lane owns its personhog client and reads persons/groups through it; there is no
 // personhog server in tests, so stand in for the client and the read repositories.
-jest.mock('@posthog/node-common/personhog/personhog-client-component', () => ({
+jest.mock('@posthog/ingestion-common/personhog/personhog-client-component', () => ({
     PersonHogClientComponent: jest.fn().mockImplementation(() => ({
         start: () => Promise.resolve({ value: {}, stop: () => Promise.resolve() }),
     })),
 }))
-jest.mock('@posthog/node-common/personhog/personhog-person-read-repository', () => ({
+jest.mock('@posthog/ingestion-common/personhog/personhog-person-read-repository', () => ({
     PersonHogPersonReadRepository: jest.fn().mockImplementation(() => ({
         fetchPerson: jest.fn().mockResolvedValue(undefined),
         fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
@@ -51,7 +51,7 @@ jest.mock('@posthog/node-common/personhog/personhog-person-read-repository', () 
         fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
     })),
 }))
-jest.mock('@posthog/node-common/personhog/personhog-group-read-repository', () => ({
+jest.mock('@posthog/ingestion-common/personhog/personhog-group-read-repository', () => ({
     PersonHogGroupReadRepository: jest.fn().mockImplementation(() => ({
         fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
         fetchGroupTypesByTeamIds: jest.fn().mockResolvedValue({}),

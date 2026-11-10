@@ -1,5 +1,6 @@
 import { v4 } from 'uuid'
 
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
@@ -7,8 +8,6 @@ import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
 import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
-
-import { PipelineResultType } from '~/ingestion/framework/results'
 
 import {
     HandleClientIngestionWarningStepInput,

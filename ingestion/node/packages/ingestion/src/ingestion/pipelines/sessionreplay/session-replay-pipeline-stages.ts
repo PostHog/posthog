@@ -1,11 +1,15 @@
 import { Message } from 'node-rdkafka'
 
+import {
+    ChunkPipelineBuilder,
+    PipelineBuilder,
+    StartPipelineBuilder,
+} from '@posthog/ingestion-common/framework/builders/index'
+import { TopHogRegistry, createTopHogWrapper, sum, timer } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { OverflowOutput } from '@posthog/node-common/outputs/index'
 
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { ChunkPipelineBuilder, PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders'
-import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'
 
 import { NewSessionFlag, Recordable, SessionReplayHeaders } from './pipeline-types'

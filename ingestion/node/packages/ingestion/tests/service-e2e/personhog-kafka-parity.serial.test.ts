@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Pool } from 'pg'
 
+import { closeHub, createHub } from '@posthog/ingestion-common/testing/hub'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
@@ -44,7 +45,6 @@ import {
 } from '@posthog/node-common/testing/kafka'
 import { ServiceProcess, getFreePort, getFreeWorkerPort } from '@posthog/node-common/testing/service-process'
 import { createOrganization, createTeam } from '@posthog/node-common/testing/sql'
-import { closeHub, createHub } from '@posthog/node-common/utils/db/hub'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 

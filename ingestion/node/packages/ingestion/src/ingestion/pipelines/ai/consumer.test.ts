@@ -1,12 +1,12 @@
+import { PersonHogConfig } from '@posthog/ingestion-common/personhog/index'
+import { newScope } from '@posthog/ingestion-common/scopes/index'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
-import { PersonHogConfig } from '@posthog/node-common/personhog/index'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import { TeamManagerComponent } from '@posthog/node-common/utils/team-manager'
 
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { ProducerName } from '~/ingestion/common/outputs/producers'
-import { newScope } from '~/ingestion/common/scopes'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
 

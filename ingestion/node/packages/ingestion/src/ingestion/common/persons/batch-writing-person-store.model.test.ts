@@ -1,16 +1,20 @@
 import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
-import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '@posthog/node-common/outputs/index'
-import { FILTERED_PERSON_UPDATE_PROPERTIES } from '@posthog/node-common/persons/person-property-utils'
-import { MergePersonUpdate, PersonUpdate, toInternalPerson } from '@posthog/node-common/persons/person-update-batch'
+import {
+    MergePersonUpdate,
+    PersonUpdate,
+    toInternalPerson,
+} from '@posthog/ingestion-common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     PersonRepository,
-} from '@posthog/node-common/persons/repositories/person-repository'
-import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '@posthog/ingestion-common/persons/repositories/person-repository-transaction'
+import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '@posthog/node-common/outputs/index'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { FILTERED_PERSON_UPDATE_PROPERTIES } from '@posthog/node-common/utils/person-property-utils'
 import { NoRowsUpdatedError } from '@posthog/node-common/utils/utils'
 
 import { InternalPerson } from '~/types'
@@ -18,11 +22,11 @@ import { InternalPerson } from '~/types'
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
 import { EventOps } from './person-update'
 
-jest.mock('~/ingestion/common/ingestion-warnings', () => ({
+jest.mock('@posthog/ingestion-common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
-jest.mock('@posthog/node-common/persons/metrics', () => ({
+jest.mock('@posthog/ingestion-common/persons/metrics', () => ({
     observeLatencyByVersion: jest.fn(),
     personCacheOperationsCounter: { inc: jest.fn() },
     personCacheSizeHistogram: { observe: jest.fn() },

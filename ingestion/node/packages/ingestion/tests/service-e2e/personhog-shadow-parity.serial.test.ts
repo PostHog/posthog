@@ -14,6 +14,17 @@ import { DateTime } from 'luxon'
 import { isDeepStrictEqual } from 'node:util'
 import { Pool } from 'pg'
 
+import { PersonHogClient } from '@posthog/ingestion-common/personhog/client'
+import { createIdentityClients } from '@posthog/ingestion-common/personhog/identity-clients'
+import { PersonHogPersonWriteRepository } from '@posthog/ingestion-common/personhog/personhog-person-write-repository'
+import {
+    personhogStoreShadowComparedCounter,
+    personhogStoreShadowCreateRetriesCounter,
+    personhogStoreShadowDivergenceCounter,
+    personhogStoreShadowErrorsCounter,
+} from '@posthog/ingestion-common/persons/metrics'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
+import { closeHub, createHub } from '@posthog/ingestion-common/testing/hub'
 import {
     KAFKA_INGESTION_WARNINGS,
     KAFKA_PERSON,
@@ -29,18 +40,7 @@ import {
 } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
-import { PersonHogClient } from '@posthog/node-common/personhog/client'
-import { createIdentityClients } from '@posthog/node-common/personhog/identity-clients'
-import { PersonHogPersonWriteRepository } from '@posthog/node-common/personhog/personhog-person-write-repository'
-import {
-    personhogStoreShadowComparedCounter,
-    personhogStoreShadowCreateRetriesCounter,
-    personhogStoreShadowDivergenceCounter,
-    personhogStoreShadowErrorsCounter,
-} from '@posthog/node-common/persons/metrics'
-import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
 import { createOrganization, createTeam } from '@posthog/node-common/testing/sql'
-import { closeHub, createHub } from '@posthog/node-common/utils/db/hub'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 

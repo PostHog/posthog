@@ -1,7 +1,7 @@
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { BlobStore, EnsureStoredOutcome } from '~/ingestion/pipelines/ai/blob-offload/blob-store'
 import { DetectedBlob, extractBlobs } from '~/ingestion/pipelines/ai/blob-offload/detect'
 import { LARGE_AI_PROPERTIES } from '~/ingestion/pipelines/ai/large-ai-properties'

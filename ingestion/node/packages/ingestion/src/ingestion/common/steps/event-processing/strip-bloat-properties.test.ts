@@ -1,8 +1,8 @@
-import { droppedBloatPropertyCounter } from '~/ingestion/common/metrics'
+import { droppedBloatPropertyCounter } from '@posthog/ingestion-common/metrics'
 
 import { BLOAT_PROPERTIES, stripBloatProperties } from './strip-bloat-properties'
 
-jest.mock('~/ingestion/common/metrics', () => ({
+jest.mock('@posthog/ingestion-common/metrics', () => ({
     droppedBloatPropertyCounter: {
         labels: jest.fn().mockReturnValue({ inc: jest.fn() }),
     },

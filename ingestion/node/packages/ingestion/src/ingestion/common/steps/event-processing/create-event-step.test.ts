@@ -2,13 +2,13 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v5 as uuidv5 } from 'uuid'
 
+import { isOkResult } from '@posthog/ingestion-common/framework/results'
 import { EVENTS_OUTPUT } from '@posthog/node-common/outputs/index'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
 import { createTestTeam } from '@posthog/node-common/testing/team'
 import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
 
-import { isOkResult } from '~/ingestion/framework/results'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, Team, TimestampFormat } from '~/types'
 
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'

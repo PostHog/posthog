@@ -1,5 +1,5 @@
 import { GroupType, HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
-import { GroupReadRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
 import { sanitizeString } from '@posthog/node-common/utils/db/utils'
 import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
 import { logger } from '@posthog/node-common/utils/logger'

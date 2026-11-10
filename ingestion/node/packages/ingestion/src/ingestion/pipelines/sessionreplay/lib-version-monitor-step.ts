@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PipelineWarning } from '@posthog/ingestion-common/framework/pipeline.interface'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 
 export interface LibVersionMonitorStepInput {
     message: Message

@@ -1,4 +1,4 @@
-import type { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
+import type { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/tophog'
 
 import type { ImageFetchBlockReason } from './block-reason'
 import type { FetchCandidate } from './collected-urls-record'

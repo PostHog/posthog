@@ -84,6 +84,7 @@
         "@posthog/hogvm": "workspace:*",
         "@posthog/hogvm-node": "workspace:*",
         "@posthog/ingestion": "workspace:*",
+        "@posthog/ingestion-common": "workspace:*",
         "@posthog/node-common": "workspace:*",
         "@posthog/replay-anonymizer": "workspace:*",
         "@posthog/replay-headless": "workspace:*",

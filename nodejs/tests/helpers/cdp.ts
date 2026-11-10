@@ -6,10 +6,10 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '@posthog/hog-engine/cdp/outputs/producers'
-import { GroupReadRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
+import { PersonReadRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
-import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
 import { InternalCaptureService } from '@posthog/node-common/services/internal-capture'
 
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'

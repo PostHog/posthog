@@ -4,6 +4,8 @@ import { connectNodeAdapter } from '@connectrpc/connect-node'
 import * as http2 from 'node:http2'
 import { Counter, Gauge } from 'prom-client'
 
+import { budgetDeadline } from '@posthog/ingestion-common/framework/batch-budget'
+import { FeedResult } from '@posthog/ingestion-common/framework/batching-pipeline'
 import {
     IngestStreamRequest,
     IngestStreamResponse,
@@ -15,11 +17,8 @@ import {
     SubBatchAckSchema,
     SubBatchStatus,
     WorkerIngest,
-} from '@posthog/node-common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
+} from '@posthog/ingestion-common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { budgetDeadline } from '~/ingestion/framework/batch-budget'
-import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 
 import { AcceptedBatch, batchAccepted, batchFailed, batchProcessed, batchReleased } from './batch-metrics'
 import { FeedOrderSentinel } from './feed-order-sentinel'

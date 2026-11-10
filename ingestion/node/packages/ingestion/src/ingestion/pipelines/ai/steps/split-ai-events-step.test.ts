@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { isOkResult } from '@posthog/ingestion-common/framework/results'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '@posthog/node-common/outputs/index'
 
-import { isOkResult } from '~/ingestion/framework/results'
 import { ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
 
 import { createSplitAiEventsStep } from './split-ai-events-step'

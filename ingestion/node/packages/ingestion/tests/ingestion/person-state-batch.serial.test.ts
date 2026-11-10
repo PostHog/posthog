@@ -4,6 +4,18 @@ import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/produc
 import { DateTime } from 'luxon'
 
 import {
+    PipelineResultType,
+    isDlqResult,
+    isOkResult,
+    isRedirectResult,
+} from '@posthog/ingestion-common/framework/results'
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
+import { fromInternalPerson } from '@posthog/ingestion-common/persons/person-update-batch'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues } from '@posthog/ingestion-common/persons/repositories/test-helpers'
+import { closeHub, createHub } from '@posthog/ingestion-common/testing/hub'
+import { fetchPostgresDistinctIdsForPerson, fetchPostgresPersons } from '@posthog/ingestion-common/testing/persons'
+import {
     KAFKA_INGESTION_WARNINGS,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
@@ -20,23 +32,11 @@ import {
 } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
-import { PersonMessage } from '@posthog/node-common/persons/person-message'
-import { fromInternalPerson } from '@posthog/node-common/persons/person-update-batch'
-import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
-import { fetchDistinctIdValues } from '@posthog/node-common/persons/repositories/test-helpers'
 import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
 import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
 import { ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
-import {
-    createOrganization,
-    createTeam,
-    fetchPostgresDistinctIdsForPerson,
-    fetchPostgresPersons,
-    getTeam,
-    insertRow,
-} from '@posthog/node-common/testing/sql'
+import { createOrganization, createTeam, getTeam, insertRow } from '@posthog/node-common/testing/sql'
 import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
-import { closeHub, createHub } from '@posthog/node-common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { defaultRetryConfig } from '@posthog/node-common/utils/retries'
@@ -57,7 +57,6 @@ import {
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import {
     ClickHousePerson,
     ClickHousePersonDistinctId2,

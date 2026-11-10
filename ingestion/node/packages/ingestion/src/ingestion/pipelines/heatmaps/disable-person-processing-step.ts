@@ -1,5 +1,5 @@
-import { PipelineResult, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PipelineResult, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 
 export function createDisablePersonProcessingStep<TInput>(): ProcessingStep<
     TInput,

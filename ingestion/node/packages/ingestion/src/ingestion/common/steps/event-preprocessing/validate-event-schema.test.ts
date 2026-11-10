@@ -1,6 +1,6 @@
+import { PipelineResultType, drop, ok } from '@posthog/ingestion-common/framework/results'
 import { EventSchemaEnforcementManager } from '@posthog/node-common/utils/event-schema-enforcement-manager'
 
-import { PipelineResultType, drop, ok } from '~/ingestion/framework/results'
 import { EventSchemaEnforcement, Team } from '~/types'
 
 import { createValidateEventSchemaStep, validateEventAgainstSchema } from './validate-event-schema'

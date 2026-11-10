@@ -1,14 +1,14 @@
 import { DateTime } from 'luxon'
 
-import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
-import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '@posthog/node-common/outputs/index'
-import { FILTERED_PERSON_UPDATE_PROPERTIES } from '@posthog/node-common/persons/person-property-utils'
-import { PersonUpdate } from '@posthog/node-common/persons/person-update-batch'
+import { PersonUpdate } from '@posthog/ingestion-common/persons/person-update-batch'
 import {
     PersonPropertiesSizeViolationError,
     PersonRepository,
-} from '@posthog/node-common/persons/repositories/person-repository'
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '@posthog/node-common/outputs/index'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { FILTERED_PERSON_UPDATE_PROPERTIES } from '@posthog/node-common/utils/person-property-utils'
 import { NoRowsUpdatedError, UUIDT } from '@posthog/node-common/utils/utils'
 
 import { InternalPerson } from '~/types'

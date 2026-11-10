@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { ok } from '~/ingestion/framework/results'
+import { ok } from '@posthog/ingestion-common/framework/results'
 
 import { createParseHeadersStep } from './parse-headers'
 

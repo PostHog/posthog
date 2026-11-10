@@ -9,7 +9,7 @@ import {
     personhogStoreShadowErrorsCounter,
     personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
-} from '@posthog/node-common/persons/metrics'
+} from '@posthog/ingestion-common/persons/metrics'
 import { logger } from '@posthog/node-common/utils/logger'
 import { defaultRetryConfig } from '@posthog/node-common/utils/retries'
 
@@ -23,7 +23,7 @@ import { RoutingPersonsStore, assertPersonsStoreModeConfig, parsePersonsStoreMod
 
 const mockShadowTimerStop = jest.fn()
 
-jest.mock('@posthog/node-common/persons/metrics', () => ({
+jest.mock('@posthog/ingestion-common/persons/metrics', () => ({
     personhogStoreShadowErrorsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowCreateRetriesCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowSkipsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },

@@ -1,6 +1,6 @@
+import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { EventHeaders } from '~/types'
 
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'

@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
@@ -7,7 +8,6 @@ import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-in
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { cloneObject } from '@posthog/node-common/utils/utils'
 
-import { PipelineResultType } from '~/ingestion/framework/results'
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, ProjectId } from '~/types'
 
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'

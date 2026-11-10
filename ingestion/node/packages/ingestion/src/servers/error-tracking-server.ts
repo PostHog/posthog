@@ -5,6 +5,8 @@ import {
 } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { PersonHogConfig } from '@posthog/ingestion-common/personhog/index'
+import { extend, newScope } from '@posthog/ingestion-common/scopes/index'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig } from '@posthog/node-common/config'
 import {
@@ -13,7 +15,6 @@ import {
 } from '@posthog/node-common/config/redis-pools'
 import { HogTransformerComponent } from '@posthog/node-common/hog-transformations/hog-transformer-component'
 import { IngestionOutputsComponent } from '@posthog/node-common/outputs/ingestion-outputs'
-import { PersonHogConfig } from '@posthog/node-common/personhog/index'
 import {
     BaseServerConfig,
     CleanupResources,
@@ -40,7 +41,6 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
-import { extend, newScope } from '~/ingestion/common/scopes'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,

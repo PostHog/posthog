@@ -1,13 +1,13 @@
 import { Message } from 'node-rdkafka'
 
+import { TopHogMetricFactory, countOkIf } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { tokenOrTeamPresentCounter, tokenResolvedAsTeamIdCounter } from '@posthog/ingestion-common/metrics'
 import { eventDroppedCounter } from '@posthog/node-common/metrics'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
-import { tokenOrTeamPresentCounter, tokenResolvedAsTeamIdCounter } from '~/ingestion/common/metrics'
-import { TopHogMetricFactory, countOkIf } from '~/ingestion/framework/extensions/tophog'
-import { drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
 // TeamManager caches teams by id and by token in one key space, so a numeric token loads the team with that id.

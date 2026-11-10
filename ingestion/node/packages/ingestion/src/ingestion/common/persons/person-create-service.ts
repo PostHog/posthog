@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { personCreateConflictResolvedCounter } from '@posthog/node-common/persons/metrics'
-import { PersonMessage } from '@posthog/node-common/persons/person-message'
-import { PersonPropertiesSizeViolationError } from '@posthog/node-common/persons/repositories/person-repository'
+import { emitIngestionWarning } from '@posthog/ingestion-common/ingestion-warnings'
+import { personCreateConflictResolvedCounter } from '@posthog/ingestion-common/persons/metrics'
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
+import { PersonPropertiesSizeViolationError } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
 
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
 

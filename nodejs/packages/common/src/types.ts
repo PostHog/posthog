@@ -3,9 +3,6 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { GroupTypeManager } from '~/groups/group-type-manager'
-import { GroupRepository } from '~/groups/repositories/group-repository.interface'
-import { PersonRepository } from '~/persons/repositories/person-repository'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 import { QuotaLimiting } from '~/services/quota-limiting.service'
 import { PostgresRouter } from '~/utils/db/postgres'
@@ -92,9 +89,6 @@ export interface HubServices {
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
     teamManager: TeamManager
-    groupTypeManager: GroupTypeManager
-    groupRepository: GroupRepository
-    personRepository: PersonRepository
     geoipService: GeoIPService
     pubSub: PubSub
     quotaLimiting: QuotaLimiting

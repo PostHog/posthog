@@ -1,3 +1,4 @@
+import { dlq, drop, ok, redirect } from '@posthog/ingestion-common/framework/results'
 import { OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import {
@@ -5,7 +6,6 @@ import {
     Restriction,
 } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
 
-import { dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { EventHeaders } from '~/types'
 
 import {

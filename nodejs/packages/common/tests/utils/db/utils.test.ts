@@ -1,4 +1,4 @@
-import { personInitialAndUTMProperties } from '@posthog/node-common/utils/db/utils'
+import { personInitialAndUTMProperties } from '~/utils/db/utils'
 
 describe('personInitialAndUTMProperties()', () => {
     it('adds initial and utm properties', () => {

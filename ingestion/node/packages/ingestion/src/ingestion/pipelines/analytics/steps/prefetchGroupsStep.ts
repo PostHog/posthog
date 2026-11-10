@@ -1,8 +1,8 @@
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { PipelineResult, ok } from '@posthog/ingestion-common/framework/results'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { asPostgresParameterText, sanitizeString } from '@posthog/node-common/utils/db/utils'
 
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
-import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { GroupTypeIndex, PipelineEvent, Team, TeamId } from '~/types'
 
 type PrefetchGroupsStepInput = { event: PipelineEvent; team: Team; groupStoreForBatch: GroupStoreForBatch }

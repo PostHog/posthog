@@ -1,13 +1,13 @@
 import { DateTime } from 'luxon'
 
+import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
 import {
     InternalPersonWithDistinctId,
     PersonReadRepository,
-} from '@posthog/node-common/persons/repositories/person-repository'
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
 import { createTestTeam } from '@posthog/node-common/testing/team'
 
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { InternalPerson } from '~/types'
 
 import { createFetchPersonChunkStep } from './fetch-person-chunk-step'

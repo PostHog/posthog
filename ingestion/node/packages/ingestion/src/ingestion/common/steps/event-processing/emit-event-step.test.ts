@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { isOkResult } from '@posthog/ingestion-common/framework/results'
+import { emitIngestionWarning } from '@posthog/ingestion-common/ingestion-warnings'
+import { eventProcessedAndIngestedCounter } from '@posthog/ingestion-common/metrics'
 import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
 import { EVENTS_OUTPUT, EventOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
@@ -9,9 +12,6 @@ import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
 import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
 
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
-import { isOkResult } from '~/ingestion/framework/results'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
 
 import {
@@ -22,12 +22,12 @@ import {
     serializeEvent,
 } from './emit-event-step'
 
-jest.mock('~/ingestion/common/ingestion-warnings', () => ({
+jest.mock('@posthog/ingestion-common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
 // Mock the metrics module
-jest.mock('~/ingestion/common/metrics', () => ({
+jest.mock('@posthog/ingestion-common/metrics', () => ({
     eventProcessedAndIngestedCounter: {
         inc: jest.fn(),
     },

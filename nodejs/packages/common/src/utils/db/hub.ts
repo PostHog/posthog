@@ -1,19 +1,14 @@
-import { GroupTypeManager } from '~/groups/group-type-manager'
-import { PostgresGroupRepository } from '~/groups/repositories/postgres-group-repository'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/personhog'
-import { PostgresPersonRepository } from '~/persons/repositories/postgres-person-repository'
+import { defaultConfig } from '~/config/config'
+import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '~/config/redis-pools'
 import { QuotaLimiting } from '~/services/quota-limiting.service'
 import { Hub, PluginsServerConfig } from '~/types'
-
-import { defaultConfig } from '../../config/config'
-import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '../../config/redis-pools'
-import { isTestEnv } from '../env-utils'
-import { GeoIPService } from '../geoip'
-import { logger } from '../logger'
-import { PubSub } from '../pubsub'
-import { TeamManager } from '../team-manager'
-import { PostgresRouter, installPostgresTypeParsers } from './postgres'
-import { createRedisPoolFromConfig } from './redis'
+import { PostgresRouter, installPostgresTypeParsers } from '~/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/utils/db/redis'
+import { isTestEnv } from '~/utils/env-utils'
+import { GeoIPService } from '~/utils/geoip'
+import { logger } from '~/utils/logger'
+import { PubSub } from '~/utils/pubsub'
+import { TeamManager } from '~/utils/team-manager'
 
 // Ensure type parsers are installed for any code path that uses hub.ts directly
 // (many test files still use createHub instead of PluginServer)
@@ -63,33 +58,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const pubSub = new PubSub(redisPool)
     await pubSub.start()
 
-    const personhogClient = createPersonHogClient(serverConfig)
-    const clientLabel = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
-
-    const postgresGroupRepository = new PostgresGroupRepository(postgres)
-
-    const postgresPersonRepository = new PostgresPersonRepository(postgres, {
-        // createHub is legacy/test-only; ingestion configures this on its own infra (see createIngestionTestInfra).
-        calculatePropertiesSize: 0,
-    })
-    const personRepository = buildPersonRepository(
-        personhogClient,
-        postgresPersonRepository,
-        serverConfig.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
-        serverConfig.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
-        clientLabel
-    )
-
-    const groupRepository = buildGroupRepository(
-        personhogClient,
-        postgresGroupRepository,
-        serverConfig.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
-        serverConfig.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
-        clientLabel
-    )
-
-    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
-
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
@@ -99,10 +67,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         postgres,
         redisPool,
         posthogRedisPool,
-        groupTypeManager,
         teamManager,
-        groupRepository,
-        personRepository,
         geoipService,
         pubSub,
         quotaLimiting,

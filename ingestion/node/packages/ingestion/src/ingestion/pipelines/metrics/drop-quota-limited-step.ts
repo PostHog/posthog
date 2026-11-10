@@ -1,7 +1,6 @@
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
-
-import { drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { metricMessageDroppedCounter } from './metrics'
 import { MetricsUsageAccumulator } from './metrics-usage'

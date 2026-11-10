@@ -1,15 +1,14 @@
 import { Message } from 'node-rdkafka'
 
+import { BatchingContext, BatchingPipeline } from '@posthog/ingestion-common/framework/batching-pipeline'
+import { newBatchingPipeline, perElement } from '@posthog/ingestion-common/framework/builders/index'
+import { aggregateKafkaDebugContexts, createBatch } from '@posthog/ingestion-common/framework/helpers'
+import { PipelineConfig } from '@posthog/ingestion-common/framework/result-handling-pipeline'
 import { AppMetricsOutput, DlqOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
-
-import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
-import { newBatchingPipeline, perElement } from '~/ingestion/framework/builders'
-import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 
 import { MetricsUsageAccumulator, MetricsUsageBatchContext } from './metrics-usage'
 import { createKeepMetricsUsageStep, createMetricsUsageBeforeBatchStep } from './metrics-usage-steps'

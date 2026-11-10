@@ -4,9 +4,12 @@ import pLimit from 'p-limit'
 import {
     ClickhouseGroupRepository,
     GroupClickhouseMessage,
-} from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
-import { GroupRepositoryTransaction } from '@posthog/node-common/groups/repositories/group-repository-transaction.interface'
-import { GroupCreateResult, GroupRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+} from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import { GroupRepositoryTransaction } from '@posthog/ingestion-common/groups/repositories/group-repository-transaction.interface'
+import {
+    GroupCreateResult,
+    GroupRepository,
+} from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
 import { logger } from '@posthog/node-common/utils/logger'
 import { promiseRetry } from '@posthog/node-common/utils/retries'

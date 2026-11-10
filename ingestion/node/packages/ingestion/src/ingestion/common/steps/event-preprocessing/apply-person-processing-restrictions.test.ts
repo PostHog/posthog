@@ -1,3 +1,4 @@
+import { ok } from '@posthog/ingestion-common/framework/results'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createTestPipelineEvent } from '@posthog/node-common/testing/pipeline-event'
 import { createTestTeam } from '@posthog/node-common/testing/team'
@@ -5,8 +6,6 @@ import {
     EventIngestionRestrictionManager,
     Restriction,
 } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
-
-import { ok } from '~/ingestion/framework/results'
 
 import { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
 

@@ -42,6 +42,8 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { ok } from '@posthog/ingestion-common/framework/results'
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
@@ -49,8 +51,6 @@ import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/eve
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
-import { ok } from '~/ingestion/framework/results'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'

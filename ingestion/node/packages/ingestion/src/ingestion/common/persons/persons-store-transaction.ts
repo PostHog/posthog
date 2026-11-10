@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { PersonMessage } from '@posthog/node-common/persons/person-message'
-import { MergePersonUpdate } from '@posthog/node-common/persons/person-update-batch'
-import { LifecycleMarkPerson } from '@posthog/node-common/persons/repositories/person-repository'
-import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
+import { MergePersonUpdate } from '@posthog/ingestion-common/persons/person-update-batch'
+import { LifecycleMarkPerson } from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '@posthog/ingestion-common/persons/repositories/person-repository-transaction'
+import { CreatePersonResult, MoveDistinctIdsResult } from '@posthog/ingestion-common/utils/db/db'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
-import { CreatePersonResult, MoveDistinctIdsResult } from '@posthog/node-common/utils/db/db'
 
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 

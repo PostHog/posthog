@@ -1,4 +1,5 @@
-import { PipelineResultType } from '~/ingestion/framework/results'
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
+
 import { prefetchEventSchemasStep } from '~/ingestion/pipelines/analytics/steps/prefetchEventSchemasStep'
 
 type TestInput = { team: { id: number } }

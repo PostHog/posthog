@@ -47,8 +47,6 @@
         "typescript:check": "tsc --noEmit -p .",
         "test": "jest --runInBand --forceExit",
         "prepublishOnly": "pnpm build",
-        "generate:personhog-proto": "cd ../../../ingestion/proto && buf generate --template ../../nodejs/packages/common/buf.gen.personhog.yaml --path personhog/service --path personhog/identity --path personhog/lifecycle --path personhog/types . && cd ../../nodejs/packages/common && prettier --write src/generated/personhog",
-        "generate:ingestion-worker-proto": "cd ../../../ingestion/proto && buf generate --template ../../nodejs/packages/common/buf.gen.ingestion-worker.yaml --path ingestion/worker . && cd ../../nodejs/packages/common && prettier --write src/generated/ingestion-worker",
         "generate:usage-ingestion-proto": "cd ../../../proto && buf generate --template ../nodejs/packages/common/buf.gen.usage-ingestion.yaml --path usage_ingestion . && cd ../nodejs/packages/common && prettier --write src/generated/usage-ingestion",
         "lint": "oxlint -c .oxlintrc.json .",
         "lint:fix": "oxlint -c .oxlintrc.json . --fix",

@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { isOkResult } from '@posthog/ingestion-common/framework/results'
 import {
     FlagEvaluationsOutput,
     IngestionWarningsOutput,
@@ -10,7 +11,6 @@ import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
-import { isOkResult } from '~/ingestion/framework/results'
 import { FlagEvaluationsMode, ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
 
 import { EventToEmit } from './emit-event-step'

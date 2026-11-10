@@ -1,5 +1,15 @@
 import { Message } from 'node-rdkafka'
 
+import {
+    BatchingContext,
+    BatchingPipeline,
+    BeforeBatchInput,
+    FeedResult,
+} from '@posthog/ingestion-common/framework/batching-pipeline'
+import { newBatchingPipeline } from '@posthog/ingestion-common/framework/builders/index'
+import { createOkContext } from '@posthog/ingestion-common/framework/helpers'
+import { OkResultWithContext } from '@posthog/ingestion-common/framework/pipeline.interface'
+import { PipelineResult, drop, ok } from '@posthog/ingestion-common/framework/results'
 import { DlqOutput, IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
@@ -12,16 +22,6 @@ import {
     createFlushBatchStoresStep,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
-import {
-    BatchingContext,
-    BatchingPipeline,
-    BeforeBatchInput,
-    FeedResult,
-} from '~/ingestion/framework/batching-pipeline'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
-import { createOkContext } from '~/ingestion/framework/helpers'
-import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { PERSONS_OUTPUT } from '~/ingestion/pipelines/analytics/outputs'
 
 /**

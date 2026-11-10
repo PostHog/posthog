@@ -5,6 +5,17 @@ import {
 } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
+import {
+    PersonHogConfig,
+    buildGroupRepository,
+    buildPersonRepository,
+    createPersonHogClient,
+} from '@posthog/ingestion-common/personhog/index'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
+import { extend, newScope } from '@posthog/ingestion-common/scopes/index'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig, PluginServerMode } from '@posthog/node-common/config'
 import {
@@ -18,18 +29,8 @@ import {
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '@posthog/node-common/config/redis-pools'
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
-import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
 import { HogTransformerComponent } from '@posthog/node-common/hog-transformations/hog-transformer-component'
 import { IngestionOutputsComponent } from '@posthog/node-common/outputs/ingestion-outputs'
-import {
-    PersonHogConfig,
-    buildGroupRepository,
-    buildPersonRepository,
-    createPersonHogClient,
-} from '@posthog/node-common/personhog/index'
-import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
 import {
     BaseServerConfig,
     CleanupResources,
@@ -62,7 +63,6 @@ import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnin
 import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'
 
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
-import { extend, newScope } from '../ingestion/common/scopes'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,

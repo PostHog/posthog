@@ -1,8 +1,8 @@
+import { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
-import { PipelineResultType } from '~/ingestion/framework/results'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'

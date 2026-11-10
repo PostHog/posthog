@@ -1,6 +1,5 @@
+import { PipelineResultType, ok } from '@posthog/ingestion-common/framework/results'
 import { createTestPipelineEvent } from '@posthog/node-common/testing/pipeline-event'
-
-import { PipelineResultType, ok } from '~/ingestion/framework/results'
 
 import { createValidateAiEventTokensStep } from './validate-ai-event-tokens'
 

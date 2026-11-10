@@ -1,8 +1,8 @@
+import { BatchBudget } from '@posthog/ingestion-common/framework/batch-budget'
+import { PipelineResult, drop, ok, timeout } from '@posthog/ingestion-common/framework/results'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
 import { SubBatchBudget } from '~/ingestion/api/grpc-server'
-import { BatchBudget } from '~/ingestion/framework/batch-budget'
-import { PipelineResult, drop, ok, timeout } from '~/ingestion/framework/results'
 
 import { GrpcIngestPipeline, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
 

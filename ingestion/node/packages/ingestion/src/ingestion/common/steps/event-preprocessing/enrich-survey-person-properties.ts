@@ -1,5 +1,6 @@
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+
 import { PipelineEvent } from '~/types'
 
 export const SURVEY_EVENTS = {

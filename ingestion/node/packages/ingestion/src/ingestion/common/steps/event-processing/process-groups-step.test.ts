@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { createTestTeam } from '@posthog/node-common/testing/team'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
 
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
-import { PipelineResultType } from '~/ingestion/framework/results'
 import { PreIngestionEvent, ProjectId, Team, TimestampFormat } from '~/types'
 
 import { createProcessGroupsStep } from './process-groups-step'

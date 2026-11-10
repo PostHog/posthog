@@ -1,7 +1,6 @@
+import { ChunkProcessingStep } from '@posthog/ingestion-common/framework/base-chunk-pipeline'
+import { ok } from '@posthog/ingestion-common/framework/results'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { ok } from '~/ingestion/framework/results'
 
 export interface PrefetchStepOptions<T, K> {
     /** Stamped as the step's function name, which the framework uses for error attribution and metrics. */

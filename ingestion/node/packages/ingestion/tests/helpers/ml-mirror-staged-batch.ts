@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { ok } from '@posthog/ingestion-common/framework/results'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
 import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
-import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
-import { ok } from '~/ingestion/framework/results'
 import { SessionReplayPipelineConfig } from '~/ingestion/pipelines/sessionreplay'
 import { BatchStages } from '~/ingestion/pipelines/sessionreplay/batch-stages'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'

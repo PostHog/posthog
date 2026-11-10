@@ -1,5 +1,6 @@
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
+
 import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
-import { PipelineResultType } from '~/ingestion/framework/results'
 
 type TestInput = { team: { id: number } }
 

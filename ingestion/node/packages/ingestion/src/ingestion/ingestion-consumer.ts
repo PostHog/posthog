@@ -1,10 +1,13 @@
 import { Assignment, Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
+import { createKafkaDebugContext, createOkContext } from '@posthog/ingestion-common/framework/helpers'
+import { TopHog } from '@posthog/ingestion-common/framework/tophog/index'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
+import { PersonRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { CommonConfig } from '@posthog/node-common/config'
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
-import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
-import { GroupRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import {
@@ -25,7 +28,6 @@ import {
     RealtimeOnlyEventsOutput,
 } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-import { PersonRepository } from '@posthog/node-common/persons/repositories/person-repository'
 import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
 import { UsageIngestionConfig, createEventUsageBatchFactory } from '@posthog/node-common/usage-ingestion/index'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
@@ -44,8 +46,6 @@ import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
-import { TopHog } from '~/ingestion/framework/tophog'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,

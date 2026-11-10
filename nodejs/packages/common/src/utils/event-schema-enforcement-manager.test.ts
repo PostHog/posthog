@@ -1,9 +1,9 @@
 import { createTeam, createTestTeamFixture } from '~/testing/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/testing/team'
 import { Hub, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
 
 import { defaultConfig } from '../config/config'
-import { closeHub, createHub } from './db/hub'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { EventSchemaEnforcementManager } from './event-schema-enforcement-manager'
 

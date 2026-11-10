@@ -1,6 +1,6 @@
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 
-import { PipelineResultType } from '~/ingestion/framework/results'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 

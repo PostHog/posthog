@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { PersonMessage } from '@posthog/node-common/persons/person-message'
-import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
+import { PersonRepositoryTransaction } from '@posthog/ingestion-common/persons/repositories/person-repository-transaction'
+import { CreatePersonResult } from '@posthog/ingestion-common/utils/db/db'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
-import { CreatePersonResult } from '@posthog/node-common/utils/db/db'
 
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'

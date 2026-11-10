@@ -1,11 +1,11 @@
 import { v4 } from 'uuid'
 
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
 import { createTestTeam } from '@posthog/node-common/testing/team'
 
-import { PipelineResultType } from '~/ingestion/framework/results'
 import { EventHeaders, Team } from '~/types'
 
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'

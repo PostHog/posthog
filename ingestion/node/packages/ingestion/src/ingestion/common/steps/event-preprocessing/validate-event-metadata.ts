@@ -1,6 +1,7 @@
-import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
-import { drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PipelineWarning } from '@posthog/ingestion-common/framework/pipeline.interface'
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+
 import { EventHeaders } from '~/types'
 
 const MAX_DISTINCT_ID_LENGTH = 400

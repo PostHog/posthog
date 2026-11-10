@@ -1,7 +1,8 @@
+import { PipelineWarning } from '@posthog/ingestion-common/framework/pipeline.interface'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+
 import { isAiEventName } from '~/ingestion/common/ai-event-types'
-import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PipelineEvent } from '~/types'
 
 const TOKEN_PROPERTIES = [

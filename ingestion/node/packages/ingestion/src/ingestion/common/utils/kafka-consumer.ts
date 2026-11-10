@@ -1,9 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { Component } from '@posthog/ingestion-common/scopes/index'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
-
-import { Component } from '~/ingestion/common/scopes'
 
 export { createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 export type { KafkaConsumerInterface } from '@posthog/node-common/kafka/consumer/index'

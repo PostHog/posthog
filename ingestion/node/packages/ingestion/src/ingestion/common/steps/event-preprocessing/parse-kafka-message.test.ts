@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { TopHogRegistry, createTopHogWrapper } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { PipelineResultType, dlq, ok } from '@posthog/ingestion-common/framework/results'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
-import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
 import { createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders } from '~/types'
 

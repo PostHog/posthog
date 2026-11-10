@@ -1,6 +1,6 @@
 import { CyclotronPerson } from '@posthog/hog-engine/cdp/types'
 import { getPersonDisplayName } from '@posthog/hog-engine/cdp/utils'
-import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { PersonReadRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
 import { logger } from '@posthog/node-common/utils/logger'
 import { TeamManager, isValidTeamId } from '@posthog/node-common/utils/team-manager'

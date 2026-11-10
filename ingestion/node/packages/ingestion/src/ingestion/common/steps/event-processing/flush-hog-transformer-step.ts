@@ -1,9 +1,8 @@
 import { Histogram } from 'prom-client'
 
+import { PipelineResult, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
-
-import { PipelineResult, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 
 const backgroundTaskHogTransformerDuration = new Histogram({
     name: 'ingestion_background_task_hog_transformer_duration_seconds',

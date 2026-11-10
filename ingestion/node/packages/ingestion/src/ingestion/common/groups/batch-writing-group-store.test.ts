@@ -7,9 +7,12 @@ import { RaceConditionError } from '@posthog/node-common/utils/utils'
 
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
-import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
-import { GroupCreateResult, GroupRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
-import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
+import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import {
+    GroupCreateResult,
+    GroupRepository,
+} from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
+import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
 import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
 import { GroupsOutput } from '@posthog/node-common/outputs/index'

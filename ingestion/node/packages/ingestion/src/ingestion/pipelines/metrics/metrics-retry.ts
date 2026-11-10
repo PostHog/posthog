@@ -1,6 +1,5 @@
+import { pipelineRetryAttemptsHistogram } from '@posthog/ingestion-common/framework/metrics'
 import { RetrySchedule, defaultRetryConfig, retryIfRetriable } from '@posthog/node-common/utils/retries'
-
-import { pipelineRetryAttemptsHistogram } from '~/ingestion/framework/metrics'
 
 export interface MetricsRetryOptions extends RetrySchedule {
     /** Label in the `ingestion_pipeline_retry_attempts` metric. */

@@ -1,6 +1,7 @@
 import { Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
 import pLimit from 'p-limit'
 
+import { TopHog } from '@posthog/ingestion-common/framework/tophog/tophog'
 import { EachBatchResult, KafkaConsumerV2 } from '@posthog/node-common/kafka/consumer/consumer-v2'
 import {
     DlqOutput,
@@ -27,7 +28,6 @@ import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
 import { buildIntegerMatcher } from '~/common/config/config'
 import { IngestionConsumerConfig } from '~/ingestion/config'
-import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayPipelineConfig, createSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
 import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'

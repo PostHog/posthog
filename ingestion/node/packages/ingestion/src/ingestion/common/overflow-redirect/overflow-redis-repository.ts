@@ -1,10 +1,10 @@
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 
+import { Component } from '@posthog/ingestion-common/scopes/index'
 import { timeoutGuard } from '@posthog/node-common/utils/db/utils'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { Component } from '~/ingestion/common/scopes'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '~/types'
 
 import { overflowRedirectRedisLatency, overflowRedirectRedisOpsTotal } from './metrics'

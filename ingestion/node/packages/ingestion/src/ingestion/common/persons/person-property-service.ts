@@ -1,4 +1,4 @@
-import { PersonPropertiesSizeViolationError } from '@posthog/node-common/persons/repositories/person-repository'
+import { PersonPropertiesSizeViolationError } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { defaultRetryConfig, promiseRetry } from '@posthog/node-common/utils/retries'
 
 import { InternalPerson } from '~/types'

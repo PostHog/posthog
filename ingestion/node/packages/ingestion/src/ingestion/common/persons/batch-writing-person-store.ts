@@ -2,6 +2,7 @@ import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { emitIngestionWarning } from '@posthog/ingestion-common/ingestion-warnings'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -20,15 +21,14 @@ import {
     personResolveKeysPerCallHistogram,
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
-} from '@posthog/node-common/persons/metrics'
-import { isFilteredPersonUpdateProperty } from '@posthog/node-common/persons/person-property-utils'
+} from '@posthog/ingestion-common/persons/metrics'
 import {
     MergePersonUpdate,
     PendingPersonChanges,
     PersonUpdate,
     fromInternalPerson,
     toInternalPerson,
-} from '@posthog/node-common/persons/person-update-batch'
+} from '@posthog/ingestion-common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
@@ -36,17 +36,17 @@ import {
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
-} from '@posthog/node-common/persons/repositories/person-repository'
-import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '@posthog/ingestion-common/persons/repositories/person-repository-transaction'
+import { CreatePersonResult, MoveDistinctIdsResult } from '@posthog/ingestion-common/utils/db/db'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
 import { withTracingSpan } from '@posthog/node-common/tracing/tracing-utils'
-import { CreatePersonResult, MoveDistinctIdsResult } from '@posthog/node-common/utils/db/db'
 import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
 import { logger } from '@posthog/node-common/utils/logger'
+import { isFilteredPersonUpdateProperty } from '@posthog/node-common/utils/person-property-utils'
 import { NoRowsUpdatedError } from '@posthog/node-common/utils/utils'
 
 import { buildIntegerMatcher } from '~/common/config/config'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'

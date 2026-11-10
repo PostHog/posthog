@@ -1,8 +1,8 @@
-import { MAX_GROUP_TYPE_LENGTH } from '@posthog/node-common/groups/group-type-manager'
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { MAX_GROUP_TYPE_LENGTH } from '@posthog/ingestion-common/groups/group-type-manager'
 import { asPostgresParameterText } from '@posthog/node-common/utils/db/utils'
 
-import { drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PipelineEvent } from '~/types'
 
 // posthog_group.group_key is varchar(400).

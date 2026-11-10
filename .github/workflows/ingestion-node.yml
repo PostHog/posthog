@@ -93,11 +93,11 @@ jobs:
             - name: Build the dependencies
               run: bin/turbo --filter=@posthog/ingestion prepare
             - name: Typecheck
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion typescript:check
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/ingestion typescript:check
             - name: Lint
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion lint
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/ingestion lint
             - name: Check formatting
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion format:check
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/ingestion format:check
 
     test:
         name: Test (${{ matrix.package }}, ${{ matrix.lane }} ${{ matrix.shard }}/${{ matrix.shard_count }})
@@ -112,6 +112,7 @@ jobs:
             matrix:
                 include:
                     - { package: common, lane: parallel, shard: 1, shard_count: 1 }
+                    - { package: ingestion-common, lane: parallel, shard: 1, shard_count: 1 }
                     - { package: ingestion, lane: parallel, shard: 1, shard_count: 3 }
                     - { package: ingestion, lane: parallel, shard: 2, shard_count: 3 }
                     - { package: ingestion, lane: parallel, shard: 3, shard_count: 3 }
@@ -180,6 +181,8 @@ jobs:
               run: |
                   if [ "${{ matrix.package }}" = "common" ]; then
                       pnpm --filter=@posthog/node-common test
+                  elif [ "${{ matrix.package }}" = "ingestion-common" ]; then
+                      pnpm --filter=@posthog/ingestion-common test
                   else
                       pnpm --filter=@posthog/ingestion test:${{ matrix.lane }}
                   fi

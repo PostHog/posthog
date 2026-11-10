@@ -1,8 +1,8 @@
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { captureException } from '@posthog/node-common/utils/posthog'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { PipelineResultType } from '~/ingestion/framework/results'
 import { processAiEvent } from '~/ingestion/pipelines/ai/process-ai-event'
 
 import { createProcessAiEventStep } from './process-ai-event-step'

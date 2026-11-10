@@ -1,4 +1,4 @@
-import { PipelineResultType } from '~/ingestion/framework/results'
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 
 import { LibVersionMonitorStepInput, createLibVersionMonitorStep } from './lib-version-monitor-step'
 

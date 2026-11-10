@@ -4,22 +4,22 @@ import { v4 } from 'uuid'
 
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
+import { GroupRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
+import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
+import {
+    buildGroupRepository,
+    buildPersonRepository,
+    createPersonHogClient,
+} from '@posthog/ingestion-common/personhog/index'
+import { PersonRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
 import { KAFKA_INGESTION_WARNINGS } from '@posthog/node-common/config/kafka-topics'
 import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '@posthog/node-common/config/redis-pools'
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
-import { GroupRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
-import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
-import {
-    buildGroupRepository,
-    buildPersonRepository,
-    createPersonHogClient,
-} from '@posthog/node-common/personhog/index'
-import { PersonRepository } from '@posthog/node-common/persons/repositories/person-repository'
-import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
 import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'

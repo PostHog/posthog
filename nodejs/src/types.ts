@@ -6,6 +6,7 @@ import type {
 } from '@posthog/hog-engine/cdp/outputs/producers'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import type { PersonServices } from '@posthog/ingestion-common/types'
 import type { CommonConfig, HubServices as CommonHubServices } from '@posthog/node-common/types'
 
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/logs/config'
@@ -30,7 +31,7 @@ export interface PluginsServerConfig
         KafkaWarpstreamCyclotronProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
-export interface HubServices extends CommonHubServices {
+export interface HubServices extends CommonHubServices, PersonServices {
     encryptedFields: EncryptedFields
     integrationManager: IntegrationManagerService
 }

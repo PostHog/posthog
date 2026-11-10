@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 
+import { PipelineResult, ok } from '@posthog/ingestion-common/framework/results'
+
 import {
     OverflowEventGroup,
     OverflowRedirectService,
 } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
-import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { EventHeaders } from '~/types'
 
 import { deriveOverflowKey } from './rate-limit-to-overflow-step'

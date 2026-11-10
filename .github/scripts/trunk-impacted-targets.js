@@ -1554,7 +1554,7 @@ const INGESTION_AI_RESEARCH_DIRS = [
 // Until @posthog/node-common and @posthog/ingestion are published, nodejs
 // consumes them from the workspace, so a change to either still runs the
 // nodejs suites. Each entry goes once its consumers pin a version.
-const INGESTION_EXPORTS = ['ingestion/node/packages/ingestion/src/ingestion/']
+const INGESTION_EXPORTS = ['ingestion/node/packages/common/', 'ingestion/node/packages/ingestion/src/ingestion/']
 
 function ingestionLaneFor(file) {
     if (/^\.github\/workflows\/_?ingestion-[^/]+\.yml$/.test(file)) {

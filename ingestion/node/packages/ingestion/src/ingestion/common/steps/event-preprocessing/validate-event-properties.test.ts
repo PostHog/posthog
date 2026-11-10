@@ -1,6 +1,6 @@
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { createTestPipelineEvent } from '@posthog/node-common/testing/pipeline-event'
 
-import { drop, ok } from '~/ingestion/framework/results'
 import { PipelineEvent } from '~/types'
 
 import { createValidateEventPropertiesStep } from './validate-event-properties'

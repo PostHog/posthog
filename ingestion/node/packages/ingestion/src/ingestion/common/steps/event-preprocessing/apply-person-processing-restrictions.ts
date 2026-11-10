@@ -1,10 +1,10 @@
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import {
     EventIngestionRestrictionManager,
     RestrictionType,
 } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
 
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, PipelineEvent, Team } from '~/types'
 
 function applyPersonProcessingRestrictions(

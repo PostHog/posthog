@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
+import { isOkResult } from '@posthog/ingestion-common/framework/results'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
 import { UsageIngestionClient, UsageRecordInput } from '@posthog/node-common/usage-ingestion/client'
 import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
 
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
-import { isOkResult } from '~/ingestion/framework/results'
 import { Person } from '~/types'
 
 import { createRecordEventUsageAfterIngestStep, createRecordEventUsageStep } from './usage-records-steps'

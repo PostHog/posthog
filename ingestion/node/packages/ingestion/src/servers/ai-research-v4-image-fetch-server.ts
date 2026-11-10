@@ -3,6 +3,7 @@ import { KMSClient } from '@aws-sdk/client-kms'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { LibrdKafkaError } from 'node-rdkafka'
 
+import { TopHog } from '@posthog/ingestion-common/framework/tophog/tophog'
 import {
     KafkaConsumer,
     KafkaConsumerConfig,
@@ -19,7 +20,6 @@ import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-produc
 import { CleanupResources } from '@posthog/node-common/servers/base-server'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { AiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 import {
     ConfigurationPolicyService,

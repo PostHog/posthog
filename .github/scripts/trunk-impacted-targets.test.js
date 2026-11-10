@@ -2385,6 +2385,11 @@ test('the unpublished package paths claim their consumers as well', () => {
     }
     const engine = computeTargets(['nodejs/packages/hog-engine/src/cdp/types.ts'], CONTEXT)
     assert.equal(engine.includes(INGESTION), true)
+    const contract = computeTargets(['ingestion/node/packages/common/src/persons/repositories/person-repository.ts'], CONTEXT)
+    assert.equal(contract.includes(INGESTION), true)
+    for (const lane of NODE_LANES) {
+        assert.equal(contract.includes(lane), true)
+    }
     // The services themselves are consumed by nobody.
     assert.deepEqual(
         computeTargets(['ingestion/node/packages/ingestion/src/servers/ingestion-general-server.ts'], CONTEXT),

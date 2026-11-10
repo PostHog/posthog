@@ -13,12 +13,12 @@ import {
 import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from '@posthog/hog-engine/cdp/utils/cdp-fetch'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import { PersonReadRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import type { CommonConfig } from '@posthog/node-common/config'
 import { InternalLogsProducer, InternalLogsProducerConfig } from '@posthog/node-common/logs/internal-logs-producer'
 import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
-import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { InternalCaptureService } from '@posthog/node-common/services/internal-capture'
 import {

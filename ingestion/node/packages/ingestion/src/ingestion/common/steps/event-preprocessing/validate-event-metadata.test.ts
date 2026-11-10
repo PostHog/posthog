@@ -1,6 +1,6 @@
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 
-import { drop, ok } from '~/ingestion/framework/results'
 import { EventHeaders } from '~/types'
 
 import { createValidateEventMetadataStep } from './validate-event-metadata'

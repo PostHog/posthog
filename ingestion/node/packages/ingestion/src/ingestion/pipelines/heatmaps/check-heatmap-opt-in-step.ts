@@ -1,5 +1,6 @@
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PipelineResult, drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+
 import { Team } from '~/types'
 
 type CheckHeatmapOptInInput = {

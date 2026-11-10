@@ -1,16 +1,16 @@
 import { DateTime } from 'luxon'
 
-import { PersonPropertiesSizeViolationError } from '@posthog/node-common/persons/repositories/person-repository'
+import { emitIngestionWarning } from '@posthog/ingestion-common/ingestion-warnings'
+import { PersonPropertiesSizeViolationError } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { createDefaultSyncMergeMode } from './person-merge-types'
 
-jest.mock('~/ingestion/common/ingestion-warnings', () => ({
+jest.mock('@posthog/ingestion-common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 

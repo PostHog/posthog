@@ -6,6 +6,20 @@ import {
 } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { TopHog } from '@posthog/ingestion-common/framework/tophog/index'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
+import { PersonHogClient } from '@posthog/ingestion-common/personhog/client'
+import { createIdentityClients } from '@posthog/ingestion-common/personhog/identity-clients'
+import {
+    PersonHogConfig,
+    buildGroupRepository,
+    buildPersonRepository,
+    createPersonHogClient,
+} from '@posthog/ingestion-common/personhog/index'
+import { PersonHogPersonWriteRepository } from '@posthog/ingestion-common/personhog/personhog-person-write-repository'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig } from '@posthog/node-common/config'
 import {
@@ -13,20 +27,7 @@ import {
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '@posthog/node-common/config/redis-pools'
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
-import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
-import { PersonHogClient } from '@posthog/node-common/personhog/client'
-import { createIdentityClients } from '@posthog/node-common/personhog/identity-clients'
-import {
-    PersonHogConfig,
-    buildGroupRepository,
-    buildPersonRepository,
-    createPersonHogClient,
-} from '@posthog/node-common/personhog/index'
-import { PersonHogPersonWriteRepository } from '@posthog/node-common/personhog/personhog-person-write-repository'
-import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
 import {
     BaseServerConfig,
     CleanupResources,
@@ -70,7 +71,6 @@ import {
     createGroupProducePromises,
     createPersonProducePromises,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
-import { TopHog } from '~/ingestion/framework/tophog'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,

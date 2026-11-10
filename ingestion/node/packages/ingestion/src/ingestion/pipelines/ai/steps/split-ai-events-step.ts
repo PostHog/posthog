@@ -1,9 +1,9 @@
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '@posthog/node-common/outputs/index'
 
 import { isAiEventName } from '~/ingestion/common/ai-event-types'
 import { EventToEmit } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { LARGE_AI_PROPERTIES } from '~/ingestion/pipelines/ai/large-ai-properties'
 import { ProcessedEvent } from '~/types'
 

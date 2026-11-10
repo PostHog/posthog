@@ -3,7 +3,8 @@ import { promisify } from 'node:util'
 import { register } from 'prom-client'
 import { gzip } from 'zlib'
 
-import { PipelineResultType } from '~/ingestion/framework/results'
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
+
 import { imageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import { SessionReplayHeaders } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 

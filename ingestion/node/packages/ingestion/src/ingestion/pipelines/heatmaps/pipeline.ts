@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/tophog'
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput, TophogOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
@@ -27,7 +28,6 @@ import { createNormalizeEventStep } from '~/ingestion/common/steps/event-process
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 
 import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'
 import { createDisablePersonProcessingStep } from './disable-person-processing-step'

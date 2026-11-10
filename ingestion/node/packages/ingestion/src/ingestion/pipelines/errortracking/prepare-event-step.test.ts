@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
 import { createTestTeam } from '@posthog/node-common/testing/team'
 
 import { BLOAT_PROPERTIES } from '~/ingestion/common/steps/event-processing/strip-bloat-properties'
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { Person } from '~/types'
 
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'

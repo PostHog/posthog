@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
 import {
     IngestionWarningsOutput,
     PersonDistinctIdsOutput,
@@ -7,7 +8,6 @@ import {
     PersonsOutput,
 } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-import { PersonMessage } from '@posthog/node-common/persons/person-message'
 import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
 
 import { Team } from '~/types'

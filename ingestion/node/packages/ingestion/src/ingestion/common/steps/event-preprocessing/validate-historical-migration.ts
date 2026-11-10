@@ -1,5 +1,6 @@
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+
 import { EventHeaders } from '~/types'
 
 const HISTORICAL_MIGRATION_MIN_AGE_MS = 48 * 60 * 60 * 1000 // 48 hours in milliseconds

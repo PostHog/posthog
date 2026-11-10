@@ -1,7 +1,8 @@
 import { LRUCache } from 'lru-cache'
 
+import { Component } from '@posthog/ingestion-common/scopes/index'
+
 import { MemoryRateLimiter } from '~/ingestion/common/overflow-redirect/overflow-detector'
-import { Component } from '~/ingestion/common/scopes'
 import { HealthCheckResult } from '~/types'
 
 import {

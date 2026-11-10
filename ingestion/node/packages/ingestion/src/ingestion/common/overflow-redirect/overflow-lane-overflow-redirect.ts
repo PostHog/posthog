@@ -1,4 +1,5 @@
-import { Component } from '~/ingestion/common/scopes'
+import { Component } from '@posthog/ingestion-common/scopes/index'
+
 import { HealthCheckResult } from '~/types'
 
 import { overflowRedirectEventsTotal, overflowRedirectKeysTotal } from './metrics'

@@ -1,6 +1,5 @@
+import { Component } from '@posthog/ingestion-common/scopes/index'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
-
-import { Component } from '~/ingestion/common/scopes'
 
 export { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 

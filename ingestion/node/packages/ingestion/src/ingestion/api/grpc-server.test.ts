@@ -2,6 +2,7 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError } from '@connectrpc/connect'
 import { register } from 'prom-client'
 
+import { FeedResult } from '@posthog/ingestion-common/framework/batching-pipeline'
 import {
     IngestStreamRequest,
     IngestStreamRequestSchema,
@@ -10,9 +11,7 @@ import {
     StreamHelloSchema,
     SubBatchAck,
     SubBatchStatus,
-} from '@posthog/node-common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
-
-import { FeedResult } from '~/ingestion/framework/batching-pipeline'
+} from '@posthog/ingestion-common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
 
 import { FeedOrderSentinel } from './feed-order-sentinel'
 import { CompletedSubBatch, StreamIngestDriver, SubBatchBudget, WorkerIngestServer } from './grpc-server'

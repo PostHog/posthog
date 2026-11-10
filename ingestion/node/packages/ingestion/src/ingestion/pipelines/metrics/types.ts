@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaDebugContext } from '~/ingestion/framework/helpers'
+import { KafkaDebugContext } from '@posthog/ingestion-common/framework/helpers'
 
 export type MetricsIngestionMessage = {
     token: string

@@ -1,12 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import { BatchingContext, BatchingPipeline } from '@posthog/ingestion-common/framework/batching-pipeline'
+import { ChunkPipelineResultWithContext } from '@posthog/ingestion-common/framework/chunk-pipeline.interface'
+import { createBatch } from '@posthog/ingestion-common/framework/helpers'
+import { OkResultWithContext } from '@posthog/ingestion-common/framework/pipeline.interface'
+import { isOkResult } from '@posthog/ingestion-common/framework/results'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
-import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
-import { ChunkPipelineResultWithContext } from '~/ingestion/framework/chunk-pipeline.interface'
-import { createBatch } from '~/ingestion/framework/helpers'
-import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
-import { isOkResult } from '~/ingestion/framework/results'
 import { SessionReplayPipelineConfig } from '~/ingestion/pipelines/sessionreplay'
 import { AdmittedBatch } from '~/ingestion/pipelines/sessionreplay/batch-stages'
 import { BatchCommitter, StagedBatchRunner } from '~/ingestion/pipelines/sessionreplay/staged-batch'

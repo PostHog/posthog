@@ -1,5 +1,6 @@
+import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
+
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { PipelineEvent, Team } from '~/types'
 

@@ -1,5 +1,5 @@
-import { ChunkProcessingStep } from '~/ingestion/framework/builders'
-import { drop, ok } from '~/ingestion/framework/results'
+import { ChunkProcessingStep } from '@posthog/ingestion-common/framework/builders/index'
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
 
 import { metricMessageDroppedCounter } from './metrics'
 import { MetricsUsageAccumulator, kafkaMessageUsageIdentity } from './metrics-usage'

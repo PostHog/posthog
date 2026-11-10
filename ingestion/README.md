@@ -14,7 +14,8 @@ The ingestion team's services live under this directory: the Rust crates, the No
 ```text
 ingestion/
   rust/      ingestion's crates, members of the rust/ workspace (each declares workspace = "../../../rust")
-  node/      ingestion's Node packages
+  node/      ingestion's Node packages: packages/common (@posthog/ingestion-common, the contract other services import)
+             and packages/ingestion (@posthog/ingestion, the pipelines and servers)
   proto/     the protos ingestion owns
   pinned/    copies of outside format files, each with a SOURCE.json
   ci/        compose stack, determinator rules, image list, scripts and composite actions the workflows use

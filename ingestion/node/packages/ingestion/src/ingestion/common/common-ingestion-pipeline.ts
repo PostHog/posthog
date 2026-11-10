@@ -1,12 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { DlqOutput, IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
-import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
-import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
-import { TeamManager } from '@posthog/node-common/utils/team-manager'
-
-import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { ChunkProcessingStep } from '@posthog/ingestion-common/framework/base-chunk-pipeline'
 import {
     AfterBatchInput,
     AfterBatchOutput,
@@ -14,18 +8,35 @@ import {
     BatchingPipeline,
     BeforeBatchInput,
     BeforeBatchOutput,
-} from '~/ingestion/framework/batching-pipeline'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
-import { ChunkPipelineBuilder, GroupProcessingBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
-import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
-import { GroupingFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
-import { TopHogMetricFactory, TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
-import { FanInFunction, FanOutFunction, FanOutSubContext } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
-import { KafkaDebugContext, aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { ok } from '~/ingestion/framework/results'
-import { RetryOptions } from '~/ingestion/framework/retry'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+} from '@posthog/ingestion-common/framework/batching-pipeline'
+import {
+    ChunkPipelineBuilder,
+    GroupProcessingBuilder,
+} from '@posthog/ingestion-common/framework/builders/chunk-pipeline-builders'
+import { newBatchingPipeline } from '@posthog/ingestion-common/framework/builders/index'
+import { PipelineBuilder, StartPipelineBuilder } from '@posthog/ingestion-common/framework/builders/pipeline-builders'
+import { GroupingFunction } from '@posthog/ingestion-common/framework/concurrently-grouping-chunk-pipeline'
+import {
+    TopHogMetricFactory,
+    TopHogRegistry,
+    createTopHogWrapper,
+} from '@posthog/ingestion-common/framework/extensions/tophog'
+import {
+    FanInFunction,
+    FanOutFunction,
+    FanOutSubContext,
+} from '@posthog/ingestion-common/framework/fan-out-fan-in-chunk-pipeline'
+import { KafkaDebugContext, aggregateKafkaDebugContexts } from '@posthog/ingestion-common/framework/helpers'
+import { PipelineConfig } from '@posthog/ingestion-common/framework/result-handling-pipeline'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { RetryOptions } from '@posthog/ingestion-common/framework/retry'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { DlqOutput, IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
 import {

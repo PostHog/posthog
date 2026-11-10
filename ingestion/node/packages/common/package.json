@@ -1,0 +1,71 @@
+{
+    "name": "@posthog/ingestion-common",
+    "version": "0.0.0",
+    "description": "Ingestion's contract with the other Node services: the pipeline framework, the personhog client and stubs, and the person and group repositories.",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "ingestion/node/packages/common"
+    },
+    "files": [
+        "dist"
+    ],
+    "exports": {
+        "./*": {
+            "types": "./dist/*.d.ts",
+            "default": "./dist/*.js"
+        }
+    },
+    "scripts": {
+        "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "jest --runInBand --forceExit",
+        "lint": "oxlint -c .oxlintrc.json .",
+        "lint:fix": "oxlint -c .oxlintrc.json . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "prepublishOnly": "pnpm build",
+        "gen:ingestion-warning-types": "tsx src/scripts/generate-ingestion-warning-types.ts",
+        "generate:personhog-proto": "cd ../../../proto && buf generate --template ../node/packages/common/buf.gen.personhog.yaml --path personhog/service --path personhog/identity --path personhog/lifecycle --path personhog/types . && cd ../node/packages/common && prettier --write src/generated/personhog",
+        "generate:ingestion-worker-proto": "cd ../../../proto && buf generate --template ../node/packages/common/buf.gen.ingestion-worker.yaml --path ingestion/worker . && cd ../node/packages/common && prettier --write src/generated/ingestion-worker"
+    },
+    "dependencies": {
+        "@bufbuild/protobuf": "2.11.0",
+        "@connectrpc/connect": "2.1.1",
+        "@connectrpc/connect-node": "2.1.1",
+        "@opentelemetry/api": "1.9.0",
+        "@posthog/node-common": "workspace:*",
+        "luxon": "3.5.0",
+        "node-rdkafka": "v3.6.1",
+        "p-limit": "3.1.0",
+        "pg": "8.10.0",
+        "prom-client": "14.2.0"
+    },
+    "devDependencies": {
+        "@bufbuild/protoc-gen-es": "^2.11.0",
+        "@opentelemetry/sdk-trace-node": "2.0.1",
+        "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+        "@types/jest": "30.0.0",
+        "@types/long": "4.0.2",
+        "@types/luxon": "3.4.2",
+        "@types/node": "26.6.5",
+        "@types/pg": "8.6.6",
+        "jest": "30.0.5",
+        "jest-junit": "16.0.0",
+        "node-fetch": "2.6.9",
+        "oxlint": "1.72.0",
+        "oxlint-plugin-eslint": "1.72.0",
+        "oxlint-tsgolint": "7.0.2001",
+        "prettier": "~3.6.2",
+        "ts-jest": "29.4.9",
+        "ts-node": "10.9.1",
+        "tsc-alias": "1.8.16",
+        "tsconfig-paths": "4.2.0",
+        "tsx": "4.20.5",
+        "typescript": "6.0.3"
+    },
+    "engines": {
+        "node": ">=26 <27"
+    }
+}

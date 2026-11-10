@@ -1,5 +1,7 @@
 import { Counter } from 'prom-client'
 
+import { dlq, drop, ok, redirect } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { OVERFLOW_OUTPUT, OverflowOutput } from '@posthog/node-common/outputs/index'
 import {
     EventIngestionRestrictionManager,
@@ -7,8 +9,6 @@ import {
 } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
 
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { dlq, drop, ok, redirect } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'
 
 export const ingestionOverflowingMessagesTotal = new Counter({

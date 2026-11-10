@@ -1,4 +1,5 @@
-import { Component } from '~/ingestion/common/scopes'
+import { Component } from '@posthog/ingestion-common/scopes/index'
+
 import { HealthCheckResult, HealthCheckResultOk } from '~/types'
 
 import { OverflowRedirectService } from './overflow-redirect-service'

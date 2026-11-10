@@ -1,7 +1,7 @@
-import { ReadOnlyGroupTypeManager } from '@posthog/node-common/groups/readonly-group-type-manager'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { ReadOnlyGroupTypeManager } from '@posthog/ingestion-common/groups/readonly-group-type-manager'
 
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PreIngestionEvent, Team } from '~/types'
 
 import { enrichPropertiesWithGroupTypes } from './groups'

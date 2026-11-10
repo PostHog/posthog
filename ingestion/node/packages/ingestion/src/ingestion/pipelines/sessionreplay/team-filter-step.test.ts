@@ -1,4 +1,5 @@
-import { PipelineResultType } from '~/ingestion/framework/results'
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
+
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { TeamFilterStepInput, TeamTokenResolver, createTeamFilterStep } from './team-filter-step'

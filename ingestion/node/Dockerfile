@@ -48,6 +48,7 @@ COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./nodejs/packages/hog-engine/ ./nodejs/packages/hog-engine/
 COPY ./nodejs/packages/common/ ./nodejs/packages/common/
+COPY ./ingestion/node/packages/common/ ./ingestion/node/packages/common/
 COPY ./ingestion/node/packages/ingestion/package.json ./ingestion/node/packages/ingestion/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -126,6 +127,9 @@ COPY --from=build --chown=posthog:posthog /code/nodejs/packages/hog-engine/packa
 COPY --from=build --chown=posthog:posthog /code/nodejs/packages/common/dist /code/nodejs/packages/common/dist
 COPY --from=build --chown=posthog:posthog /code/nodejs/packages/common/node_modules /code/nodejs/packages/common/node_modules
 COPY --from=build --chown=posthog:posthog /code/nodejs/packages/common/package.json /code/nodejs/packages/common/package.json
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/common/dist /code/ingestion/node/packages/common/dist
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/common/node_modules /code/ingestion/node/packages/common/node_modules
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/common/package.json /code/ingestion/node/packages/common/package.json
 COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/dist /code/ingestion/node/packages/ingestion/dist
 COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/node_modules /code/ingestion/node/packages/ingestion/node_modules
 COPY --from=build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/package.json /code/ingestion/node/packages/ingestion/package.json

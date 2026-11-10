@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { PipelineResult, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { normalizeEvent, normalizeProcessPerson } from '@posthog/node-common/utils/event'
 
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
-import { PipelineResult, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'
 
 type NormalizeEventInput = {

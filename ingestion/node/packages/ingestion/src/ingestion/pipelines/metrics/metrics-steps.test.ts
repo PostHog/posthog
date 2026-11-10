@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { PipelineResult, isDlqResult, isDropResult, isOkResult } from '@posthog/ingestion-common/framework/results'
 import { AppMetricsOutput, DLQ_OUTPUT, DlqOutput } from '@posthog/node-common/outputs/index'
 import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
@@ -8,8 +9,6 @@ import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-rec
 import { DependencyUnavailableError, MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
 import { isDevEnv } from '@posthog/node-common/utils/env-utils'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { PipelineResult, isDlqResult, isDropResult, isOkResult } from '~/ingestion/framework/results'
 
 import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { recordMetricsIngested } from './ingestion-otel-metrics'

@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { Component, newScope } from '@posthog/ingestion-common/scopes/index'
 import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
 
@@ -9,7 +10,6 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
-import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import {
     HeatmapsConsumerConfig,

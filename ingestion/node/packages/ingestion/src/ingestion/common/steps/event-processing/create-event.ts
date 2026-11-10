@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { MAX_GROUP_TYPES_PER_TEAM } from '@posthog/node-common/groups/group-type-manager'
+import { MAX_GROUP_TYPES_PER_TEAM } from '@posthog/ingestion-common/groups/group-type-manager'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
 import { elementsToString, extractElements } from '@posthog/node-common/utils/elements-chain'
 import { logger } from '@posthog/node-common/utils/logger'

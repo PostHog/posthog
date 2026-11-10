@@ -15,7 +15,7 @@ import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation
 import {
     InternalPersonWithDistinctId,
     PersonReadRepository,
-} from '@posthog/node-common/persons/repositories/person-repository'
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { UUIDT } from '@posthog/node-common/utils/utils'

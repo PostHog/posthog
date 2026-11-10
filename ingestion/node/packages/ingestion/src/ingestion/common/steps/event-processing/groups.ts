@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
 
 import { GroupTypeToColumnIndex, ProjectId, TeamId } from '~/types'

@@ -1,6 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { ReadOnlyGroupTypeManager } from '@posthog/node-common/groups/readonly-group-type-manager'
+import { BatchingContext, BatchingPipeline } from '@posthog/ingestion-common/framework/batching-pipeline'
+import { TopHogRegistry, count } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { ReadOnlyGroupTypeManager } from '@posthog/ingestion-common/groups/readonly-group-type-manager'
+import { PersonReadRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import {
     AppMetricsOutput,
@@ -12,7 +15,6 @@ import {
     TophogOutput,
 } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
 import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
@@ -52,8 +54,6 @@ import {
 } from '~/ingestion/common/steps/usage-records-steps'
 import { resolveExceptionUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
-import { TopHogRegistry, count } from '~/ingestion/framework/extensions/tophog'
 
 import { createAttachMessageBytesStep } from './attach-message-bytes-step'
 import { createCymbalProcessingStep } from './cymbal-processing-step'

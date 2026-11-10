@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
@@ -9,7 +10,6 @@ import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event
 import { createTestTeam } from '@posthog/node-common/testing/team'
 
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
-import { PipelineResultType } from '~/ingestion/framework/results'
 import { EventHeaders, Person, Team } from '~/types'
 
 import { createPrepareEventStep } from './prepare-event-step'

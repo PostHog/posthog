@@ -1,9 +1,9 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogPersonWriteRepository } from '@posthog/node-common/personhog/personhog-person-write-repository'
-import { PersonhogFencedError, PersonhogPropertiesSizeError } from '@posthog/node-common/personhog/persons'
-import { PersonClaimedByLifecycleOpError } from '@posthog/node-common/persons/repositories/person-repository'
+import { PersonHogPersonWriteRepository } from '@posthog/ingestion-common/personhog/personhog-person-write-repository'
+import { PersonhogFencedError, PersonhogPropertiesSizeError } from '@posthog/ingestion-common/personhog/persons'
+import { PersonClaimedByLifecycleOpError } from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { NoRowsUpdatedError } from '@posthog/node-common/utils/utils'
 
 import { InternalPerson } from '~/types'

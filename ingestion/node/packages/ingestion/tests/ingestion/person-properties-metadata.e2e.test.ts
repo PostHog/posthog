@@ -11,10 +11,11 @@ import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
-import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import { fetchPostgresPersons } from '@posthog/ingestion-common/testing/persons'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
-import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '@posthog/node-common/testing/sql'
+import { createUserTeamAndOrganization, uniqueTestId } from '@posthog/node-common/testing/sql'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'

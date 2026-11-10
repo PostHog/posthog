@@ -6,14 +6,14 @@
 import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/producer.spy'
 
 import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
+import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
+import { fetchPostgresPersons } from '@posthog/ingestion-common/testing/persons'
 import {
     KAFKA_CLICKHOUSE_FLAG_EVALUATIONS,
     KAFKA_REALTIME_ONLY_EVENTS_JSON,
 } from '@posthog/node-common/config/kafka-topics'
-import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
 import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
-import { fetchPostgresPersons } from '@posthog/node-common/testing/sql'
 import { parseRawClickHouseEvent } from '@posthog/node-common/utils/event'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 

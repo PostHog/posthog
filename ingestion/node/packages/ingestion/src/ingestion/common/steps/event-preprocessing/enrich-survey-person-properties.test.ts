@@ -1,6 +1,5 @@
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { createTestPipelineEvent } from '@posthog/node-common/testing/pipeline-event'
-
-import { PipelineResultType } from '~/ingestion/framework/results'
 
 import {
     SURVEY_EVENTS,

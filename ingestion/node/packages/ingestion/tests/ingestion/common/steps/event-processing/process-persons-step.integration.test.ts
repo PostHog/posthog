@@ -3,6 +3,15 @@ import { mockProducer } from '@posthog/node-common/testing/mocks/producer.mock'
 import { DateTime } from 'luxon'
 
 import {
+    PipelineResultType,
+    isDlqResult,
+    isOkResult,
+    isRedirectResult,
+} from '@posthog/ingestion-common/framework/results'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues, fetchDistinctIds } from '@posthog/ingestion-common/persons/repositories/test-helpers'
+import { fetchPostgresPersons } from '@posthog/ingestion-common/testing/persons'
+import {
     KAFKA_INGESTION_WARNINGS,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
@@ -18,10 +27,8 @@ import {
 } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
-import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
-import { fetchDistinctIdValues, fetchDistinctIds } from '@posthog/node-common/persons/repositories/test-helpers'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
-import { createOrganization, createTeam, fetchPostgresPersons, getTeam } from '@posthog/node-common/testing/sql'
+import { createOrganization, createTeam, getTeam } from '@posthog/node-common/testing/sql'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { normalizeEvent, normalizeProcessPerson } from '@posthog/node-common/utils/event'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
@@ -38,7 +45,6 @@ import {
     createProcessPersonsStep,
 } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
-import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { Person, Team } from '~/types'
 

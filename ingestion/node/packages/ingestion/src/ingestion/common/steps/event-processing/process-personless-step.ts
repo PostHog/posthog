@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { PipelineResult, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { normalizeProcessPerson } from '@posthog/node-common/utils/event'
 
@@ -13,8 +15,6 @@ import {
     DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
     DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
 } from '~/ingestion/config'
-import { PipelineResult, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { Person, Team } from '~/types'
 
 export type ProcessPersonlessInput = {

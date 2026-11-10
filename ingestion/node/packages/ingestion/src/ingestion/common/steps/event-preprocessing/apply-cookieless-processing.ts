@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { PipelineResult, isOkResult, ok } from '@posthog/ingestion-common/framework/results'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { EventHeaders, Team } from '~/types'
 
 type ApplyCookielessProcessingInput = { event: PluginEvent; team: Team; message: Message; headers: EventHeaders }

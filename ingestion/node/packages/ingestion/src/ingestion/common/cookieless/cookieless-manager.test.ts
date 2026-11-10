@@ -2,8 +2,9 @@ import fs from 'fs'
 import { Message } from 'node-rdkafka'
 import path from 'path'
 
+import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
+import { COOKIELESS_SENTINEL_VALUE } from '@posthog/ingestion-common/persons/person-utils'
 import { cookielessRedisErrorCounter } from '@posthog/node-common/metrics'
-import { COOKIELESS_SENTINEL_VALUE } from '@posthog/node-common/persons/person-utils'
 import type { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createOrganization, createTeam, getTeam } from '@posthog/node-common/testing/sql'
@@ -12,7 +13,6 @@ import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { UUID7 } from '@posthog/node-common/utils/utils'
 
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { CookielessServerHashMode, EventHeaders, PipelineEvent, Team } from '~/types'
 

@@ -3,26 +3,26 @@ import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
-import { TRANSPORT_MAX_BACKOFF_MS, TRANSPORT_MAX_RETRIES } from '@posthog/node-common/personhog/grpc-retry'
+import { TRANSPORT_MAX_BACKOFF_MS, TRANSPORT_MAX_RETRIES } from '@posthog/ingestion-common/personhog/grpc-retry'
 import {
     DistinctIdKey,
     NOT_APPLIED_METADATA_KEY,
     SEMANTIC_REFUSAL_METADATA_KEY,
     SEMANTIC_REFUSAL_OP_ID_REUSED,
-} from '@posthog/node-common/personhog/identity'
-import { errorClassLabel } from '@posthog/node-common/personhog/metrics'
-import { PersonHogPersonWriteRepository } from '@posthog/node-common/personhog/personhog-person-write-repository'
+} from '@posthog/ingestion-common/personhog/identity'
+import { errorClassLabel } from '@posthog/ingestion-common/personhog/metrics'
+import { PersonHogPersonWriteRepository } from '@posthog/ingestion-common/personhog/personhog-person-write-repository'
 import {
     PersonIdentity,
     PersonhogFencedError,
     PersonhogPropertiesSizeError,
-} from '@posthog/node-common/personhog/persons'
-import { personResolveKeysPerCallHistogram } from '@posthog/node-common/persons/metrics'
-import { PersonMessage } from '@posthog/node-common/persons/person-message'
-import { PersonClaimedByLifecycleOpError } from '@posthog/node-common/persons/repositories/person-repository'
-import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+} from '@posthog/ingestion-common/personhog/persons'
+import { personResolveKeysPerCallHistogram } from '@posthog/ingestion-common/persons/metrics'
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
+import { PersonClaimedByLifecycleOpError } from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '@posthog/ingestion-common/persons/repositories/person-repository-transaction'
+import { CreatePersonResult } from '@posthog/ingestion-common/utils/db/db'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
-import { CreatePersonResult } from '@posthog/node-common/utils/db/db'
 import { logger } from '@posthog/node-common/utils/logger'
 import { NoRowsUpdatedError } from '@posthog/node-common/utils/utils'
 

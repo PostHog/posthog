@@ -1,11 +1,10 @@
 import { Message } from 'node-rdkafka'
 
+import { produceMessageToDLQ } from '@posthog/ingestion-common/framework/result-handling-helpers'
+import { drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { DlqOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-
-import { produceMessageToDLQ } from '~/ingestion/framework/result-handling-helpers'
-import { drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { recordMetricsIngested } from './ingestion-otel-metrics'
 import { metricMessageDlqCounter, metricMessageDroppedCounter } from './metrics'

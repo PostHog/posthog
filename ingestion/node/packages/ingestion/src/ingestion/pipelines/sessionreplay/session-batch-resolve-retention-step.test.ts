@@ -1,4 +1,5 @@
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
+import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
+
 import {
     RetentionResolution,
     RetentionService,

@@ -1,4 +1,4 @@
-import { getNextRetryMs } from '@posthog/node-common/utils/retries'
+import { getNextRetryMs } from '~/utils/retries'
 
 jest.useFakeTimers()
 jest.spyOn(global, 'setTimeout')

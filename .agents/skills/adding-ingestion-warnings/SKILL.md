@@ -14,7 +14,7 @@ They are produced to the `clickhouse_ingestion_warnings` Kafka topic and land in
 ## The registry is the source of truth
 
 Every warning type must be registered in `INGESTION_WARNING_TYPES` in
-[nodejs/src/ingestion/common/ingestion-warning-types.ts](../../../nodejs/src/ingestion/common/ingestion-warning-types.ts)
+[ingestion/node/packages/common/src/ingestion-warning-types.ts](../../../ingestion/node/packages/common/src/ingestion-warning-types.ts)
 (a dependency-free leaf, re-exported from `ingestion-warnings.ts`, so codegen and its test can import it cheaply).
 The registry fixes the type's `category` and `severity`; they are resolved at serialization time, so callsites cannot drift or forget them.
 An unregistered type is a compile error (`IngestionWarningType` is the registry's key union).
@@ -31,7 +31,7 @@ To add a new warning:
 
 Two paths, both end at `serializeIngestionWarning`:
 
-- **Pipeline steps** (preferred): return warnings on the result — `ok(value, sideEffects, warnings)` or `drop(reason, [], warnings)`. They accumulate in `context.warnings` and are sent by `handleIngestionWarnings()`, which requires a `teamAware()` block. See the framework doc test [09-ingestion-warnings](../../../nodejs/src/ingestion/framework/docs/09-ingestion-warnings.test.ts).
+- **Pipeline steps** (preferred): return warnings on the result — `ok(value, sideEffects, warnings)` or `drop(reason, [], warnings)`. They accumulate in `context.warnings` and are sent by `handleIngestionWarnings()`, which requires a `teamAware()` block. See the framework doc test [09-ingestion-warnings](../../../ingestion/node/packages/common/src/framework/docs/09-ingestion-warnings.test.ts).
 - **Direct emit**: `emitIngestionWarning(outputs, teamId, warning)` (outputs-based, preferred) or `captureIngestionWarning(kafkaProducer, teamId, warning)` (legacy) for code outside the pipeline result flow.
 
 ### Details keys ClickHouse v2 materializes
@@ -55,7 +55,7 @@ Warnings are rate-limited per `team:type:key`. Set `key` to the entity you want 
 
 Rust services emit warnings through the `common-ingestion-warnings` crate ([ingestion/rust/ingestion_warnings](../../../ingestion/rust/ingestion_warnings)).
 Unlike nodejs (which has database access and writes the v2 row directly), Rust producers have no token→team resolution, so they don't write the row themselves.
-Instead they emit a synthetic `$$client_ingestion_warning` `CapturedEvent` onto the existing `client_ingestion_warning` topic; the nodejs `clientwarnings` consumer resolves the token to a `team_id`, reads the structured type/details/source, and writes the v2 row (see [handle-client-ingestion-warning-step.ts](../../../nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts)).
+Instead they emit a synthetic `$$client_ingestion_warning` `CapturedEvent` onto the existing `client_ingestion_warning` topic; the nodejs `clientwarnings` consumer resolves the token to a `team_id`, reads the structured type/details/source, and writes the v2 row (see [handle-client-ingestion-warning-step.ts](../../../ingestion/node/packages/ingestion/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts)).
 
 ### The Rust `WarningType` is generated — nodejs is the single source of truth
 
@@ -63,7 +63,7 @@ There is no hand-maintained Rust copy of the type list. A generator mirrors the 
 
 ```text
 INGESTION_WARNING_TYPES (all entries)                        # nodejs — source of truth
-  → pnpm --filter=@posthog/ingestion gen:ingestion-warning-types
+  → pnpm --filter=@posthog/ingestion-common gen:ingestion-warning-types
   → ingestion/rust/ingestion_warnings/warning_types.generated.json   # committed
   → build.rs → WarningType enum + ALL + as_str/category/severity/capture_produced
 ```
@@ -75,7 +75,7 @@ The artifact is committed _inside_ the Rust crate so the isolated Rust Docker/CI
 To add a **capture-produced** type:
 
 1. **Register it in nodejs** — add the type to `INGESTION_WARNING_TYPES` with `captureProduced: true` (see the nodejs steps above for `category`/`severity`, which the consumer owns). This also puts it on the `CAPTURE_PRODUCED_WARNING_TYPES` allowlist automatically.
-2. **Regenerate + commit the artifact** — run `pnpm --filter=@posthog/ingestion gen:ingestion-warning-types` and commit the updated `warning_types.generated.json`.
+2. **Regenerate + commit the artifact** — run `pnpm --filter=@posthog/ingestion-common gen:ingestion-warning-types` and commit the updated `warning_types.generated.json`.
 3. **Put it on exactly one Rust emit route** in `src/registry.rs`. The variant, `as_str`, and `ALL` are generated — never hand-write them. The weld test forces you to pick a route and fails if you pick both.
    - **`from_tag`** when a `v1::Error::tag()` (or per-event drop detail) already names the condition: add the arm mapping the tag to the variant. It stays hand-written because it maps capture's error taxonomy onto the registry and is the allowlist that makes unregistered tags emit nothing.
    - **`DIRECT_EMIT`** when no tag names it, which is the case for most non-v1 pipelines. Two shapes qualify: the condition isn't a failure (a rate-limited event is ingested, degraded), or the pipeline has no tag vocabulary at all. The AI endpoints, the OTLP endpoint, and replay are all the second kind — they reject through their own typed conditions or match `CaptureError` variants directly, so a tag for them would be a string no `Error` ever produces.

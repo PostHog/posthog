@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { GroupClickhouseMessage } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { GroupClickhouseMessage } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
 import { Properties } from '@posthog/node-common/plugin-scaffold'
 
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'

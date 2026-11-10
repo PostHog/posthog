@@ -1,15 +1,15 @@
 import { Message } from 'node-rdkafka'
 import { URL } from 'url'
 
+import { PipelineWarning } from '@posthog/ingestion-common/framework/pipeline.interface'
+import { PipelineResult, drop, isOkResult, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { isDistinctIdIllegal } from '@posthog/ingestion-common/persons/person-utils'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-import { isDistinctIdIllegal } from '@posthog/node-common/persons/person-utils'
 import { logger } from '@posthog/node-common/utils/logger'
 import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
 
 import { EmitEventStepOutput, IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
-import { PipelineResult, drop, isOkResult, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '~/types'
 
 import { HEATMAPS_OUTPUT, HeatmapsOutput } from './outputs'

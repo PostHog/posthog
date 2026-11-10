@@ -45,6 +45,7 @@ COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./nodejs/packages/hog-engine/ ./nodejs/packages/hog-engine/
 COPY ./nodejs/packages/common/ ./nodejs/packages/common/
+COPY ./ingestion/node/packages/common/ ./ingestion/node/packages/common/
 COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
 COPY ./common/replay-shared/package.json ./common/replay-shared/
 COPY ./common/replay-headless/package.json ./common/replay-headless/
@@ -177,6 +178,9 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/hog-engin
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/hog-engine/assets /code/nodejs/packages/hog-engine/assets
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/common/dist /code/nodejs/packages/common/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/common/node_modules /code/nodejs/packages/common/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/dist /code/ingestion/node/packages/common/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/package.json /code/ingestion/node/packages/common/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/node_modules /code/ingestion/node/packages/common/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/common/package.json /code/nodejs/packages/common/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules

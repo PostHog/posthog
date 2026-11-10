@@ -1,3 +1,6 @@
+import { AfterBatchInput } from '@posthog/ingestion-common/framework/batching-pipeline'
+import { isOkResult, ok } from '@posthog/ingestion-common/framework/results'
+import { emitIngestionWarning } from '@posthog/ingestion-common/ingestion-warnings'
 import { GROUPS_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
 import {
     PERSONS_OUTPUT,
@@ -9,7 +12,6 @@ import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
 
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import {
     batchStoreFlushCacheEntriesHistogram,
@@ -21,8 +23,6 @@ import {
     batchStoreFlushResultRecordsHistogram,
     batchStoreFlushTriggerBatchSizeHistogram,
 } from '~/ingestion/common/stores/metrics'
-import { AfterBatchInput } from '~/ingestion/framework/batching-pipeline'
-import { isOkResult, ok } from '~/ingestion/framework/results'
 
 import {
     FlushBatchStoresOutputs,
@@ -30,7 +30,7 @@ import {
     createFlushBatchStoresStep,
 } from './flush-batch-stores-step'
 
-jest.mock('~/ingestion/common/ingestion-warnings', () => ({
+jest.mock('@posthog/ingestion-common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn(),
 }))
 

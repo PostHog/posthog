@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PipelineWarning } from '@posthog/ingestion-common/framework/pipeline.interface'
+import { PipelineResult, drop, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+
 import { EventHeaders, PipelineEvent, Team } from '~/types'
 
 export interface DropOldEventsInput {

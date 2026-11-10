@@ -5,7 +5,7 @@ import { mockProducerObserver } from '@posthog/node-common/testing/mocks/produce
 import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { currentRuntimeContractHash } from '@posthog/hog-engine/cdp/utils/filter-runtime'
-import { GroupReadRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
 import {
     createOrganization,
     createTeam,

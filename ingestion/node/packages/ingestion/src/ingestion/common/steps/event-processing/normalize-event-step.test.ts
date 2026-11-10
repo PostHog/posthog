@@ -1,11 +1,10 @@
 import { DateTime } from 'luxon'
 
+import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 import { createTestTeam } from '@posthog/node-common/testing/team'
 import { UUIDT } from '@posthog/node-common/utils/utils'
-
-import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { createNormalizeEventStep } from './normalize-event-step'
 

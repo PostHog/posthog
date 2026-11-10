@@ -75,6 +75,7 @@ services/agent-*/.next
 !requirements.txt
 !rust
 !ingestion/rust
+!ingestion/node/packages/common
 !share/GeoLite2-City.mmdb
 !staticfiles
 !tailwind.config.js

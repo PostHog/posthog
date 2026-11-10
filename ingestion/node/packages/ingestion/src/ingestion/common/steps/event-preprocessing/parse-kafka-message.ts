@@ -1,13 +1,13 @@
 import { Message } from 'node-rdkafka'
 
+import { TopHogMetricFactory, count, max, sum, timer } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { dlq, ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { sanitizeEvent } from '@posthog/node-common/utils/event'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 import { UUID } from '@posthog/node-common/utils/utils'
 
-import { TopHogMetricFactory, count, max, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { dlq, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, IncomingEvent, PipelineEvent } from '~/types'
 
 /**

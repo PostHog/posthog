@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { ok } from '@posthog/ingestion-common/framework/results'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { ok } from '~/ingestion/framework/results'
 import { SessionReplayBatchProgress } from '~/ingestion/pipelines/sessionreplay'
 import { BatchStages } from '~/ingestion/pipelines/sessionreplay/batch-stages'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'

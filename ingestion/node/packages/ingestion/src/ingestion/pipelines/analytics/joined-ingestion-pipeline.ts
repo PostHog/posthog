@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { TopHogRegistry, createTopHogWrapper } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import {
     AppMetricsOutput,
@@ -47,7 +48,6 @@ import {
     createFlushEventUsageStep,
 } from '~/ingestion/common/steps/usage-records-steps'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 
 import { EventSubpipelineConfig, EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
 import {

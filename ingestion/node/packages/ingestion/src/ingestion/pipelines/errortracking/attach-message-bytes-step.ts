@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 
 /**
  * Carries the Kafka message byte size on the value, so downstream chunk steps

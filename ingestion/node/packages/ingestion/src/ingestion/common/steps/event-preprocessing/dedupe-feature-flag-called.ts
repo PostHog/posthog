@@ -1,3 +1,4 @@
+import { PipelineResult, drop, ok } from '@posthog/ingestion-common/framework/results'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 
 import {
@@ -6,7 +7,6 @@ import {
     featureFlagCalledDedupKey,
 } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { featureFlagCalledDedupEventsTotal } from '~/ingestion/common/feature-flag-called-dedup/metrics'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { Team } from '~/types'
 
 export interface DedupeFeatureFlagCalledStepInput {

@@ -1,4 +1,4 @@
-import { BackgroundRefresher } from '@posthog/node-common/utils/background-refresher'
+import { BackgroundRefresher } from '~/utils/background-refresher'
 
 const realNow = Date.now
 

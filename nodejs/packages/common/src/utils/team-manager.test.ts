@@ -10,9 +10,9 @@ import {
     updateOrganizationAvailableFeatures,
 } from '~/testing/sql'
 import { FlagEvaluationsMode, Hub, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
 
 import { defaultConfig } from '../config/config'
-import { closeHub, createHub } from './db/hub'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { captureTeamEvent } from './posthog'
 import { TeamManager } from './team-manager'

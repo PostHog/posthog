@@ -1,19 +1,19 @@
 import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
+import { BatchResult, FeedResult } from '@posthog/ingestion-common/framework/batching-pipeline'
+import { createKafkaDebugContext, createOkContext } from '@posthog/ingestion-common/framework/helpers'
+import { OkResultWithContext } from '@posthog/ingestion-common/framework/pipeline.interface'
+import { TopHog, TopHogComponent } from '@posthog/ingestion-common/framework/tophog/index'
+import { Scope, extend } from '@posthog/ingestion-common/scopes/index'
 import { TophogOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
 import { logger } from '@posthog/node-common/utils/logger'
 
 import { IngestionConsumerConfig } from '~/ingestion/config'
-import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
-import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
-import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
-import { TopHog, TopHogComponent } from '~/ingestion/framework/tophog'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
-import { Scope, extend } from './scopes'
 import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'
 import { PromiseScheduler } from './utils/promise-scheduler'
 

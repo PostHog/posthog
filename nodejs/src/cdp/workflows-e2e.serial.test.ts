@@ -26,6 +26,10 @@ import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
 import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
 import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+import {
+    InternalPersonWithDistinctId,
+    PersonReadRepository,
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
 import { setupExpressApp } from '@posthog/node-common/api/router'
 import {
     KAFKA_APP_METRICS_2,
@@ -34,10 +38,6 @@ import {
     KAFKA_MESSAGE_ASSETS,
 } from '@posthog/node-common/config/kafka-topics'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
-import {
-    InternalPersonWithDistinctId,
-    PersonReadRepository,
-} from '@posthog/node-common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '@posthog/node-common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { InternalFetchService } from '@posthog/node-common/services/internal-fetch'
