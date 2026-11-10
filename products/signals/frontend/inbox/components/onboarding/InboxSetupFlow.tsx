@@ -37,7 +37,7 @@ export function InboxSetupFlow(): JSX.Element {
                 )}
             >
                 <div className="shrink-0">
-                    <h1 className="text-2xl font-semibold m-0">Set up Self-Driving</h1>
+                    <h1 className="text-2xl font-semibold m-0">Set up Self-driving</h1>
                     <p className="mt-2 mb-0 max-w-2xl text-secondary">
                         Choose your sources and scouts, then review and activate.
                     </p>
@@ -51,7 +51,7 @@ export function InboxSetupFlow(): JSX.Element {
                     currentStep={draft.step}
                     onStepClick={saving || !ready ? undefined : goToStep}
                     className="shrink-0 flex-nowrap overflow-x-auto whitespace-nowrap py-1 [&>div]:shrink-0"
-                    aria-label="Self-Driving setup progress"
+                    aria-label="Self-driving setup progress"
                 />
                 <GuidedWizardPanel className={cn('p-5 @lg:p-6 space-y-6', isScoutsStep && 'flex min-h-0 flex-col')}>
                     {draft.step === 'signals' ? (
@@ -95,7 +95,7 @@ export function InboxSetupFlow(): JSX.Element {
                             data-attr="inbox-setup-continue"
                         >
                             {isFinalStep
-                                ? 'Activate Self-Driving'
+                                ? 'Activate Self-driving'
                                 : draft.step === 'signals'
                                   ? 'Continue to scouts'
                                   : 'Continue'}

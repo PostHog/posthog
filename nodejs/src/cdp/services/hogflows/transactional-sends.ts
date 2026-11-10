@@ -14,7 +14,6 @@ import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import type { InvocationResultsService } from '../invocation-results.service'
 import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailAttachmentsService } from '../messaging/email-attachments.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
 import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
@@ -27,13 +26,9 @@ import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { IdempotencyKeys } from './idempotency-keys'
 import {
     AcceptedSend,
-    QueuedSend,
     TransactionalEmailRequest,
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
-    decodeAttachments,
-    fieldNotAcceptedError,
-    queuedSend,
     transactionalEmailRecipients,
 } from './transactional-email'
 
@@ -47,7 +42,7 @@ const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
-    send: QueuedSend | undefined,
+    send: AcceptedSend | undefined,
     scheduledAt: Date | null
 ): string => {
     const request: unknown[] = [hogFlowId, to, distinct_id, variables]
@@ -72,7 +67,7 @@ type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 const withSenderTheCallerChose = ({
     from,
     ...send
-}: QueuedSend): Omit<QueuedSend, 'from'> & { from?: CallerChosenSender } => ({
+}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
     ...send,
     from: senderTheCallerChose(from),
 })
@@ -113,14 +108,11 @@ export type TransactionalSendsDeps = {
     emailSuppression: EmailSuppressionService
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
-    emailAttachments: Pick<EmailAttachmentsService, 'store'>
-    attachmentsEnabled: boolean
 }
 
 export type TransactionalSendResult =
     | { outcome: 'queued' | 'replayed'; invocationId: string; scheduledAt: string | null }
     | { outcome: TransactionalSendRefusal }
-    | { outcome: 'invalid_request'; error: string }
 
 export class TransactionalSends {
     constructor(private readonly deps: TransactionalSendsDeps) {}
@@ -132,12 +124,10 @@ export class TransactionalSends {
         stages: TransactionalEmailStageTimer
     ): Promise<TransactionalSendResult> {
         const { idempotencyKeys } = this.deps
-        const { to, idempotency_key: idempotencyKey } = request
+        const { to, idempotency_key: idempotencyKey, send } = request
         const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
 
         stages.start('build')
-        const files = decodeAttachments(request.send)
-        const send = request.send ? queuedSend(request.send, files) : undefined
         const invocation = this.buildInvocation(team, hogFlow, request, send)
         const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
         if (idempotencyKey) {
@@ -171,14 +161,6 @@ export class TransactionalSends {
         }
         const statusAt = new Date()
         try {
-            // After the idempotency check, so a retry of a send accepted with files still gets its answer.
-            if (request.send?.attachments !== undefined && !this.deps.attachmentsEnabled) {
-                if (idempotencyKey) {
-                    stages.start('idempotency')
-                    await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                }
-                return { outcome: 'invalid_request', error: fieldNotAcceptedError('attachments') }
-            }
             stages.start('checks')
             const refusal = tooFarAhead
                 ? 'invalid_scheduled_at'
@@ -189,10 +171,6 @@ export class TransactionalSends {
                     await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                 }
                 return { outcome: refusal }
-            }
-            if (files.length) {
-                stages.start('files')
-                await this.deps.emailAttachments.store(invocation.id, team.id, files)
             }
             stages.start('queue_insert')
             invocation.state.statusAt = statusAt.toISOString()
@@ -243,7 +221,7 @@ export class TransactionalSends {
         team: Team,
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
-        send: QueuedSend | undefined
+        send: AcceptedSend | undefined
     ) {
         const { to, distinct_id: distinctId, variables } = request
         const event: HogFunctionInvocationGlobals['event'] = {
@@ -302,7 +280,9 @@ export class TransactionalSends {
         // refusals are rare and the verdict is cached per domain.
         const suspension = this.deps.teamWorkflowsConfig.getEmailSendingSuspension(teamId)
         const suppressed = Promise.all(
-            recipients.map((email) => this.deps.emailSuppression.isSuppressed(teamId, email, { transactional: true }))
+            recipients.map((email) =>
+                this.deps.emailSuppression.isKnownSuppressed(teamId, email, { transactional: true })
+            )
         )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.
@@ -339,7 +319,6 @@ export type ScheduledTransactionalSendsDeps = {
     hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
-    emailAttachments: Pick<EmailAttachmentsService, 'delete'>
 }
 
 export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'claimed' | 'not_found' }
@@ -420,9 +399,6 @@ export class ScheduledTransactionalSends {
             functionId: job.functionId,
         })
         void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
-        if ((job.state as CyclotronJobInvocationHogFlow['state'] | null)?.send?.attachments?.length) {
-            await this.deps.emailAttachments.delete(job.id, job.teamId)
-        }
         const { produced } = await invocationResultsRowsService.handOffQueuedRows()
         void produced.catch((error) => warnTelemetryFlushFailed(error, job.id))
     }

@@ -11,8 +11,9 @@ import {
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2Janitor, EMAIL_ATTACHMENTS_MAX_AGE_MS, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
+import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -3065,113 +3066,147 @@ describe('Cyclotron V2', () => {
 
             await janitor.stop()
         })
+    })
 
-        it('sweeps email attachment rows past the max age and keeps rows of jobs that still wait', async () => {
-            const insertAttachment = async (id: string, createdAt: Date, jobId = uuidv7()): Promise<void> => {
-                await assertPool.query(
-                    `INSERT INTO cyclotron_email_attachments
-                     (id, job_id, team_id, position, filename, content, size_bytes, sha256, created_at)
-                     VALUES ($1, $2, 1, 0, 'report.pdf', 'bytes', 5, 'digest', $3)`,
-                    [id, jobId, createdAt]
-                )
-            }
-            const expiredAt = new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000)
-            const scheduledJob = uuidv7()
-            await insertRawJob({ id: scheduledJob, queue_name: 'email', scheduled: new Date(Date.now() + 86_400_000) })
-            const abandoned = uuidv7()
-            const recent = uuidv7()
-            const scheduled = uuidv7()
-            await insertAttachment(abandoned, expiredAt)
-            await insertAttachment(recent, new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS + 3_600_000))
-            await insertAttachment(scheduled, expiredAt, scheduledJob)
+    describe('dropped Postgres connections', () => {
+        const DROP_APP = 'cyclotron-v2-drop-test'
+        const DROP_DB_URL = `${DB_URL}?application_name=${DROP_APP}`
+        let stops: (() => Promise<unknown>)[] = []
 
-            const janitor = createJanitor()
-            await janitor.runOnce()
+        afterEach(async () => {
+            await Promise.all(stops.map((stop) => stop()))
+            stops = []
+        })
 
-            const remaining = await assertPool.query(
-                `SELECT id FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`,
-                [[abandoned, recent, scheduled]]
+        async function droppedClientCount(pool: string): Promise<number> {
+            const metric = register.getSingleMetric('cdp_cyclotron_v2_pg_client_errors_total')
+            const samples = metric ? (await metric.get()).values : []
+            return samples.find((sample) => sample.labels.pool === pool)?.value ?? 0
+        }
+
+        async function terminateDropTestBackends(): Promise<void> {
+            await assertPool.query(
+                'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1',
+                [DROP_APP]
             )
-            expect(remaining.rows.map((r) => r.id).sort()).toEqual([recent, scheduled].sort())
+        }
 
-            await janitor.stop()
+        async function dropIdleClients(pool: string): Promise<void> {
+            const before = await droppedClientCount(pool)
+            await waitForExpect(
+                async () => {
+                    const idle = await assertPool.query(
+                        `SELECT 1 FROM pg_stat_activity WHERE application_name = $1 AND state = 'idle'`,
+                        [DROP_APP]
+                    )
+                    expect(idle.rowCount).toBeGreaterThan(0)
+                },
+                2000,
+                10
+            )
+            await terminateDropTestBackends()
+            await waitForExpect(async () => expect(await droppedClientCount(pool)).toBeGreaterThan(before), 2000, 10)
+        }
+
+        it.each([
+            {
+                pool: 'manager',
+                start: async () => {
+                    const dropManager = createManager({ pool: { dbUrl: DROP_DB_URL } })
+                    stops.push(() => dropManager.disconnect())
+                    await dropManager.connect()
+                    return () => dropManager.createJob({ teamId: 1, queueName: QUEUE })
+                },
+            },
+            {
+                pool: 'janitor',
+                start: async () => {
+                    const janitor = createJanitor({ pool: { dbUrl: DROP_DB_URL } })
+                    stops.push(() => janitor.stop())
+                    await janitor.runOnce()
+                    return () => janitor.runOnce()
+                },
+            },
+        ])('$pool survives a dropped idle client and queries on a fresh one', async ({ pool, start }) => {
+            const useAgain = await start()
+            await dropIdleClients(pool)
+            await expect(useAgain()).resolves.toBeDefined()
         })
 
-        it('examines one batch of expired email attachment rows per sweep and moves past rows that still wait', async () => {
-            // The batch order spans the whole table, so rows other tests leave behind would take the batch.
-            await assertPool.query('DELETE FROM cyclotron_email_attachments')
-            const insertAttachment = async (id: string, createdAt: Date, jobId: string): Promise<void> => {
-                await assertPool.query(
-                    `INSERT INTO cyclotron_email_attachments
-                     (id, job_id, team_id, position, filename, content, size_bytes, sha256, created_at)
-                     VALUES ($1, $2, 1, 0, 'report.pdf', 'bytes', 5, 'digest', $3)`,
-                    [id, jobId, createdAt]
-                )
-            }
-            const expiredAt = (minutesAgo: number): Date =>
-                new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - minutesAgo * 60_000)
-            const scheduledJob = uuidv7()
-            await insertRawJob({ id: scheduledJob, queue_name: 'email', scheduled: new Date(Date.now() + 86_400_000) })
-            const waiting = uuidv7()
-            const abandoned = uuidv7()
-            await insertAttachment(waiting, expiredAt(2), scheduledJob)
-            await insertAttachment(abandoned, expiredAt(1), uuidv7())
-            const remainingRows = async (): Promise<string[]> =>
-                (
-                    await assertPool.query(`SELECT id FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`, [
-                        [waiting, abandoned],
-                    ])
-                ).rows.map((r) => r.id)
+        it('worker keeps dequeuing and acking after its idle client is dropped', async () => {
+            const worker = createWorker(QUEUE, {
+                pool: { dbUrl: DROP_DB_URL },
+                includeEmptyBatches: false,
+                pollDelayMs: 300,
+            })
+            stops.push(() => worker.disconnect())
+            await worker.connect(async (jobs) => {
+                await Promise.all(jobs.map((job) => job.ack()))
+            })
+            await dropIdleClients('worker')
 
-            const janitor = createJanitor({ cleanupBatchSize: 1 })
-            expect(await janitor.sweepEmailAttachments()).toBe(0)
-            expect((await remainingRows()).sort()).toEqual([waiting, abandoned].sort())
-            expect(await janitor.sweepEmailAttachments()).toBe(1)
-            expect(await remainingRows()).toEqual([waiting])
-
-            await janitor.stop()
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await waitForExpect(async () => expect((await queryJob(id)).status).toBe('completed'), 2000, 10)
         })
 
-        it('sweeps expired email attachment rows around a row another sweep holds locked', async () => {
-            const expiredAt = new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000)
-            const locked = uuidv7()
-            const free = uuidv7()
-            for (const id of [locked, free]) {
-                await assertPool.query(
-                    `INSERT INTO cyclotron_email_attachments
-                     (id, job_id, team_id, position, filename, content, size_bytes, sha256, created_at)
-                     VALUES ($1, $2, 1, 0, 'report.pdf', 'bytes', 5, 'digest', $3)`,
-                    [id, uuidv7(), expiredAt]
-                )
-            }
-            const remainingRows = async (): Promise<string[]> =>
-                (
-                    await assertPool.query(`SELECT id FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`, [
-                        [locked, free],
-                    ])
-                ).rows.map((r) => r.id)
+        it('counts one drop of a checked-out client once', async () => {
+            const pool = createCyclotronPool('worker', { connectionString: DROP_DB_URL })
+            const client = await pool.connect()
+            stops.push(async () => {
+                client.release(true)
+                await pool.end()
+            })
+            const before = await droppedClientCount('worker')
+            const ended = new Promise((resolve) => client.once('end', resolve))
 
-            const janitor = createJanitor()
+            await terminateDropTestBackends()
+            await ended
+
+            expect(await droppedClientCount('worker')).toBe(before + 1)
+        })
+
+        it('a check-in on a dropped client commits nothing, and the janitor hands the job back once', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const worker = createWorker(QUEUE, { pool: { dbUrl: DROP_DB_URL } })
+            stops.push(() => worker.disconnect())
+            const [job] = await dequeueOneBatch(worker)
+
             const holder = await assertPool.connect()
             try {
                 await holder.query('BEGIN')
-                await holder.query('SELECT id FROM cyclotron_email_attachments WHERE id = $1 FOR UPDATE', [locked])
-
-                let timer: NodeJS.Timeout | undefined
-                const blocked = new Promise<never>((_, reject) => {
-                    timer = setTimeout(() => reject(new Error('the sweep waited on the locked row')), 5_000)
-                })
-                await Promise.race([janitor.sweepEmailAttachments(), blocked]).finally(() => clearTimeout(timer))
-                expect(await remainingRows()).toEqual([locked])
+                await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                const checkIn = expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [{ teamId: 1, queueName: QUEUE }],
+                        selfDisposition: { kind: 'ack' },
+                    })
+                ).rejects.toThrow()
+                await waitForExpect(
+                    async () => {
+                        const waiting = await assertPool.query(
+                            `SELECT 1 FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'`,
+                            [DROP_APP]
+                        )
+                        expect(waiting.rowCount).toBeGreaterThan(0)
+                    },
+                    2000,
+                    10
+                )
+                await terminateDropTestBackends()
+                await checkIn
             } finally {
                 await holder.query('ROLLBACK')
                 holder.release()
             }
 
-            await janitor.sweepEmailAttachments()
-            expect(await remainingRows()).toEqual([])
+            expect(await totalJobCount()).toBe(1)
+            expect((await queryJob(id)).status).toBe('running')
 
-            await janitor.stop()
+            const janitor = createJanitor()
+            stops.push(() => janitor.stop())
+            await janitor.runOnce()
+            const retried = await dequeueOneBatch(worker)
+            expect(retried.map((j) => j.id)).toEqual([id])
         })
     })
 })

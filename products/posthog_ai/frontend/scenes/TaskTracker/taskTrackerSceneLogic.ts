@@ -1018,6 +1018,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // The backend strips `pending_user_message`, and the live echo carries that stripped text. The
             // optimistic bubble must match it exactly, or the echo renders as a second copy of the message.
             const description = values.newTaskData.description.trim()
+            const onTaskCreated = props.onTaskCreated
             const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
             const composerAdapter = values.composerAdapter
@@ -1298,7 +1299,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.loadRepositories()
                 // Every composer submits through here, so this is the one place that reaches all of them.
                 todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
-                props.onTaskCreated?.(newTask.id)
+                onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
                     return

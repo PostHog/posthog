@@ -10,6 +10,7 @@ import { sleep } from '~/common/utils/utils'
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
 import { JobRow, withReschedule } from './job-codec'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -196,7 +197,7 @@ export class CyclotronV2Manager {
     }
 
     constructor(config: CyclotronV2ManagerConfig) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('manager', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
