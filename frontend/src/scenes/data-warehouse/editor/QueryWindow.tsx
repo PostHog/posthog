@@ -26,6 +26,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
 import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
+import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { FixErrorButton } from './components/FixErrorButton'
@@ -38,7 +39,7 @@ import { QueryPane } from './QueryPane'
 import { QueryPlaceholdersMenu } from './QueryPlaceholdersMenu'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { RunButton } from './RunButton'
-import { isRawTrinoView, sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
+import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
@@ -327,9 +328,7 @@ export function QueryWindow({
                                     icon={<IconDatabase />}
                                     onClick={() => openMaterializationModal(editingView)}
                                     disabledReason={
-                                        isRawTrinoView(editingView)
-                                            ? 'Views that run raw Trino SQL cannot be materialized yet.'
-                                            : undefined
+                                        viewEngine(editingView).capabilities.materialize.reason ?? undefined
                                     }
                                     data-attr="sql-editor-materialization-button"
                                 >

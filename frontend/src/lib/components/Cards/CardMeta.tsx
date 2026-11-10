@@ -10,7 +10,7 @@ import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import { InsightColor } from '~/types'
 
@@ -103,9 +103,7 @@ export function CardMeta({
     // Show labels if card is wide enough AND there's room for labeled buttons
     // But also when in storybook to make it neater
     const showControlsLabels =
-        inStorybook() ||
-        inStorybookTestRunner() ||
-        (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
+        inStorybook() || (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
     const extraControlsWithLabel = extraControls
         ? React.cloneElement(extraControls, {
               ...extraControls.props,

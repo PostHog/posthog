@@ -169,6 +169,7 @@ impl MixpanelEvent {
                     timestamp,
                     is_cookieless_mode: false,
                     historical_migration: true,
+                    options: None,
                 };
 
                 Ok(Some(InternallyCapturedEvent { team_id, inner }))
