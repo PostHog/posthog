@@ -2522,6 +2522,8 @@ export interface SignalReportListApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+    readonly implementation_in_flight: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -3149,6 +3151,8 @@ export interface SignalReportApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+    readonly implementation_in_flight: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -11813,7 +11817,7 @@ export type SignalsReportsListParams = {
      */
     source_product?: string
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string
     /**
@@ -11841,7 +11845,7 @@ export type SignalsReportsListParams = {
      */
     use_priority_preference?: boolean
     /**
-     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string
 }
