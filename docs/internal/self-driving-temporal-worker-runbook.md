@@ -100,7 +100,9 @@ Do these checks in each region.
 
 **Grouping batches for an organization without AI consent.**
 `team-signal-grouping-v2` checks organization AI data processing consent at the start of each run.
-If consent is disabled or unset, the workflow completes and drops all pending batch keys without reading or processing the batches.
+If consent is disabled or unset, the workflow requests spend finalization for queued signals and drops all pending batch keys.
+It completes without sending those signals to AI.
+Temporary consent lookup failures retry and keep the queued batches.
 Existing runs adopt the check after `continue_as_new`.
 After deployment, verify that these runs complete and log `signals_grouping_skipped_ai_consent`.
 

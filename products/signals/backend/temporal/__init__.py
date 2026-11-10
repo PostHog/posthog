@@ -1,5 +1,3 @@
-from posthog.temporal.ai_observability.shared_activities import check_ai_data_processing_consent_activity
-
 from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickWorkflow,
     capture_activity_summary_tick_activity,
@@ -97,7 +95,12 @@ from products.signals.backend.temporal.grouping import (
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
-from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow, read_signals_from_s3_activity
+from products.signals.backend.temporal.grouping_v2 import (
+    TeamSignalGroupingV2Workflow,
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
+    read_signals_from_s3_activity,
+)
 from products.signals.backend.temporal.inbox_notification import (
     SignalReportInboxNotificationWorkflow,
     get_inbox_notification_state_activity,
@@ -181,7 +184,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    check_ai_data_processing_consent_activity,
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
     poll_monitoring_assessment_activity,
     exhaust_monitoring_assessment_activity,
     update_signal_spend_activity,
