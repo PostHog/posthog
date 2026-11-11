@@ -39,6 +39,10 @@ describe('workflowAssetsLogic', () => {
         initKeaTests()
     })
 
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     const loaded = async (props: WorkflowAssetsLogicProps): Promise<ReturnType<typeof workflowAssetsLogic.build>> => {
         const logic = workflowAssetsLogic(props)
         logic.mount()
@@ -90,9 +94,16 @@ describe('workflowAssetsLogic', () => {
         // so both keystrokes would send a request. A fresh id keeps one listener.
         const logic = await loaded({ id: 'wf-search' })
         received = []
+        jest.useFakeTimers()
 
         logic.actions.setSearch('a')
+        await jest.advanceTimersByTimeAsync(200)
         logic.actions.setSearch('ada')
+        await jest.advanceTimersByTimeAsync(249)
+        expect(received).toEqual([])
+
+        await jest.advanceTimersByTimeAsync(1)
+        jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(received.map((query) => query.search)).toEqual(['ada'])
