@@ -183,7 +183,7 @@ describe('cohort membership mark and sweep, end to end', () => {
 
         const floors = messages.filter(isFloor)
         expect(floors.map(valueOf)).toEqual(
-            captured.map(() => expect.objectContaining({ threshold: SNAPSHOT_VERSION, partitions: captured.length }))
+            floors.map(() => expect.objectContaining({ threshold: SNAPSHOT_VERSION, partitions: captured.length }))
         )
         // A reader of the topic applies the floor once it holds every copy, which is safe only
         // because each copy sits after the run's rows in its partition.

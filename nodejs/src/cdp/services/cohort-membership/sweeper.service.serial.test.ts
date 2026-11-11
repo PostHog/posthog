@@ -46,7 +46,7 @@ describe('CohortMembershipSweeper', () => {
     let watermarks: MembershipWatermarks
     let captureFailure: Error | null
     let produced: ProducerMessage[]
-    let produceFailure: Error | null
+    let unknownPartitions: number[]
     let runId: string
 
     beforeEach(async () => {
@@ -55,7 +55,7 @@ describe('CohortMembershipSweeper', () => {
         watermarks = { 0: 10 }
         captureFailure = null
         produced = []
-        produceFailure = null
+        unknownPartitions = []
         runId = new UUIDT().toString()
         sweeper = new CohortMembershipSweeper(config, postgres, {
             cluster: CLUSTER,
@@ -65,8 +65,8 @@ describe('CohortMembershipSweeper', () => {
             refreshConsumerProgress: () => Promise.resolve(),
             producer: {
                 produce: (message) => {
-                    if (produceFailure) {
-                        return Promise.reject(produceFailure)
+                    if (unknownPartitions.includes(message.partition!)) {
+                        return Promise.reject(new Error('Local: Unknown partition'))
                     }
                     produced.push(message)
                     return Promise.resolve()
@@ -337,22 +337,22 @@ describe('CohortMembershipSweeper', () => {
         )
     })
 
-    it('should delete nothing when the floor fails to publish, and publish the same floor on the next claim', async () => {
+    it('should delete nothing when the floor fails to publish, sweep the runs behind it, and publish the same floor on the next claim', async () => {
+        watermarks = { 0: 10, 1: 4 }
         await readyRun()
-        const queuedRunId = new UUIDT().toString()
-        await readyRun(queuedRunId, COHORT_ID + 1)
         await openGate()
+        watermarks = { 0: 10 }
+        await readyRun(new UUIDT().toString(), COHORT_ID + 1)
         const stale = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        await insertMembership(TEAM_ID, COHORT_ID + 1, BELOW_THRESHOLD)
 
-        produceFailure = new Error('broker unavailable')
+        // The topic lost a partition after the older run captured it, so that run's floor can
+        // never publish. It must not hold back the run behind it.
+        unknownPartitions = [1]
 
-        expect(await sweeper.runOnce()).toMatchObject({ swept: 0, rowsDeleted: 0 })
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 1 })
         expect(await survivingPersonIds()).toEqual([stale])
         expect(await readSweep()).toMatchObject({ status: 'ready' })
-        // The queued run publishes to the same partitions, so the tick stops before claiming it.
-        expect(
-            await query('SELECT status, floor_threshold FROM cohort_membership_sweeps WHERE run_id = $1', [queuedRunId])
-        ).toEqual([{ status: 'ready', floor_threshold: null }])
 
         // Some copies of the failed publish may be in the log already. A threshold recomputed
         // from this lower minimum would keep the stale row, which those copies hide.
@@ -360,12 +360,15 @@ describe('CohortMembershipSweeper', () => {
             runId,
             '2026-05-26 10:00:00.000000',
         ])
-        produceFailure = null
+        unknownPartitions = []
 
-        expect(await sweeper.runOnce()).toMatchObject({ swept: 2, rowsDeleted: 1 })
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 1 })
         expect(await survivingPersonIds()).toEqual([])
         expect(producedFloors()).toContainEqual(
-            expect.objectContaining({ floor: expect.objectContaining({ run_id: runId, threshold: THRESHOLD }) })
+            expect.objectContaining({
+                partition: 1,
+                floor: expect.objectContaining({ run_id: runId, threshold: THRESHOLD }),
+            })
         )
     })
 
