@@ -67,7 +67,7 @@ function contextLines(out: Output, result: SetupResult): string[][] {
             : [],
         finished && skills.length > 0
             ? [
-                  out.style('Skills you can add later with hog skills add <id...>:', 'bold'),
+                  out.style('Skills you can add later with hog skills add <skill...>:', 'bold'),
                   ...skills.map((skill) => `  ${escapeControls(skill.id)}: ${escapeControls(skill.description)}`),
               ]
             : [],
