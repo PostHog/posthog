@@ -4,14 +4,16 @@ import datetime as dt
 import time_machine
 from posthog.test.base import BaseTest
 
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.team import Team
+
 from products.aeo.backend.facade.api import import_prompts, list_citation_gaps, update_prompt
 from products.aeo.backend.facade.contracts import PromptImport, PromptUpdate
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
+from products.aeo.backend.test.factories import create_own_brand
 
 
 class TestListCitationGaps(BaseTest):
@@ -31,7 +33,7 @@ class TestListCitationGaps(BaseTest):
         queries: list[str] | None = None,
         version: int | None = None,
     ) -> None:
-        target_urls = [url for url in cited_urls if "posthog.com" in url]
+        target_urls = [url for url in cited_urls if "example.com" in url]
         AEOCitationCheck.objects.for_team(self.team.id).create(
             team=self.team,
             prompt=prompt,
@@ -51,24 +53,25 @@ class TestListCitationGaps(BaseTest):
         )
 
     def test_returns_only_uncited_active_prompts_with_competitor_evidence(self) -> None:
+        create_own_brand(self.team, "example.com")
         gap = self._prompt("best session replay tool")
         self._check(
             gap,
             "claude-web-search",
             cited_urls=["https://rival.example/replay", "https://other.example/a"],
-            answer_text="Rival is the best, though PostHog also records sessions.",
+            answer_text="Rival is the best, though Example also records sessions.",
             queries=["session replay tools"],
         )
         self._check(
             gap,
             "openai-web-search",
-            cited_urls=["https://rival.example/replay", "https://posthog.com/session-replay"],
+            cited_urls=["https://rival.example/replay", "https://example.com/session-replay"],
             queries=["session replay tools", "open source replay"],
         )
         self._check(gap, "exa-answer", cited_urls=[], failed=True)
 
-        always_cited = self._prompt("posthog pricing")
-        self._check(always_cited, "claude-web-search", cited_urls=["https://posthog.com/pricing"])
+        always_cited = self._prompt("example pricing")
+        self._check(always_cited, "claude-web-search", cited_urls=["https://example.com/pricing"])
 
         only_failed = self._prompt("engine outage")
         self._check(only_failed, "claude-web-search", cited_urls=[], failed=True)
@@ -86,28 +89,30 @@ class TestListCitationGaps(BaseTest):
         assert result.engines == ("claude-web-search", "openai-web-search")
         assert result.engines_not_citing == ("claude-web-search",)
         assert result.competitor_urls[0] == "https://rival.example/replay"
-        assert "https://posthog.com/session-replay" not in result.competitor_urls
+        assert "https://example.com/session-replay" not in result.competitor_urls
         assert result.competitor_domains[0] == "rival.example"
-        assert result.our_cited_urls == ("https://posthog.com/session-replay",)
+        assert result.our_cited_urls == ("https://example.com/session-replay",)
         assert result.engine_search_queries[0] == "session replay tools"
         assert [a.answer_text for a in result.latest_answers] == [
-            "Rival is the best, though PostHog also records sessions."
+            "Rival is the best, though Example also records sessions."
         ]
 
     @parameterized.expand(
         [
-            ("registrable_name_under_a_multi_part_suffix", "Example Analytics records every session.", 1),
-            ("public_suffix_label_is_not_the_brand", "Rival Co records every session.", 0),
+            ("registrable_name_under_a_multi_part_suffix", "Example Analytics records every session.", True, 1),
+            ("public_suffix_label_is_not_the_brand", "Rival Co records every session.", True, 0),
+            ("another_teams_own_brand", "Example Analytics records every session.", False, 0),
         ]
     )
     def test_counts_brand_mentions_by_the_registrable_domain_name(
-        self, _name: str, answer_text: str, mentioned_checks: int
+        self, _name: str, answer_text: str, own_brand_on_this_team: bool, mentioned_checks: int
     ) -> None:
         prompt = self._prompt("best session replay tool")
         self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/replay"], answer_text=answer_text)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        create_own_brand(self.team if own_brand_on_this_team else other_team, "example.co.uk")
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.co.uk"]):
-            gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
+        gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
 
         assert gaps[0].mentioned_checks == mentioned_checks
 

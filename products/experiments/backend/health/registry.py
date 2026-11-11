@@ -144,8 +144,9 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.RELEASE_CONDITIONS_CHANGED_MID_RUN,
         name="Release condition changes since launch",
         description=(
-            "Looks for release condition changes after users were first exposed. A change can let in other users or "
-            "move users to another variant, so the results mix two different setups."
+            "Looks for release condition changes after users were first exposed, including a lower rollout. A change "
+            "can let in other users, stop serving users who were already exposed, or move users to another variant, so "
+            "the results mix two different setups."
         ),
         run=release_conditions_changed_mid_run,
     ),

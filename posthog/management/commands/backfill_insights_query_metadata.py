@@ -81,9 +81,11 @@ class Command(BaseCommand):
         Processes insights in small batches to minimize memory usage.
         Uses proper row locking to prevent race conditions.
         """
-        # Build base query
+        # Regenerate when metadata is missing entirely or predates the properties key. A queryless
+        # insight has nothing to regenerate from.
         base_query = Insight.objects_including_soft_deleted.filter(
-            Q(query_metadata__isnull=True) | Q(query_metadata={})
+            Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True),
+            query__isnull=False,
         )
 
         if team_id:
@@ -109,7 +111,10 @@ class Command(BaseCommand):
                 f"in approximately {format_duration(estimated_time)}"
             )
 
-        # Process in batches to minimize memory usage
+        # Process in batches to minimize memory usage. Each batch starts after the last id of the one
+        # before, so the scan never re-reads rows it has passed. Without the cursor every batch walks
+        # over all rows already fixed, and a dry run, which fixes nothing, never ends.
+        last_id = 0
         while True:
             batch_start_time = time.time()
 
@@ -118,7 +123,8 @@ class Command(BaseCommand):
                 # Get a batch of insights WITH ROW LOCKING
                 # This ensures no one else can modify these rows while we're processing them
                 insights = list(
-                    base_query.order_by("id")
+                    base_query.filter(id__gt=last_id)
+                    .order_by("id")
                     .select_for_update(skip_locked=True, of=("self",))  # Add row locking
                     .select_related("team")
                     .only("id", "query", "query_metadata", "team")[:batch_size]
@@ -128,12 +134,18 @@ class Command(BaseCommand):
                     # If we got no insights, we're done
                     break
 
+                last_id = insights[-1].id
+
                 batch_updated = 0
                 insights_to_update = []
 
                 for insight in insights:
-                    # Skip insights that already have metadata
-                    if insight.query_metadata and insight.query_metadata != {}:
+                    # Skip insights whose metadata is already current (carries the properties key)
+                    if (
+                        insight.query_metadata
+                        and insight.query_metadata != {}
+                        and "properties" in insight.query_metadata
+                    ):
                         continue
 
                     # Generate metadata
@@ -144,11 +156,16 @@ class Command(BaseCommand):
                             self.stdout.write(f"Insight {insight.id}: Generated query metadata")
                     except Exception as e:
                         logger.exception(f"Failed to generate metadata for insight {insight.id}: {e}")
-                        # store an empty metadata to avoid reprocessing, with a specific datetime to know which ones failed via this command (hacky, I know)
+                        # store metadata to avoid reprocessing, with a specific datetime to know which ones failed via this command (hacky, I know).
+                        # Keep the events from earlier metadata, so a failure to extract properties doesn't erase them.
                         failed_datetime = datetime(2025, 1, 1, 0, 0, 0)
-                        insight.query_metadata = InsightQueryMetadata(events=[], updated_at=failed_datetime).model_dump(
-                            exclude_none=True, mode="json"
-                        )
+                        previous_metadata = insight.query_metadata if isinstance(insight.query_metadata, dict) else {}
+                        previous_events = [
+                            event for event in previous_metadata.get("events") or [] if isinstance(event, str)
+                        ]
+                        insight.query_metadata = InsightQueryMetadata(
+                            events=previous_events, updated_at=failed_datetime
+                        ).model_dump(exclude_none=True, mode="json")
 
                     insights_to_update.append(insight)
 
