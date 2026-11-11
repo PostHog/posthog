@@ -79,6 +79,10 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.ai_observability.backend.facade.temporal import (
+    EVAL_SUGGESTIONS_SCHEDULE_ID,
+    create_eval_suggestions_schedule,
+)
 from products.alerts_platform.backend.facade.temporal import (
     create_alerts_platform_expired_holds_schedule,
     create_alerts_platform_inventory_schedule,
@@ -701,7 +705,7 @@ async def cleanup_cohort_calculation_schedules(client: Client):
 
 
 async def cleanup_non_cloud_ai_observability_schedules(client: Client):
-    """Reap the AI observability clustering and summarization schedules on non-cloud deployments.
+    """Reap the AI observability clustering, summarization and eval suggestion schedules on non-cloud deployments.
 
     These coordinators reach the cloud-only guard in
     ``posthog.temporal.ai_observability.llm_endpoint``, so they register only where that guard lets
@@ -718,6 +722,7 @@ async def cleanup_non_cloud_ai_observability_schedules(client: Client):
         trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
         trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
         trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+        EVAL_SUGGESTIONS_SCHEDULE_ID,
     ]
     for schedule_id in schedule_ids:
         if await a_schedule_exists(client, schedule_id):
@@ -1028,12 +1033,14 @@ schedules = [
 # AI observability summarization and clustering call the cloud-only guard in
 # posthog/temporal/ai_observability/llm_endpoint.py, which permits cloud and local DEBUG installs.
 # Anywhere else these coordinators discover teams, spawn the labeling activity, and fail on that
-# guard every run, so gate registration on the condition the guard itself uses.
+# guard every run, so gate registration on the condition the guard itself uses. Eval suggestions run as
+# a cloud experiment behind a feature flag, so they register under the same condition.
 if settings.DEBUG or is_cloud():
     schedules.append(create_batch_trace_summarization_schedule)
     schedules.append(create_batch_generation_summarization_schedule)
     schedules.append(create_trace_clustering_coordinator_schedule)
     schedules.append(create_generation_clustering_coordinator_schedule)
+    schedules.append(create_eval_suggestions_schedule)
 
 if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
