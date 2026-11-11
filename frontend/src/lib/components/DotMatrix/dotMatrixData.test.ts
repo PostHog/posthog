@@ -29,7 +29,7 @@ const scale: DotMatrixCountBin[] = [
 ]
 
 describe('dotMatrixData', () => {
-    it('keeps explicit axis metadata and fills missing intersections while appending new keys', () => {
+    it('keeps explicit axes and resolves missing intersections without storing empty cells', () => {
         const data: Observation[] = [
             { row: 'new', column: 'later', series: 'unknown', value: 5 },
             { row: 'first', column: 'earlier', series: 'known', value: 1 },
@@ -50,7 +50,8 @@ describe('dotMatrixData', () => {
         expect(matrix.columns).toEqual([{ key: 'earlier', label: 'Earlier', partial: true }, { key: 'later' }])
         expect(matrix.series).toEqual([{ key: 'known', label: 'Known', color: 'blue' }, { key: 'unknown' }])
         expect(matrix.getCell('empty', 'later')).toEqual({ rowKey: 'empty', columnKey: 'later', values: {}, data: [] })
-        expect(matrix.cells.get('new')?.size).toBe(2)
+        expect(matrix.cells.get('new')?.size).toBe(1)
+        expect(matrix.cells.has('empty')).toBe(false)
         expect(matrix.getCell('new', 'later').data[0]).toBe(data[0])
     })
 

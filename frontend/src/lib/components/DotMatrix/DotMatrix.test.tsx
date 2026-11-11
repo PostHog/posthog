@@ -104,15 +104,31 @@ describe('DotMatrix', () => {
         )
     })
 
-    it('mounts only one page of rows when a page size is set', () => {
+    it('paginates each matrix independently while mounting only the visible rows', async () => {
         const { container } = render(
-            <DotMatrix
-                data={[...data, { location: 'South', period: 'Morning', check: 'Safety', total: 3 }]}
-                fields={fields}
-                pageSize={1}
-            />
+            <>
+                <DotMatrix
+                    data={[...data, { location: 'South', period: 'Morning', check: 'Safety', total: 3 }]}
+                    fields={fields}
+                    pageSize={1}
+                />
+                <DotMatrix
+                    data={[
+                        { ...data[0], location: 'East' },
+                        { ...data[0], location: 'West' },
+                    ]}
+                    fields={fields}
+                    pageSize={1}
+                />
+            </>
         )
-        expect(container.querySelectorAll('.DotGlyph').length).toBe(1)
+        expect(container.querySelectorAll('.DotGlyph')).toHaveLength(2)
+        fireEvent.click(screen.getAllByLabelText('Next page')[0])
+        await waitFor(() =>
+            expect(Array.from(container.querySelectorAll('.DotMatrix__row-label'), (item) => item.textContent)).toEqual(
+                ['South', 'East']
+            )
+        )
     })
 
     it.each([
@@ -127,11 +143,11 @@ describe('DotMatrix', () => {
         expect(cell.querySelector('title')?.textContent).toBe(String(value))
     })
 
-    it('matches the count legend to colors when caller bins are unordered', () => {
+    it.each([false, true])('matches count colors and the legend with a series mapping: %p', (withSeries) => {
         const { container } = render(
             <DotMatrix
                 data={data}
-                fields={fields}
+                fields={withSeries ? fields : { row: 'location', column: 'period', value: 'total' }}
                 mode="count"
                 countOf="value"
                 countScale={[

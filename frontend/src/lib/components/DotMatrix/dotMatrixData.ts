@@ -87,19 +87,6 @@ export function normalizeDotMatrixData<D extends Record<string, unknown>>({
         cell.data.push(datum)
     }
 
-    for (const rowKey of rowIndex.keys()) {
-        let rowCells = cells.get(rowKey)
-        if (!rowCells) {
-            rowCells = new Map()
-            cells.set(rowKey, rowCells)
-        }
-        for (const columnKey of columnIndex.keys()) {
-            if (!rowCells.has(columnKey)) {
-                rowCells.set(columnKey, emptyCell(rowKey, columnKey))
-            }
-        }
-    }
-
     return {
         rows: Array.from(rowIndex.values()),
         columns: Array.from(columnIndex.values()),
