@@ -1882,6 +1882,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         editEmailContent: () => {
             // The content step's templater opens its editor on mount when the URL asks, as a deep link does.
+            // An unsaved broadcast remounts on its draft URL, which closes an editor already open, so it saves
+            // from here and opens the editor on the draft URL.
+            if (props.id === 'new' && !values.broadcastId) {
+                cache.openEmailEditorOnDraftUrl = true
+                actions.ensureDraft()
+                return
+            }
             const { pathname, searchParams, hashParams } = router.values.currentLocation
             router.actions.push(pathname, withEmailEditorOpen(searchParams), hashParams)
             actions.setStep('content')
@@ -1973,6 +1980,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 })
                 actions.showSavedDraftUrl()
             } catch (error: any) {
+                cache.openEmailEditorOnDraftUrl = false
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }
         },
@@ -1991,7 +1999,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (values.entrySource) {
                     saveEntrySource(values.broadcastId, values.entrySource)
                 }
-                router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
+                const openEditor = cache.openEmailEditorOnDraftUrl
+                cache.openEmailEditorOnDraftUrl = false
+                router.actions.replace(
+                    urls.broadcast(values.broadcastId),
+                    openEditor ? withEmailEditorOpen({ step: 'content' }) : { step: values.currentStep }
+                )
             }
         },
         setEmailSettings: () => {

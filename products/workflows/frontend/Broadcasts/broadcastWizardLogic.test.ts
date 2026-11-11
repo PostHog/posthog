@@ -504,14 +504,33 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.searchParams).toEqual({ step: 'content' })
     })
 
-    it('opens the email editor on the content step when the review preview asks to modify content', () => {
+    it('opens the email editor on the content step when the review preview asks to modify content', async () => {
+        latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
         router.actions.push('/broadcasts/broadcast-1', { utm_source: 'test' })
+        const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+        await expectLogic(draftLogic, () => {
+            draftLogic.mount()
+        }).toDispatchActions(['hydrateFromBroadcast'])
+        draftLogic.actions.setStep('review')
+
+        draftLogic.actions.editEmailContent()
+
+        expect(draftLogic.values.currentStep).toBe('content')
+        expect(router.values.searchParams).toEqual({ utm_source: 'test', editor: 'email' })
+        draftLogic.unmount()
+    })
+
+    it('opens the email editor on the draft URL when an unsaved broadcast asks to modify content from review', async () => {
+        router.actions.push('/broadcasts/new')
         logic.actions.setStep('review')
 
-        logic.actions.editEmailContent()
+        await expectLogic(logic, () => {
+            logic.actions.editEmailContent()
+            releaseCreate()
+        }).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
 
-        expect(logic.values.currentStep).toBe('content')
-        expect(router.values.searchParams).toEqual({ utm_source: 'test', editor: 'email' })
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })
     })
 
     it.each([
