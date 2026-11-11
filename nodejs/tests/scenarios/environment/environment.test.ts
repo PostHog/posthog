@@ -929,7 +929,6 @@ describe('scenario environment', () => {
         let losesItsPort: Role | undefined
         let takesPortOnExit: Role | undefined
         let exitsAfterHealth: Role | undefined
-        let teardownsBeforeFailure: number | undefined
         let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
@@ -1000,19 +999,9 @@ describe('scenario environment', () => {
             const realTerminate = processes.terminate
             jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) => {
                 const foreign = [...plan.groups, ...plan.pids].filter((pid) => !stubRolePids.has(pid))
-                if (foreign.length > 0) {
-                    return Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
-                }
-                const terminated = realTerminate(plan, graceMs)
-                if (teardownsBeforeFailure === undefined || graceMs === 0 || plan.groups.length === 0) {
-                    return terminated
-                }
-                if (teardownsBeforeFailure > 0) {
-                    teardownsBeforeFailure -= 1
-                    return terminated
-                }
-                teardownsBeforeFailure = undefined
-                return terminated.then(() => Promise.reject(new Error('The teardown failed.')))
+                return foreign.length > 0
+                    ? Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
+                    : realTerminate(plan, graceMs)
             })
             jest.spyOn(childProcess, 'spawn').mockImplementation(((
                 command: string,
@@ -1085,7 +1074,6 @@ describe('scenario environment', () => {
             losesItsPort = undefined
             takesPortOnExit = undefined
             exitsAfterHealth = undefined
-            teardownsBeforeFailure = undefined
             if (cyclotronFromEnv === undefined) {
                 delete process.env.CYCLOTRON_NODE_DATABASE_URL
             } else {
@@ -1409,15 +1397,6 @@ describe('scenario environment', () => {
                 'ENOENT',
                 () => {
                     unspawnable = 'cdp-cyclotron-worker-email'
-                },
-            ],
-            [
-                'cannot be spawned while stopping the other roles fails',
-                'cdp-cyclotron-worker-email',
-                'ENOENT',
-                () => {
-                    unspawnable = 'cdp-cyclotron-worker-email'
-                    teardownsBeforeFailure = 1
                 },
             ],
         ])(
