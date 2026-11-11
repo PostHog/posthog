@@ -125,7 +125,6 @@ const meta: Meta = {
         featureFlags: [
             FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
-            FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE,
         ],
         pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID, `view:${ACCOUNT_VIEW_ID}`),
         testOptions: {

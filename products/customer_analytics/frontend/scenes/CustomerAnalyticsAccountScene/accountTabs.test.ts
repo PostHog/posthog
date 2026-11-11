@@ -1,6 +1,5 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { getVisibleAccountExpansionTab } from '../../components/Accounts/accountsExpansionLogic'
 import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
 import type { AccountDetailTabsConfigApi, AccountViewApi } from '../../generated/api.schemas'
 import {
@@ -41,7 +40,6 @@ describe('account tabs', () => {
         expect(listAvailableAccountViewComponents(flags).some((component) => component.kind === 'automations')).toBe(
             enabled
         )
-        expect(getVisibleAccountExpansionTab('automations', flags)).toBe(enabled ? 'automations' : 'notes')
         expect(getActiveAccountTabId(availableTabs, emptyConfig, 'system:automations', 1)).toBe(
             enabled ? 'system:automations' : 'system:notes'
         )

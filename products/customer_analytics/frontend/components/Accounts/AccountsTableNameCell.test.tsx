@@ -5,9 +5,6 @@ import { Provider } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { accountsExpansionLogic } from './accountsExpansionLogic'
@@ -19,35 +16,16 @@ const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
 describe('AccountsTableNameCell', () => {
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
         accountsExpansionLogic.mount()
         jest.spyOn(posthog, 'capture').mockImplementation()
     })
 
     afterEach(() => {
         cleanup()
-        featureFlagLogic.unmount()
         accountsExpansionLogic.unmount()
     })
 
-    it('expands the row instead of navigating when the account scene flag is off', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-
-        render(
-            <Provider>
-                <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" viewers={[]} />
-            </Provider>
-        )
-
-        const link = screen.getByText('Test account')
-        expect(fireEvent.click(link)).toBe(false)
-
-        expect(accountsExpansionLogic.values.isAccountExpanded(ACCOUNT_ID)).toBe(true)
-        expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.AccountOpened)
-    })
-
     it('keeps modifier-click behavior for the account link', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
 
         render(
             <Provider>
@@ -61,8 +39,7 @@ describe('AccountsTableNameCell', () => {
         expect(posthog.capture).not.toHaveBeenCalled()
     })
 
-    it('navigates to the account scene without expanding when the flag is on', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true })
+    it('navigates to the account scene without expanding', () => {
 
         render(
             <Provider>
@@ -82,7 +59,6 @@ describe('AccountsTableNameCell', () => {
     })
 
     it('shows three viewer indicators and names every viewer in the hover label', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
 
         render(
             <Provider>
