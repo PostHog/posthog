@@ -37,7 +37,7 @@ export const apiMutator = async <T>(url: string, options: RequestInit & { method
             // `api.delete` resolves the raw Response. A generated destroy call can still be typed
             // with a body, because a delete endpoint may answer with a status envelope, so parse it
             // the way every other verb does rather than handing the Response to the caller.
-            const response = await api.delete(url, apiOptions)
+            const response = await api.delete(url)
             return await getJSONFromSuccessResponse(response, 'DELETE', url)
         }
         default:
