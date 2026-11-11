@@ -17,7 +17,8 @@ What each file contains and how per-folder overrides resolve: [the engine's "Pol
 - `workflows_delivery` is an extra, owner-only category. It matches the CDP, Workflows and Messaging API, models and plugin-server worker code, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-workflows`.
 - `deny_exceptions` lifts `auth` and `billing` for `products/warehouse_sources/backend/temporal/data_imports/sources/` and `products/warehouse_sources/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing. It lifts `workflows_delivery` for the CDP and Messaging API test directories.
 - `allow` extends its path patterns with `.github/CODEOWNERS`.
-- `attestations` names the `Migration risk` check, pinned to the `tests-posthog` App, as the one that may lift `migrations` for the Django migration files it classified as Safe and their `max_migration.txt`.
+- `attestations` names the `Migration risk` check, pinned to the `tests-posthog` App, as the one that may lift `migrations` for the Django migration files it classified as Safe and their `max_migration.txt`. It also names the `Dependency proof` check, pinned to the `posthog-dependency-proof` App and to the prover files on the default branch, as the one that may lift `deps_toolchain` for the `package.json`, `pnpm-lock.yaml` and `pnpm-workspace.yaml` files it proved.
+- `bot_authors` names `renovate[bot]`, so stamphog reviews a Renovate PR and approves it only when the `Dependency proof` check proved every file in it.
 
 The repository uses the shipped default `review-guidance.md`.
 

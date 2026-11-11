@@ -120,3 +120,30 @@ attestations:
       paths:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
+    - name: dependency_proof
+      # Posted by the Dependency proof workflow with a posthog-dependency-proof token, after a
+      # replay of the pnpm update from the merge base wrote the same lockfile as the PR head.
+      check: 'Dependency proof'
+      app_id: 5697920
+      lifts: [deps_toolchain]
+      paths:
+          - '(?:^|/)package\.json$'
+          - '(?:^|/)pnpm-lock\.yaml$'
+          - '(?:^|/)pnpm-workspace\.yaml$'
+      # Keep in step with PROVER_FILES in .github/scripts/dependency_proof/prove.py. A proof whose
+      # marker does not pin every file listed here lifts nothing.
+      publisher_files:
+          - .github/actions/setup-uv/action.yml
+          - .github/scripts/dependency_proof/__init__.py
+          - .github/scripts/dependency_proof/__main__.py
+          - .github/scripts/dependency_proof/policy.py
+          - .github/scripts/dependency_proof/prove.py
+          - .github/workflows/dependency-proof-trigger.yml
+          - .github/workflows/dependency-proof.yml
+          - .nvmrc
+# Bots whose PRs stamphog reviews. It approves one only when an attestation that declares
+# `publisher_files` proved every file the PR changes.
+bot_authors:
+    - name: renovate
+      login: 'renovate[bot]'
+      id: 29139614
