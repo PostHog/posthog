@@ -13,7 +13,6 @@ import {
 } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -31,6 +30,7 @@ import { TRACE_DRAWER_LISTS, TraceDrawerListConfig, TraceDrawerListId } from './
 import { TRACE_DRAWER_PARAMS, withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow, uniqueTraces } from './traceListRows'
 import { traceViewHostLogic } from './traceViewHostLogic'
+import { traceViewTracking } from './traceViewTracking'
 
 export interface TraceDrawerLogicProps {
     listId: TraceDrawerListId
@@ -123,7 +123,7 @@ function trackDrawerClosed(cache: Record<string, any>): void {
     if (cache.stepsTaken === undefined) {
         return
     }
-    posthog.capture('llma trace drawer closed', { steps: cache.stepsTaken })
+    traceViewTracking.drawerClosed(cache.stepsTaken)
     cache.stepsTaken = undefined
     cache.disposables.dispose(CLOSE_ON_ESCAPE_DISPOSABLE)
 }
@@ -320,7 +320,7 @@ export const traceDrawerLogic = kea<traceDrawerLogicType>([
             const target = direction === 'next' ? values.nextTrace : values.previousTrace
             if (target) {
                 cache.stepsTaken += 1
-                posthog.capture('llma trace drawer stepped', { direction })
+                traceViewTracking.drawerStepped(direction)
                 writeUrlParams('push', toDrawerParams(target))
             }
         },
@@ -353,7 +353,7 @@ export const traceDrawerLogic = kea<traceDrawerLogicType>([
                 actions.setOpeningMode(config.openingMode ?? null)
                 actions.setMode('spans')
                 actions.setDetailTab(config.detailTab ?? 'messages')
-                posthog.capture('llma trace drawer opened', { list: props.listId })
+                traceViewTracking.drawerOpened(props.listId)
                 void addProductIntent({
                     product_type: ProductKey.AI_OBSERVABILITY,
                     intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
