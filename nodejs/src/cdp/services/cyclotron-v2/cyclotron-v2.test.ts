@@ -2645,6 +2645,7 @@ describe('Cyclotron V2', () => {
                     pool: { dbUrl: `${DB_URL}?options=-c%20lock_timeout%3D500` },
                 })
                 await lockTimeoutManager.connect()
+                const holderPid = (await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
                 await holder.query('BEGIN')
                 await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [
                     lowTeam,
@@ -2652,11 +2653,11 @@ describe('Cyclotron V2', () => {
                 const reroutes = Promise.all(highTeamFirst.map((job) => job.reschedule({ queueName: EMAIL_QUEUE })))
                 try {
                     await waitForExpect(async () => {
-                        const waiting = await assertPool.query(
-                            `SELECT 1 FROM pg_stat_activity
-                             WHERE wait_event_type = 'Lock' AND query LIKE '%INSERT INTO cyclotron_email_team_seq%'`
+                        const blocked = await assertPool.query(
+                            'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+                            [holderPid]
                         )
-                        expect(waiting.rows).toHaveLength(1)
+                        expect(blocked.rows.length).toBeGreaterThan(0)
                     })
 
                     await expect(
