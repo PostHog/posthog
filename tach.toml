@@ -2068,3 +2068,17 @@ expose = [
 from = [
     "products.ui_customization",
 ]
+
+[[modules]]
+path = "products.release"
+depends_on = ["posthog", "products.feature_flags"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.release",
+]
