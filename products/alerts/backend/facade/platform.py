@@ -14,6 +14,7 @@ from products.alerts.backend.platform_alert_reads import (
     moved_alert_statuses,
 )
 from products.alerts.backend.platform_insight_alert import (
+    delete_native_insight_alert,
     enable_native_insight_alert,
     native_insight_alert_matches,
     native_insight_alert_view,
@@ -41,6 +42,7 @@ def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
 __all__ = [
     "close_moved_alert_firings",
     "delete_alert_destinations_and_copy",
+    "delete_native_insight_alert",
     "enable_native_insight_alert",
     "follow_insight_alert",
     "hand_over_new_alert",

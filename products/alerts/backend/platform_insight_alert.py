@@ -16,6 +16,7 @@ from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
+    delete_owned_configuration,
     get_configuration,
     list_configurations,
     native_configuration_matches,
@@ -148,6 +149,12 @@ def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAler
         change=lambda stored: replace(stored, enabled=True),
         source_checked=True,
     )
+
+
+def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
+    """Deletes an insight alert with no insight row: sends the resolves of its open firings while its
+    destinations still exist, then removes them and the alert. Call it outside any transaction."""
+    delete_owned_configuration(team_id=team_id, configuration_id=alert_id)
 
 
 def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
