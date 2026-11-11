@@ -42,6 +42,7 @@ from products.signals.backend.onboarding_state import is_quick_setup
 from products.signals.backend.report_content_gates import team_first_report_email_enabled
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.trial.policy import TrialPolicy
 
 if TYPE_CHECKING:
     from django.utils.functional import Promise
@@ -188,6 +189,13 @@ class InboxOnboarding:
             return self._state(config)
 
         pilot = self._validate_pilot(draft)
+        # Quick setup shows no implementation toggle, so only confirmed legacy pricing may turn on automatic PRs.
+        if (
+            draft["automatic_implementation"]
+            and is_quick_setup({"draft": draft})
+            and TrialPolicy(self.team).flag_decision().enabled is not False
+        ):
+            draft = {**draft, "automatic_implementation": False}
         if pilot and self.team.parent_team_id:
             if not UserAccessControl(user=self.user, team=self.team.parent_team).check_access_level_for_resource(
                 "task", "editor"
