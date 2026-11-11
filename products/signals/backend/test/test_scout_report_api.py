@@ -3525,6 +3525,7 @@ class TestUserReportCreateAPI(APIBaseTest):
                 "products.signals.backend.auto_start.maybe_autostart_implementation_task", new=AsyncMock()
             ) as start_task,
             patch("products.signals.backend.implementation_dispatch.ImplementationDispatcher.trigger") as dispatch,
+            recorded_internal_events() as (sent, _),
         ):
             response = self.client.post(self._url(), payload, format="json")
             assert response.status_code == status.HTTP_201_CREATED, response.content
@@ -3538,6 +3539,7 @@ class TestUserReportCreateAPI(APIBaseTest):
         report = SignalReport.objects.get(id=report_id)
         assert (report.user_authored, report.created_by_id) == (True, self.user.id)
         assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
+        assert [event["source_products"] for event in inbox_report_ready_events(sent)] == [["user_authored"]]
 
     def test_reviewer_named_in_a_filed_report_reads_as_added_by_teammate(self) -> None:
         payload = self._payload(

@@ -79,21 +79,31 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
 
     Waits for the broker to accept the events. An event the broker rejects or never confirms keeps
     its claim unconfirmed, and `reconcile_stranded_ready_events` sends it again once the claim goes
-    stale. Never raises: every producer calls this after the report is already committed, and a
-    delivery problem must not fail the report that settled.
+    stale. Never raises: a producer calls this after the report is already committed, and a
+    delivery problem must not fail the report that settled. A caller that can retry calls
+    `send_inbox_report_ready_events` instead.
     """
     try:
-        if not inbox_report_destinations_enabled(team_id):
-            return
-        _publish_ready_events(
-            [
-                _ReadyEventClaim(team_id=team_id, report_id=claimed_id, source_products=source_products)
-                for claimed_id in [report_id, *_plan_layer_ids(team_id, report_id)]
-                if _claim_ready_event(team_id, claimed_id, source_products)
-            ]
-        )
+        send_inbox_report_ready_events(team_id=team_id, report_id=report_id, source_products=source_products)
     except Exception:
         logger.exception("inbox_report_ready_event_failed", team_id=team_id, report_id=report_id)
+
+
+def send_inbox_report_ready_events(*, team_id: int, report_id: str, source_products: list[str]) -> None:
+    """`emit_inbox_report_ready_event`, except that a failure before the claims are written raises.
+
+    Nothing records a report that was never claimed, so only the caller's retry can still send it.
+    Once claimed, a report is the sweep's to send again.
+    """
+    if not inbox_report_destinations_enabled(team_id):
+        return
+    _publish_ready_events(
+        [
+            _ReadyEventClaim(team_id=team_id, report_id=claimed_id, source_products=source_products)
+            for claimed_id in [report_id, *_plan_layer_ids(team_id, report_id)]
+            if _claim_ready_event(team_id, claimed_id, source_products)
+        ]
+    )
 
 
 def inbox_report_destinations_enabled(team_id: int) -> bool:
@@ -119,13 +129,21 @@ def reconcile_stranded_ready_events() -> None:
 
     A delivery still pending after the flush, or a worker that died between the claim and the
     publish, leaves such a claim. Works through the claims batch by batch until none is left or the
-    time budget runs out.
+    time budget runs out. A project whose flag is off, or did not answer, gets its claims back
+    unsent, so the flag stops retries as well as first sends.
     """
     deadline = time.monotonic() + _SWEEP_TIME_BUDGET.total_seconds()
     while True:
         stranded = _stranded_claims()
+        enabled = {team_id: inbox_report_destinations_enabled(team_id) for team_id in {c.team_id for c, _ in stranded}}
         _publish_ready_events(
-            [claim for claim, claimed_at in stranded if _renew_stale_claim(claim.team_id, claim.report_id, claimed_at)]
+            [
+                claim
+                for claim, claimed_at in stranded
+                if _renew_stale_claim(
+                    claim.team_id, claim.report_id, claimed_at, destinations_enabled=enabled[claim.team_id]
+                )
+            ]
         )
         # A short batch was the last one. Stopping there also keeps a claim that could be neither
         # renewed nor released from being re-read until the deadline.
@@ -218,23 +236,18 @@ def _plan_layer_ids(team_id: int, report_id: str) -> list[str]:
     ]
 
 
-def _renew_stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> bool:
-    """Take the claim over for a retry, or give it back when the report is no longer ready."""
-    if (
-        _stale_claim(team_id, report_id, claimed_at)
-        .filter(status=SignalReport.Status.READY)
-        .update(ready_event_emitted_at=timezone.now())
-    ):
+def _renew_stale_claim(team_id: int, report_id: str, claimed_at: datetime, *, destinations_enabled: bool) -> bool:
+    """Take the claim over for a retry, or give it back when the report is no longer ready or its project's flag is off."""
+    if destinations_enabled and _stale_claim(team_id, report_id, claimed_at).filter(
+        status=SignalReport.Status.READY
+    ).update(ready_event_emitted_at=timezone.now()):
         return True
-    _release_stale_claim(team_id, report_id, claimed_at)
+    released = _stale_claim(team_id, report_id, claimed_at)
+    if destinations_enabled:
+        # A report that settled after the renew skipped its own emit on this claim, so the next sweep sends it.
+        released = released.exclude(status=SignalReport.Status.READY)
+    released.update(ready_event_emitted_at=None, ready_event_source_products=None)
     return False
-
-
-def _release_stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> None:
-    # A report that settled after the renew skipped its own emit on this claim, so the next sweep sends it.
-    _stale_claim(team_id, report_id, claimed_at).exclude(status=SignalReport.Status.READY).update(
-        ready_event_emitted_at=None, ready_event_source_products=None
-    )
 
 
 def _stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> QuerySet[SignalReport]:

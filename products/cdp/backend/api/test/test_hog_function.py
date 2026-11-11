@@ -1811,6 +1811,42 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         stored.refresh_from_db()
         assert stored.name == "Inbox webhook"
 
+    @parameterized.expand(
+        [
+            ("drops the inbox report event", ["$activity_log_entry_created"], status.HTTP_400_BAD_REQUEST),
+            (
+                "keeps the inbox report event",
+                ["$inbox_report_ready", "$activity_log_entry_created"],
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_an_inbox_report_destination_keeps_its_trigger(self, _name: str, event_ids: list[str], expected: int):
+        stored = HogFunction.objects.create(
+            team=self.team,
+            name="Inbox webhook",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            filters=INBOX_REPORT_FILTERS,
+            inputs_schema=[],
+            inputs={},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{stored.id}/",
+            data={
+                "filters": {
+                    "source": "internal-events",
+                    "events": [{"id": event_id, "type": "events"} for event_id in event_ids],
+                }
+            },
+        )
+
+        assert response.status_code == expected, response.json()
+        stored.refresh_from_db()
+        assert "$inbox_report_ready" in [event["id"] for event in stored.filters["events"]]
+
     def test_generates_filters_bytecode(self, *args):
         action = create_action(
             team=self.team,

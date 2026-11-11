@@ -87,6 +87,7 @@ from products.cdp.backend.validation import (
     MappingsSerializer,
     added_duplicate_input_keys,
     compile_hog,
+    dropped_read_gated_trigger,
     exposes_secret_dictionary_keys,
     generate_template_bytecode,
     masked_dictionary_secret,
@@ -792,6 +793,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
         if read_gated_denial:
             raise serializers.ValidationError({"filters": read_gated_denial})
+        dropped_trigger = dropped_read_gated_trigger(current_filters, proposed_filters)
+        if dropped_trigger:
+            raise serializers.ValidationError({"filters": dropped_trigger})
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 

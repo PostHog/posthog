@@ -1,14 +1,20 @@
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import BaseTest
 
+from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.inbox_report_events import emit_inbox_report_ready_event, reconcile_stranded_ready_events
+from products.signals.backend.inbox_report_events import (
+    emit_inbox_report_ready_event,
+    reconcile_stranded_ready_events,
+    send_inbox_report_ready_events,
+)
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.stack_plan import create_layer_reports
@@ -79,6 +85,14 @@ class TestInboxReportReadyEvent(BaseTest):
 
         assert sent == []
 
+    def test_a_report_that_could_not_be_claimed_is_left_to_the_callers_retry(self):
+        with recorded_internal_events() as (sent, _):
+            emit_inbox_report_ready_event(team_id=self.team.id, report_id="not-a-report-id", source_products=[])
+            with pytest.raises(ValidationError):
+                send_inbox_report_ready_events(team_id=self.team.id, report_id="not-a-report-id", source_products=[])
+
+        assert sent == []
+
     def test_the_flag_is_checked_for_the_reports_project(self):
         report = self._report()
 
@@ -105,15 +119,21 @@ class TestInboxReportReadyEvent(BaseTest):
         assert [event["event"]["uuid"] for event in resent] == [first[0]["event"]["uuid"]]
         assert resent[0]["event"]["properties"]["source_products"] == ["scout"]
 
-    def test_the_sweep_releases_a_claim_whose_report_is_no_longer_ready(self):
+    @parameterized.expand(
+        [
+            ("report no longer ready", SignalReport.Status.IN_PROGRESS, True),
+            ("destinations turned off", SignalReport.Status.READY, False),
+        ]
+    )
+    def test_the_sweep_releases_a_claim_it_must_not_send(self, _name: str, status: str, flag_enabled: bool):
         report = self._report()
         SignalReport.objects.filter(id=report.id).update(
-            status=SignalReport.Status.IN_PROGRESS,
+            status=status,
             ready_event_emitted_at=timezone.now() - timedelta(hours=1),
             ready_event_source_products=["scout"],
         )
 
-        with recorded_internal_events() as (swept, _):
+        with recorded_internal_events(flag_enabled=flag_enabled) as (swept, _):
             reconcile_stranded_ready_events()
         SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.READY)
         with recorded_internal_events() as (settled, _):

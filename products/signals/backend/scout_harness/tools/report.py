@@ -66,7 +66,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct
 from products.signals.backend.inbox_report_events import emit_inbox_report_ready_event
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -1775,8 +1775,10 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
 
 
-def _emit_report_ready_event(*, team_id: int, report_id: str) -> None:
-    emit_inbox_report_ready_event(team_id=team_id, report_id=report_id, source_products=[SOURCE_PRODUCT])
+def _emit_report_ready_event(*, team_id: int, report_id: str, created_by_id: int | None) -> None:
+    # The source product the report's backing signals carry, as `scout_report/persistence.py` picks it.
+    source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
+    emit_inbox_report_ready_event(team_id=team_id, report_id=report_id, source_products=[source_product])
 
 
 # Telemetry caps for the report content carried on the lifecycle events. The signal channel surfaces a
@@ -2536,7 +2538,7 @@ async def emit_report(
                 )
             await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
             await database_sync_to_async(_emit_report_ready_event, thread_sensitive=False)(
-                team_id=team.id, report_id=persisted.report_id
+                team_id=team.id, report_id=persisted.report_id, created_by_id=author.user_id
             )
         return await finish(_emit_result(persisted.report_id, judgement))
 
@@ -2747,7 +2749,7 @@ def emit_report_sync(
                     delivery_id=persisted.report_id,
                 )
             async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
-            _emit_report_ready_event(team_id=team.id, report_id=persisted.report_id)
+            _emit_report_ready_event(team_id=team.id, report_id=persisted.report_id, created_by_id=author.user_id)
         return finish(_emit_result(persisted.report_id, judgement))
 
 

@@ -39,7 +39,7 @@ from products.cdp.backend.filters import (
     filter_action_ids,
     filter_cohort_ids,
 )
-from products.cdp.backend.internal_events import read_gated_internal_event_scopes
+from products.cdp.backend.internal_events import read_gated_internal_event_scopes, read_gated_internal_events
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
@@ -1353,6 +1353,21 @@ def read_gated_access_denial(request: Any, user_access_control: Any, filters: An
 
 
 READ_GATED_RESOURCE_NAMES = {"task": "Tasks"}
+
+
+def dropped_read_gated_trigger(current_filters: Any, proposed_filters: Any) -> str | None:
+    """Why the proposed filters may not drop a read-gated event the stored ones subscribe to, or None.
+
+    The destination's logs and past runs keep what that event delivered, and the stored trigger is
+    what gates reading and replaying them, so the trigger has to keep the event.
+    """
+    dropped = sorted(read_gated_internal_events(current_filters) - read_gated_internal_events(proposed_filters))
+    if not dropped:
+        return None
+    return (
+        f"This destination's trigger has to keep {', '.join(dropped)}, because its logs and past runs hold "
+        "what that event delivered. Create a new destination for a different trigger."
+    )
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):

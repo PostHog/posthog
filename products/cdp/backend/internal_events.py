@@ -33,16 +33,21 @@ INBOX_REPORT_READY_EVENT = "$inbox_report_ready"
 READ_GATED_INTERNAL_EVENT_SCOPES: dict[str, str] = {INBOX_REPORT_READY_EVENT: "task"}
 
 
-def read_gated_internal_event_scopes(filters: object) -> set[str]:
-    """The scope objects a destination with these filters needs read access to, from the events it subscribes to."""
+def read_gated_internal_events(filters: object) -> set[str]:
+    """The read-gated internal events a destination with these filters subscribes to."""
     events = filters.get("events") if isinstance(filters, dict) else None
     if not isinstance(events, list):
         return set()
     return {
-        READ_GATED_INTERNAL_EVENT_SCOPES[event["id"]]
+        event["id"]
         for event in events
         if isinstance(event, dict) and event.get("id") in READ_GATED_INTERNAL_EVENT_SCOPES
     }
+
+
+def read_gated_internal_event_scopes(filters: object) -> set[str]:
+    """The scope objects a destination with these filters needs read access to, from the events it subscribes to."""
+    return {READ_GATED_INTERNAL_EVENT_SCOPES[event] for event in read_gated_internal_events(filters)}
 
 
 # Internal events that only the product which emits them may consume. A user-created
