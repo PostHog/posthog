@@ -11,6 +11,7 @@ their order, and the lock they need live there, so the API and the Max tool cann
 
 import json
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import UUID
 
 from django.db import connection
 
@@ -33,6 +34,8 @@ LLM_DETECTOR_FLAG = "alerts-llm-detector"
 
 # Key inside the flag payload that overrides `DEFAULT_MAX_LLM_ALERTS_PER_TEAM`.
 PAYLOAD_MAX_ALERTS_KEY = "max_llm_alerts_per_team"
+PAYLOAD_TEAM_CONFIGS_KEY = "team_configs"
+PAYLOAD_ORGANIZATION_CONFIGS_KEY = "organization_configs"
 
 # Applies when the payload is absent, malformed, or unreadable. Deliberately small:
 # a team that wants more asks, and the flag grants it with no deploy.
@@ -136,7 +139,7 @@ def admit_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
         return None
     # The cap is a flag read that can go to the network; resolve it before the lock so a slow
     # flag service never holds the team's other AI-alert writes, or the rows the caller locked.
-    cap = max_llm_alerts_per_team(organization_id=write.organization.id)
+    cap = max_llm_alerts_per_team(team_id=write.team_id, organization_id=write.organization.id)
     lock_llm_alert_limit(team_id=write.team_id)
     if error := llm_alert_limit_error(
         team_id=write.team_id,
@@ -217,24 +220,53 @@ def lock_llm_alert_limit(*, team_id: int) -> None:
 _PAYLOAD_DISTINCT_ID = "internal_alerts_llm_detector_limits"
 
 
-def max_llm_alerts_per_team(*, organization_id: Any = None) -> int:
+def max_llm_alerts_per_team(*, team_id: int, organization_id: Any) -> int:
     """The cap, from the flag payload, falling back to the code default.
 
-    ``organization_id`` evaluates the flag for that organization, so a rule targeting one
-    of them can carry its own cap. Without it the read resolves the flag's default payload.
+    The flag is boolean, so every release condition serves the same payload and a
+    condition cannot carry its own cap. Overrides for one project or one organization
+    live inside that payload instead (see ``_resolve_max_llm_alerts_per_team``).
 
     A read error never blocks alert editing: it resolves to the default, which is
     stricter than any value the payload is likely to carry.
     """
-    payload = _read_payload(organization_id=organization_id)
-    raw = (payload or {}).get(PAYLOAD_MAX_ALERTS_KEY)
-    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
-        return DEFAULT_MAX_LLM_ALERTS_PER_TEAM
-    return raw
+    return _resolve_max_llm_alerts_per_team(_read_payload(), team_id=team_id, organization_id=organization_id)
+
+
+def _resolve_max_llm_alerts_per_team(payload: dict | None, *, team_id: int, organization_id: Any) -> int:
+    """The cap for one project, most specific layer first.
+
+    ``team_configs[team_id]`` → ``organization_configs[organization_id]`` → the top-level
+    ``max_llm_alerts_per_team`` → ``DEFAULT_MAX_LLM_ALERTS_PER_TEAM``. The payload is arbitrary
+    JSON, so the value is validated at each layer, and a malformed value falls through to the
+    next layer rather than to the default.
+    """
+    payload = payload or {}
+    layers = (
+        _id_keyed_configs(payload.get(PAYLOAD_TEAM_CONFIGS_KEY)).get(str(team_id), {}),
+        _id_keyed_configs(payload.get(PAYLOAD_ORGANIZATION_CONFIGS_KEY)).get(str(organization_id), {}),
+        payload,
+    )
+    for layer in layers:
+        raw = layer.get(PAYLOAD_MAX_ALERTS_KEY)
+        if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+            return raw
+    return DEFAULT_MAX_LLM_ALERTS_PER_TEAM
+
+
+def _id_keyed_configs(raw: object) -> dict[str, dict]:
+    """Parse a ``{id: {...}}`` override map, keyed by the id as a string.
+
+    JSON object keys are always strings, and organization ids are UUIDs, so both maps are
+    looked up by ``str(id)``. Entries whose value is not an object are dropped.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): value for key, value in raw.items() if isinstance(value, dict)}
 
 
 def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = None) -> int:
-    """How many enabled AI-detector alerts the team already has.
+    """How many enabled AI-detector alerts the team already has, with or without an insight row.
 
     ``exclude_alert_id`` leaves the alert being edited out of its own count, so saving an
     unrelated change to an existing AI alert while the team sits at the cap still works.
@@ -242,30 +274,30 @@ def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = Non
     # Imported here to keep this module importable from the serializer without pulling the
     # alert model's own import graph into every reader of the cap.
     from products.alerts.backend.models.alert import AlertConfiguration  # noqa: PLC0415
+    from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
+    from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, SourceKind  # noqa: PLC0415
 
     queryset = AlertConfiguration.objects.filter(
         team_id=team_id, enabled=True, detector_config__type=DetectorType.LLM.value
     )
     if exclude_alert_id is not None:
         queryset = queryset.exclude(id=exclude_alert_id)
-    return queryset.count()
+    native = count_configurations(
+        team_id=team_id,
+        source_kind=SourceKind.INSIGHT,
+        native_only=True,
+        enabled_only=True,
+        exclude_id=UUID(exclude_alert_id) if exclude_alert_id else None,
+        source_config_contains={SOURCE_CONDITION_KEY: {"detector": {"type": DetectorType.LLM.value}}},
+    )
+    return queryset.count() + native
 
 
-def _read_payload(*, organization_id: Any = None) -> dict | None:
+def _read_payload() -> dict | None:
     try:
-        if organization_id is None:
-            # No organization to evaluate against, so read the flag's default payload.
-            payload = posthoganalytics.get_feature_flag_payload(
-                LLM_DETECTOR_FLAG, _PAYLOAD_DISTINCT_ID, match_value=True
-            )
-        else:
-            # Evaluated rather than read at a fixed match value, so a rule targeting this
-            # organization serves its own cap.
-            payload = posthoganalytics.get_feature_flag_payload(
-                LLM_DETECTOR_FLAG,
-                _PAYLOAD_DISTINCT_ID,
-                groups={"organization": str(organization_id)},
-            )
+        # Read at a fixed match value: the flag is boolean, so evaluating it for an organization
+        # can only return the same payload, or nothing when the organization is not matched.
+        payload = posthoganalytics.get_feature_flag_payload(LLM_DETECTOR_FLAG, _PAYLOAD_DISTINCT_ID, match_value=True)
         if isinstance(payload, str):
             payload = json.loads(payload)
         return payload if isinstance(payload, dict) else None

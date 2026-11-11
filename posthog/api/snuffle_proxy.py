@@ -120,13 +120,19 @@ class SnuffleNotConfiguredError(Exception):
     """Raised when no Snuffle URL is configured for this deployment."""
 
 
-def _snuffle_auth(ch_user: ClickHouseUser | None) -> HTTPBasicAuth | None:
+def snuffle_url(workload: Workload) -> str:
+    return settings.SNUFFLE_METRICS_URL if workload == Workload.METRICS else settings.SNUFFLE_APM_URL
+
+
+def _snuffle_auth(ch_user: ClickHouseUser | None, workload: Workload) -> HTTPBasicAuth | None:
     # A token-backed user's file rotates, so the credential is read for each request.
-    if ch_user is not None and (creds := connection_creds(Workload.LOGS, ch_user)) is not None:
+    if ch_user is not None and (creds := connection_creds(workload, ch_user)) is not None:
         return HTTPBasicAuth(creds.user, creds.read_password())
-    return (
-        HTTPBasicAuth(settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
-    )
+    if workload == Workload.METRICS:
+        user, password = settings.SNUFFLE_METRICS_USER, settings.SNUFFLE_METRICS_PASSWORD
+    else:
+        user, password = settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD
+    return HTTPBasicAuth(user, password) if user else None
 
 
 def snuffle_request(
@@ -139,18 +145,20 @@ def snuffle_request(
     accept: str = "application/json",
     timeout: float | None = None,
     ch_user: ClickHouseUser | None = None,
+    workload: Workload = Workload.LOGS,
 ) -> requests.Response:
     """Send one request to Snuffle as `team_id` and debit the bytes it read from the query budget.
 
-    `upstream_path` is the Snuffle path, for example ``/api/v1/query_range``. Snuffle connects to
-    ClickHouse as `ch_user` when it is a registered logs cluster user. Network errors from
+    `upstream_path` is the Snuffle path, for example ``/api/v1/query_range``. `workload` picks the
+    Snuffle: METRICS for PromQL, LOGS for LogQL. Snuffle connects to ClickHouse as `ch_user` when
+    it is a registered user of that workload's cluster. Network errors from
     `requests` propagate, so each caller can map them to its own error format.
     """
-    base_url = settings.SNUFFLE_APM_URL
+    base_url = snuffle_url(workload)
     if not base_url:
         raise SnuffleNotConfiguredError("PromQL/LogQL query API is not configured")
     headers = {TEAM_ID_HEADER: str(team_id), "Accept": accept}
-    auth = _snuffle_auth(ch_user)
+    auth = _snuffle_auth(ch_user, workload)
     upstream = internal_requests.request(
         method,
         f"{base_url.rstrip('/')}{upstream_path}",
@@ -177,6 +185,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     upstream_prefix: ClassVar[str]
     allowed_paths: ClassVar[tuple[re.Pattern[str], ...]]
+    workload: ClassVar[Workload] = Workload.LOGS
 
     scope_object_read_actions = ["proxy"]
     posthog_feature_flag = SNUFFLE_API_FEATURE_FLAG
@@ -209,7 +218,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not any(pattern.fullmatch(path) for pattern in self.allowed_paths):
             return _error_response(status.HTTP_404_NOT_FOUND, "not_found", f"unsupported endpoint: {path}")
 
-        if not settings.SNUFFLE_APM_URL:
+        if not snuffle_url(self.workload):
             return _error_response(
                 status.HTTP_501_NOT_IMPLEMENTED, "unavailable", "PromQL/LogQL query API is not configured"
             )
@@ -238,6 +247,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 params=_forwardable(request.query_params),
                 data=body,
                 accept=request.headers.get("Accept", "application/json"),
+                workload=self.workload,
             )
         except requests.Timeout:
             logger.warning("snuffle_proxy_timeout", team_id=team_id, path=path)
