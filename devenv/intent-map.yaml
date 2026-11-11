@@ -189,11 +189,6 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
-    nodejs_ai_events:
-        description: 'Node.js AI events ingestion ($ai_* events)'
-        requires: [event_ingestion]
-        docker_profiles: []
-
     batch_imports:
         description: 'Batch data import worker'
         requires: [event_ingestion]
@@ -307,7 +302,6 @@ intents:
         capabilities:
             [
                 event_ingestion,
-                nodejs_ai_events,
                 llm_gateway,
                 embedding_service,
                 property_definitions,
