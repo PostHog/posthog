@@ -93,16 +93,16 @@ export async function strangerConflict(strangers: ProcEntry[]): Promise<StackCon
     const held = (
         await Promise.all(
             runners.map(async (runner) => {
-                const address = lockAddress(runner)
-                const pid = (await holderOf(address)) || listenerOf(address)
-                return pid ? [{ runner, pid }] : []
+                const holder = await runnerHolding(lockAddress(runner))
+                return holder ? [{ runner, holder }] : []
             })
         )
     ).flat()
-    const sentences = held.map(
-        ({ runner, pid }) =>
-            `Roles of scenario runner ${pid}, which uses ${runner}, are running: ${listed(strangers.filter((entry) => runnerOf(entry) === runner))}. That runner restarts roles that are killed, so run \`kill ${pid}\``
-    )
+    const sentences = held.map(({ runner, holder }) => {
+        const roles = strangers.filter((entry) => runnerOf(entry) === runner)
+        const silence = holder.answered ? '' : ' but does not answer and may be suspended'
+        return `Roles of scenario runner ${holder.pid}, which uses ${runner}${silence}, are running: ${listed(roles)}. That runner restarts roles that are killed, so run \`${stopCommand(holder, roles)}\``
+    })
     const killable = strangers.filter((entry) => !held.some(({ runner }) => runner === runnerOf(entry)))
     if (killable.length > 0) {
         sentences.push(
@@ -192,6 +192,22 @@ function listenerOf(address: string): string | undefined {
               })
 }
 
+type Holder = { pid: string; answered: boolean }
+
+async function runnerHolding(address: string): Promise<Holder | undefined> {
+    const answer = await holderOf(address)
+    if (answer) {
+        return { pid: answer, answered: true }
+    }
+    const silent = listenerOf(address)
+    return silent ? { pid: silent, answered: false } : undefined
+}
+
+const stopCommand = (holder: Holder, roles: ProcEntry[] = []): string => {
+    const kill = ['kill', holder.pid, ...roles.map((entry) => entry.pid)].join(' ')
+    return holder.answered ? kill : `kill -CONT ${holder.pid}; ${kill}`
+}
+
 export const lockAddress = (stateDir: string): string =>
     `\0posthog-scenarios-${createHash('sha256').update(stateDir).digest('hex').slice(0, 16)}`
 
@@ -210,16 +226,13 @@ export async function holdRunLock(stateDir: string, retried = false): Promise<()
         if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') {
             throw error
         }
-        const holder = await holderOf(address)
+        const holder = await runnerHolding(address)
         if (holder) {
+            const state = holder.answered
+                ? `is already running from ${stateDir}`
+                : `holds ${stateDir} but does not answer; it may be suspended (resume it with fg)`
             throw new StackConflictError(
-                `Scenario runner ${holder} is already running from ${stateDir}. Run \`kill ${holder}\`, then run the scenario again.`
-            )
-        }
-        const silent = listenerOf(address)
-        if (silent) {
-            throw new StackConflictError(
-                `Scenario runner ${silent} holds ${stateDir} but does not answer; it may be suspended (resume it with fg). Run \`kill -CONT ${silent}; kill ${silent}\`, then run the scenario again.`
+                `Scenario runner ${holder.pid} ${state}. Run \`${stopCommand(holder)}\`, then run the scenario again.`
             )
         }
         if (retried) {
