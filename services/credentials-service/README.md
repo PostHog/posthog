@@ -359,6 +359,11 @@ The runtime role gets `SELECT, INSERT, UPDATE, DELETE` on `integrations`, `integ
 On `audit_log` it gets only `SELECT, INSERT`: it cannot `UPDATE`, `DELETE` or `TRUNCATE` audit rows, so a compromised pod cannot erase its own trail.
 Audit retention runs under the migrate or a maintenance role, outside the service process.
 
+In `prod-us`, `prod-eu` and any environment whose name starts with `prod`, the service checks the runtime role at startup.
+It refuses to start the integration features when the runtime role owns `audit_log`, can `UPDATE`, `DELETE` or `TRUNCATE` it, or has the same user as `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`.
+The pod logs `startup:database_role_refused`, stays ready, and keeps serving platform secrets.
+The same-user check runs only when the pod sets `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`. Other environments skip the check.
+
 Infra creates both roles.
 The migration Job sets `CREDENTIALS_SERVICE_RUNTIME_ROLE` to the runtime role name.
 The Job passes it to Postgres as the session setting `credentials_service.runtime_role`, and the grants migration reads it, so the SQL file holds no role name.
@@ -492,24 +497,24 @@ Its wrapped keys go into the same columns. The service refuses it when `CREDENTI
 
 ## Configuration
 
-| Variable                                   | Default                       | Notes                                                   |
-| ------------------------------------------ | ----------------------------- | ------------------------------------------------------- |
-| `CREDENTIALS_SERVICE_ENV`                  | `dev`                         | Logical env, recorded on every startup log line         |
-| `CREDENTIALS_SERVICE_SECRET_SOURCE`        | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
-| `CREDENTIALS_SERVICE_SECRETS_DIR`          | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
-| `CREDENTIALS_SERVICE_SECRET_NAME`          | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                      |
-| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`     | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
-| `CREDENTIALS_SERVICE_RELOAD_SECONDS`       | `30`                          | Re-read interval; a safety re-list next to the watch    |
-| `CREDENTIALS_SERVICE_METRICS_PORT`         | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
-| `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` | unset | Ed25519 `<deployment>.pub` files for the integrations audience; unset accepts no integrations token |
-| `CREDENTIALS_SERVICE_LOG_LEVEL`            | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
-| `PORT`                                     | `8004`                        |                                                         |
-| `HOST`                                     | `0.0.0.0`                     |                                                         |
-| `SHUTDOWN_PRESTOP_DELAY_MS`                | `5000`                        | Wait before draining, for the Kubernetes prestop window |
-| `CREDENTIALS_SERVICE_DATABASE_URL`         | unset                         | Postgres URL; unset means platform secrets only         |
-| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE`   | `20`                          | Connections per pod                                     |
-| `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` | unset                         | Migrate role URL, for the migration Job only            |
-| `CREDENTIALS_SERVICE_RUNTIME_ROLE`         | unset                         | Role that the migration Job grants access to            |
+| Variable                                                 | Default                       | Notes                                                                                               |
+| -------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| `CREDENTIALS_SERVICE_ENV`                                | `dev`                         | Logical env, recorded on every startup log line                                                     |
+| `CREDENTIALS_SERVICE_SECRET_SOURCE`                      | `directory`                   | `directory` or `kubernetes`; anything else fails boot                                               |
+| `CREDENTIALS_SERVICE_SECRETS_DIR`                        | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)                                                |
+| `CREDENTIALS_SERVICE_SECRET_NAME`                        | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                                                                  |
+| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`                   | the pod's namespace           | Read from the service account when unset (`kubernetes`)                                             |
+| `CREDENTIALS_SERVICE_RELOAD_SECONDS`                     | `30`                          | Re-read interval; a safety re-list next to the watch                                                |
+| `CREDENTIALS_SERVICE_METRICS_PORT`                       | `9090`                        | Dedicated `/metrics` listener, kept off the ingress                                                 |
+| `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` | unset                         | Ed25519 `<deployment>.pub` files for the integrations audience; unset accepts no integrations token |
+| `CREDENTIALS_SERVICE_LOG_LEVEL`                          | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                                                                  |
+| `PORT`                                                   | `8004`                        |                                                                                                     |
+| `HOST`                                                   | `0.0.0.0`                     |                                                                                                     |
+| `SHUTDOWN_PRESTOP_DELAY_MS`                              | `5000`                        | Wait before draining, for the Kubernetes prestop window                                             |
+| `CREDENTIALS_SERVICE_DATABASE_URL`                       | unset                         | Postgres URL; unset means platform secrets only                                                     |
+| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE`                 | `20`                          | Connections per pod                                                                                 |
+| `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`               | unset                         | Migrate role URL, for the migration Job only                                                        |
+| `CREDENTIALS_SERVICE_RUNTIME_ROLE`                       | unset                         | Role that the migration Job grants access to                                                        |
 
 The service exits at boot rather than starting degraded: a missing production variable, a
 numeric variable that does not parse, or a `kubernetes` source without `KUBERNETES_SERVICE_HOST`
