@@ -79,13 +79,17 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
-    def _run(self, *, exclude: bool, single_trace: bool = False) -> list[dict]:
+    def _run(
+        self, *, exclude: bool, single_trace: bool = False, flat: bool = False, prop: dict | None = None
+    ) -> list[dict]:
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             orderBy="timestamp",
             limit=100,
             excludeAttributes=exclude,
             traceId=(1).to_bytes(16, "big").hex() if single_trace else None,
+            flatSpans=flat or None,
+            filterGroup={"type": "AND", "values": [{"type": "AND", "values": [prop]}]} if prop else None,
         )
         return TraceSpansQueryRunner(query, self.team).run().results
 
@@ -135,3 +139,25 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
     def test_events(self, _name, single_trace, exclude, expected_events):
         results = self._run(exclude=exclude, single_trace=single_trace)
         self.assertEqual(results[0].get("events"), expected_events)
+
+    @parameterized.expand(
+        [
+            (f"{name}_{'flat' if flat else 'trace_list'}", prop, flat)
+            for name, prop in [
+                (
+                    "span_attribute",
+                    {"key": "http.method", "type": "span_attribute", "operator": "exact", "value": "POST"},
+                ),
+                (
+                    "resource_attribute",
+                    {"key": "host.name", "type": "span_resource_attribute", "operator": "exact", "value": "web-1"},
+                ),
+            ]
+            for flat in (False, True)
+        ]
+    )
+    def test_attribute_filter_with_excluded_attributes(self, _name, prop, flat):
+        results = self._run(exclude=True, flat=flat, prop=prop)
+        self.assertEqual([row["name"] for row in results], ["GET /api"])
+        self.assertEqual(results[0]["attributes"], {})
+        self.assertEqual(results[0]["resource_attributes"], {})
