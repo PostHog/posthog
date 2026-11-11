@@ -144,8 +144,10 @@ describe('scenario environment', () => {
                     ),
                     proc(327, 327, 'tsx --tsconfig tsconfig.json src/index.ts', PLAIN_ENV),
                     proc(328, 328, 'tsx watch --include src src/index.ts', PLAIN_ENV),
+                    proc(329, 329, 'tsx watch --ignore **/*.test.ts src/index.ts', PLAIN_ENV),
+                    proc(330, 330, 'tsx watch --exclude src/generated.ts src/index.ts', PLAIN_ENV),
                 ],
-                { groups: [], pids: [], strangers: [323, 324, 325, 326, 327, 328] },
+                { groups: [], pids: [], strangers: [323, 324, 325, 326, 327, 328, 329, 330] },
             ],
             [
                 'an editor open on the entry point in the nodejs dir is not a stranger',
@@ -158,13 +160,22 @@ describe('scenario environment', () => {
                 { groups: [], pids: [], strangers: [] },
             ],
             [
-                'a node or tsx script that takes the entry point as an argument is not a stranger',
+                'a node or tsx script or inline code that takes the entry point as an argument is not a stranger',
                 [
                     proc(353, 353, 'node node_modules/typescript/bin/tsc src/index.ts', PLAIN_ENV),
                     proc(
                         354,
                         354,
                         `node ${NODEJS}/node_modules/.bin/tsx watch scripts/lint.ts src/index.ts`,
+                        PLAIN_ENV
+                    ),
+                    proc(355, 355, 'tsx scripts/lint.tsx src/index.ts', PLAIN_ENV),
+                    proc(356, 356, 'node -e require("fs").watch(process.argv[1],()=>{}) src/index.ts', PLAIN_ENV),
+                    proc(357, 357, 'node --print 1 src/index.ts', PLAIN_ENV),
+                    proc(
+                        358,
+                        358,
+                        'node --max-old-space-size=4096 node_modules/typescript/bin/tsc src/index.ts',
                         PLAIN_ENV
                     ),
                 ],
