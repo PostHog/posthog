@@ -894,7 +894,7 @@ export interface workflowLogicActions {
                                         value: any
                                     }
                                 >
-                                message_category_id?: string | undefined
+                                message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -1837,7 +1837,7 @@ export interface workflowLogicActions {
                                         value: any
                                     }
                                 >
-                                message_category_id?: string | undefined
+                                message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -2806,7 +2806,7 @@ export interface workflowLogicActions {
                           value: any
                       }
                   >
-                  message_category_id?: string | undefined
+                  message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
@@ -3240,7 +3240,7 @@ export interface workflowLogicActions {
                           value: any
                       }
                   >
-                  message_category_id?: string | undefined
+                  message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined

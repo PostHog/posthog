@@ -8,6 +8,7 @@ import contextvars
 from collections.abc import AsyncGenerator, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
+from datetime import timedelta
 from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
@@ -91,9 +92,10 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface
-from posthog.models.activity_logging.activity_log import Change
+from posthog.models.activity_logging.activity_log import ActivityLog, Change
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import (
     clear_dashboard_from_group_type_mapping,
     get_group_type_mapping_dashboard_ids,
@@ -3063,6 +3065,29 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
     )
 
 
+ACTIVITY_SUMMARY_RECENT_VIEW_DAYS = 30
+
+
+class DashboardActivitySummarySerializer(serializers.Serializer):
+    last_edited_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the dashboard was last changed, from its activity log. Null if never logged."
+    )
+    last_edited_by = UserBasicSerializer(allow_null=True, help_text="Who made the last logged change.")
+    last_edited_client = serializers.CharField(
+        allow_null=True, help_text="Client that made the last logged change, e.g. 'mcp'. Null for the web app."
+    )
+    last_viewed_by_others_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When someone other than the requesting user last opened the dashboard in the app. "
+        "Programmatic reads (API, MCP, subscriptions) do not count.",
+    )
+    last_viewed_by_others_user = UserBasicSerializer(allow_null=True, help_text="Who that last viewer was.")
+    recent_viewer_count = serializers.IntegerField(
+        help_text=f"Number of people, including the requesting user, who opened the dashboard in the app "
+        f"in the last {ACTIVITY_SUMMARY_RECENT_VIEW_DAYS} days."
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -3294,11 +3319,11 @@ class DashboardsViewSet(
         if self.action == "bulk_delete":
             return queryset.exclude(deleted=True).select_related("team")
 
-        # subscribe_nudge only reads the dashboard's pk and name, so skip the folder/last-viewed
+        # subscribe_nudge and activity_summary only read the dashboard's pk and name, so skip the folder/last-viewed
         # annotations, the sharing-configuration prefetch and the created_by join.
         # Team scoping is preserved by the filter above; the CanEditDashboard object permission
         # still gates the write.
-        if self.action == "subscribe_nudge":
+        if self.action in ("subscribe_nudge", "activity_summary"):
             return queryset.exclude(deleted=True)
 
         if self.request.user.is_authenticated:
@@ -4647,6 +4672,49 @@ class DashboardsViewSet(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
                 status=status.HTTP_201_CREATED,
             )
+
+    @extend_schema(
+        responses={200: DashboardActivitySummarySerializer},
+        description="Signals for judging whether a dashboard is still in use: its last logged change and "
+        "recent human views in the app. Auto refreshes, API reads and subscriptions are not views.",
+    )
+    @action(methods=["GET"], detail=True, url_path="activity_summary", required_scopes=["dashboard:read"])
+    def activity_summary(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self.get_object()
+
+        last_edit = (
+            ActivityLog.objects.filter(
+                team_id=self.team_id,
+                scope="Dashboard",
+                item_id=str(dashboard.pk),
+                was_impersonated=False,
+                is_system=False,
+            )
+            .select_related("user")
+            .order_by("-created_at")
+            .first()
+        )
+
+        views = FileSystemViewLog.objects.filter(team_id=self.team_id, type="dashboard", ref=str(dashboard.pk))
+        last_other_view = (
+            views.exclude(user_id=cast(User, request.user).id).select_related("user").order_by("-viewed_at").first()
+        )
+        recent_viewer_count = views.filter(
+            viewed_at__gte=now() - timedelta(days=ACTIVITY_SUMMARY_RECENT_VIEW_DAYS)
+        ).count()
+
+        return Response(
+            DashboardActivitySummarySerializer(
+                {
+                    "last_edited_at": last_edit.created_at if last_edit else None,
+                    "last_edited_by": last_edit.user if last_edit else None,
+                    "last_edited_client": last_edit.client if last_edit else None,
+                    "last_viewed_by_others_at": last_other_view.viewed_at if last_other_view else None,
+                    "last_viewed_by_others_user": last_other_view.user if last_other_view else None,
+                    "recent_viewer_count": recent_viewer_count,
+                }
+            ).data
+        )
 
     @extend_schema(
         request=None,
