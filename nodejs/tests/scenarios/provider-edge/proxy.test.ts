@@ -105,11 +105,34 @@ describe('provider edge proxy', () => {
         )
     })
 
-    it('keeps SES faults off webhooks and destination faults off SES sends', async () => {
-        await control('POST', '/_faults', { name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 1 } })
-        await control('POST', '/_faults', { name: 'dest.status', params: { code: 500 }, dose: { count: 1 } })
+    it.each<[string, object, () => Promise<number>, () => Promise<number>, number[]]>([
+        [
+            'keeps a destination fault for the webhook after an SES send',
+            { name: 'dest.status', params: { code: 500 }, dose: { count: 1 } },
+            sendEmail,
+            () => callWebhook('run-1-1'),
+            [200, 500],
+        ],
+        [
+            'keeps an SES fault for the SES send after a webhook',
+            { name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } },
+            () => callWebhook('run-1-1'),
+            sendEmail,
+            [200, 400],
+        ],
+    ])('%s', async (_story, fault, first, second, statuses) => {
+        await control('POST', '/_faults', fault)
 
-        expect([await sendEmail(), await callWebhook('run-1-1'), await sendEmail()]).toEqual([400, 500, 400])
+        expect([await first(), await second()]).toEqual(statuses)
+    })
+
+    it('answers 502 for a host it does not fake that cannot be reached', async () => {
+        const closed = http.createServer()
+        await new Promise<void>((resolve) => closed.listen(0, '127.0.0.1', resolve))
+        const { port } = closed.address() as AddressInfo
+        await new Promise<void>((resolve) => closed.close(() => resolve()))
+
+        await expect(request(`http://127.0.0.1:${port}/elsewhere`, { dispatcher: client })).rejects.toThrow('502')
     })
 
     it('tunnels a host it does not fake to that host unchanged', async () => {

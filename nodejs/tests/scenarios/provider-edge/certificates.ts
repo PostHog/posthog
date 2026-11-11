@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync } from 'fs'
 import path from 'path'
 import { promisify } from 'util'
 
@@ -45,36 +45,30 @@ export async function createCertificates(caDir: string, hosts: string[]): Promis
     ])
     const leaves = new Map<string, Leaf>()
     for (const host of hosts) {
-        writeFileSync(file(`${host}.ext`), `subjectAltName=DNS:${host}\nextendedKeyUsage=serverAuth\n`)
         await openssl([
             'req',
+            '-x509',
             '-newkey',
             'rsa:2048',
             '-nodes',
             '-keyout',
             file(`${host}.key`),
             '-out',
-            file(`${host}.csr`),
+            file(`${host}.pem`),
+            '-days',
+            VALID_DAYS,
             '-subj',
             `/CN=${host}`,
-        ])
-        await openssl([
-            'x509',
-            '-req',
-            '-in',
-            file(`${host}.csr`),
             '-CA',
             caCertPath,
             '-CAkey',
             file('ca.key'),
-            '-set_serial',
-            String(leaves.size + 1),
-            '-days',
-            VALID_DAYS,
-            '-extfile',
-            file(`${host}.ext`),
-            '-out',
-            file(`${host}.pem`),
+            '-addext',
+            `subjectAltName=DNS:${host}`,
+            '-addext',
+            'extendedKeyUsage=serverAuth',
+            '-addext',
+            'basicConstraints=critical,CA:FALSE',
         ])
         leaves.set(host, { key: readFileSync(file(`${host}.key`)), cert: readFileSync(file(`${host}.pem`)) })
     }

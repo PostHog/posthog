@@ -43,16 +43,16 @@ export function serveConnect(server: http.Server, leaves: Map<string, Leaf>, ter
             return
         }
         const upstream = net.connect(target.port, target.host)
+        let established = false
+        upstream.once('error', () => (established ? client.destroy() : client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')))
         track(upstream)
         upstream.once('connect', () => {
+            established = true
             client.write(ESTABLISHED)
             upstream.write(head)
             upstream.pipe(client)
             client.pipe(upstream)
         })
-        upstream.once('error', () =>
-            upstream.connecting ? client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n') : client.destroy()
-        )
         client.once('close', () => upstream.destroy())
     })
 

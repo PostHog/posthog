@@ -24,7 +24,7 @@ export const CardFault = z.discriminatedUnion('name', [
     z
         .object({
             name: z.literal('dest.status'),
-            params: z.object({ code: z.number().int().min(100).max(599) }).strict(),
+            params: z.object({ code: z.number().int().min(200).max(599) }).strict(),
             match: HostMatch.optional(),
             dose: Dose,
             for: Duration.optional(),
