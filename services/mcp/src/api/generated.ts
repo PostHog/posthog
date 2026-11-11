@@ -118408,6 +118408,38 @@ export namespace Schemas {
       output: TraceMessagesSide | TraceJsonSide;
     }
 
+    /**
+     * The step's input value as ingested, or an empty object when it has none.
+     */
+    export type TraceNodeDatasetItemInput = { [key: string]: unknown } | unknown[] | string | number | boolean;
+
+    /**
+     * The step's output value as ingested, or null when it has none.
+     */
+    export type TraceNodeDatasetItemSourceOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    /**
+     * The step's custom event properties, without `$` names. Empty for the root.
+     */
+    export type TraceNodeDatasetItemMetadata = { [key: string]: unknown };
+
+    export interface TraceNodeDatasetItem {
+      /** An id that identifies the step among dataset items: the event's uuid, or the trace id for the root. */
+      clientItemId: string;
+      /** The id of the trace the step belongs to. */
+      sourceTraceId: string;
+      /** The step's event uuid, or the trace id for the root. */
+      sourceEventId: string;
+      /** When the trace happened, as given by the timestamp hint. */
+      sourceTimestamp: string;
+      /** The step's input value as ingested, or an empty object when it has none. */
+      input: TraceNodeDatasetItemInput;
+      /** The step's output value as ingested, or null when it has none. */
+      sourceOutput: TraceNodeDatasetItemSourceOutput;
+      /** The step's custom event properties, without `$` names. Empty for the root. */
+      metadata: TraceNodeDatasetItemMetadata;
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
@@ -127812,6 +127844,13 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesNodesDatasetItemRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Saved as the dataset item's source timestamp, and lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint: string;
     };
 
     export type AiObservabilityTracesNodesRawRetrieveParams = {
