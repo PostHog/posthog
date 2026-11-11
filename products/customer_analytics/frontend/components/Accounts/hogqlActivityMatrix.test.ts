@@ -7,6 +7,7 @@ import { getDotMatrixTileConfig } from '../ProductActivity/dotMatrixTileConfig'
 import {
     DEFAULT_MATRIX_QUERY,
     DOT_MATRIX_MAX_COLUMNS,
+    DOT_MATRIX_MAX_GLYPHS_PER_ROW,
     DOT_MATRIX_MAX_ROWS,
     DOT_MATRIX_MAX_SERIES,
     getHogQLActivityMatrix,
@@ -191,17 +192,38 @@ describe('HogQL activity matrix', () => {
             )
 
             expect(result.props!.rows).toHaveLength(DOT_MATRIX_MAX_ROWS)
-            expect(result.props!.columns).toHaveLength(DOT_MATRIX_MAX_COLUMNS)
+            const columnLimit = DOT_MATRIX_MAX_GLYPHS_PER_ROW / DOT_MATRIX_MAX_SERIES
+            expect(result.props!.columns).toHaveLength(columnLimit)
             expect(result.props!.series).toHaveLength(DOT_MATRIX_MAX_SERIES)
 
             const matrix = normalizeDotMatrixData(result.props!)
             const cellCount = [...matrix.cells.values()].reduce((total, cells) => total + cells.size, 0)
             expect(matrix.rows).toHaveLength(DOT_MATRIX_MAX_ROWS)
-            expect(matrix.columns).toHaveLength(DOT_MATRIX_MAX_COLUMNS)
-            expect(cellCount).toBe(DOT_MATRIX_MAX_SERIES)
+            expect(matrix.columns).toHaveLength(columnLimit)
+            expect(cellCount).toBe(columnLimit)
             expect(result.notices).toEqual([
-                `Showing ${DOT_MATRIX_MAX_ROWS} of 2000 rows, ${DOT_MATRIX_MAX_COLUMNS} of 2000 columns and ${DOT_MATRIX_MAX_SERIES} of 2000 series. Narrow the query to see the rest.`,
+                `Showing ${DOT_MATRIX_MAX_ROWS} of 2000 rows, ${columnLimit} of 2000 columns and ${DOT_MATRIX_MAX_SERIES} of 2000 series. Narrow the query to see the rest.`,
             ])
+        })
+
+        it.each([
+            [104, 64],
+            [104, 1],
+            [8, 64],
+        ])('bounds glyph slots across %i columns and %i series', (columnCount, seriesCount) => {
+            const results = Array.from({ length: columnCount }, (_, column) =>
+                Array.from({ length: seriesCount }, (_, series) => ['row', column, `s${series}`, 1])
+            ).flat()
+            const { props, notices } = getHogQLActivityMatrix(
+                { columns: ['r', 'c', 's', 'v'], results },
+                { row: 'r', column: 'c', series: 's', value: 'v' }
+            )
+            const shownColumns = Math.min(columnCount, Math.floor(DOT_MATRIX_MAX_GLYPHS_PER_ROW / seriesCount))
+            expect(props!.columns).toHaveLength(shownColumns)
+            expect(props!.series).toHaveLength(seriesCount)
+            expect(props!.columns!.length * props!.series!.length).toBeLessThanOrEqual(DOT_MATRIX_MAX_GLYPHS_PER_ROW)
+            expect(props!.columns!.at(-1)!.key).toBe(String(columnCount - 1))
+            expect(notices.length > 0).toBe(shownColumns < columnCount)
         })
 
         it('adds no notice when the result fits', () => {
