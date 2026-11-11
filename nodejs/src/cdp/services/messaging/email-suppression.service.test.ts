@@ -15,6 +15,7 @@ interface SuppressionRow {
     source: string
     suppressed: boolean
     transient_bounce_count: number
+    last_bounce_diagnostic: string | null
     deleted: boolean
 }
 
@@ -41,7 +42,7 @@ describe('EmailSuppressionService', () => {
     const readRow = async (email: string): Promise<SuppressionRow | undefined> => {
         const res = await hub.postgres.query<SuppressionRow>(
             PostgresUse.COMMON_READ,
-            `SELECT identifier, source, suppressed, transient_bounce_count, deleted
+            `SELECT identifier, source, suppressed, transient_bounce_count, last_bounce_diagnostic, deleted
              FROM posthog_messagesuppression
              WHERE team_id = $1 AND identifier = $2`,
             [team.id, email],
@@ -138,6 +139,71 @@ describe('EmailSuppressionService', () => {
             await svc.recordDeliveries(team.id, [email], futureTimestamp)
 
             expect((await readRow(email))?.transient_bounce_count).toBe(0)
+        })
+
+        it.each([
+            [
+                'an old bounce, then the delivery that followed it, resets',
+                [
+                    ['bounce', 2],
+                    ['delivery', 1],
+                ],
+                0,
+                'temp 2',
+                true,
+            ],
+            [
+                'a team outside the allowlist stamps the write time, so the older delivery does not reset',
+                [
+                    ['bounce', 2],
+                    ['delivery', 1],
+                ],
+                1,
+                'temp 2',
+                false,
+            ],
+            [
+                'a late bounce does not move the last bounce back, so an older delivery cannot reset',
+                [
+                    ['bounce', 1],
+                    ['bounce', 3],
+                    ['delivery', 2],
+                ],
+                2,
+                'temp 1',
+                true,
+            ],
+            [
+                'a bounce without a parseable time falls back to now',
+                [
+                    ['bounce', 'not-a-timestamp'],
+                    ['delivery', 1],
+                ],
+                1,
+                'temp not-a-timestamp',
+                true,
+            ],
+        ] as const)('%s', async (_label, events, expectedCount, expectedDiagnostic, teamUsesEventTime) => {
+            const svc = new EmailSuppressionService(hub.postgres, {
+                ...emailSuppressionConfigFromEnv(),
+                softBounceEventTimeTeams: teamUsesEventTime ? String(team.id) : '',
+            })
+            const email = 'replayed@example.com'
+            const hoursAgo = (offset: number | string): string =>
+                typeof offset === 'string' ? offset : new Date(Date.now() - offset * 60 * 60 * 1000).toISOString()
+
+            for (const [kind, offset] of events) {
+                if (kind === 'bounce') {
+                    await svc.recordTransientBounces(team.id, [email], `temp ${offset}`, hoursAgo(offset))
+                } else {
+                    await svc.recordDeliveries(team.id, [email], hoursAgo(offset))
+                }
+            }
+
+            expect(await readRow(email)).toMatchObject({
+                transient_bounce_count: expectedCount,
+                last_bounce_diagnostic: expectedDiagnostic,
+            })
         })
     })
 
