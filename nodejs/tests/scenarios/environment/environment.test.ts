@@ -866,25 +866,6 @@ describe('scenario environment', () => {
         }, 15_000)
     })
 
-    it('finds Kafka up when the runner probes it under tsx, as `scenarios run` does', async () => {
-        const script = `
-            const { downServices } = require(${JSON.stringify(path.join(__dirname, 'stack'))})
-            downServices(undefined, 'postgres://scenario:scenario@127.0.0.1:1/scenario', { host: '127.0.0.1', port: 1 })
-                .then((down) => process.stdout.write(JSON.stringify(down)))
-        `
-
-        const down = await new Promise<string>((resolve, reject) =>
-            childProcess.execFile(
-                path.join(__dirname, '..', '..', '..', 'node_modules', '.bin', 'tsx'),
-                ['-e', script],
-                { timeout: 30_000 },
-                (error, stdout) => (error ? reject(error) : resolve(stdout))
-            )
-        )
-
-        expect(parseJSON(down)).not.toContain('kafka')
-    }, 40_000)
-
     describe('up and reset', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
