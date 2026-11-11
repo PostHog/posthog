@@ -91,22 +91,26 @@ describe('PoisonQuarantine', () => {
                 ? Promise.reject(new Error('dependency down'))
                 : Promise.resolve()
 
-    it('quarantines up to three records that fail alone in one batch', async () => {
+    it.each([
+        [
+            'three in a batch of four',
+            ['poison-0', 'poison-1', 'poison-2', 'healthy'],
+            ['poison-0', 'poison-1', 'poison-2'],
+        ],
+        ['one alone in its batch', ['poison-0'], ['poison-0']],
+    ])('quarantines records that fail alone: %s', async (_, names, expected) => {
         const handler = wrap(failNamed('poison'))
 
-        await handler([record('poison-0', 0), record('poison-1', 1), record('poison-2', 2), record('healthy', 3)])
+        await handler(names.map((name, offset) => record(name, offset)))
 
-        expect((await readQuarantinedValues(3)).sort()).toEqual(['poison-0', 'poison-1', 'poison-2'])
+        expect((await readQuarantinedValues(expected.length)).sort()).toEqual(expected)
     })
 
-    it.each([
-        ['more records fail alone than poison would explain', 4, 1],
-        ['no record succeeds alone to show the dependencies are up', 2, 0],
-    ])('fails the batch and quarantines nothing when %s', async (_, failing, healthy) => {
+    it('fails the batch and quarantines nothing when more records fail alone than poison would explain', async () => {
         const handler = wrap(failNamed('outage', 'poison'))
         const batch = [
-            ...Array.from({ length: failing }, (_, offset) => record(`outage-${offset}`, offset)),
-            ...Array.from({ length: healthy }, (_, offset) => record(`healthy-${offset}`, failing + offset)),
+            ...Array.from({ length: 4 }, (_, offset) => record(`outage-${offset}`, offset)),
+            record('healthy', 4),
         ]
 
         await expect(handler(batch)).rejects.toThrow('dependency down')

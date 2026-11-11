@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
-import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
 
 import type { CdpOutputs } from '../../cdp-services'
@@ -42,6 +41,7 @@ type AloneOutcome = RanAlone | FailedAlone
 
 const hasFailedAlone = (outcome: AloneOutcome): outcome is FailedAlone => 'error' in outcome
 const hasRunAlone = (outcome: AloneOutcome): outcome is RanAlone => !hasFailedAlone(outcome)
+const isRetriable = (error: unknown): boolean => (error as { isRetriable?: unknown })?.isRetriable === true
 
 export class PoisonQuarantine {
     constructor(
@@ -57,7 +57,7 @@ export class PoisonQuarantine {
             try {
                 return await handler(messages)
             } catch (batchError) {
-                if (batchError instanceof DependencyUnavailableError) {
+                if (isRetriable(batchError)) {
                     throw batchError
                 }
                 return await this.isolate(handler, messages, batchError, source)
@@ -88,11 +88,7 @@ export class PoisonQuarantine {
             throw error
         }
 
-        if (
-            poisoned.length > MAX_QUARANTINED_PER_BATCH ||
-            poisoned.length === outcomes.length ||
-            poisoned.some(({ error }) => error instanceof DependencyUnavailableError)
-        ) {
+        if (poisoned.length > MAX_QUARANTINED_PER_BATCH || poisoned.some(({ error }) => isRetriable(error))) {
             logger.error('☣️', 'cdp_poison_too_many_failed_alone', {
                 consumerGroup: source.consumerGroup,
                 failedAlone: poisoned.length,
