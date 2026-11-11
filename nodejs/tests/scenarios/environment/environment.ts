@@ -1,11 +1,11 @@
 import { ChildProcess, spawn } from 'child_process'
 import { closeSync, existsSync, mkdirSync, openSync, realpathSync } from 'fs'
-import net from 'net'
 import os from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { isPortFree } from '~/tests/helpers/service-process'
 
 import { ROLE_RESTART_BACKOFF_MS } from '../cards'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
@@ -155,14 +155,16 @@ export function createEnvironment(): Environment {
 
     async function refuseHeldPorts(roles: Role[]): Promise<void> {
         const held = (
-            await Promise.all(roles.map(async (role) => ((await acceptsConnections(ROLE_PORTS[role])) ? [role] : [])))
+            await Promise.all(roles.map(async (role) => ((await isPortFree(ROLE_PORTS[role])) ? [] : [role])))
         ).flat()
         if (held.length > 0) {
+            const inspect = `ss -ltnp '${held.map((role) => `sport = :${ROLE_PORTS[role]}`).join(' or ')}'`
             throw new StackConflictError(
-                `Role ports already accept connections from processes the runner did not start: ${held
+                `Role ports are already held by processes the runner did not start: ${held
                     .map((role) => `${ROLE_PORTS[role]} (${role})`)
                     .join(', ')}.`,
-                `ss -ltnp '${held.map((role) => `sport = :${ROLE_PORTS[role]}`).join(' or ')}'`
+                inspect,
+                `Find what holds them with \`${inspect}\`, stop it, then run the scenario again.`
             )
         }
     }
@@ -212,17 +214,6 @@ export function createEnvironment(): Environment {
             specs.map((spec) => spec.role),
             exitsBefore
         )
-    }
-
-    function acceptsConnections(port: number): Promise<boolean> {
-        return new Promise((resolve) => {
-            const socket = net.connect(port, '127.0.0.1')
-            socket.once('connect', () => {
-                socket.destroy()
-                resolve(true)
-            })
-            socket.once('error', () => resolve(false))
-        })
     }
 
     async function answersHealth(role: Role): Promise<boolean> {

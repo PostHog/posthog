@@ -385,6 +385,7 @@ describe('scenario environment', () => {
         let unspawnable: Role | undefined
         let losesItsPort: Role | undefined
         let exitsOnce: Role | undefined
+        let exitedOnce: Promise<unknown> | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
@@ -427,6 +428,7 @@ describe('scenario environment', () => {
                 exitsOnce = exitsNow ? undefined : exitsOnce
                 const role = realSpawn(process.execPath, ['-e', exitsNow ? exitsAfterFirstAnswer : stubRole], options)
                 stubRolePids.add(role.pid!)
+                exitedOnce = exitsNow ? once(role, 'exit') : exitedOnce
                 return role
             }) as unknown as typeof childProcess.spawn)
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
@@ -440,6 +442,7 @@ describe('scenario environment', () => {
             unspawnable = undefined
             losesItsPort = undefined
             exitsOnce = undefined
+            exitedOnce = undefined
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             if (cacheHome === undefined) {
@@ -479,6 +482,10 @@ describe('scenario environment', () => {
                 'cdp-api',
                 () => {
                     exitsOnce = 'cdp-api'
+                    jest.spyOn(stack, 'missingTemplates').mockImplementation(async () => {
+                        await exitedOnce
+                        return []
+                    })
                 },
             ],
             [
@@ -513,7 +520,9 @@ describe('scenario environment', () => {
 
             await expect(environment.up()).rejects.toMatchObject({
                 exitCode: 2,
-                message: expect.stringContaining('6760 (cdp-processed-events)'),
+                message: expect.stringMatching(
+                    /6760 \(cdp-processed-events\)\. Find what holds them with `ss -ltnp 'sport = :6760'`, stop it,/
+                ),
                 stopCommand: "ss -ltnp 'sport = :6760'",
             })
         }, 30_000)
