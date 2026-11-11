@@ -26,8 +26,6 @@ import { Hub, Team } from '~/types'
 
 const mockAnalytics: { module?: typeof import('~/common/utils/posthog') } = {}
 
-// posthog.ts builds its posthog-node client when jest.setup.ts first loads it, with no key, so the
-// client is null. The module delegates to a copy that beforeAll loads with a key and a local host.
 jest.mock('~/common/utils/posthog', () => {
     const actual = jest.requireActual('~/common/utils/posthog')
     return new Proxy({}, { get: (_target, name) => (mockAnalytics.module ?? actual)[name] })
@@ -125,9 +123,9 @@ const complaint = (feedbackType = 'abuse') => ({
     },
 })
 
-const delivery = () => ({
+const delivery = (secondsAfterNow = 1) => ({
     eventType: 'Delivery',
-    delivery: { timestamp: secondsFromNow(1), recipients: [RECIPIENT] },
+    delivery: { timestamp: secondsFromNow(secondsAfterNow), recipients: [RECIPIENT] },
 })
 
 const fetchResponse = (status: number, body = ''): FetchResponse =>
@@ -205,7 +203,6 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
         await new Promise<void>((resolve) => analyticsReceiver.listen(0, '127.0.0.1', resolve))
         process.env.POSTHOG_API_KEY = 'phc_sandbox_feedback_test'
         process.env.POSTHOG_HOST_URL = `http://127.0.0.1:${(analyticsReceiver.address() as AddressInfo).port}`
-        // posthog.ts disables its client when NODE_ENV is test, which would drop every event.
         process.env.NODE_ENV = 'dev'
         try {
             jest.isolateModules(() => {
@@ -523,25 +520,39 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             })
         })
 
-        it('a delivery resets the bounce counter and clears the global entry', async () => {
-            await post(notification(sesRecord(team.id, transientBounce())))
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at) VALUES ($1, NOW(), NOW())`,
-                [RECIPIENT],
-                'test-seed-sandbox-global-bounce'
-            )
+        it.each([
+            { label: 'a delivery', eventTimeTeams: () => '', deliveredSecondsAfterNow: 1 },
+            {
+                label: 'a delivery after a soft bounce that SES reported late, stamped with its event time,',
+                eventTimeTeams: () => String(team.id),
+                deliveredSecondsAfterNow: -30,
+            },
+        ])(
+            '$label resets the bounce counter and clears the global entry',
+            async ({ eventTimeTeams, deliveredSecondsAfterNow }) => {
+                hub.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS = eventTimeTeams()
+                startApi()
+                await post(notification(sesRecord(team.id, transientBounce())))
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at) VALUES ($1, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour')`,
+                    [RECIPIENT],
+                    'test-seed-sandbox-global-bounce'
+                )
 
-            const res = await post(notification(sesRecord(team.id, delivery())))
+                const res = await post(notification(sesRecord(team.id, delivery(deliveredSecondsAfterNow))))
 
-            expect(res.status).toBe(200)
-            expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, transient_bounce_count: 0 }])
-            expect(await globalHardBounces()).toEqual([])
-            await waitForExpect(() => {
-                expect(sandboxMetrics().map((m) => m.metric_name)).toContain('email_sandbox_delivered')
-                expect(capturedEvents().map((message) => message.event)).toContain('workflows sandbox email delivered')
-            })
-        })
+                expect(res.status).toBe(200)
+                expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, transient_bounce_count: 0 }])
+                expect(await globalHardBounces()).toEqual([])
+                await waitForExpect(() => {
+                    expect(sandboxMetrics().map((m) => m.metric_name)).toContain('email_sandbox_delivered')
+                    expect(capturedEvents().map((message) => message.event)).toContain(
+                        'workflows sandbox email delivered'
+                    )
+                })
+            }
+        )
 
         it.each([
             ['a "not-spam" complaint', () => complaint('not-spam')],
