@@ -368,11 +368,22 @@ class _FailsFirstOnQ0(_StubEngine):
         return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
 
 
+class _NoSearchFailsFirstOnQ0(_NoSearchEngine):
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        if prompt == "q0?" and not getattr(self, "failed_once", False):
+            self.failed_once = True
+            self.calls += 1
+            return CitationCheck(engine=self.name, model=self.model, mode=self.mode, error="HTTPError: status=503")
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+
+
 @pytest.mark.parametrize(
-    "weekly,daily", [(True, True), (False, True), (True, False)], ids=["weekly", "daily_only", "weekly_only"]
+    "weekly,daily,flaky",
+    [(True, True, False), (False, True, False), (True, False, False), (True, False, True)],
+    ids=["weekly", "daily_only", "weekly_only", "weekly_only_retries_a_failure"],
 )
 def test_weekly_checks_run_on_the_rotation_day_once_across_resumed_runs(
-    team: Team, settings, weekly: bool, daily: bool
+    team: Team, settings, weekly: bool, daily: bool, flaky: bool
 ) -> None:
     settings.AEO_RUN_CONCURRENCY = 2
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(14)])
@@ -382,7 +393,7 @@ def test_weekly_checks_run_on_the_rotation_day_once_across_resumed_runs(
     # 2026-11-02 is a Monday, so this lands on q0's rotation day, after the 07:00 UTC run-day start.
     run_day = dt.datetime(2026, 11, 2, 12, 0, tzinfo=dt.UTC) + dt.timedelta(days=weekday)
     web_search = _FailsFirstOnQ0()
-    no_search = _NoSearchEngine()
+    no_search = _NoSearchFailsFirstOnQ0() if flaky else _NoSearchEngine()
 
     with time_machine.travel(run_day, tick=False):
         for _ in range(3):
@@ -391,9 +402,10 @@ def test_weekly_checks_run_on_the_rotation_day_once_across_resumed_runs(
             )
 
     checks = AEOCitationCheck.objects.for_team(team.id)
-    no_search_rows = checks.filter(engine=no_search.name)
+    no_search_rows = checks.filter(engine=no_search.name, check_failed=False)
     assert sorted(no_search_rows.values_list("prompt_text", flat=True)) == (sorted(due) if weekly else [])
-    assert no_search.calls == (len(due) if weekly else 0)
+    # A failed weekly check leaves the engine due, so a later dispatch of the same run day retries it.
+    assert no_search.calls == (len(due) + flaky if weekly else 0)
     assert not no_search_rows.filter(cited=True).exists()
     assert checks.filter(engine=web_search.name, check_failed=False).count() == (14 if daily else 0)
     # A prompt with no engine due today is still claimed, so later dispatches do not select it again.

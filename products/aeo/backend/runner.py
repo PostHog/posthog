@@ -274,7 +274,7 @@ def weekly_day(prompt_id: uuid.UUID) -> int:
 def _weekly_due(
     team: Team, prompts: list[AEOPrompt], checked_before: dt.datetime, weekly_engines: list[CitationEngine]
 ) -> dict[uuid.UUID, list[CitationEngine]]:
-    """Per prompt whose weekly day is this run day, the weekly engines with no check since the run day began.
+    """Per prompt whose weekly day is this run day, the weekly engines with no answered check since the run day began.
 
     The weekday is the run day's, in UTC, so it stays the same for every dispatch of that run day.
     A dispatch that resumes a killed run skips the engines it already recorded for a prompt,
@@ -289,6 +289,7 @@ def _weekly_due(
             prompt_id__in=candidates,
             engine__in=[engine.name for engine in weekly_engines],
             created_at__gte=checked_before,
+            check_failed=False,
         )
         .values_list("prompt_id", "engine")
     )
@@ -369,7 +370,12 @@ def _record_prompt_checks(
                 # Another dispatch may have recorded this prompt's weekly checks after this run chose its engines.
                 recorded = set(
                     AEOCitationCheck.objects.for_team(team.id)
-                    .filter(prompt_id=prompt.id, engine__in=weekly_names, created_at__gte=checked_before)
+                    .filter(
+                        prompt_id=prompt.id,
+                        engine__in=weekly_names,
+                        created_at__gte=checked_before,
+                        check_failed=False,
+                    )
                     .values_list("engine", flat=True)
                 )
                 fields_per_engine = [fields for fields in fields_per_engine if fields["engine"] not in recorded]

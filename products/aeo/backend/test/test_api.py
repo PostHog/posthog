@@ -383,6 +383,8 @@ class TestAEOPromptAPI(APIBaseTest):
                 latest["claude-web-search"]["target_best_position"],
             ) == (None, 2)
             assert latest["exa-answer"]["search_queries"] == ["checked 2026", "checked review"]
+            # An answer with no text reads as not mentioned, never null.
+            assert latest["exa-answer"]["mentioned"] is False
             assert latest["claude-web-search"]["search_queries"] == []
         assert listed["never checked?"]["latest_checks"] == []
 

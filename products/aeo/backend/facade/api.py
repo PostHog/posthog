@@ -28,8 +28,9 @@ from django.db.models import (
     OuterRef,
     Q,
     QuerySet,
+    Value,
 )
-from django.db.models.functions import TruncDate
+from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
@@ -1031,8 +1032,10 @@ def _latest_checks(
         AEOCitationCheck.objects.for_team(team_id)
         .filter(prompt_id__in=prompt_ids)
         .annotate(
-            mentioned=ExpressionWrapper(
-                Q(check_failed=False) & mention_filter(target_domains), output_field=BooleanField()
+            # A check with no answer text makes the regex match NULL, so default it to not mentioned.
+            mentioned=Coalesce(
+                ExpressionWrapper(Q(check_failed=False) & mention_filter(target_domains), output_field=BooleanField()),
+                Value(False),
             )
         )
         .order_by("prompt_id", "engine", "-created_at")
