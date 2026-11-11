@@ -27,6 +27,7 @@ export type FakeProjectApi = {
     credentials: NodeJS.ProcessEnv
     captured: Captured[]
     queries: number
+    lastQuery?: { query: string; values?: Record<string, unknown> }
     hideForQueries: number
     throttleCaptures: number
     onCapture: (event: Captured) => void
@@ -53,6 +54,7 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
     const fake = {
         captured: [] as Captured[],
         queries: 0,
+        lastQuery: undefined as FakeProjectApi['lastQuery'],
         hideForQueries: 0,
         throttleCaptures: 0,
         onCapture: (_event: Captured): void => undefined,
@@ -99,6 +101,7 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
                     return answer(response, 400, { type: 'validation_error' })
                 }
                 fake.queries += 1
+                fake.lastQuery = query
                 const key = JSON.stringify(query)
                 if (body.refresh !== 'force_blocking' && cached.has(key)) {
                     return answer(response, 200, cached.get(key))

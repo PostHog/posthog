@@ -218,7 +218,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             })
             const judged = withEvidenceError(base, evidenceError)
             const event = scorecardOf(judged, loaded, provenanceOf())
-            const written = await publish(event, env)
+            const written = await publish(event, env, signal)
             const result: RunResult = { ...judged, recorded: written.recorded, scorecardError: written.problem }
             const filesError =
                 evidenceError === undefined

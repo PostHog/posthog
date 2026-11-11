@@ -478,6 +478,7 @@ describe('runner through seed, drive and judge', () => {
             )
             expect(result).toMatchObject(verdict)
             expect(evidenceOf(result, 'scorecard.json')).toEqual(result)
+            expect(evidenceOf(result, 'scorecard-event.json')).toEqual(api.captured[0]?.properties)
             expect(api.captured.map(({ properties }) => properties)).toEqual([
                 expect.objectContaining({
                     run_id: result.runId,

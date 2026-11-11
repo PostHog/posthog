@@ -10,6 +10,8 @@ import { Provenance, provenanceOf } from './provenance'
 import { scorecardOf } from './scorecard'
 import { publish } from './write'
 
+const NEVER_ABORTED = new AbortController().signal
+
 const RUN_ID = '6f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
 
 const SMOKE: LoadedCard = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
@@ -76,7 +78,10 @@ describe('scorecard', () => {
         api.throttleCaptures = 1
         api.hideForQueries = 2
 
-        const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), env, { pollMs: 5, deadlineMs: 5000 })
+        const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), env, NEVER_ABORTED, {
+            pollMs: 5,
+            deadlineMs: 5000,
+        })
 
         expect(outcome).toEqual({ recorded: true })
         expect(api.captured).toEqual([
@@ -130,6 +135,11 @@ describe('scorecard', () => {
                 },
             },
         ])
+        expect(api.lastQuery?.values).toEqual({
+            run_id: RUN_ID,
+            from: '2026-01-04T10:02:30.500Z',
+            to: '2026-01-06T10:02:30.500Z',
+        })
     })
 
     it('reports a run that stopped before the drive with empty verdict fields', () => {
@@ -152,7 +162,10 @@ describe('scorecard', () => {
     it('gives up when the readback never returns the event', async () => {
         api.hideForQueries = Infinity
 
-        const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), env, { pollMs: 5, deadlineMs: 60 })
+        const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), env, NEVER_ABORTED, {
+            pollMs: 5,
+            deadlineMs: 60,
+        })
 
         expect(outcome).toEqual({
             recorded: false,
@@ -161,6 +174,36 @@ describe('scorecard', () => {
         expect(api.captured).toHaveLength(1)
     })
 
+    it.each<[string, (interrupt: AbortController) => void]>([
+        ['before the publish', (interrupt) => interrupt.abort()],
+        [
+            'once the event is captured',
+            (interrupt) => {
+                api.onCapture = () => interrupt.abort()
+            },
+        ],
+    ])(
+        'captures the event and stops reading it back when the run is interrupted %s',
+        async (_story, arrange) => {
+            api.hideForQueries = Infinity
+            const interrupt = new AbortController()
+            arrange(interrupt)
+
+            const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), env, interrupt.signal, {
+                pollMs: 60_000,
+                deadlineMs: 120_000,
+            })
+
+            expect(outcome).toEqual({
+                recorded: false,
+                problem: 'the run was interrupted before the scorecard was read back',
+            })
+            expect(api.captured).toHaveLength(1)
+            expect(api.queries).toBe(1)
+        },
+        10_000
+    )
+
     it.each([
         ['capture refuses the project token', 'SCENARIO_RUNS_PROJECT_TOKEN', 'capture answered 401'],
         ['the query refuses the read key', 'SCENARIO_RUNS_READ_KEY', 'the query answered 401'],
@@ -168,6 +211,7 @@ describe('scorecard', () => {
         const outcome = await publish(
             scorecardOf(RESULT, SMOKE, PROVENANCE),
             { ...env, [credential]: 'wrong' },
+            NEVER_ABORTED,
             { pollMs: 5, deadlineMs: 60 }
         )
 
@@ -188,7 +232,10 @@ describe('scorecard', () => {
     ])('%s', async (_story, kept, expected) => {
         const partial = Object.fromEntries(Object.entries(env).filter(([name]) => kept.includes(name)))
 
-        const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), partial, { pollMs: 5, deadlineMs: 60 })
+        const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), partial, NEVER_ABORTED, {
+            pollMs: 5,
+            deadlineMs: 60,
+        })
 
         expect(outcome).toEqual(expected)
         expect(api.captured).toEqual([])

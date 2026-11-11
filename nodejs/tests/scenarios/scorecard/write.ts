@@ -1,5 +1,6 @@
+import { setTimeout as sleep } from 'timers/promises'
+
 import { internalFetch } from '~/common/utils/request'
-import { waitForExpect } from '~/tests/helpers/expectations'
 
 import type { ScorecardProperties } from './scorecard'
 
@@ -14,7 +15,8 @@ export type Credentials = Record<keyof typeof CREDENTIALS, string>
 
 export const SCORECARD_EVENT = 'scorecard'
 export const SCORECARD_DISTINCT_ID = 'scenario-runner'
-const READBACK_QUERY = `SELECT uuid FROM events WHERE event = '${SCORECARD_EVENT}' AND properties.run_id = {run_id} LIMIT 1`
+const READBACK_QUERY = `SELECT uuid FROM events WHERE event = '${SCORECARD_EVENT}' AND properties.run_id = {run_id} AND timestamp >= toDateTime({from}, 'UTC') AND timestamp <= toDateTime({to}, 'UTC') LIMIT 1`
+const READBACK_WINDOW_MS = 24 * 60 * 60 * 1000
 const REQUEST_TIMEOUT_MS = 10_000
 
 export type WriteOptions = { pollMs?: number; deadlineMs?: number }
@@ -62,12 +64,24 @@ async function capture(properties: ScorecardProperties, { host, token }: Credent
         : refusalOf(response.status, 'capture', CREDENTIALS.token)
 }
 
-async function readBack(runId: string, { host, projectId, readKey }: Credentials): Promise<string | undefined> {
+async function readBack(
+    { run_id, ended_at }: ScorecardProperties,
+    { host, projectId, readKey }: Credentials
+): Promise<string | undefined> {
+    const endedAt = Date.parse(String(ended_at))
     const response = await internalFetch(`${host}/api/projects/${projectId}/query/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${readKey}` },
         body: JSON.stringify({
-            query: { kind: 'HogQLQuery', query: READBACK_QUERY, values: { run_id: runId } },
+            query: {
+                kind: 'HogQLQuery',
+                query: READBACK_QUERY,
+                values: {
+                    run_id,
+                    from: new Date(endedAt - READBACK_WINDOW_MS).toISOString(),
+                    to: new Date(endedAt + READBACK_WINDOW_MS).toISOString(),
+                },
+            },
             refresh: 'force_blocking',
         }),
         timeoutMs: REQUEST_TIMEOUT_MS,
@@ -86,30 +100,34 @@ async function readBack(runId: string, { host, projectId, readKey }: Credentials
 async function write(
     properties: ScorecardProperties,
     credentials: Credentials,
+    signal: AbortSignal,
     { pollMs = 5000, deadlineMs = 120_000 }: WriteOptions
 ): Promise<WriteOutcome> {
     const target = { ...credentials, host: credentials.host.replace(/\/+$/, '') }
+    const start = Date.now()
     let captured = false
-    try {
-        const refusal = await waitForExpect(
-            async () => {
-                if (!captured) {
-                    const refused = await capture(properties, target)
-                    if (refused !== undefined) {
-                        return refused
-                    }
-                    captured = true
+    for (;;) {
+        try {
+            if (!captured) {
+                const refused = await capture(properties, target)
+                if (refused !== undefined) {
+                    return { recorded: false, problem: refused }
                 }
-                return await readBack(properties.run_id, target)
-            },
-            deadlineMs,
-            pollMs
-        )
-        return refusal === undefined ? { recorded: true } : { recorded: false, problem: refusal }
-    } catch (error) {
-        return {
-            recorded: false,
-            problem: `the scorecard was not read back within ${deadlineMs / 1000}s: ${(error as Error).message}`,
+                captured = true
+            }
+            const refused = await readBack(properties, target)
+            return refused === undefined ? { recorded: true } : { recorded: false, problem: refused }
+        } catch (error) {
+            if (signal.aborted) {
+                return { recorded: false, problem: 'the run was interrupted before the scorecard was read back' }
+            }
+            if (Date.now() - start > deadlineMs) {
+                return {
+                    recorded: false,
+                    problem: `the scorecard was not read back within ${deadlineMs / 1000}s: ${(error as Error).message}`,
+                }
+            }
+            await sleep(pollMs, undefined, { signal }).catch(() => undefined)
         }
     }
 }
@@ -117,11 +135,12 @@ async function write(
 export async function publish(
     properties: ScorecardProperties,
     env: NodeJS.ProcessEnv,
+    signal: AbortSignal,
     options: WriteOptions = {}
 ): Promise<WriteOutcome> {
     const { credentials, problem } = credentialsOf(env)
     if (problem !== undefined) {
         return { recorded: false, problem }
     }
-    return credentials ? await write(properties, credentials, options) : { recorded: false }
+    return credentials ? await write(properties, credentials, signal, options) : { recorded: false }
 }
