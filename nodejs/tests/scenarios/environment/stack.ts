@@ -86,6 +86,26 @@ export async function withPostgres<T>(
     }
 }
 
+export type ScratchSchema = { url: string; create(): Promise<void>; drop(): Promise<void> }
+
+export function scratchSchema(connectionString: string, schema: string, tables: string[]): ScratchSchema {
+    const searchPath = encodeURIComponent(`-c search_path=${schema}`)
+    return {
+        url: `${connectionString}${connectionString.includes('?') ? '&' : '?'}options=${searchPath}`,
+        create: () =>
+            withPostgres(async (client) => {
+                await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+                await client.query(`CREATE SCHEMA ${schema}`)
+                for (const table of tables) {
+                    await client.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`)
+                }
+            }, connectionString),
+        drop: async () => {
+            await withPostgres((client) => client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`), connectionString)
+        },
+    }
+}
+
 export async function missingTemplates(postgresUrl: string): Promise<string[]> {
     const present = await withPostgres(async (client) => {
         const { rows } = await client.query<{ template_id: string }>(

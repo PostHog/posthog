@@ -10,7 +10,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { CdpRole, LOAD_PRODUCER_SETTING, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
-import { EDGE_URL, Environment, defaultStateDir } from '../environment/environment'
+import { Environment, defaultStateDir } from '../environment/environment'
 import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { STACK, cyclotronUrlOf } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
@@ -121,13 +121,7 @@ function withEvidenceError(result: RunResult, error: string | undefined): RunRes
           }
 }
 
-export type RunnerOptions = { edgeUrl: string }
-
-export function createRunner(
-    environment: Environment,
-    env: NodeJS.ProcessEnv = process.env,
-    { edgeUrl = EDGE_URL }: Partial<RunnerOptions> = {}
-): Runner {
+export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
     let stuckProducer: string | undefined
 
@@ -147,6 +141,7 @@ export function createRunner(
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const writeLogTails = keepLogTails(stateDir)
+            const edgeUrl = environment.edgeUrl()
             const specs = roleSpecs(env, edgeUrl, secretsOf(env), profile.settings)
             const [
                 {

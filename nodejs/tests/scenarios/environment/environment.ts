@@ -31,6 +31,7 @@ export type { RoleExit } from './supervisor'
 export interface Environment {
     up(): Promise<void>
     reset(settings: Profile['settings']): Promise<void>
+    edgeUrl(): string
     role(name: Role): RoleHandle
     health(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
@@ -43,7 +44,6 @@ const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
 const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
-export const EDGE_URL = `http://127.0.0.1:${EDGE_PORT}`
 const TEMPLATES_WITHIN_MS = 120_000
 const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
@@ -105,9 +105,7 @@ export function createEnvironment({
         },
 
         async reset(settings) {
-            if (!edge) {
-                throw new Error('Start the environment with up() before reset().')
-            }
+            const edge = startedEdge('reset')
             const exitsBefore = supervisor.exits().length
             await supervisor.stop()
             const specs = roleSpecs(env, edge.url, secrets, settings, sesRateLimiterValkey)
@@ -135,6 +133,8 @@ export function createEnvironment({
             await untilHealthy(specs, exitsBefore)
         },
 
+        edgeUrl: () => startedEdge('edgeUrl').url,
+
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
 
         async health() {
@@ -145,6 +145,13 @@ export function createEnvironment({
         exits: (): RoleExit[] => supervisor.exits(),
 
         down: stop,
+    }
+
+    function startedEdge(caller: string): ProviderEdge {
+        if (!edge) {
+            throw new Error(`Start the environment with up() before ${caller}().`)
+        }
+        return edge
     }
 
     async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
@@ -195,7 +202,7 @@ export function createEnvironment({
         }
         await terminate(plan, STOP_GRACE_MS)
         await startStack(hogli, stateDir, env)
-        const specs = roleSpecs(env, EDGE_URL, secrets, {}, sesRateLimiterValkey)
+        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets, {}, sesRateLimiterValkey)
         await refuseHeldPorts(specs.map((spec) => spec.role))
         const groups = consumerGroupsOf(specs)
         await waitForExpect(
