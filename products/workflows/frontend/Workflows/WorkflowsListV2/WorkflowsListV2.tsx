@@ -35,6 +35,7 @@ export function WorkflowsListV2(): JSX.Element {
         isUnfilteredAutomationView,
         hasHealthFilter,
         metricsLoaded,
+        metricsStatus,
     } = useValues(workflowsListV2Logic)
     const { setValue, loadWorkflows, loadMetrics, clearFilters } = useActions(workflowsListV2Logic)
 
@@ -65,19 +66,22 @@ export function WorkflowsListV2(): JSX.Element {
         }
         const searchPending = serverSearchStatus === 'pending'
         const healthPending = hasHealthFilter && !metricsLoaded
-        if (listLoaded && healthPending && !metricsLoading) {
+        if (hasHealthFilter && metricsStatus === 'failed') {
             return (
-                <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-                    <span>Couldn't load run metrics for these health filters</span>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={loadMetrics}
-                        data-attr="workflows-list-v2-metrics-retry"
-                    >
-                        Retry
-                    </LemonButton>
-                </div>
+                <>
+                    {loadFailed && !listComplete && renderLoadError("Couldn't load all workflows")}
+                    <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
+                        <span>Couldn't load run metrics for these health filters</span>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={loadMetrics}
+                            data-attr="workflows-list-v2-metrics-retry"
+                        >
+                            Retry
+                        </LemonButton>
+                    </div>
+                </>
             )
         }
         // Rows on pages still to come, or on a page that failed, could match, so nothing is empty yet.
