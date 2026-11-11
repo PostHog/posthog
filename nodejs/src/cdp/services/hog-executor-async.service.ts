@@ -311,7 +311,8 @@ export class HogExecutorAsyncService {
         const attempts = result.invocation.state.attempts + 1
         result.invocation.state.attempts = attempts
         const policy = this.transientRetryPolicy(options?.maxFetchRetries)
-        const retryAt = options?.isTest ? null : transientRetryAt(attempts, policy)
+        const retries = !options?.isTest && this.retriesTransientLookups(result.invocation.teamId)
+        const retryAt = retries ? transientRetryAt(attempts, policy) : null
         const addLog = createAddLogFunction(result.logs)
 
         if (!retryAt) {
@@ -502,7 +503,7 @@ export class HogExecutorAsyncService {
         try {
             tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
         } catch (error) {
-            if (!isTransientError(error) || !this.retriesTransientLookups(invocation.teamId)) {
+            if (!isTransientError(error)) {
                 throw error
             }
             result.invocation.queueParameters = params

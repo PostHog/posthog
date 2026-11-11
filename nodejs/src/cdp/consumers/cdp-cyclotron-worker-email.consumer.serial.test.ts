@@ -390,7 +390,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         limits: InFlightLimits | null,
         sesClient: SESv2Client = sesClientFor(ses),
         postgres: PostgresRouter = hub.postgres,
-        integrationManager: IntegrationManagerService = hub.integrationManager
+        integrationManager: IntegrationManagerService = hub.integrationManager,
+        retryTeams = '*'
     ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
             ...hub,
@@ -400,7 +401,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
             CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
             EMAIL_STATUS_ENABLED: true,
-            CDP_TRANSIENT_LOOKUP_RETRY_TEAMS: '*',
+            CDP_TRANSIENT_LOOKUP_RETRY_TEAMS: retryTeams,
         }
         const worker = new CdpCyclotronWorkerEmail(
             config,
@@ -999,6 +1000,27 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
         expect(await ended(id, 15_000)).toBe('completed')
         expect(delivered()).toEqual([[]])
+    })
+
+    it('does not send an email whose sender lookup failed when its team is not on the retry allowlist', async () => {
+        const integrationsDb = await postgresThatDropsConnections(hub.DATABASE_URL, (message) =>
+            message.toString('latin1').includes('fetchIntegrations')
+        )
+        proxies.push(integrationsDb)
+        await startWorker(
+            null,
+            sesClientFor(ses),
+            hub.postgres,
+            new IntegrationManagerService(
+                hub.pubSub,
+                new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
+            ),
+            String(team.id + 1)
+        )
+        const [id] = await enqueue(transactionalSend(null))
+
+        expect(await ended(id, 15_000)).toBe('completed')
+        expect(delivered()).toEqual([])
     })
 
     it('runs a resumed send with files on the workflow its admission checked, when that workflow changes during the lookup', async () => {
