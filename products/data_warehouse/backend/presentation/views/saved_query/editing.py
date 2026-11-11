@@ -320,7 +320,6 @@ class DataWarehouseSavedQuerySerializer(
         help_text="Whether incremental settings participated in any materialization run."
     )
     engine = view_state.ViewEngineSerializer(read_only=True, help_text=view_state.VIEW_ENGINE_HELP_TEXT)
-    is_raw_managed_trino = serializers.SerializerMethodField(help_text=view_state.IS_RAW_MANAGED_TRINO_HELP_TEXT)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -356,7 +355,6 @@ class DataWarehouseSavedQuerySerializer(
             "user_access_level",
             "suspended",
             "engine",
-            "is_raw_managed_trino",
         ]
         read_only_fields = [
             "id",

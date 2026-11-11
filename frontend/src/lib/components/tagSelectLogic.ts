@@ -13,7 +13,27 @@ export interface TagPage {
     nextOffset?: number
 }
 
-export type LoadTags = (search: string, offset: number) => Promise<TagPage>
+/** `isStale` turns true once nobody will read the result, so a source that loads several pages can stop early. */
+export type LoadTags = (search: string, offset: number, isStale?: () => boolean) => Promise<TagPage>
+
+/** Drops the tags `exclude` matches, and keeps loading pages while a whole page is excluded, because only a scroll asks for the next one. */
+export function excludingTags(loadTags: LoadTags, exclude: (tag: string) => boolean): LoadTags {
+    return async (search, offset, isStale) => {
+        let pageOffset = offset
+        while (true) {
+            const page = await loadTags(search, pageOffset, isStale)
+            const nextOffset = page.nextOffset ?? pageOffset + page.results.length
+            const results = page.results.filter(({ tag }) => !exclude(tag))
+            if (results.length > 0 || !page.hasMore || nextOffset <= pageOffset) {
+                return { results, hasMore: page.hasMore, nextOffset }
+            }
+            if (isStale?.()) {
+                return { results: [], hasMore: false }
+            }
+            pageOffset = nextOffset
+        }
+    }
+}
 
 export interface TagSelectLogicProps {
     logicKey: string
@@ -123,8 +143,16 @@ export const tagSelectLogic = kea<tagSelectLogicType>([
                     if (offset === 0 && search) {
                         await breakpoint(200)
                     }
+                    const isStale = (): boolean => {
+                        try {
+                            breakpoint()
+                        } catch {
+                            return true
+                        }
+                        return requestEpoch !== values.requestEpoch
+                    }
                     try {
-                        const page = await loadTags(search, offset)
+                        const page = await loadTags(search, offset, isStale)
                         breakpoint()
                         return requestEpoch === values.requestEpoch ? page : { results: [], hasMore: false }
                     } catch (error) {
