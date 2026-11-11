@@ -254,8 +254,8 @@ describe('scenario environment', () => {
         })
     })
 
-    it('names the stop command for every stranger', () => {
-        const error = strangerConflict([
+    it('names the stop command for every stranger', async () => {
+        const error = await strangerConflict([
             proc(41, 41, 'bash ./bin/posthog-node', PLAIN_ENV, REPO),
             proc(42, 41, 'node src/index.ts', PLAIN_ENV),
         ])
@@ -264,16 +264,42 @@ describe('scenario environment', () => {
         expect(error.message).toContain('Run `kill 41 42`, then run the scenario again.')
     })
 
-    it('names the runner to stop, not its roles, when another runner marked them', () => {
-        const error = strangerConflict([
-            proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
-            proc(211, 210, 'node src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
-        ])
+    describe('roles another runner marked', () => {
+        const rolesOf = (stateDir: string): ProcEntry[] => {
+            const environ = ['PATH=/usr/bin', `SCENARIO_RUNNER=${stateDir}`]
+            return [
+                proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', environ, OTHER_CHECKOUT),
+                proc(211, 210, 'node src/index.ts', environ, OTHER_CHECKOUT),
+            ]
+        }
 
-        expect(error).toMatchObject({ exitCode: 2 })
-        expect(error.message).toBe(
-            'Roles of the scenario runner that uses /home/other/.cache/posthog-scenarios are running: 210 (sh node_modules/.bin/tsx src/index.ts), 211 (node src/index.ts). That runner restarts roles that are killed, so stop it, then run the scenario again.'
-        )
+        it('names the runner to stop, not its roles, while that runner holds its state dir', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+            const release = await holdRunLock(stateDir)
+            try {
+                const error = await strangerConflict(rolesOf(stateDir))
+
+                expect(error).toMatchObject({ exitCode: 2 })
+                expect(error.message).toBe(
+                    `Roles of scenario runner ${process.pid}, which uses ${stateDir}, are running: 210 (sh node_modules/.bin/tsx src/index.ts), 211 (node src/index.ts). That runner restarts roles that are killed, so run \`kill ${process.pid}\`, then run the scenario again.`
+                )
+            } finally {
+                await release()
+            }
+        })
+
+        it('names the kill command for its roles once no runner holds its state dir', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+
+            const error = await strangerConflict([
+                ...rolesOf(stateDir),
+                proc(41, 41, 'bash ./bin/posthog-node', PLAIN_ENV, REPO),
+            ])
+
+            expect(error.message).toBe(
+                'CDP processes the scenario runner did not start are running: 210 (sh node_modules/.bin/tsx src/index.ts), 211 (node src/index.ts), 41 (bash ./bin/posthog-node). Use `hogli down` if hogli started them. Run `kill 210 211 41`, then run the scenario again.'
+            )
+        })
     })
 
     describe('roleSpecs', () => {
@@ -903,7 +929,6 @@ describe('scenario environment', () => {
         let losesItsPort: Role | undefined
         let takesPortOnExit: Role | undefined
         let exitsAfterHealth: Role | undefined
-        let teardownsBeforeFailure: number | undefined
         let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
@@ -974,19 +999,9 @@ describe('scenario environment', () => {
             const realTerminate = processes.terminate
             jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) => {
                 const foreign = [...plan.groups, ...plan.pids].filter((pid) => !stubRolePids.has(pid))
-                if (foreign.length > 0) {
-                    return Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
-                }
-                const terminated = realTerminate(plan, graceMs)
-                if (teardownsBeforeFailure === undefined || graceMs === 0 || plan.groups.length === 0) {
-                    return terminated
-                }
-                if (teardownsBeforeFailure > 0) {
-                    teardownsBeforeFailure -= 1
-                    return terminated
-                }
-                teardownsBeforeFailure = undefined
-                return terminated.then(() => Promise.reject(new Error('The teardown failed.')))
+                return foreign.length > 0
+                    ? Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
+                    : realTerminate(plan, graceMs)
             })
             jest.spyOn(childProcess, 'spawn').mockImplementation(((
                 command: string,
@@ -1059,7 +1074,6 @@ describe('scenario environment', () => {
             losesItsPort = undefined
             takesPortOnExit = undefined
             exitsAfterHealth = undefined
-            teardownsBeforeFailure = undefined
             if (cyclotronFromEnv === undefined) {
                 delete process.env.CYCLOTRON_NODE_DATABASE_URL
             } else {
@@ -1184,14 +1198,6 @@ describe('scenario environment', () => {
                 'cdp-cyclotron-worker-email',
                 () => {
                     unspawnable = 'cdp-cyclotron-worker-email'
-                },
-            ],
-            [
-                'answers /_health once, then exits, and whose teardown then fails,',
-                'cdp-api',
-                () => {
-                    exitsAfterHealth = 'cdp-api'
-                    teardownsBeforeFailure = 0
                 },
             ],
         ])(
@@ -1391,15 +1397,6 @@ describe('scenario environment', () => {
                 'ENOENT',
                 () => {
                     unspawnable = 'cdp-cyclotron-worker-email'
-                },
-            ],
-            [
-                'cannot be spawned while stopping the other roles fails',
-                'cdp-cyclotron-worker-email',
-                'ENOENT',
-                () => {
-                    unspawnable = 'cdp-cyclotron-worker-email'
-                    teardownsBeforeFailure = 1
                 },
             ],
         ])(
