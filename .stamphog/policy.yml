@@ -34,6 +34,7 @@ deny:
                 # The dependency proof publisher. A PR that edits it changes what the proof checks.
                 - '^\.github/workflows/dependency-proof'
                 - '^\.github/scripts/dependency_proof/'
+                - '^\.github/actions/setup-uv/'
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
