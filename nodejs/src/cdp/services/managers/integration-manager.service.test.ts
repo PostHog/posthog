@@ -154,23 +154,32 @@ describe('IntegrationManagerService', () => {
             await expect(served).rejects.toThrow('connection refused')
         })
 
-        it.each([
-            ['the reloaded integration while the source is up', true],
-            ['the preloaded integration while the source is down', false],
-        ])('serves %s after a reload message inside a preload scope', async (_, sourceUp) => {
+        it.each<[string, 'up' | 'down' | 'down past expiry', 'rotated' | 'preloaded' | 'rejects']>([
+            ['serves the reloaded integration while the source is up', 'up', 'rotated'],
+            ['serves the preloaded integration while the source is down', 'down', 'preloaded'],
+            ['fails when the preloaded integration expires during a failed reload', 'down past expiry', 'rejects'],
+        ])('%s, after a reload message inside a preload scope', async (_, sourceState, expected) => {
+            source.records['5'].expiresAt = now + 10_000
             const preloaded = source.records['5'].integration
             const rotated = createIntegration({ id: 5, team_id: 1, config: { rotated: true } })
 
-            const served = await manager.withPreloaded([5], async () => {
+            const served = manager.withPreloaded([5], async () => {
                 source.records['5'] = { integration: rotated, decryptFailures: [] }
-                if (!sourceUp) {
-                    source.load.mockRejectedValue(new Error('connection refused'))
+                if (sourceState !== 'up') {
+                    source.load.mockImplementation(() => {
+                        advanceTo(sourceState === 'down past expiry' ? 10_001 : 0)
+                        return Promise.reject(new Error('connection refused'))
+                    })
                 }
                 publish('reload-integrations', { integrationIds: [5] })
                 return await manager.get(5)
             })
 
-            expect(served).toBe(sourceUp ? rotated : preloaded)
+            if (expected === 'rejects') {
+                await expect(served).rejects.toThrow('connection refused')
+            } else {
+                await expect(served).resolves.toBe(expected === 'rotated' ? rotated : preloaded)
+            }
         })
 
         it('reloads an id from a reload message, given as a number', async () => {

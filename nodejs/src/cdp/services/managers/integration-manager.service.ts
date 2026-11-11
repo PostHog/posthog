@@ -111,11 +111,15 @@ export class IntegrationManagerService {
             }
             return records
         } catch (error) {
+            const preloaded = references.map((reference) => [reference, scope.records.get(reference) ?? null] as const)
+            if (preloaded.some(([, record]) => isExpired(record))) {
+                throw error
+            }
             logger.warn('[IntegrationManager]', 'Serving preloaded integrations after a failed reload', {
                 references,
                 error: String(error),
             })
-            return Object.fromEntries(references.map((reference) => [reference, scope.records.get(reference) ?? null]))
+            return Object.fromEntries(preloaded)
         }
     }
 
