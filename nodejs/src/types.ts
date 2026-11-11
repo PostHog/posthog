@@ -143,6 +143,8 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpSesWebhooks?: boolean
+    cdpIntakeTransactionalEmail?: boolean
+    cdpIntakeWorkflowWebhook?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
