@@ -174,6 +174,7 @@ export function HomeTabStatTile({ stat, compare }: HomeTabStatTileProps): JSX.El
             dataAttr={`home-tab-metric-${stat.key}`}
             value={value ?? undefined}
             showChange={compare}
+            changeBesideValue
             change={changeFromPreviousPct != null ? { value: changeFromPreviousPct } : null}
             hoverChangeFromPreviousPoint
             data={trend?.data}
