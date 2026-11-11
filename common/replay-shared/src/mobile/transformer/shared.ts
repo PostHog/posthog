@@ -3,7 +3,7 @@ import { ConversionContext, ConversionResult } from './types'
 import { makeStylesString } from './wireframeStyle'
 
 export const PLACEHOLDER_SVG_DATA_IMAGE_URL =
-    'url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==")'
+    'url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSIjRTVFN0UwIi8+CjxwYXRoIGQ9Ik04IDBIMTZMMCAxNlY4TDggMFoiIGZpbGw9IiNFRUVGRTkiLz4KPHBhdGggZD0iTTE2IDhWMTZIOEwxNiA4WiIgZmlsbD0iI0VFRUZFOSIvPgo8L3N2Zz4K")'
 
 export const BACKGROUND = '#f3f4ef'
 export const FOREGROUND = '#35373e'

@@ -1,3 +1,5 @@
+import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../mobile/transformer/shared'
+
 // The `peek-over` hoggie from @posthog/brand, cropped and shrunk to 200x118. It is inlined because the
 // replay document loads nothing from the app, and the headless renderer has no app to load it from.
 const PEEK_OVER_HOGGIE_PNG =
@@ -31,7 +33,6 @@ const SMALL_LABEL = svgUrl(
     `<rect width="200" height="34" rx="17" fill="${CARD}"/>` +
         `<text x="100" y="22" text-anchor="middle" ${FONT} font-size="13" font-weight="600" fill="#ffffff">${BLOCKED_ELEMENT_TITLE}</text>`
 )
-const STRIPES = 'repeating-linear-gradient(135deg, #eeefe9 0 10px, #e5e7e0 10px 20px)'
 
 /** A background size that is `size` when the element is at least `min` along that axis, and 0 (not drawn) when smaller. */
 function shownFrom(min: string, size: string): string {
@@ -45,7 +46,7 @@ function shownFrom(min: string, size: string): string {
  * and the larger ones cover the smaller ones. The smallest elements get the stripes alone.
  */
 export const BLOCKED_ELEMENT_STYLE_RULE = `.ph-no-capture {
-    background-image: ${LARGE_LABEL}, ${MEDIUM_LABEL}, ${SMALL_LABEL}, ${STRIPES};
+    background-image: ${LARGE_LABEL}, ${MEDIUM_LABEL}, ${SMALL_LABEL}, ${PLACEHOLDER_SVG_DATA_IMAGE_URL};
     background-position: center;
     background-repeat: no-repeat, no-repeat, no-repeat, repeat;
     background-size:
