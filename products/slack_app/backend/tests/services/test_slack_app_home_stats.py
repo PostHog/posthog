@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import timedelta
 
 import pytest
@@ -16,11 +15,12 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackThreadTaskMapping, SlackUserProfileCache
-from products.slack_app.backend.services.slack_app_home import handle_app_home_opened, render_home_view
+from products.slack_app.backend.services.slack_app_home import TasksState, handle_app_home_opened, render_home_view
 from products.slack_app.backend.services.slack_app_home_stats import (
     DEFAULT_STATS_WINDOW_DAYS,
     ModelUsage,
     PersonRow,
+    Slice,
     StatsState,
     TrendBucket,
     build_stats_state,
@@ -34,8 +34,6 @@ SLACK_USER = "U_ADMIN"
 # `invalid_blocks`, which takes down the whole Home tab and not just this card.
 MAX_MODEL_ROWS = 6
 MAX_CHART_POINTS = 20
-MAX_LABEL_CHARS = 14
-MAX_SECTION_FIELDS = 10
 
 
 @pytest.fixture(autouse=True)
@@ -130,20 +128,20 @@ def _blocks_of_type(view: dict, block_type: str) -> list[dict]:
     return [b for b in view["blocks"] if b["type"] == block_type]
 
 
-def _fields_blocks(view: dict) -> list[dict]:
-    return [b for b in view["blocks"] if b["type"] == "section" and "fields" in b]
+def _table(view: dict, first_header: str) -> list[list[str]]:
+    return next(
+        [[cell["text"] for cell in row] for row in block["rows"]]
+        for block in view["blocks"]
+        if block["type"] == "table" and block["rows"][0][0]["text"] == first_header
+    )
 
 
-def _kpi_grid(view: dict) -> dict:
-    return next(b for b in _fields_blocks(view) if any(f["text"].startswith("*Tasks*") for f in b["fields"]))
-
-
-def _breakdowns_block(view: dict) -> dict:
-    return next(b for b in _fields_blocks(view) if any(f["text"].startswith("*Models*") for f in b["fields"]))
-
-
-def _column(view: dict, heading: str) -> str:
-    return next(f["text"] for b in _fields_blocks(view) for f in b["fields"] if f["text"].startswith(heading))
+def _models(view: dict) -> str:
+    return next(
+        block["text"]["text"]
+        for block in view["blocks"]
+        if block.get("text", {}).get("text", "").startswith("*Models*")
+    )
 
 
 def _render(state: StatsState | None) -> dict:
@@ -169,149 +167,84 @@ class TestWindowCoercion:
 
 
 class TestStatsCardRendering:
-    def test_card_omitted_when_state_is_none(self):
-        view = _render(None)
-        assert "Workspace activity" not in str(view)
+    @pytest.mark.parametrize("is_admin,state", [(True, None), (False, StatsState(tasks_started=1))])
+    def test_card_is_hidden_without_admin_access_or_state(self, is_admin, state):
+        assert "Workspace activity" not in str(render_home_view(is_admin=is_admin, stats_state=state))
 
-    def test_empty_window_renders_controls_without_charts(self):
+    def test_empty_window_keeps_controls_without_tables(self):
         view = _render(StatsState(window_days=30))
         assert "Workspace activity" in str(view)
-        # An empty window has nothing to plot and nobody to list.
-        assert "*Models*" not in str(view)
-        assert "*Most active*" not in str(view)
+        assert "slack_app_home:stats_refresh" in str(view)
+        assert not _blocks_of_type(view, "table")
 
-    def test_model_bars_fold_the_tail_without_losing_counts(self):
+    def test_model_tail_is_folded_without_losing_counts(self):
         models = tuple(ModelUsage(model=f"model-{i}", runtime_adapter="claude", value=20 - i) for i in range(15))
-        view = _render(StatsState(tasks_started=100, models=models))
-
-        column = _column(view, "*Models*")
-        lines = [line for line in column.splitlines() if line and not line.startswith(("*", "`"))]
-
+        lines = _models(_render(StatsState(tasks_started=100, models=models))).splitlines()[1:]
         assert len(lines) <= MAX_MODEL_ROWS
         assert lines[-1].startswith("Other")
-        # The folded tail carries the models that didn't get their own row.
-        counted = sum(int(line.rsplit(" ", 1)[-1]) for line in lines)
-        assert counted == sum(m.value for m in models)
+        assert sum(int(line.split(" · ")[1].split()[0]) for line in lines) == sum(model.value for model in models)
 
-    def test_card_sits_below_the_welcome_and_above_the_settings(self):
-        view = _render(StatsState(tasks_started=1))
-        rendered = [str(block) for block in view["blocks"]]
+    def test_card_is_above_tasks_and_below_personal_settings(self):
+        view = render_home_view(is_admin=True, stats_state=StatsState(tasks_started=1), tasks_state=TasksState())
+        rendered = str(view)
+        assert rendered.index("AI model") < rendered.index("Workspace activity") < rendered.index("*Tasks*")
 
-        welcome_at = next(i for i, b in enumerate(rendered) if "Welcome to PostHog" in b)
-        stats_at = next(i for i, b in enumerate(rendered) if "Workspace activity" in b)
-        model_at = next(i for i, b in enumerate(rendered) if "AI model" in b)
-
-        # An admin opens the tab for the activity; routing and model are set once and
-        # rarely revisited, so they must not push it below the fold.
-        assert welcome_at < stats_at < model_at
-
-    def test_headline_renders_as_a_two_column_field_grid(self):
+    def test_summary_keeps_all_six_metrics(self):
         view = _render(
-            StatsState(
-                tasks_started=24,
-                tasks_with_pr=18,
-                tasks_merged=11,
-                active_people=5,
-                median_cycle_seconds=840,
-            )
+            StatsState(tasks_started=24, tasks_with_pr=18, tasks_merged=11, active_people=5, median_cycle_seconds=840)
         )
-        grid = _kpi_grid(view)
-
-        # Slack lays `fields` out in two columns and rejects more than 10 cells; a stack of
-        # sections instead would cost one full-width row per KPI.
-        assert len(grid["fields"]) <= MAX_SECTION_FIELDS
-        rendered = [f["text"] for f in grid["fields"]]
-        assert "*Tasks*\n24" in rendered
-        assert "*Merge rate*\n61%" in rendered
-        assert "*Median run*\n14m" in rendered
-        assert "*People*\n5" in rendered
+        text = str(view)
+        for expected in ["11 PRs merged", "18 opened", "61% merge rate", "24 tasks", "5 people", "14m median run"]:
+            assert expected in text
 
     @pytest.mark.parametrize(
-        "seconds, expected",
-        [
-            (None, "—"),
-            (45, "45s"),
-            (840, "14m"),
-            (3600, "1h"),
-            (7500, "2h 5m"),
-            (259200, "3d"),
-        ],
+        "seconds,expected", [(None, "—"), (45, "45s"), (840, "14m"), (3600, "1h"), (7500, "2h 5m"), (259200, "3d")]
     )
     def test_durations_render_compactly(self, seconds, expected):
-        view = _render(StatsState(tasks_started=1, median_cycle_seconds=seconds))
-        assert f"*Median run*\n{expected}" in [f["text"] for f in _kpi_grid(view)["fields"]]
+        assert f"{expected} median run" in str(_render(StatsState(tasks_started=1, median_cycle_seconds=seconds)))
 
-    def test_long_model_ids_are_truncated_to_the_label_cap(self):
+    def test_long_model_name_remains_readable(self):
+        model = "anthropic/claude-sonnet-4-5-with-an-absurdly-long-name"
         view = _render(
-            StatsState(
-                tasks_started=1,
-                models=(
-                    ModelUsage(
-                        model="anthropic/claude-sonnet-4-5-with-an-absurdly-long-name",
-                        runtime_adapter="claude",
-                        value=1,
-                    ),
-                ),
-            )
+            StatsState(tasks_started=1, models=(ModelUsage(model=model, runtime_adapter="claude", value=1),))
         )
-        labels = [
-            line.split(" ")[0]
-            for line in _column(view, "*Models*").splitlines()
-            if line and not line.startswith(("*", "`"))
+        assert "Claude Sonnet 4.5 With An Absurdly Long Name" in _models(view)
+
+    @pytest.mark.parametrize("window,header", [(7, "Day"), (30, "Week"), (90, "Week")])
+    def test_trend_keeps_exact_values_and_period_labels(self, window, header):
+        trend = (TrendBucket(label="Jul 07", opened=8, merged=0), TrendBucket(label="Jul 14", opened=0, merged=4))
+        view = _render(StatsState(window_days=window, tasks_started=12, tasks_with_pr=8, trend=trend))
+        assert _table(view, header) == [
+            [header, "PRs opened", "PRs merged"],
+            ["Jul 07", "8", "0"],
+            ["Jul 14", "0", "4"],
         ]
-        # A long label would push the bar column out of alignment inside the fenced block.
-        assert all(len(label) <= MAX_LABEL_CHARS for label in labels)
 
-    def test_trend_sparklines_scale_both_series_against_one_peak(self):
-        trend = (
-            TrendBucket(label="Jul 07", opened=8, merged=0),
-            TrendBucket(label="Jul 14", opened=0, merged=4),
+    def test_trend_is_omitted_without_prs(self):
+        view = _render(
+            StatsState(tasks_started=3, tasks_with_pr=0, trend=(TrendBucket(label="Jul 07", opened=0, merged=0),))
         )
-        view = _render(StatsState(tasks_started=12, tasks_with_pr=8, trend=trend))
+        assert "Pull requests by" not in str(view)
 
-        text = next(b["elements"][0]["text"] for b in view["blocks"] if b["type"] == "context" and "*PRs*" in str(b))
-        opened, merged = re.findall(r"`([^`]+)`", text)
+    def test_status_counts_have_named_columns_without_images(self):
+        view = _render(StatsState(tasks_started=9, outcomes=(Slice("Done", 6), Slice("Failed", 3))))
+        assert _table(view, "Done") == [["Done", "In progress", "Failed", "Canceled"], ["6", "0", "3", "0"]]
 
-        assert len(opened) == len(merged) == len(trend)
-        # Shared peak: merged's 4 must read as half of opened's 8, not as its own maximum.
-        assert opened[0] == "█" and merged[0] == "▁"
-        assert merged[1] < opened[0]
-        assert "Jul 07 → Jul 14" in text
-
-    def test_trend_omitted_when_the_window_produced_no_prs(self):
-        trend = (TrendBucket(label="Jul 07", opened=0, merged=0),)
-        view = _render(StatsState(tasks_started=3, tasks_with_pr=0, trend=trend))
-        assert not [b for b in view["blocks"] if b["type"] == "context" and "*PRs*" in str(b)]
-
-    def test_models_and_people_render_as_two_columns_of_one_block(self):
+    def test_people_keep_full_names_and_exact_counts(self):
+        people = (PersonRow(name="A", tasks=9, merged=6), PersonRow(name="Bartholomew Wigglesworth", tasks=4, merged=1))
         view = _render(
             StatsState(
-                tasks_started=9,
-                models=(ModelUsage(model="claude-opus-5", runtime_adapter="claude", value=9),),
-                people=(PersonRow(name="Vojta", tasks=9, merged=6), PersonRow(name="Anna", tasks=4, merged=1)),
+                tasks_started=13,
+                people=people,
+                models=(ModelUsage(model="claude-opus-4-7", runtime_adapter="claude", value=13),),
             )
         )
-
-        # `section.fields` is the only two-column layout Block Kit offers, so both
-        # breakdowns have to share one block to sit side by side.
-        block = _breakdowns_block(view)
-        columns = [f["text"] for f in block["fields"]]
-
-        assert len(columns) == 2
-        assert columns[0].startswith("*Models*")
-        assert columns[1].startswith("*Most active*")
-        assert "Vojta" in columns[1] and "Anna" in columns[1]
-
-    def test_leaderboard_columns_stay_aligned_under_a_long_name(self):
-        people = (PersonRow(name="A", tasks=9, merged=6), PersonRow(name="Bartholomew Wigglesworth", tasks=4, merged=1))
-        view = _render(StatsState(tasks_started=13, people=people))
-
-        column = _column(view, "*Most active*")
-        rows = [line for line in column.splitlines() if line and not line.startswith(("*", "`"))]
-
-        # Names are padded to a common width inside the fenced block, so the count
-        # columns line up rather than drifting with each name's length.
-        assert len({len(row) for row in rows}) == 1
+        assert _table(view, "Person") == [
+            ["Person", "Tasks", "PRs merged"],
+            ["A", "9", "6"],
+            ["Bartholomew Wigglesworth", "4", "1"],
+        ]
+        assert "Claude Opus 4.7" in _models(view)
 
 
 class TestResolveStatsState:

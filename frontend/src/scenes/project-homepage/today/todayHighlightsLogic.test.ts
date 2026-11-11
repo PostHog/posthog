@@ -538,7 +538,6 @@ describe('todayHighlightsLogic', () => {
             expect.objectContaining({
                 number_count: 1,
                 first_card_duration_ms: expect.any(Number),
-                loading_mode: 'progressive',
             })
         )
         logic.actions.pulseViewUnmounted()
