@@ -133,7 +133,7 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         await worker.start()
     }
 
-    async function queueJobWithIntegrationRef(attempts: number): Promise<string> {
+    async function queueJobWithIntegrationRef(): Promise<string> {
         const integration = await insertIntegration(hub.postgres, team.id, {
             kind: 'oauth',
             config: { account_sid: 'AC-fake' },
@@ -145,7 +145,6 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
             inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
         })
         const invocation = createExampleInvocation(hogFunction)
-        invocation.state.attempts = attempts
         invocation.state.globals.inputs = {
             twilio: {
                 $integration_ref: integration.id,
@@ -190,7 +189,7 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
     }
 
     it('retries a job whose integration lookup fails on a dropped connection, then completes it once the lookup recovers', async () => {
-        const id = await queueJobWithIntegrationRef(0)
+        const id = await queueJobWithIntegrationRef()
         lookupFails = true
         await startWorker()
 
@@ -242,12 +241,39 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         ])
     })
 
-    it('fails a job once its integration lookup has used its last retry', async () => {
-        const id = await queueJobWithIntegrationRef(FETCH_RETRIES - 1)
-        lookupFails = true
-        await startWorker()
+    it.each([
+        ['its stored inputs', (): Promise<string> => queueJobWithIntegrationRef()],
+        ['the access token of its fetch', (): Promise<string> => queueFetchWithAccessToken()],
+    ])(
+        'fails a job once the lookup of %s has used its last retry',
+        async (_, queueJob) => {
+            const id = await queueJob()
+            lookupFails = true
+            await startWorker()
 
-        await waitForExpect(async () => expect((await jobRow(id)).status).toBe('failed'), 15_000, 50)
-        expect(droppedLookups).toBeGreaterThan(0)
-    })
+            let reschedules = 0
+            let status = ''
+            while (status !== 'failed' && reschedules <= FETCH_RETRIES) {
+                status = await waitForExpect(
+                    async () => {
+                        const row = await jobRow(id)
+                        const rescheduled =
+                            row.status === 'available' && row.scheduled.getTime() > Date.now() + BACKOFF_MS / 2
+                        expect(rescheduled || row.status === 'failed').toBe(true)
+                        return row.status
+                    },
+                    15_000,
+                    50
+                )
+                if (status !== 'failed') {
+                    reschedules++
+                    await db.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [id])
+                }
+            }
+
+            expect({ reschedules, status }).toEqual({ reschedules: FETCH_RETRIES - 1, status: 'failed' })
+            expect(mockFetch).not.toHaveBeenCalled()
+        },
+        60_000
+    )
 })
