@@ -86,6 +86,7 @@ from products.alerts_platform.backend.facade.api import (
     destination_hears_kind,
     due_check_ids,
     due_checks,
+    has_incident_destination,
     refresh_settings,
     slot_of,
 )
@@ -613,11 +614,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         kinds.append(outcome.failure.kind)
     sends_messages = any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds)
     actions = _incident_actions(check, outcome)
-    if actions and not configured_destination_template_ids(
-        team_id=check.team_id,
-        alert_id=alert_id,
-        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
-    ):
+    if actions and not _has_incident_destination(check):
         actions = {}
     if not sends_messages and not actions:
         return None
@@ -638,6 +635,19 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome, actions),
     )
+
+
+def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
+    """Whether a destination of this alert follows the incident events, as a HogFunction or as a
+    destination the platform keeps. Read only on a firing edge. It decides only that the edge starts a
+    delivery: which destinations that delivery reaches is the delivery's to decide."""
+    if configured_destination_template_ids(
+        team_id=check.team_id,
+        alert_id=str(check.destination_alert_id),
+        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+    ):
+        return True
+    return has_incident_destination(team_id=check.team_id, configuration_id=check.id)
 
 
 def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> dict[str, IncidentAction]:
