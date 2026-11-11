@@ -46,6 +46,7 @@ const aeoBrandsList = (): ToolBase<
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
                 status: params.status,
             },
         })
