@@ -110,6 +110,14 @@ def build_insight_alert_slack_config(
     )
 
 
+def build_insight_alert_pagerduty_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return insight_alert_destinations.build_insight_alert_pagerduty_configs(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
 def insight_alert_slack_properties(
     *,
     breaches: list[str],
@@ -193,6 +201,11 @@ def list_alert_destination_groups(
     return destinations.list_alert_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The platform's lookup for HogFunctions that still exist, which `products.alerts` registers when Django starts."""
+    return destinations.live_hog_function_ids(team_id=team_id, hog_function_ids=hog_function_ids)
 
 
 def owned_alert_destination_ids(

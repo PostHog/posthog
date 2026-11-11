@@ -13,7 +13,7 @@ import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils/strings'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
-import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
+import { useVisionSurfaceShown } from 'products/replay_vision/frontend/utils/useVisionSurfaceShown'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
@@ -45,7 +45,8 @@ export function PlayerSidebar({
     const { setSidebarOpen, setDebugMode, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
     const open = tabs ? debugMode : sidebarOpen
     const setOpen = tabs ? setDebugMode : setSidebarOpen
-    const { sessionPlayerMetaData, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const visionSurfaceShown = useVisionSurfaceShown()
     const linkedIssuesAvailable = useLinkedIssuesAvailable()
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -72,7 +73,7 @@ export function PlayerSidebar({
               SessionRecordingSidebarTab.NETWORK_WATERFALL,
           ]
 
-    if (!tabs && visionSurfaceShown(logicProps)) {
+    if (!tabs && visionSurfaceShown) {
         sidebarTabs.push(SessionRecordingSidebarTab.OBSERVATIONS)
     }
 

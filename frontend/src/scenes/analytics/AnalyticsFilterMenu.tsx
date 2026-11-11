@@ -16,11 +16,11 @@ import {
     FilterSearchSubMenu,
 } from '@posthog/quill'
 
+import { useTagPages } from 'lib/components/useTagPages'
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
-import { tagsModel } from '~/models/tagsModel'
 import { AnalyticsListDisplayConfiguration } from '~/queries/schema/schema-general'
 
 import { AnalyticsOrderBy } from './analyticsFeed'
@@ -75,8 +75,7 @@ function captureFilterMenuOpened(
 export function AnalyticsFilterMenu(): JSX.Element {
     const { filters, scope, insightsHidden, defaultSort, narrowingFiltersActive } = useValues(analyticsListLogic)
     const { setFilters, setInsightsHidden, setDefaultSort, clearNarrowingFilters } = useActions(analyticsListLogic)
-    const { tags: allTags, tagsLoading } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
+    const tagPages = useTagPages('analytics-list-tags')
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { user } = useValues(userLogic)
@@ -146,13 +145,18 @@ export function AnalyticsFilterMenu(): JSX.Element {
                     label="Tags"
                     allLabel="Any tag"
                     pluralNoun="tags"
-                    options={allTags.map((tag) => ({ value: tag, label: tag }))}
+                    options={tagPages.tags.map(({ tag }) => ({ value: tag, label: tag }))}
                     selected={filters.tags}
                     onChange={(tags) => setFilters({ tags })}
-                    loading={tagsLoading}
+                    loading={tagPages.awaitingFirstPage || tagPages.pageLoading}
                     searchPlaceholder="Search tags"
-                    emptyText="No tag matches"
-                    onOpen={loadTagsIfNeeded}
+                    emptyText="No matching tags"
+                    onOpen={() => tagPages.setOpen(true)}
+                    onClose={() => tagPages.setOpen(false)}
+                    onSearchChange={tagPages.setSearch}
+                    onScrollEnd={tagPages.loadMore}
+                    error={tagPages.error ? "Couldn't load tags." : undefined}
+                    onRetry={tagPages.retry}
                     onOpened={(timing) => captureFilterMenuOpened('analytics-tags', timing)}
                     dataAttr="analytics-list-tags"
                     optionDataAttr="analytics-list-tags-option"

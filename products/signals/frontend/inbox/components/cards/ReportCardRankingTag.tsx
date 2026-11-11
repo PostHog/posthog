@@ -18,6 +18,8 @@ import {
     RankingStrength,
     rankingStrength,
 } from './rankingFormat'
+import { RankingModelHeader } from './RankingModelHeader'
+import { RankingScaleNote } from './RankingScaleNote'
 import { RankingScoreRows } from './RankingScoreRows'
 
 type Ranking = NonNullable<SignalReport['ranking']>
@@ -76,16 +78,10 @@ export function RankingHoverCard({
                     )}
                 </>
             ) : (
-                <div>
-                    <div className="text-sm font-semibold">We trained an ML model. Yay!</div>
-                    <div className="opacity-70">How likely, compared with the average report</div>
-                </div>
+                <RankingModelHeader />
             )}
             <RankingScoreRows ranking={ranking} scores={scores} active={active} isStaff={isStaff} />
-            <div className="opacity-70">
-                Very likely means 2x the average or more. Every report people open, act on or fix helps train the next
-                version.
-            </div>
+            <RankingScaleNote />
             {!active && (
                 <div className="opacity-70">
                     Here to help you find the good stuff faster. Your agent gets these too, through the inbox MCP tools.

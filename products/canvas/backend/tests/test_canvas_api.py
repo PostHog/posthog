@@ -26,11 +26,14 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.paging import PageRequest
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.annotations.backend.models.annotation import Annotation
+from products.annotations.backend.facade import api as annotations_api
+from products.annotations.backend.facade.contracts import AnnotationFilters
+from products.annotations.backend.facade.enums import AnnotationScope
 from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
@@ -2709,9 +2712,13 @@ class TestCanvasActions(CanvasAPIBaseTest):
         response = self._invoke(canvas_id, "annotations.create", {"content": "Marked from the canvas"})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        annotation = Annotation.objects.get(id=response.json()["result"]["annotation_id"])
+        annotation = annotations_api.get_annotation(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            annotation_id=response.json()["result"]["annotation_id"],
+        )
         assert annotation.created_by_id == self.user.id
-        assert annotation.scope == Annotation.Scope.PROJECT
+        assert annotation.scope == AnnotationScope.PROJECT
         assert annotation.content == "Marked from the canvas"
         # An omitted date_marker must resolve to a timestamp; a null marker
         # would leave the annotation off every chart and out of AI context.
@@ -2728,7 +2735,15 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert unknown.status_code == status.HTTP_400_BAD_REQUEST
         assert cloud.status_code == status.HTTP_403_FORBIDDEN
         assert not Task.objects.exists()
-        assert Annotation.objects.count() == 0
+        assert (
+            annotations_api.list_annotations(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                filters=AnnotationFilters(),
+                page=PageRequest(limit=1),
+            ).count
+            == 0
+        )
 
     def test_kill_switch_refuses_every_verb(self):
         canvas_id = self._actions_canvas()

@@ -119,6 +119,39 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         expected = {other_team.project_id} if blocked else {self.project.id, other_team.project_id}
         self.assertEqual({project["id"] for project in response.json()["results"]}, expected)
 
+    @parameterized.expand(
+        [
+            ("list", True, status.HTTP_403_FORBIDDEN),
+            ("list", False, status.HTTP_200_OK),
+            ("create", True, status.HTTP_403_FORBIDDEN),
+            ("create", False, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_organization_projects_route_checks_the_url_organizations_ip_policy(
+        self, method: str, url_org_restricted: bool, expected_status: int
+    ) -> None:
+        self._set_unlimited_projects()
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization if url_org_restricted else other_org,
+                ip_restrictions=["203.0.113.0/24"],
+            )
+        url = f"/api/organizations/{self.organization.id}/projects/"
+        if method == "create":
+            response = self.client.post(url, {"name": "Example project"}, REMOTE_ADDR="198.51.100.7")
+        else:
+            response = self.client.get(url, REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if method == "create":
+            self.assertEqual(
+                Project.objects.filter(organization=self.organization, name="Example project").exists(),
+                not url_org_restricted,
+            )
+
     @parameterized.expand([(True,), (False,)])
     def test_project_scoped_key_reads_organization_ai_consent(self, approved: bool) -> None:
         self.organization.is_ai_data_processing_approved = approved

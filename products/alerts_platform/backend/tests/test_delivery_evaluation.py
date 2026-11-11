@@ -10,18 +10,26 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.user import User
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook, recipients
+from products.alerts_platform.backend.delivery import (
+    delivery_paths,
+    describers,
+    destinations as destinations_registry,
+    legacy_webhook,
+    recipients,
+    subscribers,
+)
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
-from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+from products.alerts_platform.backend.delivery.evaluation import add_late_image, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import (
     ALERTMANAGER_WEBHOOK_BODY_FLAG,
     LEGACY_WEBHOOK_BODY_FLAG,
 )
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.api import create_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -33,7 +41,9 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EvaluationAnnouncement,
     IncidentAction,
+    LateImageResult,
     LegacyEventEmission,
+    MessageImage,
     MessageLink,
     NewAlertDestination,
     SourceKind,
@@ -101,6 +111,13 @@ class EmailingTransport(RecordingTransport):
 
     def channel_target(self, target: AlertDestinationData) -> str:
         return ",".join(target.get("email_addresses", []))
+
+
+class NotifyingTransport(RecordingTransport):
+    provider = "in_app"
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return ",".join(str(user_id) for user_id in target.get("in_app_user_ids", []))
 
 
 class RefusingTransport(RecordingTransport):
@@ -227,6 +244,52 @@ class TestDeliverEvaluation(APIBaseTest):
                 part=part,
             )
             return deliver_evaluation(replace(request, source_alert_url=source_alert_url))
+
+    @parameterized.expand(
+        [
+            ("edited", None, LateImageResult(edited=1, waiting=0)),
+            (
+                "rate_limited",
+                DeliveryError("Slack refused the edit: ratelimited"),
+                LateImageResult(edited=0, waiting=1),
+            ),
+            (
+                "bot_left_the_channel",
+                DestinationMisconfigured("Slack refused the edit: not_in_channel"),
+                LateImageResult(edited=0, waiting=0),
+            ),
+        ]
+    )
+    def test_a_late_image_is_drawn_from_the_late_detail_and_goes_to_slack_only(
+        self, _name: str, refusal: DeliveryError | None, expected: LateImageResult
+    ) -> None:
+        drawn: list[dict[str, Any]] = []
+
+        def resolver(*, team_id: int, transition: AnnouncedTransition) -> MessageImage | None:
+            drawn.append(transition.source_detail)
+            return (
+                MessageImage(url="https://example.com/chart.png", alt_text="Chart")
+                if "chart" in transition.source_detail
+                else None
+            )
+
+        with (
+            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK), _group(WEBHOOK)]),
+            patch.dict(describers._image_resolvers, {SourceKind.LOGS: resolver}),
+            patch(
+                f"{_MODULE}.add_late_image_to_target",
+                return_value=LateImageResult(edited=1, waiting=0),
+                side_effect=refusal,
+            ) as edit,
+        ):
+            result = add_late_image(_request(self.team.id), {"chart": 7})
+
+        assert result == expected
+        assert drawn == [{"chart": 7}]
+        assert [(call.kwargs["target"], call.kwargs["image"].url) for call in edit.call_args_list] == [
+            (SLACK, "https://example.com/chart.png")
+        ]
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
         # One group fires while another resolves. A destination that asked for firings must not
@@ -689,6 +752,63 @@ class TestDeliverEvaluation(APIBaseTest):
 
             assert recipients._recipients == {SourceKind.LOGS: first}
 
+    @parameterized.expand(
+        [
+            ("with_the_sources_access_rule", True, True, ["<user id>", "renamed@example.com"]),
+            ("without_an_access_rule", False, True, []),
+            ("before_the_rows_hold_subscribers", True, False, ["legacy@example.com"]),
+        ]
+    )
+    def test_email_and_in_app_rows_reach_each_user_who_can_still_see_the_alert_at_their_current_address(
+        self, _name: str, source_has_rule: bool, has_rows: bool, expected: list[str]
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+        )
+        denied = User.objects.create_and_join(self.organization, "denied@example.com", None)
+        former_member = User.objects.create(email="former-member@example.com")
+        user_ids = [self.user.id, denied.id, former_member.id]
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=configuration.id,
+            destinations=()
+            if not has_rows
+            else (
+                NewAlertDestination(
+                    data={"type": DestinationType.EMAIL, "email_user_ids": user_ids},
+                    event_kinds=(AlertEventKind.FIRING,),
+                ),
+                NewAlertDestination(
+                    data={"type": DestinationType.IN_APP, "in_app_user_ids": user_ids},
+                    event_kinds=(AlertEventKind.FIRING,),
+                ),
+            ),
+        )
+        self.user.email = "renamed@example.com"
+        self.user.save()
+        # The group a source builds from its own subscriptions, which the rows replace once they name them.
+        legacy_subscribers = _group(
+            cast(AlertDestinationData, {"type": DestinationType.EMAIL, "email_addresses": ["legacy@example.com"]})
+        )
+
+        def source_access(*, team_id: int, configuration_id: UUID, user_ids: list[int]) -> list[int]:
+            return [user_id for user_id in user_ids if user_id != denied.id]
+
+        with patch.dict(subscribers._access, {SourceKind.LOGS: source_access} if source_has_rule else {}, clear=True):
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING)),
+                {FIRING_EVENT: [legacy_subscribers]},
+                transports={DestinationType.EMAIL: EmailingTransport, DestinationType.IN_APP: NotifyingTransport},
+            )
+
+        assert sorted(channel for channel, _ in RecordingTransport.sends) == sorted(
+            str(self.user.id) if channel == "<user id>" else channel for channel in expected
+        )
+
 
 class TestDeliveryPath(APIBaseTest):
     def setUp(self) -> None:
@@ -782,6 +902,82 @@ class TestDeliveryPath(APIBaseTest):
 
         assert len(self.emitted) == 1
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-native"]
+
+    @parameterized.expand(
+        [
+            ("a_row_beside_a_customized_hog_function", (), True, True, DeliveryPath.HOG_FUNCTION, 1, ["C-native"]),
+            (
+                "a_row_copying_a_live_hog_function",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                True,
+                True,
+                DeliveryPath.HOG_FUNCTION,
+                1,
+                [],
+            ),
+            (
+                "a_row_copying_a_stock_hog_function",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                True,
+                True,
+                DeliveryPath.NATIVE,
+                0,
+                ["C-1"],
+            ),
+            (
+                "a_row_copying_one_without_its_alert_filter",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                False,
+                True,
+                DeliveryPath.HOG_FUNCTION,
+                1,
+                ["C-2"],
+            ),
+            (
+                "a_row_copying_a_deleted_hog_function",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                False,
+                False,
+                DeliveryPath.HOG_FUNCTION,
+                1,
+                ["C-2", "C-native"],
+            ),
+        ]
+    )
+    def test_an_alert_whose_source_keeps_hog_functions_sends_once_to_each_row(
+        self,
+        _name: str,
+        legacy_hog_function_ids: tuple[UUID, ...],
+        listed: bool,
+        live: bool,
+        path: DeliveryPath,
+        emitted: int,
+        native_channels: list[str],
+    ) -> None:
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=self.configuration.id,
+            destinations=(
+                NewAlertDestination(
+                    data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-native"}),
+                    event_kinds=(AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+                    legacy_hog_function_ids=legacy_hog_function_ids,
+                ),
+            ),
+        )
+
+        def live_ids(*, team_id: int, hog_function_ids: Any) -> frozenset[UUID]:
+            return frozenset(hog_function_ids) if live else frozenset()
+
+        with patch.object(destinations_registry, "_live_lookup", live_ids):
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING)),
+                self._chooses(path),
+                groups=None if listed else [SUBSCRIBER],
+            )
+
+        assert len(self.emitted) == emitted
+        assert [channel for channel, _ in RecordingTransport.sends] == native_channels
 
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         fired = self._run(
