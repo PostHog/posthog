@@ -130,6 +130,7 @@ class TestAlertTakeOwnership(APIBaseTest):
             for enabled in (False, True)
             for denied_user in ("owner", None)
         ]
+        + [(storage, False, "self") for storage in ("insight", "platform")]
     )
     def test_transfer_checks_the_owners_table_access(
         self, storage: str, enabled: bool, denied_user: str | None
@@ -138,10 +139,14 @@ class TestAlertTakeOwnership(APIBaseTest):
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = (
+            OrganizationMembership.Level.MEMBER if denied_user == "self" else OrganizationMembership.Level.ADMIN
+        )
         self.organization_membership.save()
         owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
         owner_membership = OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        if denied_user == "self":
+            owner, owner_membership = self.user, self.organization_membership
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="governed_view",
@@ -189,6 +194,8 @@ class TestAlertTakeOwnership(APIBaseTest):
         if denied_user:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
             assert "governed_view" in response.json()["detail"]
+            if denied_user == "self":
+                assert "to take ownership of this alert" in response.json()["detail"]
             assert alert.created_by == self.user
             assert alert.enabled is enabled
             assert not ActivityLog.objects.filter(

@@ -45,6 +45,7 @@ from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
@@ -58,7 +59,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.integrations import IntegrationManager
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
@@ -335,13 +336,20 @@ def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any, *
         raise ValidationError(error)
 
 
-def _validate_transfer_query_access(user: User, team: Team, query: dict[str, Any] | None, requirement: str) -> None:
+def _validate_ownership_query_access(alert: AlertConfiguration, owner: User, actor: User) -> None:
+    alert.insight.refresh_from_db()
+    if not alert.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return
+    with upgrade_insight(alert.insight):
+        query = alert.insight.query
     if query is None:
         return
-    denied = denied_query_resources(user, team, [query])
+    denied = denied_query_resources(owner, alert.team, [query])
     if denied:
         denied_names = ", ".join(f"`{name}`" for name in denied)
-        raise ValidationError(f"{requirement} access to {denied_names} to transfer this alert.")
+        subject = "You need" if owner.pk == actor.pk else "The new owner needs"
+        action = "take ownership of" if owner.pk == actor.pk else "transfer"
+        raise ValidationError(f"{subject} access to {denied_names} to {action} this alert.")
 
 
 def _normalize_llm_detector_config(detector_config: Any) -> Any:
@@ -2513,15 +2521,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Same lock order as update(): insight, then alert row. The owner write below locks the row.
             if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
-            alert.insight.refresh_from_db()
-            with upgrade_insight(alert.insight):
-                query = alert.insight.query
-            _validate_transfer_query_access(
-                owner,
-                alert.team,
-                query,
-                requirement="You need" if owner.pk == request.user.pk else "The new owner needs",
-            )
+            _validate_ownership_query_access(alert, owner, request.user)
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
@@ -2558,15 +2558,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if reloaded is None:
                 raise Http404
             alert = reloaded
-            alert.insight.refresh_from_db()
-            with upgrade_insight(alert.insight):
-                query = alert.insight.query
-            _validate_transfer_query_access(
-                owner,
-                alert.team,
-                query,
-                requirement="You need" if owner.pk == requester.pk else "The new owner needs",
-            )
+            _validate_ownership_query_access(alert, owner, requester)
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
