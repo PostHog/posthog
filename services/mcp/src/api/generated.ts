@@ -22015,6 +22015,15 @@ export namespace Schemas {
       readonly results: readonly BroadcastConversionCandidate[];
     }
 
+    export interface BroadcastOption {
+      /** ID of the broadcast. */
+      id: string;
+      /** Name of the broadcast. */
+      name: string;
+      /** Status of the broadcast, such as draft or active. */
+      status: string;
+    }
+
     /**
      * * `breaking_master` - Breaking Master
      * * `blocking_merge_queue` - Blocking Merge Queue
@@ -64770,6 +64779,20 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
+    export interface LinkedSendDTO {
+      id: string;
+      status: string;
+      created_at: string;
+    }
+
+    export interface LinkedBroadcastDTO {
+      /** The broadcast's most recent sends, newest first, at most 20. */
+      readonly recent_sends: readonly LinkedSendDTO[];
+      id: string;
+      name: string;
+      status: string;
+    }
+
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -75821,6 +75844,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
+      readonly broadcasts: readonly LinkedBroadcastDTO[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -75828,6 +75853,7 @@ export namespace Schemas {
       description: string;
       owner: ReleaseOwnerDTO | null;
       feature_flag_ids: number[];
+      broadcast_ids: string[];
       created_at: string;
     }
 
@@ -92957,6 +92983,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     /**
@@ -122539,6 +122567,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     export interface ZendeskImportError {
@@ -134719,6 +134749,11 @@ export namespace Schemas {
      */
     end: string;
     /**
+     * Comma-separated workflow IDs, at most 200. Only these workflows are returned.
+     * @minLength 1
+     */
+    ids?: string;
+    /**
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */
     start: string;
@@ -138195,6 +138230,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ReleasesBroadcastSearchRetrieveParams = {
+    /**
+     * Part of the broadcast name to match.
+     * @maxLength 200
+     */
+    search?: string;
     };
 
     export type ReviewHogRepositoryOverviewRetrieveParams = {

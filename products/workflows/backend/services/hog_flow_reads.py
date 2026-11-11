@@ -30,6 +30,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListRow,
     WorkflowNotFound,
     WorkflowRef,
+    WorkflowSummary,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus, HogFlowType, WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
@@ -249,6 +250,23 @@ def _select_page_with_access(
     if user_access_control is not None and flows.results:
         user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
     return flows
+
+
+def search_workflow_summaries(
+    *,
+    team_id: int,
+    query: WorkflowListQuery,
+    user_access_control: "UserAccessControl | None",
+    limit: int,
+    name_contains: str = "",
+) -> list[WorkflowSummary]:
+    queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False, summaries=False)
+    if name_contains:
+        queryset = queryset.filter(name__icontains=name_contains)
+    return [
+        WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
+        for row in queryset.values("id", "name", "status")[:limit]
+    ]
 
 
 def _list_queryset(
