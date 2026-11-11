@@ -14,6 +14,7 @@ import {
     logRenderFailure,
     renderSandboxEmail,
 } from './sandbox-render'
+import { SandboxSesBucket, claimSesSlot } from './sandbox-ses-bucket'
 
 export const MAX_SANDBOX_RETRIES = 8
 const FIRST_RETRY_DELAY_MS = 30_000
@@ -32,6 +33,7 @@ export type SandboxEmailSendStepDeps = {
     siteUrl: string
     recipientPreferences: Pick<RecipientPreferencesService, 'checkMarketingFrequencyCap'>
     events: Pick<SandboxEmailEvents, 'capture'>
+    sesBucket: SandboxSesBucket
 }
 
 export class SandboxEmailSendStep implements SandboxEmailStep {
@@ -89,6 +91,7 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             categoryType: action.config.message_category_type,
             optOuts: invocation.state.messageOptOuts,
             capClaimId: `${stepVisitKey(invocation, action)}/${uncertainSends(invocation)}`,
+            claimSesSlot: () => claimSesSlot(this.deps.sesBucket),
             frequencyCap: () =>
                 this.deps.recipientPreferences.checkMarketingFrequencyCap({
                     teamId: invocation.teamId,

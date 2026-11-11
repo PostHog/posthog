@@ -624,6 +624,7 @@ export function createCdpCoreServices(
                           deliveredAddress: sandboxDeliveredAddress,
                           siteUrl: config.SITE_URL,
                           recipientPreferences: recipientPreferencesService,
+                          sesBucket: deps.sandboxEmail.sesBucket,
                       })
                     : null,
                 testClient: new SandboxEmailTester({

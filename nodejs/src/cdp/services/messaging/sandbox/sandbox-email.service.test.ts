@@ -28,6 +28,7 @@ describe('SandboxEmailService', () => {
             flowVersion: 4,
             isTest: false,
             email: { to: { email: 'member@example.com', name: 'Mem' }, subject: 'Hi', text: 'Hello' },
+            claimSesSlot: () => Promise.resolve(true),
             ...overrides,
             capClaimId: overrides.capClaimId ?? `${overrides.invocationId ?? 'run-1'}:action_email_sandbox_1`,
         }

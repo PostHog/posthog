@@ -8,6 +8,7 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -28,6 +29,7 @@ import { claimSandboxCaps } from './sandbox-caps'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
 import { DeliveredAddressReader, deliveredAddressReader } from './sandbox-render'
+import { SandboxSesBucket, sandboxWorkerSesBucket } from './sandbox-ses-bucket'
 import { SandboxSesClient } from './sandbox-ses-client'
 
 describe('SandboxEmailSendStep', () => {
@@ -38,6 +40,7 @@ describe('SandboxEmailSendStep', () => {
     let events: SandboxEmailEvents
     let pubSubPool: RedisPool
     let pubSub: PubSub
+    let sesBucket: SandboxSesBucket
 
     const member = () => `Member-${world.team.id}@Example.com`
     const frequencyCapKeys = () => `@posthog/workflows-frequency-cap/${world.team.id}/`
@@ -66,6 +69,7 @@ describe('SandboxEmailSendStep', () => {
     beforeEach(async () => {
         await world.addMember(member())
         capturedAnalytics.length = 0
+        sesBucket = world.sesBucket(100)
         hogFlow = new FixtureHogFlowBuilder()
             .withExitCondition('exit_only_at_end')
             .withWorkflow({
@@ -124,6 +128,7 @@ describe('SandboxEmailSendStep', () => {
             siteUrl: 'http://localhost:8000',
             recipientPreferences: recipientPreferences(),
             events,
+            sesBucket,
         })
         return new HogFlowExecutorService(
             {} as any,
@@ -317,11 +322,59 @@ describe('SandboxEmailSendStep', () => {
 
             expect(world.ses.attempts).toBe(sesAttempts)
             expect(world.ses.delivered).toHaveLength(delivered)
+            expect(await world.takeSlotsLeft(sesBucket)).toBe(sesBucket.capacity - sesAttempts)
             expect(metricNames(segments)).toEqual([[metric, 'email']])
             expect(finished.invocation.state.currentAction?.id).toBe('wait')
             expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
         }
     )
+
+    it('retries a step while the shared SES send rate is spent, and sends it on the daily allowance it already holds', async () => {
+        await world.takeSlotsLeft(sesBucket)
+
+        const { segments, finished } = await runToNextAction(member(), {
+            beforeAttempt: async (attempt) => {
+                if (attempt === 1) {
+                    await deleteKeysWithPrefix(world.valkey, sesBucket.key)
+                }
+            },
+        })
+
+        expect(segments).toHaveLength(2)
+        expect(world.ses.attempts).toBe(1)
+        expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'accepted', message_id: 'ses-1' })
+    })
+
+    it('retries a step without an SES attempt while the SES send rate store stops answering, and sends it once the store answers', async () => {
+        const store = new StallingValkeyProxy({
+            host: defaultConfig.CDP_REDIS_HOST,
+            port: defaultConfig.CDP_REDIS_PORT,
+        })
+        try {
+            const workerBucket = sandboxWorkerSesBucket({
+                ...defaultConfig,
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: await store.start(),
+                SES_RATE_LIMITER_VALKEY_PASSWORD: defaultConfig.CDP_REDIS_PASSWORD,
+                SES_RATE_LIMITER_VALKEY_TLS: false,
+            })
+            sesBucket = { ...workerBucket, key: sesBucket.key }
+            const executor = buildExecutor()
+            const routed = await executor.execute(runFor(member()))
+            store.stopAnswering()
+
+            const stalled = await executor.execute(nextDequeue(routed.invocation))
+
+            expect(world.ses.attempts).toBe(0)
+            expect(stalled.invocation.queue).toBe('emailsandbox')
+
+            store.answerNewConnections()
+            await runSandboxQueue(executor, stalled.invocation)
+            expect(world.ses.delivered).toHaveLength(1)
+        } finally {
+            store.stopLeavingClientsSilent()
+        }
+    })
 
     it('refuses a job redelivered from before its send once SES took the email, reset the connection, and spent the caps', async () => {
         const executor = buildExecutor()
@@ -412,21 +465,26 @@ describe('SandboxEmailSendStep', () => {
         expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'skipped', reason: 'opted_out' })
     })
 
+    const unsubscribeThroughLink = (email: { text?: string }): Promise<void> =>
+        world.recipients.optOut(world.team.id, [unsubscribedIdentifier(email)])
+
+    const ordinaryEmailSkipReason = (address: string): Promise<string | null> => {
+        const ordinaryEmail = { id: 'ordinary', type: 'function_email', config: { message_category_type: 'marketing' } }
+        const ordinaryRun = {
+            teamId: world.team.id,
+            state: { globals: { inputs: { email: { to: { email: address } } } } },
+        }
+        return recipientPreferences().shouldSkipAction(ordinaryRun as any, ordinaryEmail as any)
+    }
+
     it('skips a later ordinary email to the delivered address once the member unsubscribes from a sandbox email', async () => {
         await runToNextAction(member().toLowerCase())
         const [delivered] = world.ses.delivered
         expect(delivered.to).toEqual([{ name: '', address: member() }])
 
-        await world.recipients.optOut(world.team.id, [unsubscribedIdentifier(delivered)])
+        await unsubscribeThroughLink(delivered)
 
-        const ordinaryEmail = { id: 'ordinary', type: 'function_email', config: { message_category_type: 'marketing' } }
-        const ordinaryRun = {
-            teamId: world.team.id,
-            state: { globals: { inputs: { email: { to: { email: member() } } } } },
-        }
-        expect(await recipientPreferences().shouldSkipAction(ordinaryRun as any, ordinaryEmail as any)).toBe(
-            'opted_out'
-        )
+        expect(await ordinaryEmailSkipReason(member())).toBe('opted_out')
     })
 
     it.each<[string, (writtenAs: string) => string]>([
@@ -477,7 +535,8 @@ describe('SandboxEmailSendStep', () => {
 
             await runSandboxQueue(buildExecutor(), stalled.invocation)
             expect(world.ses.delivered).toHaveLength(1)
-            expect(unsubscribedIdentifier(world.ses.delivered[0])).toBe(member())
+            await unsubscribeThroughLink(world.ses.delivered[0])
+            expect(await ordinaryEmailSkipReason(member())).toBe('opted_out')
         })
     })
 

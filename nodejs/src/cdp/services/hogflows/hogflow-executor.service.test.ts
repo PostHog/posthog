@@ -3350,6 +3350,12 @@ describe('Hogflow Executor', () => {
                             siteUrl: hub.SITE_URL,
                             recipientPreferences: recipientPreferencesService,
                             events: { capture: () => Promise.resolve() },
+                            sesBucket: {
+                                limiter: { claimUpTo: () => Promise.resolve(1) } as unknown as RateLimiterService,
+                                key: '@posthog/ses/billing-test',
+                                capacity: 1,
+                                refillPerSecond: 1,
+                            },
                         }),
                     },
                 }

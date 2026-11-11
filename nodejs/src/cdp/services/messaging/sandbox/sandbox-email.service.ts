@@ -24,6 +24,7 @@ import { SES_TAG_ID, SandboxSesClient } from './sandbox-ses-client'
 import { admitTenant } from './sandbox-tenant-admission'
 
 export const SANDBOX_INTEGRATION_ID = 'posthog-managed-sandbox'
+export const SEND_RATE_LIMITED = 'send_rate_limited'
 
 export type SandboxSendOutcome =
     | { status: 'accepted'; messageId: string }
@@ -44,6 +45,7 @@ export type SandboxSendRequest = {
     optOuts?: MessageOptOutRecord[]
     frequencyCap?: () => Promise<FrequencyCapCheck>
     capClaimId: string
+    claimSesSlot: () => Promise<boolean>
 }
 
 export type SandboxEmailServiceDeps = {
@@ -140,6 +142,10 @@ export class SandboxEmailService {
         }
         if (!(await caps.markSending())) {
             return refusal('cap_storage_unavailable')
+        }
+        if (!(await request.claimSesSlot())) {
+            await caps.releaseUnsent()
+            return { status: 'retry', reason: SEND_RATE_LIMITED }
         }
         const message = buildSandboxMessage({
             email: email.data,

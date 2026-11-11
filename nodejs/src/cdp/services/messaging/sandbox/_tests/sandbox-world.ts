@@ -19,6 +19,7 @@ import { readSandboxAuthorization } from '../sandbox-authorization'
 import { SandboxCaps, claimSandboxCaps } from '../sandbox-caps'
 import { SANDBOX_INTEGRATION_ID, SandboxEmailService, hasSandboxSenderRow } from '../sandbox-email.service'
 import { checkSandboxRecipient, sandboxRecipientReads } from '../sandbox-recipient-checks'
+import { SandboxSesBucket } from '../sandbox-ses-bucket'
 import { SandboxSesClient, createSandboxSesV2Client } from '../sandbox-ses-client'
 import { FakeSesEndpoint } from './fake-ses-endpoint'
 
@@ -105,6 +106,8 @@ export type SandboxWorld = {
     lockTable: (table: string) => Promise<() => Promise<void>>
     unreachableLimiter: () => RateLimiterService
     limiter: (name: string) => RateLimiterService
+    sesBucket: (capacity: number) => SandboxSesBucket
+    takeSlotsLeft: (bucket: SandboxSesBucket) => Promise<number>
     service: (options?: { caps?: SandboxCaps; enabled?: boolean; faults?: SandboxFaults }) => SandboxEmailService
 }
 
@@ -165,7 +168,10 @@ export function useSandboxWorld(): SandboxWorld {
     afterEach(async () => {
         await world.ses.stop()
         await deleteKeysWithPrefix(world.valkey, `@posthog/sandbox-email/{${world.organizationId}}/`)
+        await deleteKeysWithPrefix(world.valkey, sesBucketKey())
     })
+
+    const sesBucketKey = () => `@posthog/ses/test-${world.team.id}`
 
     world.addMember = async (email, { verified = true, organizationId } = {}) => {
         const userId = await createUser(world.postgres, new UUIDT().toString())
@@ -234,6 +240,16 @@ export function useSandboxWorld(): SandboxWorld {
         )
 
     world.limiter = (name) => new RateLimiterService(world.valkey, { name })
+
+    world.sesBucket = (capacity) => ({
+        limiter: world.limiter('ses'),
+        key: sesBucketKey(),
+        capacity,
+        refillPerSecond: 0.0001,
+    })
+
+    world.takeSlotsLeft = ({ limiter, key, capacity, refillPerSecond }) =>
+        limiter.claimUpTo({ key, requested: capacity, capacity, refillPerSecond })
 
     world.service = ({ caps = { team: 5, recipient: 5 }, enabled = true, faults = {} } = {}) => {
         const recipientReads = sandboxRecipientReads(
