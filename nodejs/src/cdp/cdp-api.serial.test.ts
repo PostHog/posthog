@@ -4625,9 +4625,7 @@ describe('CDP API', () => {
             } = {}
         ): AttachmentUploads => new AttachmentUploads(attachmentStore, counter, { teams, maxBytesPerTeamDay })
 
-        // fetch refuses a Content-Length that differs from the body, so the length goes out as HTTP frames the
-        // bytes actually sent, and the bucket judges it against the size the route signed.
-        const putBytes = async (slot: Record<string, any>, body: Buffer): Promise<number> =>
+        const putBytesWithoutSignedContentLength = async (slot: Record<string, any>, body: Buffer): Promise<number> =>
             (
                 await globalThis.fetch(slot.url, {
                     method: slot.method,
@@ -4683,7 +4681,7 @@ describe('CDP API', () => {
             ])
             expect(Date.parse(first.body.files[0].url_expires_at)).toBeGreaterThan(Date.now())
 
-            const putStatus = await putBytes(first.body.files[0], f.bytes)
+            const putStatus = await putBytesWithoutSignedContentLength(first.body.files[0], f.bytes)
             const again = await requestUploads(teamId, declared)
 
             expect(again.status).toBe(200)
@@ -4702,13 +4700,13 @@ describe('CDP API', () => {
         it("answers upload to another team for a file only this team stored, and stores that team's own copy", async () => {
             const f = pdf()
             const [slot] = (await requestUploads(teamId, asked(f))).body.files
-            expect(await putBytes(slot, f.bytes)).toBe(200)
+            expect(await putBytesWithoutSignedContentLength(slot, f.bytes)).toBe(200)
 
             const other = await requestUploads(otherTeamId, asked(f))
 
             expect(other.status).toBe(200)
             expect(statusesOf(other)).toEqual(['upload'])
-            expect(await putBytes(other.body.files[0], f.bytes)).toBe(200)
+            expect(await putBytesWithoutSignedContentLength(other.body.files[0], f.bytes)).toBe(200)
             expect(statusesOf(await requestUploads(otherTeamId, asked(f)))).toEqual(['present'])
         })
 
@@ -4831,7 +4829,7 @@ describe('CDP API', () => {
             api['attachmentUploads'] = uploadsFor(`${teamId},${otherTeamId}`, { maxBytesPerTeamDay: 100 })
             const stored = pdf()
             const [slot] = (await requestUploads(teamId, asked(stored))).body.files
-            expect(await putBytes(slot, stored.bytes)).toBe(200)
+            expect(await putBytesWithoutSignedContentLength(slot, stored.bytes)).toBe(200)
 
             const presentAgain = await requestUploads(teamId, asked(stored, pdf()))
             const overTheCap = await requestUploads(teamId, asked(pdf(), pdf()))
