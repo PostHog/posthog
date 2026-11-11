@@ -7,6 +7,7 @@
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@posthog/quill": "workspace:*",
+        "@tanstack/react-table": "^8.21.3",
         "@types/react": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",

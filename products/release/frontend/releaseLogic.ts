@@ -53,7 +53,7 @@ interface ReleaseLogicActions {
     setDecisionOnly: (decisionOnly: boolean) => { decisionOnly: boolean }
     setNewReleaseOpen: (open: boolean) => { open: boolean }
     openSchedule: (flagId: number) => { flagId: number }
-    closeSchedule: () => void
+    closeSchedule: () => { value: true }
     createRelease: (name: string, description: string) => { name: string; description: string }
     updateRelease: (id: string, changes: PatchedWriteReleaseApi) => { id: string; changes: PatchedWriteReleaseApi }
     linkFlag: (id: string, flagId: number) => { id: string; flagId: number }
@@ -141,7 +141,14 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
         rows: [
             (s) => [s.releases, s.flags, s.experiments, s.earlyAccessFeatures, s.scheduledChanges, s.dataLoading],
-            (releases, flags, experiments, earlyAccessFeatures, scheduledChanges, dataLoading): ReleaseRow[] =>
+            (
+                releases: ReleaseDTOApi[],
+                flags: FeatureFlagApi[],
+                experiments: ExperimentBasicApi[],
+                earlyAccessFeatures: EarlyAccessFeatureApi[],
+                scheduledChanges: ScheduledChangeApi[],
+                dataLoading: boolean
+            ): ReleaseRow[] =>
                 dataLoading && !flags.length
                     ? []
                     : releases.map((release) =>
@@ -150,7 +157,12 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
         filteredRows: [
             (s) => [s.rows, s.search, s.stageFilter, s.decisionOnly],
-            (rows, search, stageFilter, decisionOnly): ReleaseRow[] => {
+            (
+                rows: ReleaseRow[],
+                search: string,
+                stageFilter: ReleaseStage | null,
+                decisionOnly: boolean
+            ): ReleaseRow[] => {
                 const query = search.trim().toLowerCase()
                 return rows.filter(
                     (row) =>
@@ -162,7 +174,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 )
             },
         ],
-        decisionRows: [(s) => [s.rows], (rows): ReleaseRow[] => rows.filter((row) => row.needsDecision)],
+        decisionRows: [(s) => [s.rows], (rows: ReleaseRow[]): ReleaseRow[] => rows.filter((row) => row.needsDecision)],
     }),
     listeners(({ actions, values }) => ({
         createRelease: async ({ name, description }) => {

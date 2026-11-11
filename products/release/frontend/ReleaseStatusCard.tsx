@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { ReleaseLifecycle } from './ReleaseLifecycle'
 import { ReleaseLinkFlagCombobox } from './ReleaseLinkFlagCombobox'
 import { releaseLogic } from './releaseLogic'
-import { ReleaseRow } from './releaseUtils'
+import { REVIEW_AFTER_DAYS, ReleaseRow } from './releaseUtils'
 
 export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
     const { openSchedule } = useActions(releaseLogic)
@@ -40,41 +40,18 @@ export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
                         {row.detail}
                     </Text>
                 </div>
-                {row.runningDays > 0 && row.runningDays < row.reviewAfterDays && (
-                    <Progress value={(row.runningDays / row.reviewAfterDays) * 100} className="max-w-md">
+                {row.runningDays > 0 && row.runningDays < REVIEW_AFTER_DAYS && (
+                    <Progress value={(row.runningDays / REVIEW_AFTER_DAYS) * 100} className="max-w-md">
                         <ProgressLabel>Toward two weeks of data</ProgressLabel>
                         <Text size="xs" variant="muted" className="ms-auto">
-                            {`${row.runningDays} of ${row.reviewAfterDays} days`}
+                            {`${row.runningDays} of ${REVIEW_AFTER_DAYS} days`}
                         </Text>
                     </Progress>
                 )}
-                {!row.flags.length ? (
-                    <Item variant="outline" tone="info" data-attr="release-next-step-callout">
-                        <ItemContent>
-                            <ItemTitle>Next: link a feature flag</ItemTitle>
-                            <ItemDescription>
-                                Pick the flag your code checks for this change, or create one.
-                            </ItemDescription>
-                        </ItemContent>
-                        <ItemActions className="flex-wrap">
-                            <div className="w-56">
-                                <ReleaseLinkFlagCombobox row={row} placeholder="Find a flag" />
-                            </div>
-                            <Button
-                                variant="outline"
-                                nativeButton={false}
-                                render={<LinkPrimitive to={urls.featureFlag('new')} />}
-                                data-attr="release-create-flag"
-                            >
-                                <IconPlus />
-                                Create a flag
-                            </Button>
-                        </ItemActions>
-                    </Item>
-                ) : step ? (
+                {step ? (
                     <Item
                         variant="outline"
-                        tone={step.urgent ? 'info' : 'default'}
+                        tone={row.needsDecision ? 'info' : 'default'}
                         data-attr="release-next-step-callout"
                     >
                         <ItemContent>
@@ -82,6 +59,22 @@ export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
                             <ItemDescription>{step.detail}</ItemDescription>
                         </ItemContent>
                         <ItemActions className="flex-wrap">
+                            {!row.flags.length && (
+                                <>
+                                    <div className="w-56">
+                                        <ReleaseLinkFlagCombobox row={row} placeholder="Find a flag" />
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        nativeButton={false}
+                                        render={<LinkPrimitive to={urls.featureFlag('new')} />}
+                                        data-attr="release-create-flag"
+                                    >
+                                        <IconPlus />
+                                        Create a flag
+                                    </Button>
+                                </>
+                            )}
                             {step.secondaryLabel && step.secondaryTo && (
                                 <Button
                                     variant="outline"
@@ -92,24 +85,17 @@ export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
                                     {step.secondaryLabel}
                                 </Button>
                             )}
-                            {step.label && step.scheduleFlagId !== undefined ? (
+                            {step.label && (
                                 <Button
                                     variant={step.urgent ? 'primary' : 'outline'}
-                                    onClick={() => openSchedule(step.scheduleFlagId as number)}
+                                    {...(step.scheduleFlagId !== undefined
+                                        ? { onClick: () => openSchedule(step.scheduleFlagId as number) }
+                                        : { nativeButton: false, render: <LinkPrimitive to={step.to ?? ''} /> })}
                                     data-attr="release-next-step"
                                 >
                                     {step.label}
                                 </Button>
-                            ) : step.label && step.to ? (
-                                <Button
-                                    variant={step.urgent ? 'primary' : 'outline'}
-                                    nativeButton={false}
-                                    render={<LinkPrimitive to={step.to} />}
-                                    data-attr="release-next-step"
-                                >
-                                    {step.label}
-                                </Button>
-                            ) : null}
+                            )}
                         </ItemActions>
                     </Item>
                 ) : (

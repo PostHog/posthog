@@ -31,14 +31,11 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { releaseLogic } from './releaseLogic'
-import { ReleaseFlagAudience, ReleaseRow, isExperimentDone, isExperimentDraft } from './releaseUtils'
+import { ReleaseFlagAudience, ReleaseRow, isExperimentRunning } from './releaseUtils'
 
 function emptyVariantWarning(row: ReleaseRow, audience: ReleaseFlagAudience): string | null {
     const running = row.experiments.find(
-        (experiment) =>
-            experiment.feature_flag_key === audience.flag.key &&
-            !isExperimentDraft(experiment) &&
-            !isExperimentDone(experiment)
+        (experiment) => experiment.feature_flag_key === audience.flag.key && isExperimentRunning(experiment)
     )
     const empty = audience.variants.filter((variant) => variant.percent === 0)
     if (!running || !empty.length) {
@@ -50,6 +47,7 @@ function emptyVariantWarning(row: ReleaseRow, audience: ReleaseFlagAudience): st
 function AudienceRow({ row, audience }: { row: ReleaseRow; audience: ReleaseFlagAudience }): JSX.Element {
     const { openSchedule, unlinkFlag } = useActions(releaseLogic)
     const { flag } = audience
+    const warning = emptyVariantWarning(row, audience)
 
     return (
         <div className="flex flex-col gap-2" data-attr="release-audience-row">
@@ -117,14 +115,14 @@ function AudienceRow({ row, audience }: { row: ReleaseRow; audience: ReleaseFlag
                     {audience.summary}.
                 </Text>
             )}
-            {emptyVariantWarning(row, audience) && (
+            {warning && (
                 <Item variant="outline" tone="warning" size="sm" data-attr="release-variant-warning">
                     <ItemMedia variant="icon">
                         <IconWarning />
                     </ItemMedia>
                     <ItemContent>
                         <ItemTitle>The experiment cannot compare variants</ItemTitle>
-                        <ItemDescription>{emptyVariantWarning(row, audience)}</ItemDescription>
+                        <ItemDescription>{warning}</ItemDescription>
                     </ItemContent>
                     <ItemActions>
                         <Button

@@ -7,7 +7,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { releaseLogic } from './releaseLogic'
-import { ReleaseSpan, STAGE_DOT } from './releaseUtils'
+import { ReleaseSpan, STAGE_TONE } from './releaseUtils'
 
 const DAY = 30
 const BEFORE = 17
@@ -94,69 +94,71 @@ export function ReleaseTimeline(): JSX.Element {
                         style={{ height: ROW }}
                         data-attr="release-timeline-row"
                     >
-                        <LinkPrimitive
-                            to={urls.release(row.id)}
-                            data-attr="release-timeline-release"
-                            className="sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r border-border bg-background px-3 text-foreground group-hover:bg-fill-hover"
-                            style={{ width: NAME }}
-                        >
-                            <Dot variant={STAGE_DOT[row.stage]} />
-                            <span className="flex min-w-0 flex-1 flex-col">
-                                <Text size="xs" weight="semibold" className="truncate">
-                                    {row.name}
-                                </Text>
-                                <Text size="xs" variant="muted" className="truncate">
-                                    {row.status}
-                                </Text>
-                            </span>
-                        </LinkPrimitive>
+                        <div className="sticky left-0 z-10 flex shrink-0" style={{ width: NAME }}>
+                            <LinkPrimitive
+                                to={urls.release(row.id)}
+                                data-attr="release-timeline-release"
+                                className="flex w-full items-center gap-2 border-r border-border bg-background px-3 text-foreground group-hover:bg-fill-hover"
+                            >
+                                <Dot variant={STAGE_TONE[row.stage]} />
+                                <span className="flex min-w-0 flex-1 flex-col">
+                                    <Text size="xs" weight="semibold" className="truncate">
+                                        {row.name}
+                                    </Text>
+                                    <Text size="xs" variant="muted" className="truncate">
+                                        {row.status}
+                                    </Text>
+                                </span>
+                            </LinkPrimitive>
+                        </div>
                         <div className="relative" style={{ width: total * DAY }}>
                             {row.spans.map((span) => {
                                 const left = x(span.from)
                                 const width = Math.max(x(span.to) + DAY / 2 - left, span.kind === 'flag' ? 0 : DAY)
                                 const look = SPAN_LOOK[span.kind]
-                                const style = { left, width, top: look.top, height: look.height }
                                 return width > 0 ? (
-                                    look.badge ? (
+                                    <div
+                                        key={span.key}
+                                        className="absolute flex"
+                                        style={{ left, width, top: look.top, height: look.height }}
+                                    >
                                         <LinkPrimitive
-                                            key={span.key}
                                             to={span.href}
                                             title={span.label}
-                                            className="absolute flex"
-                                            style={style}
+                                            className={cn(
+                                                'flex h-full w-full',
+                                                !look.badge && 'rounded-full bg-border'
+                                            )}
                                         >
-                                            <Badge
-                                                variant={look.badge}
-                                                className={cn(
-                                                    'h-full w-full justify-start overflow-hidden',
-                                                    !span.label && 'p-0'
-                                                )}
-                                            >
-                                                {span.label ? <span className="truncate">{span.label}</span> : null}
-                                            </Badge>
+                                            {look.badge && (
+                                                <Badge
+                                                    variant={look.badge}
+                                                    className={cn(
+                                                        'h-full w-full justify-start overflow-hidden',
+                                                        !span.label && 'p-0'
+                                                    )}
+                                                >
+                                                    {span.label ? <span className="truncate">{span.label}</span> : null}
+                                                </Badge>
+                                            )}
                                         </LinkPrimitive>
-                                    ) : (
-                                        <LinkPrimitive
-                                            key={span.key}
-                                            to={span.href}
-                                            className="absolute rounded-full bg-border"
-                                            style={style}
-                                        />
-                                    )
+                                    </div>
                                 ) : null
                             })}
-                            {row.markers.map((marker) => (
-                                <div
-                                    key={marker.key}
-                                    title={`${dayjs(marker.date).format('D MMM')}: ${marker.label} (${marker.flagKey})`}
-                                    className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground"
-                                    style={{ left: x(marker.date) + DAY / 2 - 5, top: 16 }}
-                                    data-attr="release-timeline-marker"
-                                >
-                                    <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
-                                    {marker.label}
-                                </div>
-                            ))}
+                            {row.events
+                                .filter((event) => event.upcoming)
+                                .map((event) => (
+                                    <div
+                                        key={event.key}
+                                        title={`${dayjs(event.date).format('D MMM')}: ${event.title} (${event.detail})`}
+                                        className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground"
+                                        style={{ left: x(event.date) + DAY / 2 - 5, top: 16 }}
+                                        data-attr="release-timeline-marker"
+                                    >
+                                        <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
+                                        {event.title}
+                                    </div>
+                                ))}
                         </div>
                     </div>
                 ))}

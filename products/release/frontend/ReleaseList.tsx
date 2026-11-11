@@ -15,7 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
 import { releaseLogic } from './releaseLogic'
-import { ReleaseRow, STAGE_BADGE, STAGE_LABEL } from './releaseUtils'
+import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
 
 export const scene: SceneExport = {
     component: ReleaseList,
@@ -52,7 +52,7 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
         id: 'stage',
         header: 'Stage',
         accessorKey: 'stage',
-        cell: ({ row }) => <Badge variant={STAGE_BADGE[row.original.stage]}>{STAGE_LABEL[row.original.stage]}</Badge>,
+        cell: ({ row }) => <Badge variant={STAGE_TONE[row.original.stage]}>{STAGE_LABEL[row.original.stage]}</Badge>,
     },
     {
         id: 'audience',

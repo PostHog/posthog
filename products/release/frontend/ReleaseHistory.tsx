@@ -30,7 +30,7 @@ function EventIcon({ kind }: { kind: ReleaseEvent['kind'] }): JSX.Element {
 
 function EventRow({ event }: { event: ReleaseEvent }): JSX.Element {
     const title = (
-        <Text size="xs" weight="medium" className={cn('truncate', event.upcoming && 'text-foreground')}>
+        <Text size="xs" weight="medium" className="truncate">
             {event.title}
         </Text>
     )

@@ -49,7 +49,7 @@ export interface ReleaseEvent {
     title: string
     detail?: string
     href?: string
-    upcoming: boolean
+    upcoming?: boolean
 }
 
 export interface ReleaseSuggestion {
@@ -67,13 +67,6 @@ export interface ReleaseSpan {
     to: string
     label?: string
     href: string
-}
-
-export interface ReleaseMarker {
-    key: string
-    date: string
-    label: string
-    flagKey: string
 }
 
 export interface ReleaseRow {
@@ -98,10 +91,8 @@ export interface ReleaseRow {
     nextStep: ReleaseNextStep | null
     needsDecision: boolean
     runningDays: number
-    reviewAfterDays: number
     nextDate: string | null
     spans: ReleaseSpan[]
-    markers: ReleaseMarker[]
 }
 
 interface FlagGroup {
@@ -124,15 +115,7 @@ export const STAGE_LABEL: Record<ReleaseStage, string> = {
 
 export type ReleaseBadgeVariant = 'default' | 'info' | 'destructive' | 'warning' | 'success' | 'completed'
 
-export const STAGE_BADGE: Record<ReleaseStage, ReleaseBadgeVariant> = {
-    planned: 'default',
-    flag: 'default',
-    experiment: 'info',
-    early_access: 'warning',
-    released: 'success',
-}
-
-export const STAGE_DOT: Record<ReleaseStage, 'default' | 'info' | 'warning' | 'success'> = {
+export const STAGE_TONE: Record<ReleaseStage, 'default' | 'info' | 'warning' | 'success'> = {
     planned: 'default',
     flag: 'default',
     experiment: 'info',
@@ -167,20 +150,8 @@ export const isExperimentDraft = (experiment: ExperimentBasicApi): boolean =>
 
 export const isExperimentDone = (experiment: ExperimentBasicApi): boolean => !!experiment.end_date
 
-export function flagAudience(flag: FeatureFlagApi): string {
-    const groups = flagFilters(flag).groups ?? []
-    if (!flag.active) {
-        return 'Nobody, the flag is disabled'
-    }
-    if (groups.length !== 1) {
-        return `${groups.length} condition sets`
-    }
-    const percentage = groups[0].rollout_percentage ?? 100
-    const filters = groups[0].properties?.length ?? 0
-    return filters
-        ? `${percentage}% of users that match ${filters} filter${filters > 1 ? 's' : ''}`
-        : `${percentage}% of all users`
-}
+export const isExperimentRunning = (experiment: ExperimentBasicApi): boolean =>
+    !isExperimentDraft(experiment) && !isExperimentDone(experiment)
 
 function isFullyRolledOut(flag: FeatureFlagApi): boolean {
     const filters = flagFilters(flag)
@@ -206,12 +177,12 @@ export function scheduledChangeLabel(change: ScheduledChangeApi): string {
 }
 
 const DAY_FORMAT = 'D MMM'
-const REVIEW_AFTER_DAYS = 14
+export const REVIEW_AFTER_DAYS = 14
 
-const EARLY_ACCESS_NEXT: Record<string, { title: string; label: string }> = {
-    concept: { title: 'Open the beta', label: 'Open early access' },
-    alpha: { title: 'Move to beta', label: 'Open early access' },
-    beta: { title: 'Move to general availability', label: 'Open early access' },
+const EARLY_ACCESS_NEXT: Record<string, string> = {
+    concept: 'Open the beta',
+    alpha: 'Move to beta',
+    beta: 'Move to general availability',
 }
 
 const CONCLUSION_LABEL: Record<string, string> = {
@@ -290,11 +261,11 @@ export function buildReleaseRow(
     const changes = allScheduled
         .filter((change) => flagById.has(String(change.record_id)))
         .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
-    const scheduled = changes.filter((change) => !change.executed_at)
+    const firstFlagCreated = flags.map((flag) => flag.created_at).sort()[0] ?? null
 
     const drafts = experiments.filter(isExperimentDraft)
     const done = experiments.filter(isExperimentDone)
-    const running = experiments.filter((experiment) => !isExperimentDraft(experiment) && !isExperimentDone(experiment))
+    const running = experiments.filter(isExperimentRunning)
     const openEarlyAccess = earlyAccess.find((item) => item.stage !== 'general-availability')
     const released =
         flags.length > 0 && flags.every(isFullyRolledOut) && !running.length && !drafts.length && !openEarlyAccess
@@ -351,7 +322,7 @@ export function buildReleaseRow(
     if (!flags.length) {
         nextStep = {
             title: 'Link a feature flag',
-            detail: 'A flag controls who gets this release.',
+            detail: 'Pick the flag your code checks for this change, or create one.',
         }
     } else if (drafts.length && !running.length) {
         nextStep = {
@@ -399,9 +370,9 @@ export function buildReleaseRow(
         }
     } else if (openEarlyAccess && EARLY_ACCESS_NEXT[openEarlyAccess.stage]) {
         nextStep = {
-            title: EARLY_ACCESS_NEXT[openEarlyAccess.stage].title,
+            title: EARLY_ACCESS_NEXT[openEarlyAccess.stage],
             detail: `${openEarlyAccess.name} is in ${openEarlyAccess.stage}. Move it on when the feedback is good.`,
-            label: EARLY_ACCESS_NEXT[openEarlyAccess.stage].label,
+            label: 'Open early access',
             to: urls.earlyAccessFeature(openEarlyAccess.id),
         }
     } else if (released) {
@@ -419,19 +390,18 @@ export function buildReleaseRow(
             .map((experiment) => ({ date: experiment.start_date as string, label: 'Experiment' })),
         ...earlyAccess.map((item) => ({ date: item.created_at, label: 'Early access' })),
     ].sort((a, b) => a.date.localeCompare(b.date))
-    const testingDate = testingStarts[0]?.date
     const stageIndex = { planned: 0, flag: 1, experiment: 2, early_access: 2, released: 3 }[stage]
     const lifecycle: ReleaseLifecycleStep[] = [
         {
             key: 'planned' as const,
             label: 'Planned',
-            date: [release.created_at, ...flags.map((flag) => flag.created_at)].sort()[0],
+            date: firstFlagCreated && firstFlagCreated < release.created_at ? firstFlagCreated : release.created_at,
         },
-        { key: 'flag' as const, label: 'Behind a flag', date: flags.map((flag) => flag.created_at).sort()[0] ?? null },
+        { key: 'flag' as const, label: 'Behind a flag', date: firstFlagCreated },
         {
             key: 'testing' as const,
             label: testingStarts[0]?.label ?? (experiments.length ? 'Experiment' : 'Testing'),
-            date: testingDate ?? null,
+            date: testingStarts[0]?.date ?? null,
         },
         { key: 'released' as const, label: 'Rolled out', date: null },
     ].map((step, index) => ({
@@ -451,7 +421,6 @@ export function buildReleaseRow(
             date: release.created_at,
             kind: 'release',
             title: flags.length ? 'Grouped into this release' : 'Release created',
-            upcoming: false,
         },
         ...flags.map((flag) => ({
             key: `flag-${flag.id}`,
@@ -459,7 +428,6 @@ export function buildReleaseRow(
             kind: 'flag' as const,
             title: `Flag ${flag.key} created`,
             href: urls.featureFlag(flag.id),
-            upcoming: false,
         })),
         ...earlyAccess.map((item) => ({
             key: `ea-${item.id}`,
@@ -468,56 +436,39 @@ export function buildReleaseRow(
             title: `Early access opened: ${item.name}`,
             detail: `Now in ${item.stage}`,
             href: urls.earlyAccessFeature(item.id),
-            upcoming: false,
         })),
-        ...experiments.flatMap((experiment) => [
-            ...(experiment.start_date
-                ? [
-                      {
-                          key: `exp-start-${experiment.id}`,
-                          date: experiment.start_date,
-                          kind: 'experiment' as const,
-                          title: `Experiment launched: ${experiment.name}`,
-                          href: urls.experiment(experiment.id),
-                          upcoming: false,
-                      },
-                  ]
-                : [
-                      {
-                          key: `exp-draft-${experiment.id}`,
-                          date: experiment.created_at,
-                          kind: 'experiment' as const,
-                          title: `Experiment drafted: ${experiment.name}`,
-                          href: urls.experiment(experiment.id),
-                          upcoming: false,
-                      },
-                  ]),
-            ...(experiment.end_date
-                ? [
-                      {
-                          key: `exp-end-${experiment.id}`,
-                          date: experiment.end_date,
-                          kind: 'experiment' as const,
-                          title: `Experiment ended: ${experiment.name}`,
-                          detail: experiment.conclusion
-                              ? CONCLUSION_LABEL[experiment.conclusion]
-                              : 'No result recorded',
-                          href: urls.experiment(experiment.id),
-                          upcoming: false,
-                      },
-                  ]
-                : []),
-        ]),
-        ...changes.map((change) => ({
+    ]
+    for (const experiment of experiments) {
+        const href = urls.experiment(experiment.id)
+        events.push({
+            key: `exp-start-${experiment.id}`,
+            date: experiment.start_date ?? experiment.created_at,
+            kind: 'experiment',
+            title: `${experiment.start_date ? 'Experiment launched' : 'Experiment drafted'}: ${experiment.name}`,
+            href,
+        })
+        if (experiment.end_date) {
+            events.push({
+                key: `exp-end-${experiment.id}`,
+                date: experiment.end_date,
+                kind: 'experiment',
+                title: `Experiment ended: ${experiment.name}`,
+                detail: experiment.conclusion ? CONCLUSION_LABEL[experiment.conclusion] : 'No result recorded',
+                href,
+            })
+        }
+    }
+    for (const change of changes) {
+        events.push({
             key: `change-${change.id}`,
             date: change.executed_at ?? change.scheduled_at,
-            kind: 'schedule' as const,
+            kind: 'schedule',
             title: scheduledChangeLabel(change),
             detail: flagById.get(String(change.record_id))?.key,
             href: urls.featureFlag(Number(change.record_id)),
             upcoming: !change.executed_at,
-        })),
-    ]
+        })
+    }
 
     const suggestions: ReleaseSuggestion[] = []
     if (flags.length && !experiments.length && !released) {
@@ -541,14 +492,11 @@ export function buildReleaseRow(
 
     const end = today.format('YYYY-MM-DD')
     const spans: ReleaseSpan[] = []
-    if (flags.length) {
+    if (firstFlagCreated) {
         spans.push({
             key: 'flag',
             kind: 'flag',
-            from: flags
-                .map((flag) => flag.created_at)
-                .sort()[0]
-                .slice(0, 10),
+            from: firstFlagCreated.slice(0, 10),
             to: end,
             href: urls.featureFlag(flags[0].id),
         })
@@ -574,13 +522,6 @@ export function buildReleaseRow(
             href: urls.experiment(experiment.id),
         })
     }
-
-    const markers = scheduled.map((change) => ({
-        key: String(change.id),
-        date: change.scheduled_at.slice(0, 10),
-        label: scheduledChangeLabel(change),
-        flagKey: flagById.get(String(change.record_id))?.key ?? '',
-    }))
 
     const audience = openEarlyAccess
         ? 'Users who opt in'
@@ -612,9 +553,7 @@ export function buildReleaseRow(
         nextStep,
         needsDecision: !flags.length || !!nextStep?.urgent,
         runningDays,
-        reviewAfterDays: REVIEW_AFTER_DAYS,
-        nextDate: markers[0]?.date ?? null,
+        nextDate: events.find((event) => event.upcoming)?.date.slice(0, 10) ?? null,
         spans,
-        markers,
     }
 }

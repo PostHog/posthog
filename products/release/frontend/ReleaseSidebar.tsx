@@ -15,7 +15,7 @@ import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { releaseLogic } from './releaseLogic'
-import { STAGE_DOT } from './releaseUtils'
+import { STAGE_TONE } from './releaseUtils'
 
 export function ReleaseSidebar(): JSX.Element {
     const { rows, decisionRows, flags, experiments, earlyAccessFeatures } = useValues(releaseLogic)
@@ -60,7 +60,7 @@ export function ReleaseSidebar(): JSX.Element {
             key={row.id}
             value={`release:${row.id}`}
             label={row.name}
-            icon={<Dot variant={STAGE_DOT[row.stage]} />}
+            icon={<Dot variant={STAGE_TONE[row.stage]} />}
             to={urls.release(row.id)}
             active={path === urls.release(row.id)}
             dataAttr="release-sidebar-release"
