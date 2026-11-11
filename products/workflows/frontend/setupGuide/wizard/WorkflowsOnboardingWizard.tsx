@@ -12,7 +12,6 @@ import { OptOutCategories } from '../../OptOuts/OptOutCategories'
 import { workflowDataSuggestionsLogic } from '../suggestions/workflowDataSuggestionsLogic'
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 import { OnboardingWizardStepper } from './OnboardingWizardStepper'
-import { WIZARD_STEP_COPY } from './onboardingWizardSteps'
 import { WizardBroadcastStep } from './WizardBroadcastStep'
 import { WizardChannelStep } from './WizardChannelStep'
 import { WizardConnectStep } from './WizardConnectStep'
@@ -46,10 +45,10 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
         continueDisabledReason,
         setupCheckFailed,
         suggestionsFirst,
+        stepCopy: copy,
     } = useValues(workflowsOnboardingWizardLogic)
     const { setStepIndex, next, back, exit, loadHasMessagingWorkflow } = useActions(workflowsOnboardingWizardLogic)
 
-    const copy = WIZARD_STEP_COPY[currentStep]
     const isSkip = copy.optional && !stepDone?.[currentStep]
     const continueLabel = isLastStep
         ? wizardPath === 'broadcast'
