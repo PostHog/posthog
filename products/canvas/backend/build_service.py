@@ -765,20 +765,6 @@ def publish_grid_layout(
             expected = str(expected_version_id) if expected_version_id else None
             if current_id != expected:
                 raise CanvasVersionConflict(current_id)
-    # The head layout is read from storage only for pins that need the component
-    # creator, and again under the head lock only when the head moved meanwhile.
-    with team_scope(canvas.team_id):
-        refused_pins = _pins_needing_component_creator(canvas.team_id, created_by, layout)
-        checked_head_id = None
-        if refused_pins:
-            checked_head_id = (
-                expected_version_id
-                if has_expected_version
-                else Canvas.objects.for_team(canvas.team_id)
-                .values_list("current_source_version_id", flat=True)
-                .get(pk=canvas.pk)
-            )
-            _assert_pins_already_placed(refused_pins, _grid_layout_at(canvas, checked_head_id))
     source_upload = upload_source_project(canvas.team_id, canvas.id, layout)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
@@ -787,7 +773,11 @@ def publish_grid_layout(
             expected_version_id=expected_version_id,
             check_capacity=False,
         )
-        if refused_pins and str(canvas.current_source_version_id or "") != str(checked_head_id or ""):
+        # The pins are checked only here, under the grid and component row locks, because a
+        # component's head can move at any time before the lock. The head layout is read from
+        # storage only for pins that need the component creator.
+        refused_pins = _pins_needing_component_creator(canvas.team_id, created_by, layout)
+        if refused_pins:
             _assert_pins_already_placed(refused_pins, _grid_layout_at(canvas, canvas.current_source_version_id))
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
@@ -822,6 +812,9 @@ def _pins_needing_component_creator(
     add it. Any other version can declare capabilities the component has since dropped, so
     only the component's creator may pin it. A pin whose component this team does not have
     also counts, so an unknown id never passes.
+
+    Locks the pinned components' rows, so that their heads cannot move before the caller's
+    transaction commits. Must run inside a transaction.
     """
     pins = pinned_component_versions(layout)
     if not pins:
@@ -830,6 +823,8 @@ def _pins_needing_component_creator(
         str(component_id): (str(head_id) if head_id else None, creator_id)
         for component_id, head_id, creator_id in Canvas.objects.for_team(team_id)
         .filter(id__in={pin.component_id for pin in pins})
+        .select_for_update()
+        .order_by("id")
         .values_list("id", "current_source_version_id", "created_by_id")
     }
     refused = set()
@@ -931,14 +926,16 @@ def revert_to_version(
             pk=version_id, canvas_id=canvas.id, draft=False
         )
         if canvas.kind == Canvas.KIND_GRID:
-            refused_pins = _pins_needing_component_creator(canvas.team_id, user, read_source_project(version))
-            if refused_pins:
-                raise CanvasPinnedVersionDenied(sorted({pin.component_id for pin in refused_pins}))
+            target_layout = read_source_project(version)
             target_capabilities: dict | None = {}
         else:
             target_capabilities = _resolved_capabilities(version)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(canvas, has_expected_version=True, expected_version_id=expected_current_version_id)
+        if canvas.kind == Canvas.KIND_GRID:
+            refused_pins = _pins_needing_component_creator(canvas.team_id, user, target_layout)
+            if refused_pins:
+                raise CanvasPinnedVersionDenied(sorted({pin.component_id for pin in refused_pins}))
         previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
         assert_may_set_capabilities(
             canvas, user, _version_capabilities(canvas.team_id, previous_head_id), target_capabilities

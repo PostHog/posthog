@@ -11,7 +11,7 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
-from products.canvas.backend import welcome
+from products.canvas.backend import build_service, welcome
 from products.canvas.backend.layout import (
     MAX_LAYOUT_PATCH_OPERATIONS,
     apply_layout_ops,
@@ -469,6 +469,33 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         if expected_status == status.HTTP_403_FORBIDDEN:
             assert body["code"] == "pinned_version_requires_creator"
             assert body["components"] == [component_id]
+
+    def test_pin_refused_when_the_component_head_moves_during_the_upload(self) -> None:
+        component_id = self._create_component()
+        wide = self._project(component=COMPONENT_META, capabilities=WIDE_CAPABILITIES)
+        wide_version = self._publish(component_id, wide).json()["current_version_id"]
+        narrow_version = self._publish(component_id, self._project(component=COMPONENT_META)).json()[
+            "current_version_id"
+        ]
+        Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(current_source_version_id=wide_version)
+        grid_id = self._create_grid()
+        self.client.force_login(self._create_user("grid-member@example.com"))
+        real_upload = build_service.upload_source_project
+
+        def narrow_then_upload(*args, **kwargs):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(
+                current_source_version_id=narrow_version
+            )
+            return real_upload(*args, **kwargs)
+
+        with patch.object(build_service, "upload_source_project", side_effect=narrow_then_upload):
+            response = self._publish_layout(
+                grid_id,
+                layout(placements=[placement(status="generating", component=component_id, version=wide_version)]),
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["code"] == "pinned_version_requires_creator"
 
     def test_publish_without_pins_does_not_read_the_current_layout(self) -> None:
         grid_id = self._create_grid()
