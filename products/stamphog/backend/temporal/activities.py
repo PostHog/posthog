@@ -71,6 +71,13 @@ from products.stamphog.backend.facade.review_evidence import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.decision_fingerprint import (
+    DECISION_FINGERPRINT_OUTPUT_KEY,
+    REUSED_FROM_RUN_OUTPUT_KEY,
+    WITHHELD_RUN_OUTPUT_KEY,
+    decision_fingerprint,
+    engine_package_digest,
+)
 from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     GateAttestation,
@@ -102,6 +109,7 @@ from products.stamphog.backend.logic.reviewer import (
     parse_engine_timings,
     parse_reviewer_output,
 )
+from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
@@ -472,8 +480,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         raise
 
 
-def _fetch_review_context(input: StamphogReviewInput) -> dict:
-    run = _load_run(input)
+def _read_review_context(run: ReviewRun) -> dict[str, Any]:
+    """Read the engine context for ``run`` from GitHub without storing it."""
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
     repo = repo_config.repository
@@ -582,13 +590,27 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # A failed read raises out of its result() above and fails the activity, which retries. The
         # other reads are abandoned rather than awaited.
         executor.shutdown(wait=False, cancel_futures=True)
+    return context
+
+
+def _fetch_review_context(input: StamphogReviewInput) -> dict:
+    run = _load_run(input)
+    number = run.pull_request.pr_number
+    stored = run.output or {}
+    if (
+        stored.get("withheld_verdict_outcome")
+        and ((stored.get("pr") or {}).get("head") or {}).get("sha") == run.head_sha
+    ):
+        # reuse_withheld_verdict read the context for this head moments ago and found it changed.
+        return {"pr_number": number, "file_count": len(stored.get("files") or []), "head_sha": run.head_sha}
+    context = _read_review_context(run)
     _merge_run_output(run, context)
 
     activity.logger.info(
-        f"Fetched review context for run {run.id} (pr #{number}, {len(files)} files); "
+        f"Fetched review context for run {run.id} (pr #{number}, {len(context['files'])} files); "
         f"timings: {context['context_timings_ms']}"
     )
-    return {"pr_number": number, "file_count": len(files), "head_sha": run.head_sha}
+    return {"pr_number": number, "file_count": len(context["files"]), "head_sha": run.head_sha}
 
 
 @activity.defn
@@ -1640,6 +1662,8 @@ def _review_timing_properties(run: ReviewRun, verdict: str, post_verdict_ms: int
         "stamphog_final_verdict": verdict,
         "stamphog_review_trigger": trigger_for_run(output=output, review_mode=pull_request.repo_config.review_mode),
         "stamphog_verdict_published": run.verdict_posted_at is not None,
+        "stamphog_verdict_reused": bool(output.get(REUSED_FROM_RUN_OUTPUT_KEY)),
+        "stamphog_withheld_verdict_outcome": output.get("withheld_verdict_outcome"),
         "stamphog_fast_path": bool(output.get("fast_path")),
         "stamphog_pregate_outcome": output.get("pregate_outcome"),
         "stamphog_familiarity_status": output.get("familiarity_status"),
@@ -1713,6 +1737,106 @@ def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
         repository=pull_request.repo_config.repository, pr_number=pull_request.pr_number, head_sha=run.head_sha
     )
     return {"requested": True}
+
+
+def _decision_fingerprint(run: ReviewRun, context: dict[str, Any]) -> str:
+    repo_config = run.pull_request.repo_config
+    return decision_fingerprint(
+        context,
+        head_sha=run.head_sha,
+        ignored_labels={repo_config.trigger_label, *fork_labels(repo_config).values()},
+        engine_digest=engine_package_digest(),
+    )
+
+
+def _adopt_withheld_verdict(run: ReviewRun) -> str:
+    """Give ``run`` the verdict a silent run withheld for its head, when nothing it was decided on changed.
+
+    Eligibility was decided when the request created ``run`` (``_reusable_withheld_run``). Returns
+    ``reused``, or why ``run`` has to review the PR itself.
+    """
+    withheld_run_id = (run.output or {}).get(WITHHELD_RUN_OUTPUT_KEY)
+    if not isinstance(withheld_run_id, str):
+        return "missing"
+    withheld = (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=withheld_run_id, pull_request=run.pull_request)
+        .first()
+    )
+    if withheld is None:
+        return "missing"
+    withheld_output = withheld.output or {}
+    parsed = parse_reviewer_output(withheld_output.get("reviewer_raw", ""))
+    # A silent approval was posted when it was decided, and post_verdict attests and posts any
+    # approval it finds, so a stored approval must never reach it from here.
+    if ReviewVerdict.APPROVED in (withheld.verdict, parsed.verdict):
+        return "approval"
+    if withheld.head_sha != run.head_sha:
+        return "head_moved"
+    stored_fingerprint = withheld_output.get(DECISION_FINGERPRINT_OUTPUT_KEY)
+    if not stored_fingerprint:
+        return "no_fingerprint"
+    # Another run between the two decided this PR after the silent one, so the silent verdict is not the latest.
+    if (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request=run.pull_request, created_at__gt=withheld.created_at)
+        .exclude(id=run.id)
+        .exists()
+    ):
+        return "newer_run"
+
+    context = _read_review_context(run)
+    context["review_evidence"] = _read_review_evidence(run, [])
+    # Stored whatever the outcome, so a run that reviews after all skips reading the same context again.
+    _merge_run_output(run, context)
+    current_pr = context["pr"]
+    if (current_pr.get("state") or "") != "open":
+        return "not_open"
+    if ((current_pr.get("head") or {}).get("sha") or "") != run.head_sha:
+        return "head_moved"
+    reviewed_base = (withheld_output.get("pr") or {}).get("base") or {}
+    current_base = current_pr.get("base") or {}
+    if (reviewed_base.get("ref"), reviewed_base.get("sha")) != (current_base.get("ref"), current_base.get("sha")):
+        return "base_moved"
+    if _decision_fingerprint(run, context) != stored_fingerprint:
+        return "inputs_changed"
+    _merge_run_output(
+        run, {"reviewer_raw": withheld_output.get("reviewer_raw", ""), REUSED_FROM_RUN_OUTPUT_KEY: str(withheld.id)}
+    )
+    return "reused"
+
+
+@activity.defn
+@asyncify
+def reuse_withheld_verdict(input: StamphogReviewInput) -> dict:
+    """Take over a withheld silent verdict for this visible run, before any sandbox starts.
+
+    The request that created the run found a silent run that withheld a refusal or an escalation of
+    this head (``withheld_run_id``). The engine context is read from GitHub again, without a sandbox
+    or an LLM call, and compared with the silent run's decision fingerprint. On a match the run gets
+    the silent run's reviewer output and the workflow goes straight to ``post_verdict``, which posts
+    it under its usual guards and marks the silent run published. Anything else, an error included,
+    returns ``reused: False`` and the run reviews the PR the normal way. The outcome is stored for
+    the timings event.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED or not (run.output or {}).get(WITHHELD_RUN_OUTPUT_KEY):
+        return {"reused": False}
+    try:
+        outcome = _adopt_withheld_verdict(run)
+    except Exception:
+        activity.logger.warning(f"Run {run.id}: could not reuse the withheld verdict; reviewing", exc_info=True)
+        outcome = "error"
+    reused = outcome == "reused"
+    # An earlier attempt may have adopted the verdict before it failed. Only a reuse that this
+    # attempt confirmed may mark the silent run published in post_verdict.
+    updates: dict[str, Any] = {"withheld_verdict_outcome": outcome}
+    if not reused:
+        updates[REUSED_FROM_RUN_OUTPUT_KEY] = None
+    _merge_run_output(run, updates)
+    return {"reused": reused}
 
 
 @activity.defn
@@ -1915,6 +2039,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     run.completed_at = timezone.now()
     run.verdict_posted_at = run.completed_at if published else None
+    # A withheld verdict may be published later by a visible request for the same head. That is safe
+    # only while every input it was decided on is unchanged, so its inputs are fingerprinted here.
+    withheld_fingerprint = {} if published else {DECISION_FINGERPRINT_OUTPUT_KEY: _decision_fingerprint(run, output)}
     # Conditional terminal save: a delivery superseding this run between the guards above and here
     # must win — a plain save would write COMPLETED back over SUPERSEDED and resurrect a stale run.
     updated = (
@@ -1923,6 +2050,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         .exclude(status=ReviewRunStatus.SUPERSEDED)
         .update(
             **{field: getattr(run, field) for field in update_fields if field != "updated_at"},
+            **({"output": _output_merge(withheld_fingerprint)} if withheld_fingerprint else {}),
             updated_at=timezone.now(),
         )
     )
@@ -1933,6 +2061,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
+
+    reused_from = output.get(REUSED_FROM_RUN_OUTPUT_KEY)
+    if reused_from and run.verdict_posted_at is not None:
+        ReviewRun.objects.for_team(input.team_id).filter(id=reused_from, verdict_posted_at__isnull=True).update(
+            verdict_posted_at=run.verdict_posted_at, updated_at=timezone.now()
+        )
 
     # Right after the save wins: the GitHub steps below can still fail the activity, and the
     # outcome must not wait on them. Running it before the save would hand a stale refusal to

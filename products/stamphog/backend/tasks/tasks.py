@@ -52,9 +52,11 @@ from products.stamphog.backend.logic.approval_retention import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
+from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
+from products.stamphog.backend.logic.reviewer import parse_reviewer_output
 from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     ReviewPath,
@@ -1376,6 +1378,10 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # against the wrong connection.
     write_db = router.db_for_write(ReviewRun)
     try:
+        # Looked up before the transaction, so the PR-row lock is not held for it.
+        withheld_output: dict[str, Any] = {}
+        if action == "labeled" and (payload.get("label") or {}).get("name") == repo_config.trigger_label:
+            withheld_output = _withheld_run_output(repo_config, pr)
         with transaction.atomic(using=write_db):
             pr_obj = _upsert_pull_request(repo_config, pr)
             # Race-safe recheck of the stale-payload guard. The check above runs before this
@@ -1410,6 +1416,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 # review_mode an admin may have changed since this delivery was admitted.
                 output={
                     **({"inbox_review": inbox_review} if inbox_review is not None else {}),
+                    **withheld_output,
                     "review_trigger": derive_review_trigger(
                         has_inbox_review=inbox_review is not None, review_mode=repo_config.review_mode
                     ).value,
@@ -1499,6 +1506,53 @@ def _reviewed_base_ref(run: ReviewRun) -> str:
     return (reviewed_pr.get("base") or {}).get("ref") or ""
 
 
+# A WAIT is never reused: it can end with time alone (a reviewer bot's 👀 ages out), and nothing
+# stored shows that.
+_REUSABLE_WITHHELD_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE})
+
+
+def _latest_run(repo_config: StamphogRepoConfig, pr_number: int) -> ReviewRun | None:
+    """The PR's newest run. Writer-pinned, because every caller decides on it whether to start a run."""
+    return (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .select_related("pull_request__repo_config")
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr_number)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _reusable_withheld_run(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> ReviewRun | None:
+    """The PR's latest run, when it is a silent run that withheld a refusal or an escalation of the
+    PR's current head and base branch."""
+    pr_number = pr.get("number")
+    if not isinstance(pr_number, int):
+        return None
+    latest = _latest_run(repo_config, pr_number)
+    if latest is None or not latest.verdict_withheld or latest.verdict == ReviewVerdict.APPROVED:
+        return None
+    if latest.head_sha != ((pr.get("head") or {}).get("sha") or ""):
+        return None
+    if _reviewed_base_ref(latest) != ((pr.get("base") or {}).get("ref") or ""):
+        return None
+    parsed = parse_reviewer_output((latest.output or {}).get("reviewer_raw", ""))
+    if parsed.verdict not in _REUSABLE_WITHHELD_VERDICTS:
+        return None
+    return latest
+
+
+def _withheld_run_output(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> dict[str, Any]:
+    """Point a visible request's new run at the withheld silent verdict it may publish, if there is one."""
+    withheld = _reusable_withheld_run(repo_config, pr)
+    return {WITHHELD_RUN_OUTPUT_KEY: str(withheld.id)} if withheld is not None else {}
+
+
+_UNPUBLISHED_SILENT_RUN = Q(
+    output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}, verdict_posted_at__isnull=True
+)
+
+
 @frozen
 class _HeadQueueResult:
     """What ``_queue_review_at_head`` did for one PR head."""
@@ -1527,8 +1581,15 @@ def _queue_review_at_head(
     ``revisit_wait`` stops a delivered WAIT at this head from counting as covering it, because
     the caller wants that verdict revisited. A live run at this head still counts, so repeated
     requests collapse into one run.
+
+    The request's stamped trigger decides how a silent run counts. A silent run covers only another
+    silent request until its verdict is posted. A visible request's new run is pointed at a verdict
+    that a silent run withheld for this head, which its workflow publishes when nothing changed.
     """
     team_id = repo_config.team_id
+    visible = not is_silent_output(output)
+    if visible:
+        output = {**output, **_withheld_run_output(repo_config, pr)}
     run_write_db = router.db_for_write(ReviewRun)
     with transaction.atomic(using=run_write_db):
         pr_obj = _upsert_pull_request(repo_config, pr)
@@ -1551,6 +1612,8 @@ def _queue_review_at_head(
         )
         if revisit_wait:
             covering_runs = covering_runs.exclude(status=ReviewRunStatus.COMPLETED, verdict=ReviewVerdict.WAIT)
+        if visible:
+            covering_runs = covering_runs.exclude(_UNPUBLISHED_SILENT_RUN)
         existing = covering_runs.order_by("-created_at").first()
         # A retarget changes the diff without moving the head, and in label mode no webhook run
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
@@ -1848,13 +1911,7 @@ def _check_current_pr(repo_config: StamphogRepoConfig, pr_number: int, head_sha:
 def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> None:
     """Queue a new review when this PR's latest verdict is a WAIT at ``head_sha`` that is still the PR head."""
     team_id = repo_config.team_id
-    latest = (
-        ReviewRun.objects.for_team(team_id)
-        .using(router.db_for_write(ReviewRun))
-        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr_number)
-        .order_by("-created_at")
-        .first()
-    )
+    latest = _latest_run(repo_config, pr_number)
     if latest is None or latest.head_sha != head_sha:
         return
     previous_output = latest.output or {}
