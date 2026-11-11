@@ -1,5 +1,6 @@
 import { CardFault, ProviderEdge, TruthPage, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { createHash } from 'crypto'
 import http from 'http'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
@@ -104,6 +105,53 @@ describe('provider edge', () => {
         expect(await send(ALICE)).toBe('sent')
 
         expect((await truth()).records[0].detail.message!.tracked).toBeUndefined()
+    })
+
+    it('serves each sent attachment over the truth endpoint as its size and digest instead of its bytes', async () => {
+        const invoice = Buffer.from('%PDF-1.4 invented invoice')
+        const logo = Buffer.from('invented logo pixels')
+
+        await ses.send(
+            new SendEmailCommand({
+                FromEmailAddress: 'flows@www.example.com',
+                Destination: { ToAddresses: [ALICE] },
+                Content: {
+                    Simple: {
+                        Subject: { Data: 'Hello' },
+                        Body: { Html: { Data: '<img src="cid:logo">' } },
+                        Attachments: [
+                            { FileName: 'invoice.pdf', ContentType: 'application/pdf', RawContent: invoice },
+                            {
+                                FileName: 'logo.png',
+                                ContentType: 'image/png',
+                                ContentId: 'logo',
+                                ContentDisposition: 'INLINE',
+                                RawContent: logo,
+                            },
+                        ],
+                    },
+                },
+            })
+        )
+
+        const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
+        expect((await truth()).records[0].detail.message!.attachments).toEqual([
+            {
+                filename: 'invoice.pdf',
+                contentType: 'application/pdf',
+                inline: false,
+                size: invoice.length,
+                sha256: sha256(invoice),
+            },
+            {
+                filename: 'logo.png',
+                contentType: 'image/png',
+                contentId: 'logo',
+                inline: true,
+                size: logo.length,
+                sha256: sha256(logo),
+            },
+        ])
     })
 
     it('answers a request target that is not a URL with a 400', async () => {
