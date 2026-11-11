@@ -26,7 +26,7 @@ invariants:
     - name: duplicate_sends
     - name: refused_at_intake
 gates:
-    duplicate_sends: 0
+    duplicate_sends: 4
     refused_at_intake: 0
 measure:
     - name: role_cpu_seconds

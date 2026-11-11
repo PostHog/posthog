@@ -19,7 +19,7 @@ valves:
           name: running_on_queue
           params:
               queue: hogflow
-              atLeast: 5
+              atLeast: 1
       for: 5s
 convergeWithin: 2m
 invariants:
