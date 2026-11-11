@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.contrib.messages import get_messages
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -89,8 +90,11 @@ class TestHealthChecksTool(BaseTest):
         assert nonce is not None
         data = {"batch_size": 10, "max_concurrent": 1, "rollout_percentage": 1.0, "form_nonce": nonce.group(1)}
 
-        responses = [self.client.post(f"{TOOL_URL}run/?check={self.check.kind}", data) for _ in range(2)]
+        with capture_logs() as logs:
+            responses = [self.client.post(f"{TOOL_URL}run/?check={self.check.kind}", data) for _ in range(2)]
 
+        started = next(log for log in logs if log["event"] == "admin_console_operation_started")
+        assert started["query"] == {"check": self.check.kind}
         assert [response.status_code for response in responses] == [302, 302]
         assert (
             responses[0]["Location"]

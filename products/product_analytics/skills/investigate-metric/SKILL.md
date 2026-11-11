@@ -32,7 +32,7 @@ Targets PostHog MCP v2. Typed query tools accept the query body directly — pas
 | `posthog:execute-sql`            | Existing SQL insights and custom analysis        |
 | `posthog:read-data-schema`       | Discover events, properties, sample values       |
 | `posthog:insight-get` / `-query` | Fetch a saved insight's metadata / data          |
-| `posthog:explain-chart`          | Walk the user through a trends chart (Step 5)    |
+| `posthog:explain-chart`          | Walk the user through a trends chart or funnel   |
 
 Plus the standard PostHog tools the playbooks reference by name (`feature-flag-get-all`,
 `experiment-list`, `annotations-list`, `query-error-tracking-issues-list`, `query-logs`,
@@ -91,7 +91,7 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 
 Decide this now, before the investigation, because it changes which queries you keep.
 
-When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), or named a metric you ran as one, the investigation ends with a chart explanation from `posthog:explain-chart`.
+When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot) or a `FunnelsQuery` that shows steps, or named a metric you ran as one, the investigation ends with a chart explanation from `posthog:explain-chart`.
 `posthog:explain-chart` exists only where chart explanations are enabled, so check for it now and read its schema.
 Where PostHog tools run through `exec`, it is not in your own tool list: run `info explain-chart` before you decide it is missing.
 When it does not exist, the findings go in a written report.
@@ -150,7 +150,7 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-**Before you write your answer, call `posthog:explain-chart` when the investigation has a `TrendsQuery` over time.**
+**Before you write your answer, call `posthog:explain-chart` when the investigation has a `TrendsQuery` over time or a `FunnelsQuery` that shows steps.**
 Do this after a long investigation too, and when most of your evidence is SQL.
 For anything else, use the written report.
 
@@ -160,8 +160,9 @@ It draws the chart with each moment highlighted and lets the user step through t
 Map the investigation onto it:
 
 - **Anomaly** → one chapter per moment, with `start` and `end` copied exactly from the
-  chart's `days`. The app works out each chapter's numbers from the chart, so leave them out
-  of `summary`.
+  chart's `days`. On a funnel, a chapter is a step or the drop between two steps, with `start`
+  and `end` as step numbers from 1, and a funnel with a breakdown follows the breakdown value in `series`.
+  The app works out each chapter's numbers from the chart, so leave them out of `summary`.
 - **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
 - **Evidence** → `evidence`, each finding with the `query` that produced it, the
   `insightShortId` of a saved insight, or a `url` to a GitHub pull request or commit. No other links are accepted. The chart explanation runs each query and draws it: an insight

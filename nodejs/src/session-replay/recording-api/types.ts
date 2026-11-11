@@ -48,10 +48,14 @@ export type RecordingApiAuthConfig = {
     RECORDING_API_JWT_SECRET: string
 }
 
+// Local defaults that match the Django and Temporal minters. They are public in this repo, so a cloud process never accepts them.
+export const DEV_RECORDING_API_JWT_SECRET = 'dev-recording-api-jwt-secret'
+export const DEV_RECORDING_API_BLOCKS_JWT_SECRET = 'dev-recording-api-blocks-jwt-secret'
+
 export function getDefaultRecordingApiAuthConfig(): RecordingApiAuthConfig {
     return {
         // Dev/test default matches the Django/Temporal minters so local end-to-end calls validate.
-        RECORDING_API_JWT_SECRET: isProdEnv() ? '' : 'dev-recording-api-jwt-secret',
+        RECORDING_API_JWT_SECRET: isProdEnv() ? '' : DEV_RECORDING_API_JWT_SECRET,
     }
 }
 
@@ -90,7 +94,7 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
     return {
         RECORDING_API_ROLE: 'internal',
         // Dev/test default matches the Django minter so local end-to-end calls validate.
-        RECORDING_API_BLOCKS_JWT_SECRET: isProdEnv() ? '' : 'dev-recording-api-blocks-jwt-secret',
+        RECORDING_API_BLOCKS_JWT_SECRET: isProdEnv() ? '' : DEV_RECORDING_API_BLOCKS_JWT_SECRET,
         RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: true,
         RECORDING_API_BLOCK_RATE_LIMITS: JSON.stringify({
             browser: [2000, 8],

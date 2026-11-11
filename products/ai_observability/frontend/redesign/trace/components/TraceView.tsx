@@ -1,5 +1,17 @@
-import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
-import { ConversationState, EvalRollupOutcome, FeedbackModeState, LabeledLink, TraceMode } from '../types'
+import type {
+    TraceFeedbackApi,
+    TraceNodeApi,
+    TraceStepFeedbackApi,
+    TraceTimelineRowApi,
+} from '../../../generated/api.schemas'
+import {
+    ConversationState,
+    EvalRollupOutcome,
+    FeedbackStepContext,
+    LabeledLink,
+    LoadFailure,
+    TraceMode,
+} from '../types'
 import { NodeDetailProps } from './NodeDetail'
 import { SummaryModeView, SummaryModeViewProps } from './SummaryModeView'
 import { Thread } from './Thread'
@@ -27,26 +39,27 @@ export interface TraceViewReadyProps {
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
     search?: TraceSearchBoxProps | null
-    evalOutcomes: Record<string, EvalRollupOutcome>
+    evalOutcomes: ReadonlyMap<string, EvalRollupOutcome>
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
     /** Changes on each step to a match, which scrolls the selected step and its first highlight into view. */
     matchStepCount?: number
     summaryMode: SummaryModeViewProps
-    feedbackMode?: FeedbackModeState
+    /** Null until the feedback has loaded. */
+    feedback: TraceFeedbackApi | null
+    feedbackFailed: boolean
+    feedbackSteps: FeedbackStepContext
     onRetryFeedback?: () => void
     /** Null until the feedback has loaded. */
     feedbackCount?: number | null
     /** Feedback entries per step id, trace-level ones on the root. */
-    feedbackCountByNodeId?: Record<string, number>
+    stepFeedback?: ReadonlyMap<string, TraceStepFeedbackApi>
 }
-
-const FEEDBACK_LOADING: FeedbackModeState = { status: 'loading' }
 
 export type TraceViewProps =
     | { status: 'loading' }
-    | { status: 'error'; errorMessage: string; backLink: LabeledLink | null }
+    | { status: 'error'; loadFailure: LoadFailure; backLink: LabeledLink | null }
     | ({ status: 'ready' } & TraceViewReadyProps)
 
 export function TraceView(props: TraceViewProps): JSX.Element {
@@ -54,7 +67,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
         return <TraceViewLoading />
     }
     if (props.status === 'error') {
-        return <TraceViewError message={props.errorMessage} backLink={props.backLink} />
+        return <TraceViewError loadFailure={props.loadFailure} backLink={props.backLink} />
     }
     return (
         <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -70,7 +83,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                         onPrefetchNode={props.onPrefetchNode}
                         detail={props.detail}
                         evalOutcomes={props.evalOutcomes}
-                        feedbackCountByNodeId={props.feedbackCountByNodeId}
+                        stepFeedback={props.stepFeedback}
                         matchingNodeIds={props.matchingNodeIds}
                         highlightQuery={props.highlightQuery}
                         matchStepCount={props.matchStepCount}
@@ -86,7 +99,9 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     <SummaryModeView {...props.summaryMode} />
                 ) : props.mode === 'feedback' ? (
                     <TraceFeedbackView
-                        state={props.feedbackMode ?? FEEDBACK_LOADING}
+                        feedback={props.feedback}
+                        failed={props.feedbackFailed}
+                        steps={props.feedbackSteps}
                         onSelectStep={props.onSelectFromView}
                         onRetry={props.onRetryFeedback}
                     />

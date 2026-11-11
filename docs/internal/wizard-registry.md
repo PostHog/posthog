@@ -61,6 +61,11 @@ Each program must include a `wizard_version` pinned to an exact release, such as
 The registry payload rejects `latest`, so a program that omits `wizard_version` or sets it to `latest` makes the whole payload invalid.
 A valid empty program list remains empty.
 
+A program can set the optional `context_mill_version` field to an exact [context-mill](https://github.com/PostHog/context-mill) release, such as `1.59.0`.
+Cloud runs of that program fetch their skills and agent prompts from that release.
+A program without the field follows the latest context-mill release.
+Registry and run responses do not return the field.
+
 When the payload cannot be fetched or is invalid, the registry contains one `posthog-integration` program with local and cloud support.
 Its command is empty, which keeps the Wizard package's default command.
 
@@ -93,3 +98,8 @@ They run the pinned `wizard_version` from that snapshot, never a mutable tag suc
 Program command tokens are positional command names.
 They appear after `@posthog/wizard@{program.wizard_version}` and before worker-owned flags.
 Option flags and shell syntax are rejected, and every accepted token is shell-quoted before execution.
+
+When the snapshot has a `context_mill_version`, the worker passes it to the Wizard as `--context-mill-version`.
+A Wizard version that does not accept that option exits with `PHW_CLI_BAD_ARGS`, and the run fails.
+Set the field only on programs whose cloud runs use a Wizard version that accepts the option.
+A run request that omits `wizard_version` uses the backend default version, not the version in the registry program.
