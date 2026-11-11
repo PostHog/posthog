@@ -72,12 +72,20 @@ def _inputs_signature(inputs: Any, inputs_schema: Any, skipped: set[str]) -> dic
                     "value": schema["default"],
                     "templating": _templating(schema.get("templating")),
                 }
+    schema_templating = {
+        str(schema.get("key")): schema["templating"]
+        for schema in inputs_schema or []
+        if isinstance(schema, dict) and "templating" in schema
+    }
     declared = _schema_signature(inputs_schema).keys() - skipped
     # Values compare as JSON text because Python equates `True` with `1`, which the worker prints differently. Keys
     # are sorted because Postgres `jsonb` stores object keys in its own order, so the worker never sees the order a
     # client sent.
     return {
-        key: (json.dumps(item.get("value"), default=str, sort_keys=True), item.get("templating") == "liquid")
+        key: (
+            json.dumps(item.get("value"), default=str, sort_keys=True),
+            schema_templating.get(key, item.get("templating")) == "liquid",
+        )
         for key, item in items.items()
         if isinstance(item, dict) and key in declared
     }

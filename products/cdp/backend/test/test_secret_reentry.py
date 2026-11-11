@@ -43,6 +43,16 @@ class TestGuardedContent(SimpleTestCase):
                 ),
             ),
             ("malformed_stored_inputs", content(inputs=["url"]), content()),
+            (
+                "templating_taken_from_the_schema",
+                content(
+                    inputs={"url": {"value": "{{ event.url }}"}}, schema=[{**URL, "templating": "liquid"}, HEADERS]
+                ),
+                content(
+                    inputs={"url": {"value": "{{ event.url }}", "templating": "liquid"}},
+                    schema=[{**URL, "templating": "liquid"}, HEADERS],
+                ),
+            ),
         ]
     )
     def test_a_save_that_changes_nothing_the_code_sees_is_not_a_change(

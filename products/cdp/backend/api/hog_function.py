@@ -358,6 +358,12 @@ def secret_reentry_enforced(team: Team) -> bool:
     )
 
 
+def _without_entered_mark(entry: Any) -> Any:
+    if not isinstance(entry, dict):
+        return entry
+    return {key: value for key, value in entry.items() if key != STAGED_SECRET_ENTERED}
+
+
 def draft_changed_fields(hog_function: HogFunction) -> list[str]:
     """Which config fields publishing this draft would change. Both sides are compared secret-free
     and without derived values, with staged secrets reported as an `inputs` change."""
@@ -367,7 +373,9 @@ def draft_changed_fields(hog_function: HogFunction) -> list[str]:
 
     staged_secrets = hog_function.draft_encrypted_inputs or {}
     live_secrets = hog_function.encrypted_inputs or {}
-    if "inputs" not in changed and any(live_secrets.get(key) != value for key, value in staged_secrets.items()):
+    if "inputs" not in changed and any(
+        live_secrets.get(key) != _without_entered_mark(value) for key, value in staged_secrets.items()
+    ):
         changed.append("inputs")
     return sorted(changed)
 
@@ -1019,10 +1027,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if not isinstance(entry, dict):
                 continue
             value, live = entry.get("value"), (live_secrets.get(key) or {}).get("value")
-            if entry.get(STAGED_SECRET_ENTERED):
+            entered = entry.get(STAGED_SECRET_ENTERED)
+            if entered is True:
                 staged[key] = True
             elif value != live:
-                staged[key] = replaces_stored_value(value, live)
+                staged[key] = False if entered is False else replaces_stored_value(value, live)
         return staged
 
     def _enforces_secret_reentry(self, team: Team) -> bool:
@@ -1809,10 +1818,12 @@ class HogFunctionViewSet(
             # secret drop out entirely.
             supplied = supplied_input_keys(serializer.requested_inputs)
             entered = entered_secret_input_keys(serializer.requested_inputs)
+            # Each secret this edit writes is marked with whether it was typed. A secret typed again unchanged
+            # stores the same value, and a secret recovered from live can differ from live after a rotation, so
+            # the value alone cannot tell publish which secrets someone entered.
             draft_secrets = {
-                # A secret typed again unchanged stores the same value, so the mark is what lets publish count it.
-                key: {**value, STAGED_SECRET_ENTERED: True}
-                if key in entered and isinstance(value, dict)
+                key: {**value, STAGED_SECRET_ENTERED: key in entered}
+                if isinstance(value, dict) and (key in supplied or key not in staged)
                 else value
                 if key in supplied or key not in staged
                 else staged[key]
