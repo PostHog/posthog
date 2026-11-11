@@ -244,6 +244,8 @@ describe('metrics ingestion steps', () => {
                     record_count: '3',
                     'retention-days': String(DEFAULT_METRICS_RETENTION_DAYS),
                     batch_uuid: 'b1',
+                    source_topic: 'test-topic',
+                    source_partition: '5',
                 },
             })
             expect(recordMetricsIngested).toHaveBeenCalledWith(7, 300, 3)

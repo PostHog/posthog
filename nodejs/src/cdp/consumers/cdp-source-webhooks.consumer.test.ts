@@ -31,6 +31,8 @@ import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-ke
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
+import { PosthogJwtAudience } from '../utils/jwt-utils'
+import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 
 describe('getCustomHttpResponse', () => {
     const makeResult = (execResult: any): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> =>
@@ -853,6 +855,162 @@ describe('SourceWebhooksConsumer', () => {
                 expect(getMetrics()).toEqual([
                     expect.objectContaining({ metric_kind: 'failure', metric_name: 'trigger_failed', count: 1 }),
                 ])
+            })
+
+            describe('manual trigger', () => {
+                const buildManualHogFlow = async (
+                    overrides: { status?: HogFlow['status']; event?: string } = {}
+                ): Promise<HogFlow> => {
+                    const event = overrides.event ?? '$workflow_triggered'
+                    const manualHogFlow = new FixtureHogFlowBuilder()
+                        .withTeamId(team.id)
+                        .withStatus(overrides.status ?? 'active')
+                        .withSimpleWorkflow({
+                            trigger: {
+                                type: 'manual',
+                                template_id: incomingWebhookTemplateId,
+                                inputs: {
+                                    event: { value: event, bytecode: await compileHog(`return f'${event}'`) },
+                                    distinct_id: {
+                                        value: '{request.body.user_id}',
+                                        bytecode: await compileHog(`return f'{request.body.user_id}'`),
+                                    },
+                                    method: { value: 'POST', bytecode: await compileHog(`return f'POST'`) },
+                                },
+                            },
+                        })
+                        .build()
+                    await insertHogFlow(hub.postgres, manualHogFlow)
+                    return manualHogFlow
+                }
+
+                type ManualRunClaims = { teamId: number; hogFlowId: string; userId: string }
+                const mintManualRunToken = (claims: ManualRunClaims) =>
+                    new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_MANUAL_RUN, hub.WORKFLOWS_CANCEL_JWT_SECRET).mint(
+                        {
+                            team_id: claims.teamId,
+                            hog_flow_id: claims.hogFlowId,
+                            user_id: claims.userId,
+                        }
+                    )
+
+                const doManualRequest = (
+                    teamId: number,
+                    hogFlowId: string,
+                    body: Record<string, any>,
+                    tokenClaims: ManualRunClaims | null = { teamId, hogFlowId, userId: body.user_id }
+                ) => {
+                    const request = supertest(app)
+                        .post(`/api/projects/${teamId}/hog_flows/${hogFlowId}/manual_invocations`)
+                        .set('Content-Type', 'application/json')
+                    if (tokenClaims) {
+                        request.set('Authorization', `Bearer ${mintManualRunToken(tokenClaims)}`)
+                    }
+                    return request.send(body)
+                }
+
+                it('queues a run for the user who started it, with their variables', async () => {
+                    const manualHogFlow = await buildManualHogFlow()
+
+                    const res = await doManualRequest(team.id, manualHogFlow.id, {
+                        user_id: 'user@example.com',
+                        variables: { greeting: 'Hello' },
+                    })
+
+                    expect(res.status).toEqual(200)
+                    expect(res.body).toEqual({ status: 'queued', invocation_id: expect.any(String) })
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                    const invocation = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
+                    expect(invocation.id).toEqual(res.body.invocation_id)
+                    expect(invocation.state.event).toMatchObject({
+                        event: '$workflow_triggered',
+                        distinct_id: 'user@example.com',
+                    })
+                    expect(invocation.state.variables).toEqual({ greeting: 'Hello' })
+                })
+
+                type RefusalCase = {
+                    teamOffset: number
+                    trigger: 'manual' | 'webhook'
+                    status: HogFlow['status']
+                    token: 'valid' | 'none' | 'other workflow' | 'other user'
+                    malformedId?: boolean
+                    variables?: unknown
+                }
+                it.each<[string, RefusalCase, number]>([
+                    ['without a token', { teamOffset: 0, trigger: 'manual', status: 'active', token: 'none' }, 401],
+                    [
+                        "with another workflow's token",
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'other workflow' },
+                        401,
+                    ],
+                    [
+                        "with another user's token",
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'other user' },
+                        401,
+                    ],
+                    ['another team', { teamOffset: 1, trigger: 'manual', status: 'active', token: 'valid' }, 404],
+                    ['a webhook trigger', { teamOffset: 0, trigger: 'webhook', status: 'active', token: 'valid' }, 400],
+                    [
+                        'an inactive workflow',
+                        { teamOffset: 0, trigger: 'manual', status: 'draft', token: 'valid' },
+                        400,
+                    ],
+                    [
+                        'an id that is not a UUID',
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'valid', malformedId: true },
+                        400,
+                    ],
+                    [
+                        'variables that are not an object',
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'valid', variables: ['a'] },
+                        400,
+                    ],
+                ])('refuses to run %s', async (_name, options, expectedStatus) => {
+                    const target =
+                        options.trigger === 'webhook' ? hogFlow : await buildManualHogFlow({ status: options.status })
+                    const teamId = team.id + options.teamOffset
+                    const hogFlowId = options.malformedId ? 'not-a-uuid' : target.id
+                    const tokenClaims = {
+                        valid: { teamId, hogFlowId, userId: 'user@example.com' },
+                        none: null,
+                        'other workflow': { teamId, hogFlowId: hogFlow.id, userId: 'user@example.com' },
+                        'other user': { teamId, hogFlowId: target.id, userId: 'someone-else@example.com' },
+                    }[options.token]
+
+                    const body = {
+                        user_id: 'user@example.com',
+                        ...('variables' in options ? { variables: options.variables } : {}),
+                    }
+                    const res = await doManualRequest(teamId, hogFlowId, body, tokenClaims)
+
+                    expect(res.status).toEqual(expectedStatus)
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
+
+                it("reports the trigger's refusal instead of a success when it starts no run", async () => {
+                    // A manual trigger copied from a webhook reads an event the request does not carry.
+                    const manualHogFlow = await buildManualHogFlow({ event: '{request.body.event}' })
+
+                    const res = await doManualRequest(team.id, manualHogFlow.id, { user_id: 'user@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    expect(res.body.error).toContain('The trigger refused the run (400)')
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
+
+                it('refuses a manual trigger on the public webhook route', async () => {
+                    const manualHogFlow = await buildManualHogFlow()
+
+                    const res = await doPostRequest({
+                        webhookId: manualHogFlow.id,
+                        body: { user_id: 'user@example.com' },
+                    })
+
+                    expect(res.status).toEqual(403)
+                    expect(mockExecuteSpy).not.toHaveBeenCalled()
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
             })
         })
 

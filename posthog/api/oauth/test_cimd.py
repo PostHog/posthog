@@ -22,6 +22,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth.cimd import (
+    THROWAWAY_JWKS_HOST_MESSAGE,
     CIMDFetchError,
     CIMDMetadataDocument,
     CIMDValidationError,
@@ -35,6 +36,7 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_application,
     is_cimd_client_id,
     is_throwaway_host,
+    jwks_uri_shares_client_domain,
     refresh_cimd_metadata_task,
     validate_cimd_url,
     validate_fetchable_https_url,
@@ -154,6 +156,7 @@ def test_is_cimd_client_id(url, expected):
         ("https://webhook.site/0b1c2d3e-0000-4000-8000-000000000000", True),
         ("https://api.jsonbin.io/v3/b/abc123", True),
         ("https://gist.githubusercontent.com/someone/abc123/raw/client.json", True),
+        ("https://x0.at/oXXP.json", True),
         ("https://expo.dev/.well-known/posthog-client.json", False),
         ("https://mytrycloudflare.com/metadata.json", False),
         ("https://trycloudflare.com.example.com/metadata.json", False),
@@ -163,6 +166,36 @@ def test_is_cimd_client_id(url, expected):
 )
 def test_is_throwaway_host(url, expected):
     assert is_throwaway_host(url) == expected
+
+
+@pytest.mark.parametrize(
+    "client_id,jwks_uri,expected",
+    [
+        ("https://app.example.com/client.json", "https://app.example.com/jwks.json", True),
+        ("https://app.example.com/client.json", "https://keys.example.com/jwks.json", True),
+        ("https://app.example.com/client.json", "https://example.com/jwks.json", True),
+        ("https://app.example.co.uk/client.json", "https://keys.example.co.uk/jwks.json", True),
+        ("https://app.bücher.de/client.json", "https://keys.xn--bcher-kva.de/jwks.json", True),
+        # requests fetches faß.de as xn--fa-hia.de, not as fass.de.
+        ("https://fass.de/client.json", "https://faß.de/jwks.json", False),
+        ("https://приложение.пример.рф/client.json", "https://keys.xn--e1afmkfd.xn--p1ai/jwks.json", True),
+        ("https://приложение.пример.рф/client.json", "https://ПРИМЕР.РФ/jwks.json", True),
+        ("https://приложение.пример.рф/client.json", "https://другой.рф/jwks.json", False),
+        ("https://应用.例子.中国/client.json", "https://keys.xn--fsqu00a.xn--fiqs8s/jwks.json", True),
+        ("https://应用.例子.中国/client.json", "https://别人.中国/jwks.json", False),
+        ("https://应用.例子.中国/client.json", "https://例子.公司/jwks.json", False),
+        ("https://a.例子.com.cn/client.json", "https://别人.com.cn/jwks.json", False),
+        ("https://app.example.com/client.json", "https://x0.at/oXXP.json", False),
+        ("https://app.example.com/client.json", "https://example.com.evil.dev/jwks.json", False),
+        # co.uk is a public suffix, so these are two different registrants.
+        ("https://app.example.co.uk/client.json", "https://other.co.uk/jwks.json", False),
+        # github.io is a private suffix: each tenant is its own domain.
+        ("https://alice.github.io/client.json", "https://mallory.github.io/jwks.json", False),
+        ("https://203.0.113.7/client.json", "https://203.0.113.7/jwks.json", False),
+    ],
+)
+def test_jwks_uri_shares_client_domain(client_id, jwks_uri, expected):
+    assert jwks_uri_shares_client_domain(client_id, jwks_uri) is expected
 
 
 @pytest.mark.parametrize(
@@ -350,6 +383,33 @@ class TestFetchCimdMetadata(SimpleTestCase):
             with self.assertRaises(CIMDValidationError) as ctx:
                 fetch_cimd_metadata(VALID_CIMD_URL)
         self.assertEqual(str(ctx.exception), "jwks_uri is not allowed: jwks_uri host is not a public internet address")
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_jwks_uri_on_a_throwaway_host_is_refused(self, mock_get, _url_mock):
+        metadata = _make_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri="https://x0.at/oXXP.json")
+        mock_get.return_value = _mock_response(metadata)
+        with self.assertRaises(CIMDValidationError) as ctx:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertEqual(str(ctx.exception), THROWAWAY_JWKS_HOST_MESSAGE)
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_jwks_uri_on_another_domain_is_refused(self, mock_get, _url_mock):
+        metadata = _make_metadata(
+            token_endpoint_auth_method="private_key_jwt", jwks_uri="https://keys.partner-cdn.net/jwks.json"
+        )
+        mock_get.return_value = _mock_response(metadata)
+        with self.assertRaises(CIMDValidationError) as ctx:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertIn("jwks_uri must be on the same domain as your client_id (example.com", str(ctx.exception))
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_jwks_uri_on_a_subdomain_of_the_client_domain_is_accepted(self, mock_get, _url_mock):
+        metadata = _make_metadata(
+            token_endpoint_auth_method="private_key_jwt", jwks_uri="https://keys.example.com/jwks.json"
+        )
+        mock_get.return_value = _mock_response(metadata)
+        document, _ = fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertEqual(document["jwks_uri"], "https://keys.example.com/jwks.json")
 
     @parameterized.expand([("missing_jwks_uri", None), ("non_https_jwks_uri", "http://app.example.com/jwks.json")])
     @patch("posthog.api.oauth.cimd.requests.Session.get")
@@ -1488,6 +1548,18 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
             "PostHog could not use the client metadata document at this client_id: client_name is not allowed",
             response.json()["error_description"],
         )
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_missing_signing_key_answers_server_error_naming_the_setting(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata())
+
+        with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", ""):
+            response = self.client.get(self._authorize_url(VALID_CIMD_URL))
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["error"], "server_error")
+        self.assertIn("OIDC_RSA_PRIVATE_KEY", response.json()["error_description"])
+        self.assertFalse(OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).exists())
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_fetch_failure_reason_hides_connection_details(self, mock_get, _url_mock):

@@ -22,6 +22,7 @@ products/
     backend/                # Django app
       __init__.py
       apps.py
+      checks.py             # optional: Django system checks, imported from apps.py ready()
       models.py
       logic.py              # business logic
       routes.py             # API routes: register_routes(routers) + api_urlpatterns/webhook_urlpatterns, auto-discovered
@@ -91,6 +92,15 @@ Use `bin/hogli product:bootstrap <name>` to scaffold a new product with this str
 - ❌ Do **not** import models from `posthog.models` or create re-exports like `products.feature_flags.models`.
 
 This avoids circular imports and keeps migrations/app labels stable.
+
+- Put the product's Django system checks in `backend/checks.py`.
+  A system check catches a wrong setting at startup instead of in user traffic.
+  `hogli product:lint` enforces three rules:
+  - `apps.py` `ready()` imports `backend/checks.py`. Django never runs a check whose module nobody imported.
+  - No other product module registers a check.
+  - Every check ID starts with `posthog.<product>.`, for example `posthog.canvas.E001`.
+
+  Register each check with `register_check` from `posthog/checks.py`, which documents the ID scheme. `product:bootstrap` does not create the file.
 
 ## Frontend conventions
 

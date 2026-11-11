@@ -18,6 +18,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
@@ -154,7 +155,8 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
             }
         )
 
-    if not FROM_OVERRIDE_EMAIL_REGEX.match(override):
+    override_domain = email_domain(override.lower())
+    if override_domain is None or not FROM_OVERRIDE_EMAIL_REGEX.match(override):
         raise serializers.ValidationError(
             {
                 "input": f'The custom sender address "{override}" is not a valid email address. '
@@ -166,7 +168,6 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if not integration_ids:
         return
 
-    override_domain = override.split("@")[1].lower()
     # An empty cached domain means the id resolved to no email integration for this team; the
     # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
     shared_cache = context.get("email_integration_domain_cache")
@@ -175,7 +176,9 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if missing_ids:
         for integration in IntegrationManager.email.credentials.get_many(get_team().id, missing_ids).values():
             config = integration.config or {}
-            domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
+            domain_cache[integration.id] = (
+                config.get("domain") or email_domain(config.get("email") or "") or ""
+            ).lower()
         for integration_id in missing_ids:
             domain_cache.setdefault(integration_id, "")
 

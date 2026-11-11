@@ -38,6 +38,7 @@ import { ShareToSpaceTarget } from 'scenes/analytics/analyticsShareLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { unsavedSqlInsightQuery } from 'scenes/insights/utils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -53,7 +54,6 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { tagsModel } from '~/models/tagsModel'
 import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -123,7 +123,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { copyImage, downloadImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
-    const { tags: allExistingTags } = useValues(tagsModel)
 
     const { user, hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -141,6 +140,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     )
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
+    const unsavedSqlQuery = unsavedSqlInsightQuery(query, isSavedInsight)
     const canExport = exportContext != null && insight.short_id != null
     // Only an InsightViz renders the results card the browser-side capture targets. Anything else
     // still goes through the server-side PNG render.
@@ -415,9 +415,16 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             <IconCopy />
                             Duplicate
                         </SceneMenuBarItem>
-                        {canEditInSqlEditor && (
+                        {(canEditInSqlEditor || unsavedSqlQuery) && (
                             <SceneMenuBarItem
-                                onClick={() => push(urls.sqlEditor({ query: hogQL ?? undefined }))}
+                                onClick={() =>
+                                    push(
+                                        urls.sqlEditor({
+                                            query: unsavedSqlQuery ?? hogQL ?? undefined,
+                                            dashboard: unsavedSqlQuery ? (dashboardId ?? undefined) : undefined,
+                                        })
+                                    )
+                                }
                                 data-attr={`${RESOURCE_TYPE}-menubar-edit-sql`}
                             >
                                 <IconPencil />
@@ -457,7 +464,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         <SceneTagsCombobox
                             onSave={(tags) => setInsightMetadata({ tags })}
                             tags={insight.tags}
-                            tagsAvailable={allExistingTags}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEditInsight}
                             loading={isSavingTags}

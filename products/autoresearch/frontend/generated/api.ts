@@ -41,6 +41,7 @@ import type {
     PaginatedAutoresearchSuggestionListApi,
     PaginatedAutoresearchTrainingRunListApi,
     PatchedAutoresearchPipelineCreateApi,
+    ProjectLimitsApi,
     RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
@@ -812,7 +813,7 @@ export const getAutoresearchResumeCreateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.
+ * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick. Refused when the project already has its limit of live pipelines, which the limits endpoint reports.
  * @summary Resume a pipeline
  */
 export const autoresearchResumeCreate = async (
@@ -899,6 +900,24 @@ export const autoresearchAgentModelsRetrieve = async (
     options?: RequestInit
 ): Promise<AgentModelOptionsApi> => {
     return apiMutator<AgentModelOptionsApi>(getAutoresearchAgentModelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchLimitsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/limits/`
+}
+
+/**
+ * Return the project's autoresearch limits and how much of each it is using: sandbox training runs against the daily limit, with when the next run can start at the limit, the most experiments per training run, and live pipelines against the live pipeline limit. Read-only; it runs no queries.
+ * @summary Read the project's limits
+ */
+export const autoresearchLimitsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProjectLimitsApi> => {
+    return apiMutator<ProjectLimitsApi>(getAutoresearchLimitsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

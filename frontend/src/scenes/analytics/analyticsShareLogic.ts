@@ -12,11 +12,11 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { canvasesRetrieve } from 'products/canvas/frontend/generated/api'
 import { taskChannelsRetrieve } from 'products/tasks/frontend/generated/api'
+import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 
 import { fileSystemTypeParams } from './analyticsFeed'
 import { AnalyticsSpace, analyticsSpacesLogic, listSpaceFolders, loadSpace } from './analyticsSpacesLogic'

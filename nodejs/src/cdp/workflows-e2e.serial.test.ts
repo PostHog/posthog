@@ -58,6 +58,7 @@ import {
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerBatchResolve } from './consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailSandbox } from './consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
@@ -737,6 +738,83 @@ describe('Workflows E2E (postgres-v2)', () => {
                 )
                 expect(terminal.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+    })
+
+    describe('sandbox email workflow: trigger → email_sandbox → delay → exit', () => {
+        let sandboxWorker: CdpCyclotronWorkerEmailSandbox | undefined
+
+        beforeEach(async () => {
+            hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
+            await hogflowWorker.stop()
+            await hogflowQueue.startAsProducer()
+            hogflowWorker = new CdpCyclotronWorkerHogFlow(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await hogflowWorker.start()
+
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    email: {
+                        type: 'email_sandbox',
+                        on_error: 'continue',
+                        output_variable: { key: 'email_result' },
+                        config: {
+                            inputs: {
+                                email: {
+                                    templating: 'liquid',
+                                    value: { to: { email: 'member@example.com' }, subject: 'Hi', text: 'Hello' },
+                                },
+                            },
+                        },
+                    },
+                    delay_1: delayAction('0.5s'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'email', type: 'continue' },
+                    { from: 'email', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            globals = createGlobals()
+        })
+
+        afterEach(async () => {
+            await sandboxWorker?.stop()
+            sandboxWorker = undefined
+        })
+
+        it('waits on the sandbox queue until the sandbox worker hands the step back, then runs the next action', async () => {
+            const jobState = (job: any): any => parseJSON(job.state.toString('utf-8')).state
+            await triggerWorkflow(globals)
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.map((j: any) => [j.queue_name, j.status])).toEqual([['emailsandbox', 'available']])
+            }, 5000)
+            const [parked] = await queryCyclotronJobs()
+            expect(jobState(parked).currentAction.id).toBe('email')
+
+            sandboxWorker = new CdpCyclotronWorkerEmailSandbox(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await sandboxWorker.start()
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.map((j: any) => [j.queue_name, j.status])).toEqual([['hogflow', 'completed']])
+            }, 10000)
+            const [completed] = await queryCyclotronJobs()
+            expect(jobState(completed)).toMatchObject({
+                currentAction: { id: 'delay_1' },
+                variables: { email_result: { status: 'failed', reason: 'sandbox_worker_unavailable' } },
+            })
         })
     })
 

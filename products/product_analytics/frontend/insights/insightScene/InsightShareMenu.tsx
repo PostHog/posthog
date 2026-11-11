@@ -1,10 +1,9 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { IconShare } from '@posthog/icons'
+import { IconChevronDown, IconGlobe, IconShare } from '@posthog/icons'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
@@ -15,6 +14,7 @@ interface InsightShareMenuProps {
 
 export interface InsightShareItem {
     label: string
+    icon?: JSX.Element
     onClick: () => void
     dataAttr: string
 }
@@ -29,6 +29,7 @@ export function useInsightShareItems(insight: InsightShareMenuProps['insight']):
     return [
         {
             label: 'Share publicly or embed',
+            icon: <IconGlobe />,
             onClick: () => push(urls.insightSharing(shortId as InsightShortId)),
             dataAttr: 'insight-share-publicly',
         },
@@ -42,16 +43,20 @@ export function InsightShareMenu({ insight }: InsightShareMenuProps): JSX.Elemen
         return null
     }
     return (
-        <LemonMenu
-            items={shareItems.map(({ label, onClick, dataAttr }) => ({
-                label,
-                onClick,
-                'data-attr': dataAttr,
-            }))}
-        >
-            <LemonButton type="secondary" size="small" icon={<IconShare />} data-attr="insight-share-menu">
+        <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="outline" data-attr="insight-share-menu" />}>
+                <IconShare />
                 Share
-            </LemonButton>
-        </LemonMenu>
+                <IconChevronDown />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+                {shareItems.map(({ label, icon, onClick, dataAttr }) => (
+                    <DropdownMenuItem key={dataAttr} onClick={onClick} data-attr={dataAttr}>
+                        {icon}
+                        {label}
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }

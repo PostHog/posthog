@@ -18,6 +18,7 @@ from products.tasks.backend.facade.profiles import (
     TaskSourceError,
     check_task_source,
     get_task_profile,
+    public_profile_for_origin,
     register_task_profile,
     resolve_task_origin,
 )
@@ -71,56 +72,38 @@ class TestTaskProfileRegistry(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("profile_only", BUSINESS_KNOWLEDGE, None, None, ("business_knowledge", True, "business_knowledge")),
-            (
-                "profile_and_matching_origin",
-                BUSINESS_KNOWLEDGE,
-                "business_knowledge",
-                None,
-                ("business_knowledge", True, "business_knowledge"),
-            ),
-            (
-                "profile_and_matching_internal",
-                BUSINESS_KNOWLEDGE,
-                None,
-                True,
-                ("business_knowledge", True, "business_knowledge"),
-            ),
-            ("origin_and_internal", None, "business_knowledge", True, ("business_knowledge", True, None)),
-            ("origin_without_internal", None, "user_created", None, ("user_created", False, None)),
+            ("unlisted", BUSINESS_KNOWLEDGE, ("business_knowledge", True, "business_knowledge")),
+            ("listed", get_task_profile("user"), ("user_created", False, "user")),
         ]
     )
-    def test_resolve_task_origin_accepts_a_profile_or_an_origin(
-        self,
-        _name: str,
-        profile: TaskProfile | None,
-        origin: str | None,
-        internal: bool | None,
-        expected: tuple[str, bool, str | None],
+    def test_resolve_task_origin_follows_the_profile(
+        self, _name: str, profile: TaskProfile, expected: tuple[str, bool, str]
     ) -> None:
-        resolved = resolve_task_origin(profile=profile, origin_product=origin, internal=internal)
+        resolved = resolve_task_origin(profile)
 
         self.assertEqual((resolved.origin_product, resolved.internal, resolved.profile_key), expected)
 
     @parameterized.expand(
         [
-            ("neither", None, None, None),
-            ("empty_origin", None, "", None),
-            ("internal_without_origin", None, None, True),
-            ("origin_mismatch", BUSINESS_KNOWLEDGE, "loop", None),
-            ("internal_mismatch", BUSINESS_KNOWLEDGE, None, False),
+            ("origin_with_a_public_profile", "user_created", "user"),
+            ("origin_with_an_inbox_profile", "signal_report", "signals.inbox"),
+            ("origin_with_a_private_profile", "business_knowledge", None),
+            ("origin_with_no_profile", "knowledge_writer", None),
         ]
     )
-    def test_resolve_task_origin_rejects_conflicting_input(
-        self, _name: str, profile: TaskProfile | None, origin: str | None, internal: bool | None
-    ) -> None:
-        with self.assertRaises(TaskProfileError):
-            resolve_task_origin(profile=profile, origin_product=origin, internal=internal)
+    def test_public_profile_for_origin(self, _name: str, origin: str, expected_key: str | None) -> None:
+        profile = public_profile_for_origin(origin)
+
+        self.assertEqual(profile.key if profile else None, expected_key)
+
+    def test_register_refuses_a_second_public_profile_on_an_origin(self) -> None:
+        second = replace(get_task_profile("user"), key="test.second_public_user")
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles"), self.assertRaises(TaskProfileError):
+            register_task_profile(second)
 
     @parameterized.expand(
         [
-            ("no_profile_with_source", None, FLOW_SOURCE, False),
-            ("no_profile_without_source", None, None, False),
             ("profile_without_kind_or_source", BUSINESS_KNOWLEDGE, None, False),
             ("profile_with_matching_source", REPORT_PROFILE, REPORT_SOURCE, False),
             ("profile_without_kind_given_source", BUSINESS_KNOWLEDGE, REPORT_SOURCE, True),
@@ -129,7 +112,7 @@ class TestTaskProfileRegistry(SimpleTestCase):
         ]
     )
     def test_check_task_source_matches_the_profile(
-        self, _name: str, profile: TaskProfile | None, source: TaskSource | None, refused: bool
+        self, _name: str, profile: TaskProfile, source: TaskSource | None, refused: bool
     ) -> None:
         with self.assertRaises(TaskSourceError) if refused else nullcontext():
             check_task_source(profile=profile, source=source)

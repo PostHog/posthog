@@ -1,8 +1,9 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonButton, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { trainingScheduleLogic } from '../trainingScheduleLogic'
 import { SuggestionForm } from './SuggestionForm'
 import { SuggestionList } from './SuggestionList'
 
@@ -11,13 +12,15 @@ export function SteerAgentBar(): JSX.Element {
     const { pipeline, startTrainingResultLoading, hasLiveTrainingRun, queuedSuggestionCount } =
         useValues(autoresearchPipelineLogic)
     const { startTraining, steerOpened } = useActions(autoresearchPipelineLogic)
+    const { props } = useMountedLogic(autoresearchPipelineLogic)
+    const { trainDisabledByLimitReason } = useValues(trainingScheduleLogic(props))
     const trainDisabledReason = startTrainingResultLoading
         ? 'Starting…'
         : pipeline?.status === 'paused'
           ? 'Resume the model to train it'
           : hasLiveTrainingRun
             ? 'A training run is already in progress'
-            : undefined
+            : trainDisabledByLimitReason
     return (
         <div className="flex flex-col @md:flex-row @md:items-start gap-2">
             <LemonCollapse

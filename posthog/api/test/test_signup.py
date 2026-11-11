@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import unittest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
@@ -22,7 +23,11 @@ from rest_framework import status
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
-from posthog.helpers.oauth_pending_connection import PENDING_OAUTH_CONNECTION_COOKIE, PendingOAuthConnection
+from posthog.helpers.oauth_pending_connection import (
+    PENDING_OAUTH_CONNECTION_COOKIE,
+    PendingOAuthConnection,
+    PendingOAuthFlow,
+)
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
@@ -824,14 +829,9 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.tiles.count(), 16)
+        self.assertEqual(dashboard.tiles.count(), 17)
         self.assertEqual(dashboard.name, "Your starter dashboard")
-        self.assertEqual(
-            dashboard.description,
-            "How people use your app at a glance: traffic, retention, where visitors come from, and "
-            "whether they take action. Built from automatically captured events, so it works on day one. "
-            "Swap in your own events to make it yours.",
-        )
+        self.assertEqual(dashboard.description, "An overview of how people use your app.")
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -1722,10 +1722,11 @@ class TestSignupAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_signup", "plain", True, True),
-            ("social_signup", "social", True, True),
-            ("invite_signup", "invite", True, False),
-            ("delegated_invite_signup", "delegated_invite", False, False),
+            ("plain_signup", "plain", PendingOAuthFlow.AUTHORIZE, "connector", True),
+            ("device_login_signup", "plain", PendingOAuthFlow.DEVICE, "device_login", True),
+            ("social_signup", "social", PendingOAuthFlow.AUTHORIZE, "connector", True),
+            ("invite_signup", "invite", PendingOAuthFlow.AUTHORIZE, "connector", False),
+            ("delegated_invite_signup", "delegated_invite", PendingOAuthFlow.AUTHORIZE, None, False),
         ]
     )
     @patch("posthoganalytics.group_identify")
@@ -1734,14 +1735,15 @@ class TestSignupAPI(APIBaseTest):
         self,
         _name: str,
         signup_path: str,
-        expect_onboarding_skip: bool,
+        flow: PendingOAuthFlow,
+        expected_skip_reason: str | None,
         expect_project_marked: bool,
         mock_capture,
         mock_group_identify,
     ):
         email = "oauth-signup@posthog.com"
         self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = PendingOAuthConnection(
-            client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client"
+            client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client", flow=flow
         ).to_cookie_value()
 
         invite_organization: Optional[Organization] = None
@@ -1783,9 +1785,9 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(properties["$set"]["signup_oauth_client_name"], "Claude")
 
         user = User.objects.get(email=email)
-        if expect_onboarding_skip:
+        if expected_skip_reason is not None:
             self.assertIsNotNone(user.onboarding_skipped_at)
-            self.assertEqual(user.onboarding_skipped_reason, "connector")
+            self.assertEqual(user.onboarding_skipped_reason, expected_skip_reason)
             expected_organization = invite_organization or user.organization
             assert expected_organization is not None
             self.assertEqual(user.onboarding_skipped_organization_id, expected_organization.id)
@@ -1815,12 +1817,13 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
     def test_signup_rate_limit_by_ip(self, mock_get_ip):
-        """Test that signup is rate limited by IP address to 5 signups per day"""
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
-
-        # Clear any existing rate limit cache
         cache.clear()
+
+        for i in range(3):
+            failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+            self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
 
         for i in range(6):
             response = self.client.post(
@@ -1840,8 +1843,40 @@ class TestSignupAPI(APIBaseTest):
                 User.objects.filter(email=f"user{i}@example.com").delete()
             else:
                 self.assertEqual(
-                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th signup should be rate limited"
                 )
+                self.assertIn("Retry-After", response.headers)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_signup_rate_limits_failed_attempts_by_ip(self, mock_get_ip):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+        cache.clear()
+
+        def signup(i: int):
+            return self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": f"User{i}",
+                    "email": f"user{i}@example.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": f"Org{i}",
+                },
+            )
+
+        with time_machine.travel(datetime(2026, 1, 1, 12, 0, 0), tick=False) as traveller:
+            for i in range(10):
+                failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+                self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
+
+            self.assertEqual(signup(0).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+            traveller.shift(timedelta(hours=2))
+
+            for i in range(5):
+                self.assertEqual(signup(i).status_code, status.HTTP_201_CREATED, f"Signup {i + 1} should succeed")
+                Organization.objects.filter(for_internal_metrics=False).delete()
+                User.objects.filter(email=f"user{i}@example.com").delete()
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_rate_limit_different_ips(self):

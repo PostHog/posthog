@@ -1,3 +1,4 @@
+from .code_analysis import FeatureFlagCodeAnalysis
 from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .feature_flag import FeatureFlag, FeatureFlagDashboards, FeatureFlagHashKeyOverride, FeatureFlagOverride
 from .organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -9,6 +10,7 @@ from .team_feature_flags_config import TeamFeatureFlagsConfig
 __all__ = [
     "EvaluationContext",
     "FeatureFlag",
+    "FeatureFlagCodeAnalysis",
     "FeatureFlagDashboards",
     "FeatureFlagEvaluationContext",
     "FeatureFlagHashKeyOverride",

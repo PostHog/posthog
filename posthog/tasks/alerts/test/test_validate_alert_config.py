@@ -44,6 +44,10 @@ def _funnels_query() -> dict[str, Any]:
     }
 
 
+def _metrics_query(metric_name: str) -> dict[str, Any]:
+    return {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": metric_name, "aggregation": "sum"}]}
+
+
 def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {"type": type}
     if bounds is None:
@@ -55,6 +59,25 @@ def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None
 class TestValidateAlertConfig:
     @parameterized.expand(
         [
+            (
+                "valid_metrics_config",
+                _metrics_query("http_requests_total"),
+                _base_condition(),
+                {"type": "MetricsAlertConfig"},
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            # Stored alert results skip the source access checks, so derived series cannot carry an alert.
+            (
+                "derived_metrics_rejected",
+                _metrics_query("posthog.derived.spans.requests"),
+                _base_condition(),
+                {"type": "MetricsAlertConfig"},
+                _base_threshold(),
+                "daily",
+                "derived metrics",
+            ),
             (
                 "valid_absolute_config",
                 _base_query(),

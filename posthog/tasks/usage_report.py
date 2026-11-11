@@ -33,7 +33,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AI_EVENT_NAME_PREFIX, MCP_EVENT_NAME_PREFIX, FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.billing import AI_COST_MARKUP_PERCENT
+from posthog.llm.billing import AI_COST_MARKUP_PERCENT, POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
 from posthog.models.ai_events.sql import TABLE_BASE_NAME as AI_EVENTS_TABLE
@@ -80,7 +80,13 @@ from products.replay_vision.backend.billing import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import unreported_spend_by_org
-from products.signals.backend.facade.billing import credited_refund_credits_for_org, signals_billing_credits_by_team
+from products.signals.backend.facade.billing import (
+    TeamSignalsCredits,
+    credited_refund_credits_for_org,
+    signals_billing_credits_by_team,
+    signals_spend_billing_credits_by_team,
+    signals_spend_quota_credits_by_team,
+)
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -330,6 +336,7 @@ class UsageReportCounters:
 
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
+    signals_spend_credits_used_in_period: int
 
     # PostHog Desktop Billing Credits
     posthog_code_credits_used_in_period: int
@@ -1911,23 +1918,7 @@ CLOUD_REGION_TO_URL = {
 }
 
 
-# ai_product values that roll into PostHog AI (Max) billing credits.
-POSTHOG_AI_PRODUCTS = [
-    "posthog_ai",
-    "slack_app",
-    "workflows",
-    "subscriptions",
-    "alert_investigation_agent",
-    "alert_llm_detector",
-    "product_analytics",
-    "surveys",
-    "replay_vision",
-    "hogql_decide",
-]
-
-# ai_product values billed as PostHog Desktop credits.
 UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis", "account_audit")
-POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
@@ -2197,6 +2188,20 @@ def get_teams_with_signals_credits_used_in_period(
     return [(row.team_id, row.credits) for row in signals_billing_credits_by_team(begin, end)]
 
 
+@timed_log()
+def get_teams_with_signals_spend_credits_used_in_period(
+    begin: datetime, end: datetime
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- counter API rows
+    return [(row.team_id, row.credits) for row in signals_spend_billing_credits_by_team(begin, end)]
+
+
+@timed_log()
+def get_teams_with_signals_spend_quota_credits_used_in_period(
+    begin: datetime, end: datetime
+) -> list[TeamSignalsCredits]:
+    return signals_spend_quota_credits_by_team(begin, end)
+
+
 def get_signals_credited_refund_credits_for_org(
     organization_id: str | uuid.UUID, begin: datetime, end: datetime
 ) -> int:
@@ -2227,7 +2232,7 @@ def get_self_driving_credits_used_in_period_for_orgs(
 
 
 def get_self_driving_credits_used_in_period_for_org(
-    organization_id: str | uuid.UUID, begin: datetime, end: datetime
+    organization_id: str | uuid.UUID, begin: datetime, end: datetime, *, spend_billing: bool = False
 ) -> int:
     """Live self-driving credits used in `[begin, end)` across one org's teams.
 
@@ -2235,7 +2240,8 @@ def get_self_driving_credits_used_in_period_for_org(
     fresher number than the cron-patched `todays_usage`. Re-exported from this posthog-layer
     module for the same boundary reason as the helper above.
     """
-    return sum(row.credits for row in signals_billing_credits_by_team(begin, end, organization_id=organization_id))
+    counter = signals_spend_quota_credits_by_team if spend_billing else signals_billing_credits_by_team
+    return sum(row.credits for row in counter(begin, end, organization_id=organization_id))
 
 
 @timed_log()
@@ -2787,7 +2793,7 @@ def get_teams_with_logs_retention_byte_days_in_period(
 def get_teams_with_logs_records_in_period(
     begin: datetime,
     end: datetime,
-) -> list[tuple[int, int]]:
+) -> TeamUsageRows:
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
@@ -3117,6 +3123,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.business_knowledge_queries_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
+        or report.signals_spend_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
@@ -3704,6 +3711,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+        signals_spend_credits_used_in_period=all_data["teams_with_signals_spend_credits_used_in_period"].get(
+            team.id, 0
+        ),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
             all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
             all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),

@@ -2,52 +2,32 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { hogql } from 'lib/utils/hogql'
 
-import { transactionalEmailLogList } from 'products/messaging/frontend/generated/api'
-import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
-
 import {
-    ACTIVITY_AFTER_LIMIT,
-    ACTIVITY_BEFORE_LIMIT,
-    ACTIVITY_WINDOW_DAYS,
-    ActivityEvent,
-    ActivityPerson,
-    PersonActivity,
-} from './emailActivity'
+    transactionalEmailLogActivityRetrieve,
+    transactionalEmailLogList,
+} from 'products/messaging/frontend/generated/api'
+import type {
+    TransactionalEmailActivityEventApi,
+    TransactionalEmailLogEntryApi,
+} from 'products/messaging/frontend/generated/api.schemas'
+
+import { ACTIVITY_WINDOW_DAYS, ActivityEvent, ActivityPerson, PersonActivity } from './emailActivity'
 import { LOG_RETENTION_DAYS } from './transactionalEmailLogLogic'
 
 const OTHER_EMAILS_LIMIT = 20
 
-// Events that describe the SDK rather than something the person did.
-const HIDDEN_EVENTS = [
-    '$feature_flag_called',
-    '$identify',
-    '$set',
-    '$groupidentify',
-    '$create_alias',
-    '$pageleave',
-    '$web_vitals',
-    '$opt_in',
-    '$autocapture_disabled',
-    '$dead_click',
-    '$exception',
-    '$feature_view',
-    '$feature_interaction',
-    '$snapshot',
-]
-
 const QUERY_TAGS = { productKey: 'workflows', scene: 'TransactionalEmailLogEntry' }
 
-function toEvent(row: any[]): ActivityEvent {
-    const [uuid, event, timestamp, url, pathname, sessionId, eventType, elementsChain] = row
+function toEvent(event: TransactionalEmailActivityEventApi): ActivityEvent {
     return {
-        uuid,
-        event,
-        timestamp,
-        url: url || null,
-        pathname: pathname || null,
-        sessionId: sessionId || null,
-        eventType: eventType || null,
-        elementsChain: elementsChain || '',
+        uuid: event.uuid,
+        event: event.event,
+        timestamp: event.timestamp,
+        url: event.current_url,
+        pathname: event.pathname,
+        sessionId: event.session_id,
+        eventType: event.event_type,
+        elementsChain: event.elements_chain,
     }
 }
 
@@ -71,36 +51,13 @@ LIMIT 1`,
     }
 }
 
-export async function fetchPersonActivity(personId: string, sentAt: string): Promise<PersonActivity> {
-    const sent = dayjs(sentAt)
-    const from = sent.subtract(ACTIVITY_WINDOW_DAYS, 'day')
-    const to = sent.add(ACTIVITY_WINDOW_DAYS, 'day')
-    const columns = hogql`uuid, event, timestamp, properties.$current_url, properties.$pathname, properties.$session_id, properties.$event_type, elements_chain`
-    const [before, after] = await Promise.all([
-        api.queryHogQL(
-            hogql`SELECT ${hogql.raw(columns)} FROM events
-WHERE person_id = ${personId} AND timestamp >= ${from} AND timestamp < ${sent}
-AND event NOT IN ${HIDDEN_EVENTS}
-ORDER BY timestamp DESC
-LIMIT ${ACTIVITY_BEFORE_LIMIT + 1}`,
-            QUERY_TAGS
-        ),
-        api.queryHogQL(
-            hogql`SELECT ${hogql.raw(columns)} FROM events
-WHERE person_id = ${personId} AND timestamp >= ${sent} AND timestamp <= ${to}
-AND event NOT IN ${HIDDEN_EVENTS}
-ORDER BY timestamp ASC
-LIMIT ${ACTIVITY_AFTER_LIMIT + 1}`,
-            QUERY_TAGS
-        ),
-    ])
-    const beforeRows = (before.results ?? []).map(toEvent)
-    const afterRows = (after.results ?? []).map(toEvent)
+export async function fetchPersonActivity(projectId: number, messageId: string): Promise<PersonActivity> {
+    const activity = await transactionalEmailLogActivityRetrieve(String(projectId), messageId)
     return {
-        before: beforeRows.slice(0, ACTIVITY_BEFORE_LIMIT).reverse(),
-        after: afterRows.slice(0, ACTIVITY_AFTER_LIMIT),
-        hasMoreBefore: beforeRows.length > ACTIVITY_BEFORE_LIMIT,
-        hasMoreAfter: afterRows.length > ACTIVITY_AFTER_LIMIT,
+        before: activity.before.map(toEvent),
+        after: activity.after.map(toEvent),
+        hasMoreBefore: activity.has_more_before,
+        hasMoreAfter: activity.has_more_after,
     }
 }
 

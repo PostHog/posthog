@@ -225,6 +225,10 @@
         background-color: color-mix(in oklab, var(--primary) 12%, var(--background));
     }
 
+    .quill-table__row[data-state='selected']:hover .quill-table__cell {
+        background-color: color-mix(in oklab, var(--primary) 16%, var(--background));
+    }
+
     .quill-table__footer .quill-table__cell {
         font-weight: 500;
         background-color: color-mix(in oklab, var(--muted) 30%, var(--background));

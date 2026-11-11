@@ -84,6 +84,7 @@ pub async fn run(args: StackArgs) -> Result<()> {
         routers: args.routers,
         partitions: args.partitions,
         kafka_hosts: args.kafka_hosts.clone(),
+        secondary_kafka_hosts: None,
         etcd_endpoints: args.etcd_endpoints.clone(),
         persons_db_url: args.persons_db_url.clone(),
         writer_flush_interval_ms: 1000,

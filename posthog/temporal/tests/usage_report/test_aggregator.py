@@ -31,6 +31,7 @@ from posthog.temporal.usage_report.aggregator import (
     add_pre_mcp_event_count_patch_defaults,
     add_pre_replay_vision_spend_projection_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
+    add_pre_signals_spend_patch_defaults,
     add_pre_transactional_emails_patch_defaults,
     build_manifest,
     iter_chunk_lines,
@@ -46,9 +47,11 @@ from posthog.temporal.usage_report.types import (
     WorkflowContext,
 )
 from posthog.usage_counters import (
+    UsageCounter,
     UsageCounterComparison,
     UsageCounterComparisonRows,
     UsageCounterMode,
+    UsageCounterPlan,
     UsageCounterReport,
     UsageCounterService,
 )
@@ -543,3 +546,15 @@ def test_failed_chunk_run_does_not_publish_manifest(failure: str, report_count: 
             check_cancelled=check_cancelled,
         )
     assert not any(key.endswith("manifest.json") for key in written)
+
+
+def test_signals_spend_default_does_not_hide_a_missing_planned_counter() -> None:
+    ctx = _ctx()
+    ctx.usage_counter_plan = UsageCounterPlan(
+        period=DayRange(start=ctx.period_start, end=ctx.period_end),
+        caller="usage_reports_v2",
+        modes={UsageCounter.SIGNALS_SPEND_CREDITS: UsageCounterMode.LEGACY},
+    )
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_signals_spend_patch_defaults(all_data, AggregateInputs(ctx=ctx, query_results=[]))
+    assert UsageCounter.SIGNALS_SPEND_CREDITS.value not in all_data

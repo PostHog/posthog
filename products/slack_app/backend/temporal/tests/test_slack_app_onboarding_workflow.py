@@ -71,7 +71,11 @@ class _Slack:
                 self.failing_posts -= 1
                 raise ApplicationError("slack down")
 
-        return [plan, edit, post]
+        @activity.defn(name="remind_slack_app_onboarding_activity")
+        async def remind(_: SlackAppOnboardingInputs) -> None:
+            self.calls.append("remind")
+
+        return [plan, edit, post, remind]
 
 
 @pytest.fixture
@@ -142,8 +146,8 @@ async def _run(
             [FIRST_STEP_PLAN],
             0,
             0,
-            ["plan", "post:step"],
-            id="without a refresh for a week the run ends",
+            ["plan", "post:step", "remind"],
+            id="without a refresh it reminds once after a day, then ends",
         ),
     ],
 )
@@ -183,6 +187,6 @@ async def test_a_delayed_start_waits_before_its_first_plan(env: WorkflowEnvironm
     started_at = await env.get_current_time()
     summaries = await _run(env, slack, refreshes=0, inputs=delayed)
 
-    assert slack.calls == ["plan", "post:step"]
-    assert summaries == ["plan", "post model: show step"]
+    assert slack.calls == ["plan", "post:step", "remind"]
+    assert summaries == ["plan", "post model: show step", "remind"]
     assert await env.get_current_time() - started_at >= timedelta(seconds=300)

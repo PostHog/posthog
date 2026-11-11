@@ -23,9 +23,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.models import PropertyDefinition
-
 from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import PropertyDefinition
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 

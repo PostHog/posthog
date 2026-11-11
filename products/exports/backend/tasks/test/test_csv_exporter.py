@@ -7,7 +7,6 @@ from typing import Any, Optional
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
-from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
 
 from django.test import override_settings
@@ -69,7 +68,7 @@ class TestCSVExporter(APIBaseTest):
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
             mock_response.json.side_effect = [
                 {
-                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
+                    "next": f"http://testserver/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
                     "results": [
                         {
                             "id": "e9ca132e-400f-4854-a83c-16c151b2f145",
@@ -84,7 +83,7 @@ class TestCSVExporter(APIBaseTest):
                     ],
                 },
                 {
-                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
+                    "next": f"http://testserver/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
                     "results": [
                         {
                             "id": "1624228e-a4f1-48cd-aabc-6baa3ddb22e4",
@@ -124,7 +123,7 @@ class TestCSVExporter(APIBaseTest):
             team=self.team,
             created_by=self.user,
             export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={"path": "/api/literally/anything", **extra_context},
+            export_context={"path": f"/api/environments/{self.team.id}/persons/", **extra_context},
             source_authentication=ExportedAsset.SourceAuthentication.SESSION,
         )
         asset.save()
@@ -322,7 +321,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_limits_breakdown_insights_correctly(
         self, mocked_request: Any, mocked_object_storage_write: Any, mocked_uuidt: Any
     ) -> None:
-        path = "api/projects/1/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
+        path = f"api/projects/{self.team.id}/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
         exported_asset = self._create_asset({"path": path})
         mock_response = Mock()
         mock_response.status_code = 200
@@ -337,6 +336,7 @@ class TestCSVExporter(APIBaseTest):
             timeout=60,
             json=None,
             headers=ANY,
+            allow_redirects=False,
         )
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
@@ -446,7 +446,7 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
 
             assert patched_make_api_call.call_count == 4
-            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
+            assert patched_make_api_call.call_args.args[2] == 64
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_404_mid_export_returns_rows_already_fetched(self, _mock_logger: MagicMock) -> None:
@@ -1751,7 +1751,7 @@ class TestCSVExporter(APIBaseTest):
             exported_asset = ExportedAsset(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.XLSX,
-                export_context={"path": "/api/test/endpoint"},
+                export_context={"path": f"/api/environments/{self.team.id}/persons/"},
                 source_authentication=ExportedAsset.SourceAuthentication.SESSION,
             )
             exported_asset.save()
