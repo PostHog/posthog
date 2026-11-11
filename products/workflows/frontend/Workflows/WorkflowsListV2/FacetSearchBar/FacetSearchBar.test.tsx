@@ -1,0 +1,299 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render } from '@testing-library/react'
+import { useState } from 'react'
+
+import { initKeaTests } from '~/test/init'
+
+import { FacetDefinition, FacetSearchValue, serializeFacetQuery } from './facetQuery'
+import { FacetSearchBar } from './FacetSearchBar'
+
+interface Item {
+    name: string
+    status: string
+    subjects: string[]
+}
+
+const FACETS: FacetDefinition<Item>[] = [
+    {
+        key: 'status',
+        label: 'Status',
+        description: 'Lifecycle',
+        showOnFocus: true,
+        getValues: (item) => [item.status],
+        formatValue: (value) => value[0].toUpperCase() + value.slice(1),
+    },
+    { key: 'sends', label: 'Sends', description: 'Email subject', getValues: (item) => item.subjects },
+]
+
+const ITEMS: Item[] = [
+    { name: 'Welcome', status: 'active', subjects: ['Your trial ends'] },
+    { name: 'Renewal', status: 'draft', subjects: [] },
+    { name: 'Promo', status: 'archived', subjects: [] },
+]
+
+function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
+    const [value, setValue] = useState(initial)
+    return (
+        <div>
+            <FacetSearchBar
+                facets={FACETS}
+                items={ITEMS}
+                value={value}
+                onChange={setValue}
+                matchesText={(item, text) => item.name.toLowerCase().includes(text.toLowerCase())}
+                placeholder="Search"
+                dataAttr="test-search"
+            />
+            <output data-attr="query">{serializeFacetQuery(value.filters)}</output>
+            <output data-attr="text">{value.text}</output>
+        </div>
+    )
+}
+
+const input = (): HTMLInputElement => document.querySelector<HTMLInputElement>('input[data-attr="test-search"]')!
+const shown = (attr: string): string => document.querySelector(`[data-attr="${attr}"]`)?.textContent ?? ''
+const listbox = (): Element | null => document.querySelector('[role="listbox"]')
+
+const setInputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+
+function changeInput(text: string, caret: number = text.length): void {
+    const field = input()
+    setInputValue.call(field, text)
+    field.setSelectionRange(caret, caret)
+    fireEvent.input(field)
+}
+
+function clickInput(): void {
+    input().focus()
+    fireEvent.click(input())
+}
+
+function typeText(text: string): void {
+    for (const character of text) {
+        const field = input()
+        if (fireEvent.keyDown(field, { key: character })) {
+            const start = field.selectionStart ?? field.value.length
+            const end = field.selectionEnd ?? start
+            changeInput(field.value.slice(0, start) + character + field.value.slice(end), start + 1)
+        }
+    }
+}
+
+function press(key: string, init: KeyboardEventInit = {}): boolean {
+    const field = input()
+    const notPrevented = fireEvent.keyDown(field, { key, ...init })
+    const caret = field.selectionStart ?? field.value.length
+    if (notPrevented && key === 'ArrowLeft') {
+        field.setSelectionRange(Math.max(0, caret - 1), Math.max(0, caret - 1))
+    }
+    if (notPrevented && key === 'Backspace' && caret > 0) {
+        changeInput(field.value.slice(0, caret - 1) + field.value.slice(caret), caret - 1)
+    }
+    return notPrevented
+}
+
+describe('FacetSearchBar', () => {
+    beforeEach(() => initKeaTests())
+    afterEach(() => cleanup())
+
+    const setup = (initial: FacetSearchValue = { filters: [], text: '' }): void => {
+        render(<Harness initial={initial} />)
+    }
+
+    it('Tab and → take the first filter row, never the search row', () => {
+        setup()
+        clickInput()
+        typeText('sta')
+        press('ArrowDown')
+        expect(document.querySelector('[role="option"][aria-selected="true"]')).toHaveTextContent('Search for "sta"')
+
+        press('Tab')
+        expect(input()).toHaveValue('status:')
+        expect(shown('text')).toEqual('')
+
+        typeText('act')
+        press('ArrowRight')
+        expect(shown('query')).toEqual('status:active')
+        expect(input()).toHaveValue('')
+        expect(input()).toHaveFocus()
+    })
+
+    it('Enter on the search row closes the popover and keeps the text', () => {
+        setup()
+        clickInput()
+        typeText('renew')
+        expect(listbox()).not.toBeNull()
+
+        press('Enter')
+        expect(listbox()).toBeNull()
+        expect(input()).toHaveValue('renew')
+        expect(shown('text')).toEqual('renew')
+        expect(shown('query')).toEqual('')
+    })
+
+    it('Esc closes the popover, and a click on the focused input opens it again', () => {
+        setup()
+        clickInput()
+        expect(listbox()).not.toBeNull()
+        press('Escape')
+        expect(listbox()).toBeNull()
+        clickInput()
+        expect(listbox()).not.toBeNull()
+    })
+
+    it('Backspace on an empty input removes the last pill', () => {
+        setup({
+            filters: [
+                { facet: 'status', value: 'draft', negated: false },
+                { facet: 'status', value: 'archived', negated: true },
+            ],
+            text: '',
+        })
+        clickInput()
+        press('Backspace')
+        expect(shown('query')).toEqual('status:draft')
+    })
+
+    it('leaves Tab on an empty input to the browser', () => {
+        setup()
+        clickInput()
+        expect(press('Tab')).toBe(true)
+        expect(input()).toHaveValue('')
+    })
+
+    it.each([
+        ['a typed facet value followed by a space', 'status:active ', 'status:active', ''],
+        ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"', ''],
+        ['text around a typed facet value', 'wel status:active ren', 'status:active', 'wel ren'],
+    ])('turns %s into a pill', (_, typed, query, text) => {
+        setup()
+        clickInput()
+        typeText(typed)
+        expect(shown('query')).toEqual(query)
+        expect(shown('text')).toEqual(text)
+    })
+
+    it('turns a pasted query into pills', () => {
+        setup()
+        clickInput()
+        changeInput('status:draft -status:archived ')
+        expect(shown('query')).toEqual('status:draft -status:archived')
+        expect(input()).toHaveValue('')
+    })
+
+    it('adds a pasted token once, even when the paste repeats it', () => {
+        setup()
+        clickInput()
+        changeInput('status:active status:active ')
+        expect(shown('query')).toEqual('status:active')
+        expect(document.querySelectorAll('[aria-label="Remove filter Status: Active"]')).toHaveLength(1)
+    })
+
+    it('leaves Shift+Tab to the browser instead of applying a filter', () => {
+        setup()
+        clickInput()
+        typeText('sta')
+        // A Tab the bar does not prevent leaves the browser to move the focus.
+        expect(press('Tab', { shiftKey: true })).toBe(true)
+        expect(shown('query')).toEqual('')
+    })
+
+    it.each([
+        ['flags the composition', { isComposing: true }],
+        ['sends key code 229, as Safari does', { keyCode: 229 }],
+    ])('Enter while an IME %s does not apply the highlighted row', (_, composition) => {
+        setup()
+        clickInput()
+        typeText('status:')
+        fireEvent.keyDown(input(), { key: 'Enter', ...composition })
+        expect(shown('query')).toEqual('')
+        expect(input()).toHaveValue('status:')
+    })
+
+    it.each([
+        ['a value that names one option', 'status:active', 'status:active'],
+        ['a value and a space', 'status:draft ', 'status:draft'],
+        ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"'],
+    ])('adds %s as a pill only once the IME composition ends', (_, composed, query) => {
+        setup()
+        clickInput()
+        fireEvent.compositionStart(input())
+        fireEvent.change(input(), { target: { value: composed } })
+        expect(shown('query')).toEqual('')
+        expect(input()).toHaveValue(composed)
+
+        fireEvent.compositionEnd(input())
+        expect(shown('query')).toEqual(query)
+        expect(input()).toHaveValue('')
+    })
+
+    it('leaves a value composed in its middle as a draft when the composition ends', () => {
+        setup()
+        clickInput()
+        fireEvent.compositionStart(input())
+        fireEvent.change(input(), { target: { value: 'status:active' } })
+        input().setSelectionRange('status:act'.length, 'status:act'.length)
+        fireEvent.compositionEnd(input())
+        expect(shown('query')).toEqual('')
+        expect(input()).toHaveValue('status:active')
+    })
+
+    it('leaves a value corrected in its middle as a draft', () => {
+        setup()
+        clickInput()
+        typeText('status:actiive')
+        press('ArrowLeft')
+        press('ArrowLeft')
+        press('ArrowLeft')
+        press('Backspace')
+        expect(input()).toHaveValue('status:active')
+        expect(shown('query')).toEqual('')
+    })
+
+    it('keeps focus in the input when the popover chrome is pressed', () => {
+        setup()
+        clickInput()
+        const hints = document.querySelector('[data-attr="facet-search-bar-hints"]')!
+        // fireEvent returns false when the handler prevented the default, which is what keeps the focus.
+        expect(fireEvent.mouseDown(hints)).toBe(false)
+    })
+
+    it('shows the no-values message as text, not as an option', () => {
+        setup()
+        clickInput()
+        typeText('status:zzz')
+        expect(document.querySelectorAll('[role="option"]')).toHaveLength(0)
+        expect(listbox()).toHaveTextContent('No value matches "zzz"')
+        expect(input()).not.toHaveAttribute('aria-activedescendant')
+    })
+
+    it('keeps focus in the input after a pill is removed with the keyboard', () => {
+        setup({ filters: [{ facet: 'status', value: 'draft', negated: false }], text: '' })
+        const remove = document.querySelector<HTMLElement>('[aria-label="Remove filter Status: Draft"]')!
+        remove.focus()
+        fireEvent.click(remove)
+        expect(shown('query')).toEqual('')
+        expect(input()).toHaveFocus()
+    })
+
+    it('exposes the combobox and labels each pill remove button', () => {
+        setup({ filters: [{ facet: 'status', value: 'draft', negated: true }], text: '' })
+        expect(input()).toHaveAttribute('role', 'combobox')
+        expect(input()).toHaveAttribute('aria-expanded', 'false')
+        expect(document.querySelector('[aria-label="Remove filter Status is not: Draft"]')).not.toBeNull()
+        expect(document.querySelector('[title="Status is not: Draft"]')).not.toBeNull()
+
+        clickInput()
+        typeText('status:')
+        expect(input()).toHaveAttribute('aria-expanded', 'true')
+        expect(input().getAttribute('aria-controls')).toEqual(listbox()!.id)
+        const selected = document.querySelector('[role="option"][aria-selected="true"]')!
+        expect(input().getAttribute('aria-activedescendant')).toEqual(selected.id)
+        expect(shown('facet-search-bar-hints')).toContain('Esc to close')
+
+        changeInput('')
+        typeText('sends:')
+        expect(document.querySelector('[role="option"] [title="Your trial ends"]')).not.toBeNull()
+    })
+})
