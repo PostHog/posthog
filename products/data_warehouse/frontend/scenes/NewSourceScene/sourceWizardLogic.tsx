@@ -32,6 +32,7 @@ import {
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
     externalDataSourcesBulkUpdateSchemasPartialUpdate,
+    externalDataSourcesIncrementalFieldRecommendationsCreate,
     externalDataSourcesRetrieve,
 } from 'products/warehouse_sources/frontend/generated/api'
 import {
@@ -709,6 +710,9 @@ export interface sourceWizardLogicActions {
         searchParams: any
         source: string
     }
+    loadIncrementalFieldRecommendations: () => {
+        value: true
+    }
     onBack: () => {
         value: true
     }
@@ -1117,6 +1121,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onBack: true,
         onNext: true,
         onSubmit: true,
+        loadIncrementalFieldRecommendations: true,
         setWizardDestinationIds: (destinationIds: string[]) => ({ destinationIds }),
         setWizardAvailableDestinationCount: (count: number) => ({ count }),
         resetSourceForm: (accessMethod?: 'warehouse' | 'direct') => ({ accessMethod }),
@@ -1972,6 +1977,58 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
     listeners(({ actions, values, props }) => ({
+        // The table list never waits for the decision model: its picks arrive here afterwards, and
+        // replace the defaults only of tables the person has not changed yet.
+        loadIncrementalFieldRecommendations: async () => {
+            const connectorName = values.selectedConnector?.name
+            const tables = values.databaseSchema.filter(
+                (schema) => schema.incremental_fields.filter((field) => field.recommended !== undefined).length >= 2
+            )
+            if (!connectorName || values.currentTeamId === null || tables.length === 0) {
+                return
+            }
+            const selection = values.connectorSelectionCount
+            let picked: Map<string, IncrementalField[]>
+            try {
+                const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(
+                    String(values.currentTeamId),
+                    {
+                        tables: tables.map((schema) => ({
+                            table: schema.table,
+                            incremental_fields: schema.incremental_fields,
+                        })),
+                    }
+                )
+                picked = new Map(
+                    response.tables.map((table) => [table.table, table.incremental_fields as IncrementalField[]])
+                )
+            } catch {
+                return
+            }
+            if (values.connectorSelectionCount !== selection || picked.size === 0) {
+                return
+            }
+            actions.setDatabaseSchemas(
+                values.databaseSchema.map((schema) => {
+                    const fields = picked.get(schema.table)
+                    if (!fields) {
+                        return schema
+                    }
+                    const updated = { ...schema, incremental_fields: fields }
+                    const previous = defaultPollingSyncSettings(schema, connectorName)
+                    const untouched =
+                        schema.sync_type === previous.sync_type &&
+                        (schema.incremental_field ?? undefined) === previous.incremental_field
+                    if (untouched) {
+                        const next = defaultPollingSyncSettings(updated, connectorName)
+                        updated.sync_type = next.sync_type
+                        updated.incremental_field = next.incremental_field ?? null
+                        updated.incremental_field_type = next.incremental_field_type ?? null
+                    }
+                    return updated
+                })
+            )
+        },
         verifyCdcSelfManagedSetupSuccess: ({ cdcSelfManagedVerifyResult }) => {
             if (cdcSelfManagedVerifyResult?.valid) {
                 actions.closeCdcSelfManagedSetupDialog()
@@ -2724,6 +2781,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
+                if (!props.autoConfigureTables) {
+                    actions.loadIncrementalFieldRecommendations()
+                }
             } catch (e: any) {
                 if (connectorChanged()) {
                     return

@@ -6239,7 +6239,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(validate.call_args.args[2], "direct")
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_database_schema_defaults_to_the_decision_model_pick(self, mock_get_source):
+    def test_database_schema_returns_rule_order_and_recommendations_add_the_model_pick(self, mock_get_source):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         source = PostgresSource()
@@ -6259,7 +6259,10 @@ class TestExternalDataSource(APIBaseTest):
             ),
         )
 
+        model_calls = []
+
         async def adecide(_self, *, state, questions):
+            model_calls.append(questions)
             choice = ChoiceAnswer(choice="c1", confidence=0.9, probabilities={"c1": 0.9})
             return SystemOneResult(model="jeeves-0.1", answers=dict.fromkeys(questions, choice), input_tokens=1)
 
@@ -6287,10 +6290,21 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "public",
                 },
             )
+            listed = response.json()[0]
+            recommended = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/incremental_field_recommendations/",
+                data={"tables": [{"table": listed["table"], "incremental_fields": listed["incremental_fields"]}]},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json()[0]["incremental_field"], "fecha_actualizacion")
-        self.assertIs(response.json()[0]["incremental_fields"][0]["picked_by_model"], True)
+        self.assertEqual(listed["incremental_field"], "created_at")
+        self.assertEqual(recommended.status_code, status.HTTP_200_OK, recommended.json())
+        self.assertEqual(
+            [(t["table"], t["incremental_fields"][0]["field"]) for t in recommended.json()["tables"]],
+            [("public.orders", "fecha_actualizacion")],
+        )
+        self.assertEqual(len(model_calls), 1)
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_database_schema_postgres_requires_ssl_while_setting_the_source_up(self, mock_get_source):

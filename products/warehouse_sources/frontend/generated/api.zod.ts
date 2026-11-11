@@ -1471,6 +1471,80 @@ export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ 
 })
 
 /**
+ * Asks the decision model which incremental field to use for tables whose column names leave it open. Send the tables database_schema returned; the response holds only the tables the model picked a field for. Called after database_schema so the table list never waits for the model.
+ * @summary Recommend incremental fields with the decision model
+ */
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemTableMax = 512
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemLabelMax = 512
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldMax = 512
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemTypeMax = 32
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldTypeMax = 32
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 512
+
+export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @__PURE__ */ zod.object({
+    tables: zod
+        .array(
+            zod.object({
+                table: zod
+                    .string()
+                    .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemTableMax)
+                    .describe('Name of the table, as returned by database_schema.'),
+                incremental_fields: zod
+                    .array(
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemLabelMax
+                                )
+                                .describe('Name of the field as shown in the UI.'),
+                            field: zod
+                                .string()
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldMax
+                                )
+                                .describe('Name of the field in the source table.'),
+                            type: zod
+                                .string()
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemTypeMax
+                                )
+                                .describe('Type of the field as shown in the UI, such as timestamp.'),
+                            field_type: zod
+                                .string()
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldTypeMax
+                                )
+                                .describe('Type of the field in the source, such as timestamp.'),
+                            nullable: zod.boolean().optional().describe('Whether the field allows null values.'),
+                            is_indexed: zod
+                                .boolean()
+                                .optional()
+                                .describe('Whether the field leads an index or sort key on the source table.'),
+                            recommended: zod
+                                .boolean()
+                                .optional()
+                                .describe('Whether this is the field the source recommends as the incremental cursor.'),
+                            picked_by_model: zod
+                                .boolean()
+                                .optional()
+                                .describe('Whether the decision model, not the name rules, picked this field.'),
+                            notes: zod.array(zod.string()).optional().describe('Trade-offs of picking this field.'),
+                        })
+                    )
+                    .describe('Candidate incremental fields of the table, as returned by database_schema.'),
+            })
+        )
+        .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax)
+        .describe('Tables from database_schema to get a recommended incremental field for.'),
+})
+
+/**
  * Read a bounded sample of rows for one resource of a Custom REST source.
  *
  * Lets a manifest author verify `data_selector`, `primary_key`, and the incremental

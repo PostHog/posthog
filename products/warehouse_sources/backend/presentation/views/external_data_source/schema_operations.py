@@ -16,13 +16,14 @@ from rest_framework.response import Response
 
 from posthog.hogql.direct_sql.capability import is_direct_capable
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.utils import action
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
-from products.warehouse_sources.backend.facade.incremental_field_model import recommend_incremental_fields
+from products.warehouse_sources.backend.facade.incremental_field_model import recommend_for_candidates
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
@@ -62,6 +63,48 @@ class RefreshSchemasResponseSerializer(serializers.Serializer):
         help_text="Number of new schemas auto-enabled because the source has auto_sync_new_schemas on."
     )
     total_tables_seen = serializers.IntegerField(help_text="Total tables the source reported, before filtering.")
+
+
+class IncrementalFieldCandidateSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=512, help_text="Name of the field as shown in the UI.")  # type: ignore[assignment]
+    field = serializers.CharField(max_length=512, help_text="Name of the field in the source table.")
+    type = serializers.CharField(max_length=32, help_text="Type of the field as shown in the UI, such as timestamp.")
+    field_type = serializers.CharField(max_length=32, help_text="Type of the field in the source, such as timestamp.")
+    nullable = serializers.BooleanField(required=False, help_text="Whether the field allows null values.")
+    is_indexed = serializers.BooleanField(
+        required=False, help_text="Whether the field leads an index or sort key on the source table."
+    )
+    recommended = serializers.BooleanField(
+        required=False, help_text="Whether this is the field the source recommends as the incremental cursor."
+    )
+    picked_by_model = serializers.BooleanField(
+        required=False, help_text="Whether the decision model, not the name rules, picked this field."
+    )
+    notes = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Trade-offs of picking this field."
+    )
+
+
+class IncrementalFieldTableSerializer(serializers.Serializer):
+    table = serializers.CharField(max_length=512, help_text="Name of the table, as returned by database_schema.")
+    incremental_fields = IncrementalFieldCandidateSerializer(
+        many=True, help_text="Candidate incremental fields of the table, as returned by database_schema."
+    )
+
+
+class IncrementalFieldRecommendationsRequestSerializer(serializers.Serializer):
+    tables = serializers.ListField(
+        child=IncrementalFieldTableSerializer(),
+        max_length=512,
+        help_text="Tables from database_schema to get a recommended incremental field for.",
+    )
+
+
+class IncrementalFieldRecommendationsResponseSerializer(serializers.Serializer):
+    tables = IncrementalFieldTableSerializer(
+        many=True,
+        help_text="Only the tables where the decision model picked a field, with that field first and recommended.",
+    )
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -361,6 +404,28 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             ).data,
         )
 
+    @validated_request(
+        request_serializer=IncrementalFieldRecommendationsRequestSerializer,
+        responses={200: IncrementalFieldRecommendationsResponseSerializer},
+        summary="Recommend incremental fields with the decision model",
+        description=(
+            "Asks the decision model which incremental field to use for tables whose column names leave it "
+            "open. Send the tables database_schema returned; the response holds only the tables the model "
+            "picked a field for. Called after database_schema so the table list never waits for the model."
+        ),
+    )
+    @action(methods=["POST"], detail=False)
+    def incremental_field_recommendations(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        picks = recommend_for_candidates(
+            [(table["table"], table["incremental_fields"]) for table in request.validated_data["tables"]],
+            team=self.team,
+        )
+        return Response(
+            IncrementalFieldRecommendationsResponseSerializer(
+                {"tables": [{"table": name, "incremental_fields": fields} for name, fields in picks.items()]}
+            ).data
+        )
+
     @extend_schema(request=credential_store.DatabaseSchemaRequestSerializer)
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
@@ -435,8 +500,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": error_message},
             )
-
-        recommend_incremental_fields(schemas, team=self.team)
 
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
         try:

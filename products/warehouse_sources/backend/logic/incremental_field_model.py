@@ -81,6 +81,26 @@ def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team
         capture_exception(error, {"team_id": team.pk})
 
 
+def recommend_for_candidates(
+    tables: Sequence[tuple[str, list[IncrementalField]]], *, team: "Team"
+) -> dict[str, list[IncrementalField]]:
+    """The reordered candidates of each table where the model made a pick, keyed by table name.
+
+    For callers that already hold the ranked candidates, such as the source wizard after discovery,
+    so the model call needs no second discovery.
+    """
+    schemas = [
+        SourceSchema(name=name, supports_incremental=True, supports_append=True, incremental_fields=list(fields))
+        for name, fields in tables
+    ]
+    recommend_incremental_fields(schemas, team=team)
+    return {
+        schema.name: schema.incremental_fields
+        for schema in schemas
+        if schema.incremental_fields and schema.incremental_fields[0].get("picked_by_model")
+    }
+
+
 def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
     pending = [schema for schema in schemas if _is_open(schema)][: MAX_REQUESTS * GATEWAY_MAX_QUESTIONS]
     if not pending or not _model_allowed(team):

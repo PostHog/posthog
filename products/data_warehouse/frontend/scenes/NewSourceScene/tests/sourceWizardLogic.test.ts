@@ -16,6 +16,7 @@ import type { AvailableColumn, ExternalDataSource, ExternalDataSourceSyncSchema,
 
 import {
     externalDataSourcesBulkUpdateSchemasPartialUpdate,
+    externalDataSourcesIncrementalFieldRecommendationsCreate,
     externalDataSourcesRetrieve,
 } from 'products/warehouse_sources/frontend/generated/api'
 import type {
@@ -40,6 +41,7 @@ jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     ...jest.requireActual('products/warehouse_sources/frontend/generated/api'),
     externalDataSourcesRetrieve: jest.fn(),
     externalDataSourcesBulkUpdateSchemasPartialUpdate: jest.fn(),
+    externalDataSourcesIncrementalFieldRecommendationsCreate: jest.fn(),
 }))
 
 type Deferred = {
@@ -1812,6 +1814,52 @@ describe('sourceWizardLogic', () => {
 
             try {
                 expect(logic.values.databaseSchema[0].incremental_field).toBe(expected)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('applies a model pick that arrives after the table list only to tables left as they were', async () => {
+            const ruleRanked: IncrementalField[] = [
+                { ...createdAt, recommended: true },
+                { ...modelPick, recommended: false, picked_by_model: undefined },
+            ]
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('public.orders', { incremental_fields: ruleRanked }),
+                apiSchema('public.users', { incremental_fields: ruleRanked }),
+            ] as ExternalDataSourceSyncSchema[])
+            let resolveRecommendations: (value: {
+                tables: { table: string; incremental_fields: IncrementalField[] }[]
+            }) => void = () => {}
+            jest.mocked(externalDataSourcesIncrementalFieldRecommendationsCreate).mockReturnValue(
+                new Promise((resolve) => {
+                    resolveRecommendations = resolve as typeof resolveRecommendations
+                }) as ReturnType<typeof externalDataSourcesIncrementalFieldRecommendationsCreate>
+            )
+
+            const logic = sourceWizardLogic({ availableSources: { [postgresSource.name]: postgresSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(postgresSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toDispatchActions([
+                    'loadIncrementalFieldRecommendations',
+                ])
+                const users = logic.values.databaseSchema.find((s) => s.table === 'public.users')!
+                logic.actions.updateSchemaSyncType(users, 'incremental', 'id', 'integer', null)
+                await expectLogic(logic, () =>
+                    resolveRecommendations({
+                        tables: ['public.orders', 'public.users'].map((table) => ({
+                            table,
+                            incremental_fields: [modelPick, { ...createdAt, recommended: false }],
+                        })),
+                    })
+                ).toFinishAllListeners()
+
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['public.orders'].incremental_field).toBe('fecha_actualizacion')
+                expect(byTable['public.users'].incremental_field).toBe('id')
+                expect(byTable['public.users'].incremental_fields[0].picked_by_model).toBe(true)
             } finally {
                 unmount()
             }
