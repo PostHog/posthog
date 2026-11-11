@@ -47,6 +47,8 @@ export const DELIVERY_WEBHOOK_LIST_PROPS = {
 
 const TEMPLATES_PAGE_SIZE = 100
 
+const withoutFinalPeriod = (message: string): string => message.replace(/\.+$/, '')
+
 const DEFAULT_FORM: DeliveryWebhookForm = {
     url: '',
     events: DELIVERY_WEBHOOK_EVENTS.map(({ event }) => event),
@@ -190,7 +192,7 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             {
                 loadTransactionalEmailOptions: () => null,
                 loadTransactionalEmailOptionsFailure: (_, { error, errorObject }) => ({
-                    message: error,
+                    message: withoutFinalPeriod(error),
                     accessDenied: errorObject?.status === 403,
                 }),
             },
@@ -256,7 +258,9 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
                         buildDeliveryWebhookPayload({ url: url.trim(), events, workflowIds, signingSecret })
                     )
                 } catch (error: any) {
-                    lemonToast.error(`Couldn't create the webhook: ${error?.message ?? 'unknown error'}. Try again.`)
+                    lemonToast.error(
+                        `Couldn't create the webhook: ${withoutFinalPeriod(error?.message ?? 'unknown error')}. Try again.`
+                    )
                     throw error
                 }
                 actions.setCreatedSecret(signingSecret)
