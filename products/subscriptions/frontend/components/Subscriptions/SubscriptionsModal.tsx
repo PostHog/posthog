@@ -7,8 +7,9 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 
-import { DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
+import { DashboardType, InsightShortId, SubscriptionResourceType, SubscriptionResourceTypes } from '~/types'
 
+import { DashboardSubscriptionsWithScout } from './dashboardScout/DashboardSubscriptionsWithScout'
 import { subscriptionLogic } from './subscriptionLogic'
 import { SubscriptionWizard } from './SubscriptionWizard'
 import {
@@ -83,6 +84,8 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
             subscriptionChanged: wizardForm.values.subscriptionChanged,
         })
     }
+    const selectSubscription = (id: number | 'new', resourceType?: SubscriptionResourceType): void =>
+        push(urlForSubscription(id, baseProps), resourceType ? { resource_type: resourceType } : undefined)
     // Owned here (not in the tabbed view) so the selected tab survives the edit round-trip,
     // during which the tabbed view unmounts.
     const [activeTab, setActiveTab] = useState<SubscriptionTabKey>('resource')
@@ -115,18 +118,22 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                     onCancel={() => push(urlForSubscriptions(baseProps))}
                     onDelete={() => push(urlForSubscriptions(baseProps))}
                 />
+            ) : dashboard && !insightShortId ? (
+                <DashboardSubscriptionsWithScout
+                    dashboardId={dashboard.id}
+                    dashboardName={dashboard.name}
+                    activeTab={activeTab}
+                    onChangeTab={setActiveTab}
+                    onCancel={closeModal}
+                    onSelect={selectSubscription}
+                />
             ) : (
                 <TabbedManageSubscriptions
                     {...baseProps}
                     activeTab={activeTab}
                     onChangeTab={setActiveTab}
                     onCancel={closeModal}
-                    onSelect={(id, resourceType) =>
-                        push(
-                            urlForSubscription(id, baseProps),
-                            resourceType ? { resource_type: resourceType } : undefined
-                        )
-                    }
+                    onSelect={selectSubscription}
                 />
             )}
         </LemonModal>
