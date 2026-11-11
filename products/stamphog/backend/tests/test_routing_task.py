@@ -15,6 +15,7 @@ from posthog.ownership.github_files import OwnershipUnavailable
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.tasks import queue_routing_after_external_review, route_pull_request_reviewers
+from products.stamphog.backend.logic.routing import service as routing_service
 from products.stamphog.backend.logic.routing.claims import CLAIM_STALE_AFTER
 from products.stamphog.backend.logic.routing.comment import ROUTING_COMMENT_MARKER
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL
@@ -76,7 +77,7 @@ def _setup(
     draft: bool = False,
     state: str = "open",
     fork_labels: dict[str, str] | None = None,
-    shared_behavior_labels: dict[str, str] | None = None,
+    files: list[dict[str, Any]] | None = None,
     enabled: bool = True,
     review_mode: str = ReviewMode.ALL,
     author_type: str = "User",
@@ -101,7 +102,8 @@ def _setup(
             "head": {"sha": HEAD_SHA, "ref": "move-loader", "repo": {"full_name": head_repo}},
             "base": {"sha": "base-sha", "ref": "master", "repo": {"full_name": REPO}},
         },
-        files=[
+        files=files
+        or [
             _file("products/alpha/a.py", lines=40),
             # A file in a new directory exercises the owners-of-additions lookup and pins team-alpha.
             *([_file("products/alpha/new/b.py", status="added", lines=20)] if with_addition else []),
@@ -119,7 +121,6 @@ def _setup(
             review_mode=review_mode,
             routing_mode=routing_mode,
             routing_fork_labels=fork_labels or {},
-            routing_shared_behavior_labels=shared_behavior_labels or {},
         )
 
 
@@ -345,7 +346,13 @@ def test_a_fork_skips_the_model_and_labels_the_teams_with_a_fork_label(
 @pytest.mark.parametrize(
     "name,answer,expected_teams,expected_labels,expected_calls",
     [
-        ("kept_team_is_labeled", {"cuts": []}, {"team-alpha", "team-beta"}, [{"labels": ["review: beta"]}], 2),
+        (
+            "kept_team_is_labeled",
+            {"cuts": []},
+            {"team-alpha", "team-beta"},
+            [{"labels": ["review: beta"]}],
+            2,
+        ),
         ("cut_team_gets_no_label", _CUT_BETA, {"team-alpha"}, [], 1),
     ],
 )
@@ -359,8 +366,10 @@ def test_a_shared_behavior_team_is_labeled_only_when_requested(
     team,
     user,
     routing_chain,
+    monkeypatch,
 ) -> None:
-    _setup(routing_chain, team, user, shared_behavior_labels={"team-beta": "review: beta"})
+    monkeypatch.setattr(routing_service, "SHARED_BEHAVIOR_LABELS", {"team-beta": "review: beta"})
+    _setup(routing_chain, team, user)
     routing_chain.cut_model.answer = answer
 
     assert _run_event_task(MagicMock(), throw=False).successful()
@@ -368,6 +377,28 @@ def test_a_shared_behavior_team_is_labeled_only_when_requested(
     assert len(routing_chain.cut_model.calls) == expected_calls
     assert _requested(routing_chain) == ({"carol"}, expected_teams)
     assert [write["body"] for write in _writes(routing_chain, "add_labels")] == expected_labels
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_cut_sole_shared_behavior_owner_gets_no_request(
+    team,
+    user,
+    routing_chain,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(routing_service, "SHARED_BEHAVIOR_LABELS", {"team-beta": "review: beta"})
+    _setup(routing_chain, team, user, files=[_file("products/beta/b.py")])
+    routing_chain.cut_model.answer = {"cuts": [{"owner": "team-beta", "reason": "Tests only."}]}
+
+    assert _run_event_task(MagicMock(), throw=False).successful()
+
+    assert len(routing_chain.cut_model.calls) == 1
+    assert _writes(routing_chain, "request_reviewers") == []
+    assert _writes(routing_chain, "add_labels") == []
+    assert _stored(team.id)["status"] == "done"
+    assert _run_log(team.id)["team-beta"][:2] == ("cut", "shared_behavior_cut")
+    [comment] = _writes(routing_chain, "issue_comment")
+    assert "No owner was requested for review" in comment["body"]["body"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

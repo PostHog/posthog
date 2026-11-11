@@ -15,7 +15,7 @@ from anthropic import Anthropic, BadRequestError
 from anthropic.types import JSONOutputFormatParam, Message, OutputConfigParam
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import resolve_ai_gateway_config
+from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
 
 from products.stamphog.backend.logic.gateway_tokens import (
     STAMPHOG_AI_PRODUCT,
@@ -88,10 +88,22 @@ class GatewayCutModel:
         self._attribution = attribution
         self.sent_request = False
         self.usage: CutUsage | None = None
+        self._session: tuple[AIGatewayConfig, str] | None = None
+        self._session_failed = False
 
     def __call__(
         self, system_prompt: str, user_prompt: str, schema: Mapping[str, object]
     ) -> Mapping[str, object] | None:
+        session = self._open_session()
+        if session is None:
+            return None
+        gateway, token = session
+        return self._ask(gateway_root(gateway), token, system_prompt, user_prompt, schema)
+
+    def _open_session(self) -> tuple[AIGatewayConfig, str] | None:
+        if self._session is not None or self._session_failed:
+            return self._session
+        self._session_failed = True
         gateway = resolve_ai_gateway_config()
         if gateway is None or is_legacy_stamphog_route(gateway.url):
             logger.info("stamphog_reviewer_routing_no_gateway", team_id=self._team_id)
@@ -112,12 +124,18 @@ class GatewayCutModel:
         except Exception as exc:  # noqa: BLE001 - the cut is optional, so a mint failure keeps every owner
             logger.warning("stamphog_reviewer_routing_mint_failed", error_type=type(exc).__name__)
             return None
-        try:
-            return self._ask(gateway_root(gateway), token, system_prompt, user_prompt, schema)
-        finally:
-            outcome = revoke_scoped_token(gateway, token)
-            if outcome != "ok":
-                logger.warning("stamphog_reviewer_routing_revoke_failed", outcome=outcome)
+        self._session_failed = False
+        self._session = (gateway, token)
+        return self._session
+
+    def close(self) -> None:
+        if self._session is None:
+            return
+        gateway, token = self._session
+        self._session = None
+        outcome = revoke_scoped_token(gateway, token)
+        if outcome != "ok":
+            logger.warning("stamphog_reviewer_routing_revoke_failed", outcome=outcome)
 
     def _ask(
         self, root: str, token: str, system_prompt: str, user_prompt: str, schema: Mapping[str, object]

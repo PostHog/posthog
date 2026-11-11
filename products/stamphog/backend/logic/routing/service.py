@@ -51,7 +51,7 @@ from products.stamphog.backend.logic.routing.comment import (
     render_routing_comment,
 )
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts
-from products.stamphog.backend.logic.routing.fork_labels import fork_labels, shared_behavior_labels
+from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.routing.model import GatewayCutModel
 from products.stamphog.backend.logic.routing.run_log import record_routing_run
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
@@ -60,6 +60,9 @@ from products.stamphog.backend.models import PullRequest, StamphogRepoConfig
 logger = structlog.get_logger(__name__)
 
 ROUTING_EVENT = "stamphog_reviewer_routing_completed"
+SHARED_BEHAVIOR_LABELS: Mapping[str, str] = {
+    "team-agent-infrastructure": "agent-infra/review-needed",
+}
 STATUS_WAITING = RoutingStatus.WAITING.value
 # A task claimed the pull request and its routing is running. The record holds the plan once
 # `planned_at` is set, and the plan is saved before any GitHub write.
@@ -330,19 +333,22 @@ def _plan_requests(
     *,
     fork: bool,
     labels_by_team: Mapping[str, str],
-    review_labels_by_team: Mapping[str, str],
+    shared_labels_by_team: Mapping[str, str],
 ) -> _Requests:
     users = [candidate.owner.removeprefix("@") for candidate in kept if candidate.kind == OwnerKind.PERSON]
     teams = [candidate.owner for candidate in kept if candidate.kind == OwnerKind.TEAM]
-    review_labels = [review_labels_by_team[team] for team in teams if team in review_labels_by_team]
-    if not fork:
-        return _Requests(users=users, teams=teams, labeled_teams=[], labels=list(dict.fromkeys(review_labels)))
-    labeled_teams = [team for team in teams if team in labels_by_team]
+    fork_labels_by_team = labels_by_team if fork else {}
+    labeled_teams = [team for team in teams if team in fork_labels_by_team]
+    requested_teams = [team for team in teams if team not in fork_labels_by_team]
+    labels = [
+        *(fork_labels_by_team[team] for team in labeled_teams),
+        *(label for team in requested_teams if (label := shared_labels_by_team.get(team))),
+    ]
     return _Requests(
         users=users,
-        teams=[team for team in teams if team not in labels_by_team],
+        teams=requested_teams,
         labeled_teams=labeled_teams,
-        labels=list(dict.fromkeys([*(labels_by_team[team] for team in labeled_teams), *review_labels])),
+        labels=list(dict.fromkeys(labels)),
     )
 
 
@@ -355,7 +361,7 @@ def _owner_outcome(
     labeled_teams: set[str],
 ) -> RoutingOwnerOutcome:
     """What the run does with one owner. GitHub can still refuse a request, which the run log adds."""
-    if reason == RoutingOwnerReason.MODEL_CUT:
+    if reason in (RoutingOwnerReason.MODEL_CUT, RoutingOwnerReason.SHARED_BEHAVIOR_CUT):
         return RoutingOwnerOutcome.CUT
     if owner in held_back:
         # Full routing would have asked this owner. The approval held the request back.
@@ -502,15 +508,19 @@ def _plan(
         },
     )
     # A pinned routing asks the model too, so the run log shows which owners full routing would have asked.
-    decision = decide_cuts(
-        candidates=candidates,
-        title=str(pr.get("title") or ""),
-        description=str(pr.get("body") or ""),
-        is_fork=fork,
-        call_model=model,
-        files_truncated=files_truncated,
-        shared_behavior_teams=frozenset(shared_behavior_labels(repo_config)),
-    )
+    shared_behavior_teams = frozenset() if pinned_only else frozenset(SHARED_BEHAVIOR_LABELS)
+    try:
+        decision = decide_cuts(
+            candidates=candidates,
+            title=str(pr.get("title") or ""),
+            description=str(pr.get("body") or ""),
+            is_fork=fork,
+            call_model=model,
+            files_truncated=files_truncated,
+            shared_behavior_teams=shared_behavior_teams,
+        )
+    finally:
+        model.close()
     has_pins = any(candidate.is_pinned for candidate in candidates)
     # Owners that full routing would ask and an approval does not.
     held_back = {candidate.owner for candidate in candidates if pinned_only and not candidate.is_pinned}
@@ -524,7 +534,7 @@ def _plan(
         to_request,
         fork=fork,
         labels_by_team=fork_labels(repo_config),
-        review_labels_by_team=shared_behavior_labels(repo_config),
+        shared_labels_by_team=SHARED_BEHAVIOR_LABELS,
     )
     planned_at = datetime.now(UTC).isoformat()
     return {

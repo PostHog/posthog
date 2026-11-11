@@ -356,88 +356,99 @@ class TestDecideCuts:
         assert decision.llm_skipped == skipped
 
 
+_KEPT = RoutingOwnerReason.SHARED_BEHAVIOR_KEPT
+_CUT = RoutingOwnerReason.SHARED_BEHAVIOR_CUT
+_BOTH_PROMPTS = [CUT_SYSTEM_PROMPT, SHARED_BEHAVIOR_SYSTEM_PROMPT]
+_PLATFORM_CUT = {"cuts": [{"owner": "team-platform", "reason": "Only calls the existing API."}]}
+
+
 class TestSharedBehaviorCuts:
     @parameterized.expand(
         [
             (
-                "cuts_the_team_when_shared_behavior_is_unchanged",
-                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                "cuts_the_team",
+                [_candidate("team-big", lines=50)],
                 {"cuts": []},
-                {"cuts": [{"owner": "team-platform", "reason": "Only calls the existing API."}]},
+                _PLATFORM_CUT,
                 ["team-platform"],
-                2,
+                _BOTH_PROMPTS,
+                _CUT,
             ),
             (
-                "keeps_the_team_when_shared_behavior_changes",
-                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                "keeps_the_team",
+                [_candidate("team-big", lines=50)],
                 {"cuts": []},
                 {"cuts": []},
                 [],
-                2,
+                _BOTH_PROMPTS,
+                _KEPT,
             ),
             (
-                "keeps_the_team_when_the_second_call_fails",
-                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                "logs_a_failed_second_call",
+                [_candidate("team-big", lines=50)],
                 {"cuts": []},
                 RuntimeError("gateway down"),
                 [],
-                2,
+                _BOTH_PROMPTS,
+                RoutingOwnerReason.SHARED_BEHAVIOR_NO_ANSWER,
             ),
             (
-                "ignores_a_second_pass_cut_of_another_owner",
-                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                "ignores_a_cut_of_another_owner",
+                [_candidate("team-big", lines=50)],
                 {"cuts": []},
                 {"cuts": [{"owner": "team-big", "reason": "x"}]},
                 [],
-                2,
+                _BOTH_PROMPTS,
+                _KEPT,
             ),
             (
-                "skips_the_second_call_when_the_first_cut_the_team",
-                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                "skips_the_check_when_the_first_pass_cut_the_team",
+                [_candidate("team-big", lines=50)],
                 {"cuts": [{"owner": "team-platform", "reason": "Only a rename."}]},
                 None,
                 ["team-platform"],
-                1,
+                [CUT_SYSTEM_PROMPT],
+                RoutingOwnerReason.MODEL_CUT,
             ),
             (
-                "cuts_a_sole_owner_team_without_a_normal_call",
-                [_candidate("team-platform")],
-                None,
-                {"cuts": [{"owner": "team-platform", "reason": "Tests only."}]},
-                ["team-platform"],
-                -1,
-            ),
-            (
-                "keeps_the_other_owner_when_both_are_cut",
-                [_candidate("team-small", lines=2), _candidate("team-platform", lines=50)],
-                {"cuts": [{"owner": "team-small", "reason": "Only a rename."}]},
-                {"cuts": [{"owner": "team-platform", "reason": "Tests only."}]},
-                ["team-platform"],
-                2,
-            ),
-            (
-                "skips_the_second_call_for_a_pinned_team",
-                [_candidate("team-big", lines=50), _candidate("team-platform", pins=_SENSITIVE_PIN)],
-                {"cuts": []},
-                None,
+                "checks_a_sole_owner_without_the_first_pass",
                 [],
-                1,
+                None,
+                _PLATFORM_CUT,
+                ["team-platform"],
+                [SHARED_BEHAVIOR_SYSTEM_PROMPT],
+                _CUT,
+            ),
+            (
+                "keeps_the_largest_first_pass_cut_when_both_are_cut",
+                [_candidate("team-small", lines=2)],
+                {"cuts": [{"owner": "team-small", "reason": "Only a rename."}]},
+                _PLATFORM_CUT,
+                ["team-platform"],
+                _BOTH_PROMPTS,
+                _CUT,
             ),
         ]
     )
     def test_second_pass(
         self,
         _name: str,
-        candidates: list[OwnerCandidate],
-        first_answer: Mapping[str, object],
+        others: list[OwnerCandidate],
+        first_answer: Mapping[str, object] | None,
         second_answer: Exception | Mapping[str, object] | None,
         expected_cut: list[str],
-        expected_calls: int,
+        expected_prompts: list[str],
+        expected_reason: RoutingOwnerReason,
     ) -> None:
+        candidates = [*others, _candidate("team-platform", lines=10)]
         prompts: list[str] = []
         second_users: list[str] = []
 
-        def call_model(system: str, user: str, schema: Mapping[str, object]) -> Mapping[str, object] | None:
+        def call_model(
+            system: str,
+            user: str,
+            schema: Mapping[str, object],
+        ) -> Mapping[str, object] | None:
             prompts.append(system)
             if system == CUT_SYSTEM_PROMPT:
                 return first_answer
@@ -456,11 +467,37 @@ class TestSharedBehaviorCuts:
         )
 
         assert [cut.candidate.owner for cut in decision.cut] == expected_cut
-        if expected_calls == -1:
-            assert prompts == [SHARED_BEHAVIOR_SYSTEM_PROMPT]
-        else:
-            assert prompts == [CUT_SYSTEM_PROMPT, SHARED_BEHAVIOR_SYSTEM_PROMPT][:expected_calls]
+        assert len(decision.kept) == len(candidates) - len(expected_cut)
+        assert decision.reasons["team-platform"] == expected_reason
+        assert prompts == expected_prompts
         assert all("team-big/code.py" not in user for user in second_users)
+
+    def test_skips_the_check_for_a_pinned_team(self) -> None:
+        candidates = [
+            _candidate("team-big", lines=50),
+            _candidate("team-platform", pins=_SENSITIVE_PIN),
+        ]
+        prompts: list[str] = []
+
+        def call_model(
+            system: str,
+            user: str,
+            schema: Mapping[str, object],
+        ) -> Mapping[str, object] | None:
+            prompts.append(system)
+            return {"cuts": []}
+
+        decision = decide_cuts(
+            candidates=candidates,
+            title="t",
+            description="d",
+            is_fork=False,
+            call_model=call_model,
+            shared_behavior_teams=frozenset({"team-platform"}),
+        )
+
+        assert prompts == [CUT_SYSTEM_PROMPT]
+        assert decision.reasons["team-platform"] == RoutingOwnerReason.SENSITIVE
 
 
 class TestRenderRoutingComment:
@@ -497,3 +534,42 @@ class TestRenderRoutingComment:
         assert "@PostHog/security" not in body
         assert "`code`" not in body
         assert len(items[0]) < 300
+
+    @parameterized.expand(
+        [
+            (
+                "with_a_reviewer",
+                True,
+                "Review requests went to the owners of the changed code. These owners",
+            ),
+            (
+                "without_a_reviewer",
+                False,
+                "No owner was requested for review, so please request a reviewer.",
+            ),
+        ]
+    )
+    def test_names_a_shared_behavior_cut(
+        self,
+        _name: str,
+        has_reviewer: bool,
+        opening: str,
+    ) -> None:
+        decision = RoutingDecision(
+            kept=(_candidate("team-big"),) if has_reviewer else (),
+            cut=(
+                CutOwner(
+                    candidate=_candidate("team-platform"),
+                    reason="Tests only.",
+                    shared_behavior=True,
+                ),
+            ),
+            llm_skipped=None,
+        )
+
+        body = render_routing_comment(decision=decision, org="PostHog")
+
+        assert body is not None
+        assert body.split("\n")[1].startswith(opening)
+        assert "leaves the shared behavior of their code unchanged:" in body
+        assert "looks trivial" not in body

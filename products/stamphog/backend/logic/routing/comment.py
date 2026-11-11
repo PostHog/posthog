@@ -6,7 +6,7 @@ import re
 
 from owners_yaml import owner_handle
 
-from products.stamphog.backend.logic.routing.cut import RoutingDecision
+from products.stamphog.backend.logic.routing.cut import CutOwner, RoutingDecision
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown
 
 ROUTING_COMMENT_MARKER = "<!-- stamphog-reviewer-routing -->"
@@ -50,22 +50,42 @@ def render_routing_comment(*, decision: RoutingDecision, org: str) -> str | None
     """The comment body, or None when no owner was cut."""
     if not decision.cut:
         return None
-    lines = [
-        ROUTING_COMMENT_MARKER,
-        "Review requests went to the owners of the changed code. "
-        "These owners were not requested because their part of this change looks trivial:",
-        "",
+    intro = (
+        "Review requests went to the owners of the changed code."
+        if decision.kept
+        else "No owner was requested for review, so please request a reviewer."
+    )
+    sections = [
+        (
+            [cut for cut in decision.cut if not cut.shared_behavior],
+            "These owners were not requested because their part of this change looks trivial:",
+        ),
+        (
+            [cut for cut in decision.cut if cut.shared_behavior],
+            "These owners were not requested because their part of this change leaves the shared "
+            "behavior of their code unchanged:",
+        ),
     ]
+    lines = [ROUTING_COMMENT_MARKER]
+    for cuts, heading in sections:
+        if not cuts:
+            continue
+        lines += [f"{intro} {heading}" if intro else heading, "", *_reason_lines(cuts, org), ""]
+        intro = ""
+    lines.append(
+        "If you were listed here and want to review, you can still assign yourself as a reviewer.",
+    )
+    return "\n".join(lines)
+
+
+def _reason_lines(cuts: list[CutOwner], org: str) -> list[str]:
     # A change the pull request repeats across many owners gets the same reason for each, so one
     # line per reason keeps the comment short.
     handles_by_reason: dict[str, list[str]] = {}
-    for cut in decision.cut:
+    for cut in cuts:
         handle = sanitize_for_code_span(owner_handle(cut.candidate.owner, org))
         handles_by_reason.setdefault(_plain_reason(cut.reason), []).append(f"`{handle}`")
-    for reason, handles in handles_by_reason.items():
-        lines.append(f"- {', '.join(handles)}: {reason}")
-    lines += ["", "If you were listed here and want to review, you can still assign yourself as a reviewer."]
-    return "\n".join(lines)
+    return [f"- {', '.join(handles)}: {reason}" for reason, handles in handles_by_reason.items()]
 
 
 def render_approved_routing_comment() -> str:

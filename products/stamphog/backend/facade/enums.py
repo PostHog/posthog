@@ -116,6 +116,9 @@ class RoutingOwnerReason(LabeledStrEnum):
     CUT_SKIPPED = "cut_skipped", "Cut step skipped"
     MODEL_KEPT = "model_kept", "Kept by the model"
     MODEL_CUT = "model_cut", "Cut by the model"
+    SHARED_BEHAVIOR_KEPT = "shared_behavior_kept", "Kept by the shared behavior check"
+    SHARED_BEHAVIOR_CUT = "shared_behavior_cut", "Cut by the shared behavior check"
+    SHARED_BEHAVIOR_NO_ANSWER = "shared_behavior_no_answer", "Shared behavior check gave no answer"
     # Kept for older runs, which logged every unpinned owner of an approved head with this reason.
     STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
 

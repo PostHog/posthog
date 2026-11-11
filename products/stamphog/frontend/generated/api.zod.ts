@@ -14,8 +14,6 @@ import * as zod from 'zod'
  */
 export const stamphogRepoConfigsCreateBodyRoutingForkLabelsMaxOne = 50
 
-export const stamphogRepoConfigsCreateBodyRoutingSharedBehaviorLabelsMaxOne = 50
-
 export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
     .object({
         provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
@@ -49,12 +47,6 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
             ),
-        routing_shared_behavior_labels: zod
-            .record(zod.string(), zod.string().max(stamphogRepoConfigsCreateBodyRoutingSharedBehaviorLabelsMaxOne))
-            .optional()
-            .describe(
-                "Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer. Sending the field replaces the whole map, and an empty object removes every team."
-            ),
         review_on_clean_external_review: zod
             .boolean()
             .optional()
@@ -70,8 +62,6 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
 export const stamphogRepoConfigsUpdateBodyRoutingForkLabelsMaxOne = 50
-
-export const stamphogRepoConfigsUpdateBodyRoutingSharedBehaviorLabelsMaxOne = 50
 
 export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -106,12 +96,6 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
             ),
-        routing_shared_behavior_labels: zod
-            .record(zod.string(), zod.string().max(stamphogRepoConfigsUpdateBodyRoutingSharedBehaviorLabelsMaxOne))
-            .optional()
-            .describe(
-                "Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer. Sending the field replaces the whole map, and an empty object removes every team."
-            ),
         review_on_clean_external_review: zod
             .boolean()
             .optional()
@@ -127,8 +111,6 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
 export const stamphogRepoConfigsPartialUpdateBodyRoutingForkLabelsMaxOne = 50
-
-export const stamphogRepoConfigsPartialUpdateBodyRoutingSharedBehaviorLabelsMaxOne = 50
 
 export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -162,15 +144,6 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
-            ),
-        routing_shared_behavior_labels: zod
-            .record(
-                zod.string(),
-                zod.string().max(stamphogRepoConfigsPartialUpdateBodyRoutingSharedBehaviorLabelsMaxOne)
-            )
-            .optional()
-            .describe(
-                "Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer. Sending the field replaces the whole map, and an empty object removes every team."
             ),
         review_on_clean_external_review: zod
             .boolean()
