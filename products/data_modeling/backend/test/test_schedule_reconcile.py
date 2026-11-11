@@ -1212,19 +1212,19 @@ class TestMaybeReconcileDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("self_hosted_never_loads_definitions", False, False, None, True, False),
-            ("cloud_with_the_sdk_disabled", True, True, None, True, False),
-            ("cloud_with_definitions_that_failed_to_load", True, False, None, False, False),
-            ("cloud_with_empty_definitions", True, False, [], False, False),
-            ("cloud_after_the_flag_was_deleted", True, False, [{"key": "other-flag"}], True, False),
-            ("cloud_with_a_flag_it_could_not_evaluate", True, False, [{"key": REFRESH_FLOOR_FLAG}], True, True),
+            ("self_hosted_never_loads_definitions", False, False, None, True, False, True),
+            ("cloud_with_the_sdk_disabled", True, True, None, True, False, True),
+            ("cloud_with_definitions_that_failed_to_load", True, False, None, False, False, False),
+            ("cloud_with_empty_definitions", True, False, [], False, False, False),
+            ("cloud_after_the_flag_was_deleted", True, False, [{"key": "other-flag"}], True, False, True),
+            ("cloud_with_a_flag_it_could_not_evaluate", True, False, [{"key": REFRESH_FLOOR_FLAG}], True, True, True),
         ]
     )
     def test_no_flag_result_only_refuses_when_definitions_failed_to_load(
-        self, _name, cloud, disabled, definitions, evaluated, reported
+        self, _name, cloud, disabled, definitions, evaluated, reported, calls_the_sdk
     ):
         with (
-            mock.patch(FLAG_RESULT, return_value=None),
+            mock.patch(FLAG_RESULT, return_value=None) as flag,
             mock.patch(f"{REFRESH_FLOOR}.run_mode", return_value=mock.Mock(is_deployed_cloud=cloud)),
             mock.patch(f"{REFRESH_FLOOR}.posthoganalytics.disabled", disabled),
             mock.patch(f"{REFRESH_FLOOR}.posthoganalytics.feature_flag_definitions", return_value=definitions),
@@ -1236,6 +1236,7 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertIsNone(reading.floor)
         self.assertEqual(reading.evaluated, evaluated)
         self.assertEqual(capture.called, reported)
+        self.assertEqual(flag.called, calls_the_sdk)
 
     @parameterized.expand(
         [

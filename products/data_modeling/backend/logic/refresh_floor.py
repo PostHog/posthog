@@ -87,6 +87,8 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
     """
     organization_id = str(organization.id)
     try:
+        if _definitions_failed_to_load():
+            return PlanRefreshFloorReading(floor=None, evaluated=False)
         result = posthoganalytics.get_feature_flag_result(
             REFRESH_FLOOR_FLAG,
             organization_id,
@@ -96,7 +98,8 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
             send_feature_flag_events=False,
         )
         if result is None:
-            return PlanRefreshFloorReading(floor=None, evaluated=_no_result_means_no_floor(organization_id))
+            _report_if_the_flag_is_inconclusive(organization_id)
+            return PlanRefreshFloorReading(floor=None, evaluated=True)
         if not result.enabled:
             return PlanRefreshFloorReading(floor=None, evaluated=True)
         min_interval = _plan_min_interval(organization)
@@ -125,26 +128,33 @@ def _report_once(error: Exception, organization_id: str) -> None:
     capture_exception(error, {"flag": REFRESH_FLOOR_FLAG, "organization_id": organization_id})
 
 
-def _no_result_means_no_floor(organization_id: str) -> bool:
-    """Tell an instance with no floor from a failed read, because the SDK returns no result for both.
+def _definitions_failed_to_load() -> bool:
+    """On deployed cloud, a process with the SDK enabled but no definitions failed to load them.
 
-    On deployed cloud, a process with the SDK enabled but no definitions failed to load them, so a
-    reconcile could speed up a schedule the floor holds back. Self-hosted instances and E2E stacks may
-    never load definitions, and a disabled SDK returns no result for every flag.
+    Its read can't tell a floor from none, so a reconcile could speed up a schedule the floor holds back.
+    The check runs before the SDK call, because the SDK fetches missing definitions over the network even
+    for a local-only read, and a cadence save holds its DAG's row lock while it reads the floor.
+    Self-hosted instances and E2E stacks may never load definitions, and a disabled SDK returns no
+    result for every flag.
+    """
+    return (
+        run_mode().is_deployed_cloud
+        and not posthoganalytics.disabled
+        and not posthoganalytics.feature_flag_definitions()
+    )
 
-    With definitions loaded, no result means the flag was deleted or its conditions need data this
-    read does not send. That reads as no floor, so that one flag edit cannot block saves and
-    reconciles for every organization until someone edits it again. It is reported, because it turns
-    the floor off everywhere.
+
+def _report_if_the_flag_is_inconclusive(organization_id: str) -> None:
+    """With definitions loaded, no result means the flag was deleted or its conditions need data this read
+    does not send.
+
+    That reads as no floor, so that one flag edit cannot block saves and reconciles for every
+    organization until someone edits it again. It is reported, because it turns the floor off everywhere.
     """
     if not run_mode().is_deployed_cloud or posthoganalytics.disabled:
-        return True
-    definitions = posthoganalytics.feature_flag_definitions()
-    if not definitions:
-        return False
-    if any(flag.get("key") == REFRESH_FLOOR_FLAG for flag in definitions):
+        return
+    if any(flag.get("key") == REFRESH_FLOOR_FLAG for flag in posthoganalytics.feature_flag_definitions() or []):
         _report_once(RefreshFloorFlagInconclusive(), organization_id)
-    return True
 
 
 def _plan_min_interval(organization: Organization) -> timedelta | None:

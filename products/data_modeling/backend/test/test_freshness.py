@@ -8,6 +8,7 @@ from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     STREAMING,
     InvalidTarget,
+    PlanFloorRefusalError,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     all_consumer_ceilings,
@@ -237,20 +238,30 @@ class TestValidateFrequencyTarget(TestCase):
                     schedule_plan_floor=schedule_plan_floor,
                 )
 
-    def test_plan_refusal_names_the_plan_and_the_cadence_to_pick(self):
-        with self.assertRaises(UnsatisfiableFrequencyError) as raised:
+    @parameterized.expand(
+        [
+            (
+                "bounds_leave_a_cadence_to_pick",
+                [("src", "a")],
+                {},
+                "Can't refresh every 15 minutes on your plan. Pick 6 hours instead, or upgrade to refresh more often.",
+            ),
+            ("a_consumer_needs_a_cadence_the_plan_refuses", [("src", "a"), ("a", "ep")], {"ep": M15}, None),
+        ]
+    )
+    def test_plan_refusal_is_raised_as_a_plan_refusal(self, _name, edges, declared_targets, message):
+        with self.assertRaises(PlanFloorRefusalError) as raised:
             validate_declared_target(
                 node_id="a",
                 target=M15,
-                edges=[("src", "a")],
-                declared_targets={},
+                edges=edges,
+                declared_targets=declared_targets,
                 source_intervals={"src": STREAMING},
                 plan_floor=H6,
             )
-        self.assertEqual(
-            str(raised.exception),
-            "Can't refresh every 15 minutes on your plan. Pick 6 hours instead, or upgrade to refresh more often.",
-        )
+        self.assertEqual(raised.exception.plan_floor, H6)
+        if message is not None:
+            self.assertEqual(str(raised.exception), message)
 
     def test_refusal_under_pinned_parents_names_the_pinned_view(self):
         with self.assertRaises(UnsatisfiableFrequencyError) as raised:
