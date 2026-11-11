@@ -14,7 +14,6 @@ import { AccessControlLevel } from '~/types'
 
 import type { HogFlowListSummaryApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
 import {
     FIXTURE_METRICS,
     FIXTURE_WORKFLOWS,
@@ -244,8 +243,13 @@ describe('WorkflowsScene', () => {
         )
 
         await waitFor(() => expect(document.querySelector('[data-attr="new-workflow"]')).not.toBeNull())
+        expect(document.body).not.toHaveTextContent('Create a workflow')
         fireEvent.click(document.querySelector('[data-attr="new-workflow"]')!)
-        expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
+
+        await waitFor(() => expect(document.body).toHaveTextContent('Create a workflow'))
+        expect(document.querySelector('[data-attr="workflow-template-type-messaging"]')?.closest('li')).toHaveClass(
+            'LemonSegmentedButton__option--selected'
+        )
     })
 
     it('turns an old filter link into pills without loading the old list', async () => {
