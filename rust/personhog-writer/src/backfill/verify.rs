@@ -1,6 +1,5 @@
 //! Compares a Postgres snapshot with SlateDB person by person, by version. A SlateDB record newer
-//! than the snapshot is a write after it, so it is judged again against the live database when one
-//! is given; anything else that differs is a divergence between the two stores, logged by id.
+//! than the snapshot is a write after it; anything else that differs is a divergence, logged by id.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -93,7 +92,24 @@ fn same_json(a: &[u8], b: &[u8]) -> bool {
         serde_json::from_slice::<serde_json::Value>(a),
         serde_json::from_slice::<serde_json::Value>(b),
     ) {
-        (Ok(a), Ok(b)) => a == b,
+        (Ok(a), Ok(b)) => same_value(&a, &b),
+        _ => a == b,
+    }
+}
+
+/// Postgres prints a large float such as `1.7e18` as an integer, so numbers compare by value.
+fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => a == b || a.as_f64() == b.as_f64(),
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_value(a, b))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(key, a)| b.get(key).is_some_and(|b| same_value(a, b)))
+        }
         _ => a == b,
     }
 }
@@ -106,8 +122,6 @@ pub struct VerifyCounts {
     pub behind: u64,
     pub missing: u64,
     pub newer_in_slatedb: u64,
-    /// Still newer in SlateDB after the live re-check: changing while checked.
-    pub in_flux: u64,
     pub rejected: u64,
 }
 
@@ -120,7 +134,6 @@ impl VerifyCounts {
             "behind" => self.behind += 1,
             "missing" => self.missing += 1,
             "newer_in_slatedb" => self.newer_in_slatedb += 1,
-            "in_flux" => self.in_flux += 1,
             _ => self.rejected += 1,
         }
     }
@@ -132,12 +145,11 @@ impl VerifyCounts {
         self.behind += other.behind;
         self.missing += other.missing;
         self.newer_in_slatedb += other.newer_in_slatedb;
-        self.in_flux += other.in_flux;
         self.rejected += other.rejected;
     }
 
     pub fn divergent(&self) -> u64 {
-        self.differs + self.behind + self.missing
+        self.differs + self.behind + self.missing + self.rejected
     }
 
     fn to_json(self) -> Vec<u8> {
@@ -148,7 +160,6 @@ impl VerifyCounts {
             "behind": self.behind,
             "missing": self.missing,
             "newer_in_slatedb": self.newer_in_slatedb,
-            "in_flux": self.in_flux,
             "rejected": self.rejected,
         })
         .to_string()
@@ -170,13 +181,54 @@ impl VerifyCounts {
             behind: field("behind")?,
             missing: field("missing")?,
             newer_in_slatedb: field("newer_in_slatedb")?,
-            in_flux: field("in_flux")?,
             rejected: field("rejected")?,
         })
     }
 }
 
-/// The live database, for a second look at persons the snapshot predates.
+/// A verification run's progress, under `verify/<run>` in the backfill state store.
+pub struct Verification {
+    store: Arc<dyn ObjectStore>,
+    root: String,
+}
+
+impl Verification {
+    pub fn new(store: Arc<dyn ObjectStore>, run_id: &str) -> Result<Self, BackfillError> {
+        validate_name(run_id, true)?;
+        Ok(Self {
+            store,
+            root: format!("verify/{run_id}"),
+        })
+    }
+
+    fn path(&self, name: &str) -> ObjectPath {
+        ObjectPath::from(format!("{}/{name}", self.root))
+    }
+
+    pub async fn finished(&self, number: usize) -> Result<Option<VerifyCounts>, BackfillError> {
+        match self
+            .store
+            .get(&self.path(&format!("ranges/{number:05}/done")))
+            .await
+        {
+            Ok(found) => Ok(Some(VerifyCounts::from_json(&found.bytes().await?)?)),
+            Err(personhog_property_store::object_store::Error::NotFound { .. }) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    async fn mark_done(&self, number: usize, counts: VerifyCounts) -> Result<(), BackfillError> {
+        self.store
+            .put(
+                &self.path(&format!("ranges/{number:05}/done")),
+                PutPayload::from(counts.to_json()),
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+/// The live database's row for one person, which `properties get` shows beside SlateDB's.
 pub struct Live {
     pool: PgPool,
     query: String,
@@ -227,48 +279,6 @@ impl Live {
     }
 }
 
-/// A verification run's progress, under `verify/<run>` in the backfill state store.
-pub struct Verification {
-    store: Arc<dyn ObjectStore>,
-    root: String,
-}
-
-impl Verification {
-    pub fn new(store: Arc<dyn ObjectStore>, run_id: &str) -> Result<Self, BackfillError> {
-        validate_name(run_id, true)?;
-        Ok(Self {
-            store,
-            root: format!("verify/{run_id}"),
-        })
-    }
-
-    fn path(&self, name: &str) -> ObjectPath {
-        ObjectPath::from(format!("{}/{name}", self.root))
-    }
-
-    pub async fn finished(&self, number: usize) -> Result<Option<VerifyCounts>, BackfillError> {
-        match self
-            .store
-            .get(&self.path(&format!("ranges/{number:05}/done")))
-            .await
-        {
-            Ok(found) => Ok(Some(VerifyCounts::from_json(&found.bytes().await?)?)),
-            Err(personhog_property_store::object_store::Error::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    async fn mark_done(&self, number: usize, counts: VerifyCounts) -> Result<(), BackfillError> {
-        self.store
-            .put(
-                &self.path(&format!("ranges/{number:05}/done")),
-                PutPayload::from(counts.to_json()),
-            )
-            .await?;
-        Ok(())
-    }
-}
-
 /// SlateDB answers a read eventually; a few retries cover a slow open or a timeout.
 async fn read(
     reader: &PropertyReader,
@@ -276,15 +286,6 @@ async fn read(
     person_id: i64,
 ) -> Result<Option<StoredProperties>, BackfillError> {
     retrying(team_id, person_id, || reader.get(team_id, person_id)).await
-}
-
-/// The live re-check reads past the cached reader's poll, so a write SlateDB already has is seen.
-async fn read_fresh(
-    reader: &PropertyReader,
-    team_id: i64,
-    person_id: i64,
-) -> Result<Option<StoredProperties>, BackfillError> {
-    retrying(team_id, person_id, || reader.get_fresh(team_id, person_id)).await
 }
 
 async fn retrying<F, Fut>(
@@ -313,49 +314,16 @@ where
 /// The outcome for one snapshot row, with the row and record the verdict rests on.
 async fn check(
     reader: &PropertyReader,
-    live: Option<&Live>,
     row: PropertyRecord,
 ) -> Result<(&'static str, PropertyRecord, Option<StoredProperties>), BackfillError> {
     let stored = read(reader, row.team_id, row.person_id).await?;
-    let verdict = judge(&row, stored.as_ref());
-    if verdict != Verdict::NewerInSlatedb {
-        return Ok((verdict.label(), row, stored));
-    }
-    let Some(live) = live else {
-        return Ok((verdict.label(), row, stored));
-    };
-    match live.row(row.team_id, row.person_id).await? {
-        // Gone from the live table: deleted and swept after the snapshot.
-        None => Ok(("match", row, stored)),
-        Some(Scanned::Reject { reason, .. }) => {
-            tracing::warn!(
-                team_id = row.team_id,
-                person_id = row.person_id,
-                reason,
-                "live row rejected"
-            );
-            Ok(("rejected", row, stored))
-        }
-        Some(Scanned::Record(fresh) | Scanned::Trimmed(fresh)) => {
-            // A fresh read opens a reader of its own, so it is spent only when the cached one is behind.
-            let stored = match stored {
-                Some(cached) if cached.version >= fresh.version => Some(cached),
-                _ => read_fresh(reader, fresh.team_id, fresh.person_id).await?,
-            };
-            let outcome = match judge(&fresh, stored.as_ref()) {
-                Verdict::NewerInSlatedb => "in_flux",
-                verdict => verdict.label(),
-            };
-            Ok((outcome, fresh, stored))
-        }
-    }
+    Ok((judge(&row, stored.as_ref()).label(), row, stored))
 }
 
 /// The stores a verification reads, and where it records what it finds.
 pub struct Verifier<'a> {
     pub pool: &'a PgPool,
     pub reader: &'a PropertyReader,
-    pub live: Option<&'a Live>,
     pub verification: &'a Verification,
     /// The scanner's limits, so a document the scan trimmed compares in its trimmed form.
     pub limits: SizeLimits,
@@ -383,9 +351,7 @@ impl Verifier<'_> {
             };
             for scanned in page.into_iter().step_by(step) {
                 let (outcome, row, stored) = match scanned {
-                    Scanned::Record(row) | Scanned::Trimmed(row) => {
-                        check(self.reader, self.live, row).await?
-                    }
+                    Scanned::Record(row) | Scanned::Trimmed(row) => check(self.reader, row).await?,
                     Scanned::Reject {
                         team_id,
                         person_id,
@@ -400,7 +366,7 @@ impl Verifier<'_> {
                 };
                 counts.add(outcome);
                 counter!("personhog_verify_persons_total", "outcome" => outcome).increment(1);
-                if matches!(outcome, "differs" | "behind" | "missing" | "in_flux") {
+                if matches!(outcome, "differs" | "behind" | "missing") {
                     tracing::warn!(
                         team_id = row.team_id,
                         person_id = row.person_id,
@@ -488,6 +454,18 @@ mod tests {
                 Verdict::Match,
             ),
             (
+                "a large float Postgres prints as an integer",
+                row(4, false, r#"{"n":1700000000000000000,"l":[1e16]}"#),
+                Some(stored(4, false, r#"{"n":1.7e18,"l":[1e16]}"#)),
+                Verdict::Match,
+            ),
+            (
+                "same version, different number",
+                row(4, false, r#"{"n":1700000000000000000}"#),
+                Some(stored(4, false, r#"{"n":1.8e18}"#)),
+                Verdict::Differs,
+            ),
+            (
                 "same version, different document",
                 row(4, false, r#"{"a":1}"#),
                 Some(stored(4, false, r#"{"a":2}"#)),
@@ -557,5 +535,15 @@ mod tests {
         for (name, row, stored, expected) in cases {
             assert_eq!(judge(&row, stored.as_ref()), expected, "{name}");
         }
+    }
+
+    #[test]
+    fn the_cutover_gate_counts_rows_the_scan_rejected() {
+        let counts = VerifyCounts {
+            rejected: 1,
+            ..VerifyCounts::default()
+        };
+
+        assert_eq!(counts.divergent(), 1);
     }
 }

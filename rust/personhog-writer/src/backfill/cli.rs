@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::backfill::scanner::{self, Run, SizeLimits, TopicSink};
 use crate::backfill::start;
-use crate::backfill::verify::{self, Live, Verification};
+use crate::backfill::verify::{self, Verification};
 use crate::config::Config;
 use crate::kafka::{base_client_config, changelog_kafka};
 
@@ -81,9 +81,6 @@ struct VerifyArgs {
     /// Checks one row in every N of each page; 1 checks every row.
     #[arg(long, default_value_t = 1)]
     sample_every: usize,
-    /// The live database, consulted for persons written after the snapshot in DATABASE_URL.
-    #[arg(long)]
-    live_database_url: Option<String>,
 }
 
 pub async fn run(backfill: Backfill, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
@@ -172,22 +169,6 @@ async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::er
     serve_metrics(config.metrics_port);
     let pool = pool(config)?;
     let limits = limits(config);
-    let live = match &args.live_database_url {
-        Some(url) => Some(Live::new(
-            get_pool_with_config(
-                url,
-                PoolConfig {
-                    max_connections: 2,
-                    pool_name: Some("personhog-writer-verify-live".to_string()),
-                    statement_timeout_ms: Some(10_000),
-                    ..Default::default()
-                },
-            )?,
-            &config.pg_target_table,
-            limits,
-        )?),
-        None => None,
-    };
     let state = state_store(config)?;
     let run = Run::new(Arc::clone(&state), &args.run_id)?;
     let verification = Verification::new(state, &args.run_id)?;
@@ -200,13 +181,11 @@ async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::er
         index = args.index,
         workers = args.workers,
         sample_every = args.sample_every,
-        live = live.is_some(),
         "starting verification worker"
     );
     let counts = verify::Verifier {
         pool: &pool,
         reader: &reader,
-        live: live.as_ref(),
         verification: &verification,
         limits,
     }
