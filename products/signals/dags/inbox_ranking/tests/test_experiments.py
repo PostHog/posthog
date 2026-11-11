@@ -18,6 +18,7 @@ from products.signals.backend.ranking.features import (
     PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     REPORT_FACT_FEATURE_NAMES,
     REPORT_FACT_GROUPS,
@@ -51,7 +52,13 @@ from products.signals.dags.inbox_ranking.nn.examples import (
     examples_arrow,
     examples_from_arrow,
 )
-from products.signals.dags.inbox_ranking.nn.model import network_recipe, onnx_probabilities, vs_baseline_block
+from products.signals.dags.inbox_ranking.nn.model import (
+    MIN_TRAINED_GROUP_SHARE,
+    network_recipe,
+    onnx_probabilities,
+    vs_baseline_block,
+    zero_unfitted_groups,
+)
 from products.signals.dags.inbox_ranking.nn.pair_grade import DOGFOOD_TEAM_ID, pair_vs_baseline_block
 from products.signals.dags.inbox_ranking.nn.pair_lane import (
     PAIR_SETTINGS,
@@ -600,6 +607,28 @@ def test_content_that_was_not_recorded_reads_as_zero_and_keeps_the_other_facts(c
     assert all(_hot(row, "title_chars_") == ["title_chars_0_49"] for row in matrix)
 
 
+@pytest.mark.parametrize(
+    "train_rows_with_content,expected_zeroed",
+    [(0, ["content"]), (int(100 * MIN_TRAINED_GROUP_SHARE) - 1, ["content"]), (int(100 * MIN_TRAINED_GROUP_SHARE), [])],
+)
+def test_a_late_group_too_few_training_rows_carry_is_zeroed_on_every_row(train_rows_with_content, expected_zeroed):
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET
+    names = list(feature_set.feature_names)
+    recorded, addressed = names.index("content_recorded"), names.index("already_addressed_true")
+    title = names.index("title_chars_0_49")
+    # 100 training rows, then 10 holdout rows that all carry the content group.
+    reports = np.zeros((110, len(names)), dtype=np.float32)
+    reports[:, [addressed, title]] = 1.0
+    reports[:train_rows_with_content, recorded] = 1.0
+    reports[100:, recorded] = 1.0
+
+    zeroed = zero_unfitted_groups(reports, np.arange(100), feature_set)
+
+    assert zeroed == expected_zeroed
+    assert reports[100:, recorded].sum() == (0 if expected_zeroed else 10)
+    assert reports[:, [addressed, title]].all()
+
+
 def test_the_report_facts_experiment_trains_on_examples_without_content_and_reads_every_group(monkeypatch):
     pytest.importorskip("torch")
     monkeypatch.setattr(nn_dag, "capture_training_events", lambda *args, **kwargs: None)
@@ -645,6 +674,7 @@ def test_the_report_facts_experiment_trains_on_examples_without_content_and_read
     )
     assert (matrix["content_recorded"] == 0).all() and (matrix["title_chars_60_69"] == 1).all()
     metadata = json.loads(client.objects[model_object_key(PREFIX, family.name, day, METADATA_FILE)])
+    assert metadata["vs_baseline"]["zeroed_feature_groups"] == ["content", "already_addressed"]
     importance = metadata["vs_baseline"]["group_importance"]
     assert importance["seeds"] == 2
     for name in NN_HEAD_NAMES:

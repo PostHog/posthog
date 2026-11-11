@@ -169,6 +169,11 @@ class FeatureSet(abc.ABC):
     optional_state_columns: tuple[str, ...] = ()
     # Named groups of `feature_names` whose holdout importance an experiment reads, empty for none.
     feature_groups: Mapping[str, tuple[str, ...]] = MappingProxyType({})
+    # Named groups of `feature_names` built from `optional_state_columns`. A report enters the
+    # holdout days before it enters the training rows, so such a group can be set in the holdout
+    # while no training row has it. Its weights then hold their initial random values, and training
+    # zeroes the group on every row until enough training rows carry it.
+    late_feature_groups: Mapping[str, tuple[str, ...]] = MappingProxyType({})
     example_grain: str = BIRTH_GRAIN
     # Rows one head's examples may keep, or None for every row the grain produces.
     max_examples_per_head: int | None = None
@@ -501,7 +506,9 @@ class ReportEmbeddingsPriorityMLFeaturesFeatureSet(ReportEmbeddingsPrioritySourc
     `corroboration_count` and `content_revision_count` are left out on purpose.
 
     `feature_groups` names each group's columns, the parent's `sources` included, so a group's
-    importance is read by shuffling its columns together. `buildable` is the parent's.
+    importance is read by shuffling its columns together. `late_feature_groups` names the columns
+    built from the optional state columns, which training zeroes until enough training rows carry
+    them. `buildable` is the parent's.
     """
 
     schema_version = 1
@@ -519,6 +526,12 @@ class ReportEmbeddingsPriorityMLFeaturesFeatureSet(ReportEmbeddingsPrioritySourc
     optional_state_columns = (ALREADY_ADDRESSED_COLUMN, *CONTENT_COLUMNS)
     feature_groups: Mapping[str, tuple[str, ...]] = MappingProxyType(
         {"sources": SOURCES_GROUP_FEATURE_NAMES, **REPORT_FACT_GROUPS}
+    )
+    late_feature_groups: Mapping[str, tuple[str, ...]] = MappingProxyType(
+        {
+            "content": REPORT_FACT_GROUPS["content"],
+            ALREADY_ADDRESSED_COLUMN: (f"{ALREADY_ADDRESSED_COLUMN}_true", f"{ALREADY_ADDRESSED_COLUMN}_false"),
+        }
     )
 
     def build_matrix(

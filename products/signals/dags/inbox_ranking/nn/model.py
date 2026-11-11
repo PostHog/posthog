@@ -42,6 +42,8 @@ HOLDOUT_MODEL_FILE = "model.holdout.onnx"
 # The seed of the permutations that shuffle a feature group across the holdout rows.
 GROUP_SHUFFLE_SEED = 0
 GROUP_IMPORTANCE_READS = ("pooled", "within_team_non_dogfood_macro")
+# The share of training rows that must carry a late feature group before the network reads it.
+MIN_TRAINED_GROUP_SHARE = 0.05
 
 
 @frozen
@@ -359,10 +361,31 @@ def vs_baseline_block(
     }
 
 
+def _group_columns(feature_set: FeatureSet, groups: Mapping[str, Sequence[str]]) -> dict[str, list[int]]:
+    position = {name: index for index, name in enumerate(feature_set.feature_names)}
+    return {group: [position[name] for name in names] for group, names in groups.items()}
+
+
 def feature_group_columns(feature_set: FeatureSet) -> dict[str, list[int]]:
     """The report-input column positions of each of the set's `feature_groups`."""
-    position = {name: index for index, name in enumerate(feature_set.feature_names)}
-    return {group: [position[name] for name in names] for group, names in feature_set.feature_groups.items()}
+    return _group_columns(feature_set, feature_set.feature_groups)
+
+
+def zero_unfitted_groups(reports: np.ndarray, train_rows: np.ndarray, feature_set: FeatureSet) -> list[str]:
+    """Zero, on every row of `reports` in place, each of the set's `late_feature_groups` that fewer
+    than `MIN_TRAINED_GROUP_SHARE` of `train_rows` carry, and return those groups' names.
+
+    A row carries a group when any of the group's columns is not zero. The weights of a group that
+    no training row carries get no gradient and keep their initial random values, so a holdout row
+    that carries the group would add noise to its score.
+    """
+    zeroed: list[str] = []
+    for group, columns in _group_columns(feature_set, feature_set.late_feature_groups).items():
+        carried = np.any(reports[train_rows][:, columns] != 0, axis=1)
+        if len(train_rows) == 0 or carried.mean() < MIN_TRAINED_GROUP_SHARE:
+            reports[:, columns] = 0.0
+            zeroed.append(group)
+    return zeroed
 
 
 def _importance_reads(y: np.ndarray, scores: np.ndarray, team_ids: np.ndarray) -> dict[str, float | None]:

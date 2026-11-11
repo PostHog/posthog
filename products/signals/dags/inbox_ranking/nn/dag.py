@@ -70,6 +70,7 @@ from products.signals.dags.inbox_ranking.nn.model import (
     network_recipe,
     network_vector_kinds,
     vs_baseline_block,
+    zero_unfitted_groups,
 )
 from products.signals.dags.inbox_ranking.training.calibration import bucket_rows
 from products.signals.dags.inbox_ranking.training.dag import (
@@ -291,6 +292,12 @@ def train_candidate(
         examples.table, extras, day.labels, day.embeddings, family.feature_set, family.project_vector_kinds
     )
     del day
+    zeroed_groups = zero_unfitted_groups(inputs.reports, examples.table.network_train_rows(), family.feature_set)
+    if zeroed_groups:
+        context.log.info(
+            f"{family.name} reads zeros for {', '.join(zeroed_groups)} on dt={partition_key}: too few training "
+            "rows carry them"
+        )
     check_recipe(
         client,
         bucket,
@@ -323,6 +330,8 @@ def train_candidate(
             experiment_scores=experiment_scores,
             baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
         )
+        if family.feature_set.late_feature_groups:
+            vs_baseline["zeroed_feature_groups"] = zeroed_groups
         groups = feature_group_columns(family.feature_set)
         if groups:
             # Scored by the arm's own seed fits, so the read adds no fit.
