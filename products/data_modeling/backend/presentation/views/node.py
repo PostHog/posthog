@@ -38,6 +38,7 @@ from products.data_modeling.backend.facade.api import (
     get_declared_target,
     is_declared_pin,
     load_node_descriptions,
+    node_lineage_counts,
     parse_warehouse_table_id,
     run_related_node_materializations,
     saved_query_pin_preview,
@@ -762,17 +763,14 @@ class NodeViewSet(
         return super().retrieve(request, *args, **kwargs)
 
     def list(self, request, *args, **kwargs):
-        from products.data_modeling.backend.facade.models import Graph
-
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
 
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         nodes = page if page is not None else queryset
 
-        graph = Graph(team_id=self.team_id, hidden_types=self._hidden_node_types())
         node_ids = [str(n.id) for n in nodes]
-        counts = graph.batch_counts(node_ids)
+        counts = node_lineage_counts(self.team_id, node_ids, hidden_types=self._hidden_node_types())
 
         serializer = self.get_serializer(
             nodes, many=True, context={**self.get_serializer_context(), "node_counts": counts}

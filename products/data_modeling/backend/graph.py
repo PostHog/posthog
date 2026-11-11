@@ -89,3 +89,10 @@ class Graph:
             key = str(nid)
             result[key] = (self.get_upstream_count(key), self.get_downstream_count(key))
         return result
+
+
+def node_lineage_counts(
+    team_id: int, node_ids: list[str], hidden_types: frozenset[str] = frozenset()
+) -> dict[str, tuple[int, int]]:
+    """The (upstream_count, downstream_count) of each node, from one load of the team's edges."""
+    return Graph(team_id=team_id, hidden_types=hidden_types).batch_counts(node_ids)
