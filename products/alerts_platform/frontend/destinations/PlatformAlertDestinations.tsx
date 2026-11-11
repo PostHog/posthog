@@ -1,11 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { PlatformAlertCreateDestinationApi, PlatformAlertDestinationApi } from '../generated/api.schemas'
 import { PlatformAlertDestinationAddForm } from './PlatformAlertDestinationAddForm'
-import { destinationTarget, destinationTypeLabel } from './platformAlertDestinationFormat'
+import { MAX_DESTINATIONS_PER_ALERT, destinationTarget, destinationTypeLabel } from './platformAlertDestinationFormat'
 import { PlatformAlertDestinationsLogicProps, platformAlertDestinationsLogic } from './platformAlertDestinationsLogic'
 
 /** An alert's own notification destinations. Before the alert exists, they wait as pending and are added once it is saved. */
@@ -18,13 +18,27 @@ export function PlatformAlertDestinations(props: PlatformAlertDestinationsLogicP
 }
 
 function DestinationsContent(): JSX.Element {
-    const { destinations, destinationsLoading, pendingDestinations, removingDestinationIds, isAddingDestination } =
-        useValues(platformAlertDestinationsLogic)
-    const { removeDestination, removePendingDestination, startAddingDestination } =
+    const {
+        destinations,
+        destinationsLoading,
+        destinationsLoadFailed,
+        pendingDestinations,
+        removingDestinationIds,
+        isAddingDestination,
+        atDestinationLimit,
+    } = useValues(platformAlertDestinationsLogic)
+    const { loadDestinations, removeDestination, removePendingDestination, startAddingDestination } =
         useActions(platformAlertDestinationsLogic)
 
-    if (destinations === null && destinationsLoading) {
+    if (destinationsLoading && destinations === null) {
         return <Spinner />
+    }
+    if (destinationsLoadFailed && destinations === null) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadDestinations() }}>
+                Could not load this alert's destinations.
+            </LemonBanner>
+        )
     }
 
     const isEmpty = (destinations?.length ?? 0) === 0 && pendingDestinations.length === 0
@@ -57,6 +71,11 @@ function DestinationsContent(): JSX.Element {
                     size="small"
                     icon={<IconPlus />}
                     onClick={startAddingDestination}
+                    disabledReason={
+                        atDestinationLimit
+                            ? `An alert can have at most ${MAX_DESTINATIONS_PER_ALERT} destinations`
+                            : undefined
+                    }
                     data-attr="platform-alert-destination-add"
                 >
                     Add destination

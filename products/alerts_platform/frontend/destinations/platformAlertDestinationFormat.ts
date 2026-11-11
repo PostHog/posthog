@@ -21,6 +21,9 @@ export interface DestinationForm {
     webhookUrl: string
 }
 
+// Mirrors the API's cap, so a new alert's pending destinations never exceed what its create can save.
+export const MAX_DESTINATIONS_PER_ALERT = 5
+
 export const EMPTY_DESTINATION_FORM: DestinationForm = {
     type: 'slack',
     slackWorkspaceId: null,

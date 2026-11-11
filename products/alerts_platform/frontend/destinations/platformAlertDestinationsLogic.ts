@@ -21,6 +21,7 @@ import { PlatformAlertCreateDestinationApi, PlatformAlertDestinationApi } from '
 import {
     DestinationForm,
     EMPTY_DESTINATION_FORM,
+    MAX_DESTINATIONS_PER_ALERT,
     destinationBody,
     validateDestinationForm,
 } from './platformAlertDestinationFormat'
@@ -37,6 +38,7 @@ export interface platformAlertDestinationsLogicValues {
     integrationsLoading: boolean // integrationsLogic
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
+    atDestinationLimit: boolean
     destinationForm: DestinationForm
     destinationFormAllErrors: Record<string, any>
     destinationFormChanged: boolean
@@ -47,6 +49,7 @@ export interface platformAlertDestinationsLogicValues {
     destinationFormTouches: Record<string, boolean>
     destinationFormValidationErrors: DeepPartialMap<DestinationForm, ValidationErrorType>
     destinations: PlatformAlertDestinationApi[] | null
+    destinationsLoadFailed: boolean
     destinationsLoading: boolean
     isAddingDestination: boolean
     isDestinationFormSubmitting: boolean
@@ -137,6 +140,10 @@ export interface platformAlertDestinationsLogicActions {
 export interface platformAlertDestinationsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        atDestinationLimit: (
+            destinations: PlatformAlertDestinationApi[] | null,
+            pendingDestinations: PlatformAlertCreateDestinationApi[]
+        ) => boolean
         slackIntegration: (
             slackIntegrations: IntegrationType[] | undefined,
             destinationForm: DestinationForm
@@ -161,10 +168,16 @@ export async function createPendingDestinations(
     alertId: string,
     destinations: PlatformAlertCreateDestinationApi[]
 ): Promise<number> {
-    const results = await Promise.allSettled(
-        destinations.map((destination) => platformAlertsDestinationsCreate(projectId, alertId, destination))
-    )
-    return results.filter((result) => result.status === 'rejected').length
+    let failed = 0
+    // One at a time, so the destinations keep the order they were added in.
+    for (const destination of destinations) {
+        try {
+            await platformAlertsDestinationsCreate(projectId, alertId, destination)
+        } catch {
+            failed += 1
+        }
+    }
+    return failed
 }
 
 export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogicType>([
@@ -200,6 +213,8 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
     })),
 
     reducers({
+        // A failed load is not an empty list, so the component can offer a retry instead.
+        destinationsLoadFailed: [false, { loadDestinationsSuccess: () => false, loadDestinationsFailure: () => true }],
         pendingDestinations: [
             [] as PlatformAlertCreateDestinationApi[],
             {
@@ -230,6 +245,10 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
             errors: validateDestinationForm,
             submit: async (form) => {
                 const body = destinationBody(form, values.slackIntegration?.id)
+                if (values.atDestinationLimit) {
+                    lemonToast.error(`An alert can have at most ${MAX_DESTINATIONS_PER_ALERT} destinations.`)
+                    throw new Error('At the destination limit')
+                }
                 if (!props.alertId) {
                     actions.addPendingDestination(body)
                 } else {
@@ -257,6 +276,13 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
 
     // After forms, because slackIntegration reads the destination form.
     selectors({
+        atDestinationLimit: [
+            (s) => [s.destinations, s.pendingDestinations],
+            (
+                destinations: PlatformAlertDestinationApi[] | null,
+                pendingDestinations: PlatformAlertCreateDestinationApi[]
+            ): boolean => (destinations?.length ?? 0) + pendingDestinations.length >= MAX_DESTINATIONS_PER_ALERT,
+        ],
         slackIntegration: [
             (s) => [s.slackIntegrations, s.destinationForm],
             (
