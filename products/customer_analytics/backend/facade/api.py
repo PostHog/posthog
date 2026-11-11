@@ -139,6 +139,9 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
+from products.customer_analytics.backend.logic.activity_query_access import (
+    validate_activity_query_property_access as validate_activity_property_access,
+)
 from products.customer_analytics.backend.logic.book_activity_access import validate_book_activity_query_access
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
@@ -407,6 +410,10 @@ def _resolve_accessible_account(
         return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
     except (ValidationError, ValueError):
         return None
+
+
+def validate_activity_query_property_access(team: Team, user: "User | None", labels: list[str]) -> None:
+    validate_activity_property_access(team, user, labels)
 
 
 def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:

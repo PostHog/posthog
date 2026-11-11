@@ -112,13 +112,23 @@ class BookActivityFirstsQueryRunner(BookActivityQueryRunner[BookActivityFirstsQu
             for account_key, product, person_id, email, name, first in people[:MAX_FIRST_USE_ROWS]
             if account_key in account_by_key
         ]
-        # Account dates need an independent aggregate because the person cap can omit whole accounts.
-        account_response = self._execute("BookActivityFirstsAccounts", self._firsts_query(people=False))
-        results.accounts = [
-            BookActivityMatrixFirstUse(row=account_by_key[account_key], series=product, date=day_key(first))
-            for account_key, product, first in account_response.results or []
-            if account_key in account_by_key
-        ]
+        if len(people) > MAX_FIRST_USE_ROWS:
+            # The person cap can omit whole accounts, so truncated results need an independent aggregate.
+            account_response = self._execute("BookActivityFirstsAccounts", self._firsts_query(people=False))
+            results.accounts = [
+                BookActivityMatrixFirstUse(row=account_by_key[account_key], series=product, date=day_key(first))
+                for account_key, product, first in account_response.results or []
+                if account_key in account_by_key
+            ]
+        else:
+            account_firsts: dict[tuple[str, str], str] = {}
+            for person in results.people:
+                key = (person.row, person.series)
+                account_firsts[key] = min(account_firsts.get(key, person.date), person.date)
+            results.accounts = [
+                BookActivityMatrixFirstUse(row=row, series=product, date=first)
+                for (row, product), first in account_firsts.items()
+            ]
         response.hogql = people_response.hogql
         response.timings = self.timings.to_list()
         return response

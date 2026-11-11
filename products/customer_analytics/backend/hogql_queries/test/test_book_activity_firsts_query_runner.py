@@ -9,6 +9,8 @@ from parameterized import parameterized
 
 from posthog.schema import BookActivityFirstsQuery, BookActivityMatrixEmptyReason
 
+from posthog.hogql.query import execute_hogql_query
+
 from products.customer_analytics.backend.hogql_queries import book_activity_firsts_query_runner as firsts_module
 from products.customer_analytics.backend.hogql_queries.book_activity_firsts_query_runner import (
     BookActivityFirstsQueryRunner,
@@ -62,8 +64,15 @@ class TestBookActivityFirstsQueryRunner(BookActivityTestCase):
             (CY, self.beta, "2026-10-26"),
         ]:
             self._event(person, "insight created", date + "T10:00:00Z", account)
-        with patch.object(firsts_module, "MAX_FIRST_USE_ROWS", cap):
+        with (
+            patch.object(firsts_module, "MAX_FIRST_USE_ROWS", cap),
+            patch(
+                "products.customer_analytics.backend.hogql_queries.activity_base.execute_hogql_query",
+                wraps=execute_hogql_query,
+            ) as queries,
+        ):
             result = self._run()
+        assert queries.call_count == (2 if truncated else 1)
         assert len(result.people) == cap
         assert result.truncated == truncated
         assert {(p.row, p.date) for p in result.accounts} == {

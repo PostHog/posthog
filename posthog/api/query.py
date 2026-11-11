@@ -103,6 +103,7 @@ from products.customer_analytics.backend.facade.api import (
     get_activity_query_status_scopes,
     validate_account_activity_access,
     validate_account_users_access,
+    validate_activity_query_property_access,
     validate_book_activity_access,
     validate_book_activity_accounts_access,
     validate_book_activity_people_access,
@@ -549,6 +550,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             and scopes_missing_after_legacy_fallback(request, self, held_scopes, required_scopes)
         ):
             raise PermissionDenied("This API key does not have the required scopes to read this query.")
+        if required_scopes is not None:
+            try:
+                validate_activity_query_property_access(
+                    self.team, request.user if isinstance(request.user, User) else None, query_status.labels or []
+                )
+            except UserAccessControlError as error:
+                raise PermissionDenied(str(error)) from error
         for label_prefix, validate_account_access in (
             (ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX, validate_account_users_access),
             (ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX, validate_account_activity_access),

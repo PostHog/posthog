@@ -85,6 +85,7 @@ class BookActivityQueryRunner(ActivityQueryRunner[AR], Generic[AR]):
         user_id = self.user.id if isinstance(self.user, User) else "anonymous"
         account_ids = ",".join(str(account.id) for account in self._book_accounts[: self._row_limit])
         labels = [
+            *super().query_status_labels(),
             f"{BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX}{user_id}",
             f"{BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX}{account_ids}",
         ]

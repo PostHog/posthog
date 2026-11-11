@@ -20,12 +20,17 @@ from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.query_runner import AR, AnalyticsQueryRunner
 from posthog.week_start_day import WeekStartDay
 
+from products.customer_analytics.backend.logic.activity_query_access import get_activity_query_property_access_label
+
 DEFAULT_ROW_LIMIT = 50
 MAX_ROW_LIMIT = 200
 
 
 class ActivityQueryRunner(AnalyticsQueryRunner[AR], Generic[AR]):
     query: AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery
+
+    def query_status_labels(self) -> list[str]:
+        return [get_activity_query_property_access_label(self.team, self.user)]
 
     @cached_property
     def _row_limit(self) -> int:
