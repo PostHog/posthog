@@ -344,6 +344,35 @@ class TestWorkflowFolders(APIBaseTest):
             [response.json() for response in placements], [{"path": "Campaigns/Synthetic email"}, {"path": None}]
         )
 
+    @parameterized.expand([("root", "Synthetic email"), ("escaped_folder", "Spring\\/Summer/Synthetic email")])
+    def test_undoing_a_template_delete_with_the_flag_off_puts_it_back_at_its_placement(self, _name, path) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template_id = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email"}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).update(
+            path=path, depth=len(path.replace("\\/", "").split("/"))
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            placement = self.client.get(f"{templates_url}{template_id}/placement/").json()["path"]
+            deleted = self.client.patch(f"{templates_url}{template_id}/", {"deleted": True}, format="json")
+            restored = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                {"items": [{"type": "message_template", "ref": template_id, "path": placement}]},
+                format="json",
+            )
+
+        self.assertEqual([deleted.status_code, restored.status_code], [200, 200], [deleted.content, restored.content])
+        self.assertEqual(
+            list(
+                FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).values_list(
+                    "path", "depth"
+                )
+            ),
+            [(path, len(path.replace("\\/", "").split("/")))],
+        )
+
     @parameterized.expand([("hog_flow_read", ["hog_flow:read"], 200), ("other_scope", ["feature_flag:read"], 403)])
     def test_a_template_placement_reads_with_a_key_that_holds_the_workflow_read_scope(
         self, _name, scopes, expected_status
