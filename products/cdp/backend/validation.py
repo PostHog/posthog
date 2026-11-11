@@ -101,6 +101,16 @@ def _as_integration_id(value: object) -> int | None:
     return None
 
 
+def _is_stored_sender_id(integration_id: object, context: dict) -> bool:
+    existing = context.get("existing_email_from") or []
+    return any(
+        isinstance(stored, dict)
+        and type(stored.get("integrationId")) is type(integration_id)
+        and stored.get("integrationId") == integration_id
+        for stored in (existing if isinstance(existing, list) else [existing])
+    )
+
+
 def _sender_integration_ids(from_value: dict) -> set[int]:
     rotation = from_value.get("integrationIds")
     candidates = [from_value.get("integrationId"), *(rotation if isinstance(rotation, list) else [])]
@@ -1049,9 +1059,12 @@ class InputsItemSerializer(serializers.Serializer):
                         {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
                     )
 
-                # JSON has one number type, so 2.0 names Integration 2: the kind check below reads it as such.
                 integration_id = from_value.get("integrationId")
-                if integration_id is not None and _as_integration_id(integration_id) is None:
+                if (
+                    integration_id is not None
+                    and _as_integration_id(integration_id) is None
+                    and not _is_stored_sender_id(integration_id, self.context)
+                ):
                     raise serializers.ValidationError(
                         {"input": "Expected 'from.integrationId' to be an Integration ID."}
                     )

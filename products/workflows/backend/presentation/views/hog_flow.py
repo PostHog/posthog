@@ -1246,8 +1246,6 @@ def _has_exact_string_filter(filters: dict, key: str) -> bool:
 
 @frozen
 class _SenderStep:
-    """Which step a stored email sender belongs to: a sender only stays approved on the same step."""
-
     step_id: str
     step_type: str
     template_id: str
