@@ -109,7 +109,7 @@ describe.each([false, true])('scorer scene duplication with Today navigation: %s
             const searchParams = { duplicate: definition.id }
             router.actions.push(urls.aiObservabilityScorer('new'), searchParams)
             const SceneComponent = scene.component
-            render(
+            const { container } = render(
                 <BindLogic logic={scorerLogic} props={scene.paramsToProps!({ params, searchParams, hashParams: {} })}>
                     <SceneComponent {...params} />
                 </BindLogic>
@@ -121,7 +121,7 @@ describe.each([false, true])('scorer scene duplication with Today navigation: %s
             if (calculation === 'composite') {
                 expect((screen.getByLabelText('Formula') as HTMLTextAreaElement).value).toBe('quality >= 0.8')
             }
-            fireEvent.click(screen.getByRole('button', { name: 'Create scorer' }))
+            fireEvent.click(container.querySelector('[data-attr="llma-scorer-save"]')!)
 
             await waitFor(() =>
                 expect(llmAnalyticsScoreDefinitionsCreate).toHaveBeenCalledWith(
