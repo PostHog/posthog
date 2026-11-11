@@ -136,15 +136,19 @@ def close_moved_alert_firings(*, team_id: int, alert_id: UUID) -> None:
         close_owned_firings_now(team_id=team_id, legacy_configuration_id=alert_id)
 
 
-def delete_moved_alert_copy(*, team_id: int, alert_id: UUID) -> None:
-    """Deletes a moved alert's copy, inside the transaction that deletes the alert.
+def delete_alert_destinations_and_copy(*, team_id: int, alert_id: UUID) -> None:
+    """Removes an alert's HogFunction destinations, and a moved alert's copy, inside the transaction
+    that deletes the alert.
 
-    A copy whose alert is deleted another way, such as with its insight, switches itself off at its
-    next check.
+    A moved alert's destinations go with its copy, through the platform's delete. An alert insight
+    owns removes them here, and its copy goes after the commit (`delete_shadow_alert_copy`).
     """
     alert = _locked(team_id, alert_id)
-    if alert is not None and alert.platform_owned:
-        delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
+    if alert is None:
+        return
+    if alert.platform_owned and delete_copy(team_id=team_id, legacy_configuration_id=alert_id):
+        return
+    retire_alert_hog_functions(team_id=team_id, alert_id=str(alert_id))
 
 
 def delete_shadow_alert_copy(*, team_id: int, alert_id: UUID) -> None:
@@ -367,7 +371,6 @@ def _write_threshold(alert: AlertConfiguration, configuration: dict | None) -> N
         )
 
 
-def remove_native_destinations(*, team_id: int, configuration_id: UUID) -> None:
-    """Removes the HogFunction destinations of an insight alert with no insight row, which match on
-    the configuration's own id."""
-    retire_alert_hog_functions(team_id=team_id, alert_id=str(configuration_id))
+def remove_alert_destinations(*, team_id: int, alert_id: UUID) -> None:
+    """Removes the HogFunction destinations of an insight alert the platform owns, whatever their events."""
+    retire_alert_hog_functions(team_id=team_id, alert_id=str(alert_id))

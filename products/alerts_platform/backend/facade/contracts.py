@@ -1239,13 +1239,13 @@ class NativeEditGuard(Protocol):
 
 
 class NativeAlertRemoveDestinations(Protocol):
-    """Removes the destinations of an alert that is about to be deleted.
+    """Removes the destinations of an alert the platform owns that is about to be deleted, with a
+    source row or without one. `alert_id` is the id they match on, the alert's public id.
 
-    The alert's open incidents are closed before this runs, while the destinations their resolves go
-    to still exist. It runs in the delete's transaction, so a delete that fails keeps them.
+    It runs in the delete's transaction, so a delete that fails keeps them.
     """
 
-    def __call__(self, *, team_id: int, configuration_id: UUID) -> None: ...
+    def __call__(self, *, team_id: int, alert_id: UUID) -> None: ...
 
 
 @frozen
@@ -1262,8 +1262,8 @@ class NativeAlertLifecycle:
     check_intervals: Mapping[int, str | None] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
-    # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
-    # destinations are `AlertDestination` rows from the start, which go with the configuration.
+    # Removes the HogFunction destinations of any deleted alert the platform owns. None for a kind
+    # whose destinations are `AlertDestination` rows, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
     # False for a kind whose alerts without a source row the platform deletes but does not create
     # yet. The API then neither publishes nor accepts a create of the kind.

@@ -51,6 +51,7 @@ from products.alerts.backend.models.investigation import InsightAlertInvestigati
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_insight_alert import native_insight_alert_view
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
+from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
 from products.alerts.backend.platform_subscribers import SUBSCRIBER_EVENT_KINDS
 from products.alerts.backend.presentation.views.alert import AlertViewSet
 from products.alerts.backend.tasks.tasks import remove_departed_subscriber
@@ -1151,14 +1152,59 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.post(f"{alert_url}/test-delivery/").status_code == status.HTTP_409_CONFLICT
 
-    def test_deleting_a_moved_alert_deletes_its_copy(self) -> None:
-        response = self.client.delete(f"{self.url}/{self.alert.id}/")
+    def _destination(self) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            type="internal_destination",
+            name="Slack",
+            hog="return event",
+            enabled=True,
+            filters={
+                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}],
+            },
+        )
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        with team_scope(self.team.id):
-            assert (
-                get_configuration(
-                    team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=self.copy_id
+    @parameterized.expand([("alert_api",), ("insight_delete",)])
+    def test_deleting_a_moved_alert_deletes_its_copy_and_destinations(self, route: str) -> None:
+        destination = self._destination()
+
+        async def run_cleanup_inline(inputs: NativeCleanupInputs) -> None:
+            for configuration_id in native_alert_ids(inputs):
+                delete_native_alert(inputs.team_id, configuration_id)
+
+        with (
+            patch("products.alerts.backend.platform_native_cleanup._start", side_effect=run_cleanup_inline),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if route == "alert_api":
+                response = self.client.delete(f"{self.url}/{self.alert.id}/")
+            else:
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}", {"deleted": True}
                 )
-                is None
+
+        assert response.status_code in (status.HTTP_204_NO_CONTENT, status.HTTP_200_OK)
+        destination.refresh_from_db()
+        with team_scope(self.team.id):
+            copy = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=self.copy_id
             )
+        assert (copy, destination.deleted, AlertConfiguration.objects.filter(id=self.alert.id).exists()) == (
+            None,
+            True,
+            False,
+        )
+
+    def test_deleting_an_alert_row_directly_leaves_its_copy_and_destinations(self) -> None:
+        destination = self._destination()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            AlertConfiguration.objects.get(id=self.alert.id).delete()
+
+        destination.refresh_from_db()
+        with team_scope(self.team.id):
+            copy = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=self.copy_id
+            )
+        assert (copy is not None, destination.deleted) == (True, False)
