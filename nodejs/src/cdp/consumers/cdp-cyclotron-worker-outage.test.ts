@@ -76,13 +76,14 @@ describe('CdpCyclotronWorker during a Postgres outage', () => {
         await closeHub(hub)
     })
 
-    it.each([
-        ['every team', 'while it builds the inputs', false],
-        ['every team', 'when it fetches with built inputs', true],
-        ['only the team of a sibling destination', 'while it builds the inputs', false],
+    it.each<[string, 'every team' | 'the sibling team' | 'no team', boolean, string[]]>([
+        ['sends nothing when every team preloads and the lookup fails building inputs', 'every team', false, []],
+        ['sends nothing when every team preloads and the lookup fails fetching', 'every team', true, []],
+        ['sends nothing when only the team of a sibling destination preloads', 'the sibling team', false, []],
+        ['runs the batch as master does when no team preloads', 'no team', false, ['/webhook-without-integration']],
     ])(
-        'sends nothing when %s preloads and the integration lookup fails %s',
-        async (allowlisted, _, inputsBuilt) => {
+        '%s',
+        async (_, allowlisted, inputsBuilt, sent) => {
             const webhookUrl = `${receiver.url}/webhook-with-integration`
             const fn = await insertHogFunction(
                 hub.postgres,
@@ -116,7 +117,11 @@ describe('CdpCyclotronWorker during a Postgres outage', () => {
             const postgres = await startPostgresProxy(hub.DATABASE_URL)
             const outageHub = await createHub({
                 DATABASE_URL: postgres.url,
-                CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS: allowlisted === 'every team' ? '*' : String(team.id),
+                CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS: {
+                    'every team': '*',
+                    'the sibling team': String(team.id),
+                    'no team': '',
+                }[allowlisted],
             })
             try {
                 const worker = new CdpCyclotronWorker(outageHub, createCdpConsumerDeps(outageHub), createMockJobQueue())
@@ -134,8 +139,13 @@ describe('CdpCyclotronWorker during a Postgres outage', () => {
                     }),
                 ]
 
-                await expect(worker.processInvocations(batch)).rejects.toThrow(DependencyUnavailableError)
-                expect(receiver.received).toEqual([])
+                const outcome = worker.processInvocations(batch)
+                if (sent.length === 0) {
+                    await expect(outcome).rejects.toThrow(DependencyUnavailableError)
+                } else {
+                    await expect(outcome).resolves.toHaveLength(batch.length)
+                }
+                expect(receiver.received).toEqual(sent)
             } finally {
                 await postgres.cut()
                 await closeHub(outageHub)
