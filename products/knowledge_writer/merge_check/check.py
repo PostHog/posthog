@@ -8,7 +8,6 @@ from .sources import (
     DOCS_URL_PREFIX,
     GitHubReader,
     LandedChange,
-    find_merged_pull_request,
     is_generated_path,
     is_published_from_repository,
     is_test_path,
@@ -21,7 +20,7 @@ from .sources import (
 )
 
 
-class PullRequestNotIndexed(Exception):
+class MergeNotConfirmed(Exception):
     pass
 
 
@@ -40,17 +39,13 @@ def run_merge_check(
     commit_sha = change.after
     commit_url = f"https://github.com/{change.repository}/commit/{commit_sha}"
     listed = read_numbered_pull_request(github, change)
-    if listed is not None and not reached_default_branch(github, change.repository, listed, commit_sha):
+    if not reached_default_branch(github, change.repository, listed, commit_sha):
         if not is_final_attempt:
             raise MergeNotOnDefaultBranch(commit_sha)
         return no_docs_report(commit_sha, commit_url, title=listed.get("title") or "", reason="not_on_default_branch")
-    pull_request = (
-        find_merged_pull_request(github, change.repository, commit_sha)
-        if listed is None
-        else merged_pull_request(listed, commit_sha)
-    )
+    pull_request = merged_pull_request(listed, commit_sha)
     if pull_request is None and not is_final_attempt:
-        raise PullRequestNotIndexed(commit_sha)
+        raise MergeNotConfirmed(commit_sha)
     if pull_request is None:
         return no_docs_report(commit_sha, commit_url, title="", reason="no_pull_request")
     if not pull_request.is_trusted_author:
