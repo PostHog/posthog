@@ -42,7 +42,6 @@ export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTa
  * native_email: advanced editor with email integration dropdown, and additional email metafields
  * native_email_template: editor for creating reusable templates, with only subject and preheader, and email content fields
  * native_email_transactional_template: a template sent over the API, which also sets its own sender
- * native_email_sandbox: a workflow email step on PostHog's sandbox sender, which has no Reply-To, CC, or BCC
  */
 export type EmailTemplaterType =
     | 'email'
@@ -950,9 +949,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         flushPendingDesignEdit: async () => {
-            // A canvas edit made in the last 500ms is still inside designUpdated's debounce; closing the
-            // editor or switching the step's sender unmounts it before it exports, silently dropping that
-            // edit. Flush it now, while the editor is still mounted.
             if (props.liveChanges && cache.pendingDesignEdit && values.isEmailEditorReady) {
                 const editor = values.emailEditorRef?.editor
                 if (editor) {
