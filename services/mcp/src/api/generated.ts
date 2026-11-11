@@ -60787,6 +60787,11 @@ export namespace Schemas {
       working: ImpactWorking | null;
     }
 
+    export interface ImportAllResponse {
+      /** How many releases the import created. */
+      created_count: number;
+    }
+
     /**
      * * `customerio` - Customer.io
      */
@@ -70488,6 +70493,101 @@ export namespace Schemas {
       next_measurement_at: string | null;
     }
 
+    export interface MonitoringReading {
+      /** When this interim reading was measured. */
+      measured_at: string;
+      /**
+         * Whether the reading met the target at that point in the window. Null when the measurement failed or this viewer may not read the check's data.
+         * @nullable
+         */
+      matches: boolean | null;
+      /**
+         * Value measured from Monitoring start to `measured_at`. Null when the measurement failed or this viewer may not read the check's data.
+         * @nullable
+         */
+      observed_value: number | null;
+      /**
+         * Target the reading was compared with, scaled to elapsed time when the check scales linearly. Null for a `between` target, a failed measurement, or a viewer who may not read the check's data.
+         * @nullable
+         */
+      threshold: number | null;
+    }
+
+    export interface MonitoringLeadCheck {
+      /** The follow-up check this summary is drawn from. */
+      check_id: string;
+      /** The check's short label. */
+      title: string;
+      /**
+         * The report metric the check measures, matching `metrics[].metric_id`. Null when the check names none, or the report metric with that id no longer runs the check's query.
+         * @nullable
+         */
+      metric_id: string | null;
+      /** What the measured value means, when the check names it.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      metric_kind: ReportMetricKindEnum | null;
+      /** How to format measured values, matching a report metric's `value_format`.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format: ValueFormatEnum | null;
+      /**
+         * Optional value suffix, such as `users`.
+         * @nullable
+         */
+      unit: string | null;
+      /** What the measured value must satisfy over the reference period. */
+      readonly comparison: CheckComparison;
+      /** The target's reference period and whether it scales with elapsed time. */
+      readonly monitoring: MonitoringMetricConfig;
+      /**
+         * The value before the fix, over `monitoring.baseline_period_minutes`. Null when absent or redacted.
+         * @nullable
+         */
+      baseline_value: number | null;
+      /** End of this check's observation window. */
+      ends_at: string;
+      /**
+         * When the next interim reading is scheduled, if one falls inside the window.
+         * @nullable
+         */
+      next_measurement_at: string | null;
+      /** Interim readings in this Monitoring period, oldest first. */
+      readings: MonitoringReading[];
+    }
+
+    /**
+     * * `not_on_track` - Not on track
+     * * `on_track` - On track
+     * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
+     * * `final_check_only` - Final check only
+     * * `window_ended` - Window ended
+     */
+    export type MonitoringSummaryStateEnum = typeof MonitoringSummaryStateEnum[keyof typeof MonitoringSummaryStateEnum];
+
+
+    export const MonitoringSummaryStateEnum = {
+      NotOnTrack: 'not_on_track',
+      OnTrack: 'on_track',
+      AwaitingReading: 'awaiting_reading',
+      ReadingsHidden: 'readings_hidden',
+      FinalCheckOnly: 'final_check_only',
+      WindowEnded: 'window_ended',
+    } as const;
+
     export interface MonitoringUnresolvedSignalExtra {
       /** Original Closed report whose implementation remains unverified. */
       report_id: string;
@@ -76594,6 +76694,7 @@ export namespace Schemas {
 
     /**
      * * `self_driving` - Self-driving
+     * * `bot_admission` - Bot author
      * * `manual` - Manual
      * * `reviewhog_clean` - Clean PostHog Review
      * * `label` - Label
@@ -76604,6 +76705,7 @@ export namespace Schemas {
 
     export const ReviewTriggerEnum = {
       SelfDriving: 'self_driving',
+      BotAdmission: 'bot_admission',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
       Label: 'label',
@@ -76731,6 +76833,7 @@ export namespace Schemas {
       /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
        *
        * * `self_driving` - Self-driving
+       * * `bot_admission` - Bot author
        * * `manual` - Manual
        * * `reviewhog_clean` - Clean PostHog Review
        * * `label` - Label
@@ -77710,6 +77813,13 @@ export namespace Schemas {
          * @nullable
          */
       series?: number[] | null;
+      /**
+         * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+         * @maxItems 14
+         * @nullable
+         * @items.maxLength 32
+         */
+      series_buckets?: string[] | null;
       /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
        *
        * * `number` - number
@@ -77760,6 +77870,11 @@ export namespace Schemas {
          * @nullable
          */
       minimum_data_points?: number | null;
+      /**
+         * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values mix neighbouring buckets, or is not a Trends query.
+         * @nullable
+         */
+      readonly interval: string | null;
     }
 
     /**
@@ -78194,6 +78309,24 @@ export namespace Schemas {
       readonly steps: readonly ReportPlanStep[];
     }
 
+    export interface ReportMonitoringSummary {
+      /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
+       *
+       * * `not_on_track` - Not on track
+       * * `on_track` - On track
+       * * `awaiting_reading` - Awaiting first reading
+       * * `readings_hidden` - Readings hidden
+       * * `final_check_only` - Final check only
+       * * `window_ended` - Window ended */
+      state: MonitoringSummaryStateEnum;
+      /** When this Monitoring period started. */
+      started_at: string;
+      /** When the last open check's observation window ends. */
+      ends_at: string;
+      /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
+      lead_check: MonitoringLeadCheck | null;
+    }
+
     export interface SignalReportList {
       readonly id: string;
       /** @nullable */
@@ -78348,6 +78481,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly personal_reason: string | null;
+      /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
+      readonly monitoring_summary: ReportMonitoringSummary | null;
     }
 
     export interface PaginatedSignalReportListList {
@@ -91298,8 +91433,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 15
+         * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 16
          */
       write_scopes?: string[];
       /**
@@ -93221,12 +93356,16 @@ export namespace Schemas {
          */
       owner_id?: number | null;
       /**
-         * IDs of the feature flags that control who gets the release.
+         * IDs of the feature flags that control who gets the release, at most 100.
+         * @maxItems 100
          * @items.minimum 1
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
-      /** IDs of the broadcasts that announce the release. */
+      /**
+         * IDs of the broadcasts that announce the release, at most 100.
+         * @maxItems 100
+         */
       broadcast_ids?: string[];
     }
 
@@ -103537,6 +103676,13 @@ export namespace Schemas {
          * @nullable
          */
       series?: number[] | null;
+      /**
+         * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+         * @maxItems 14
+         * @nullable
+         * @items.maxLength 32
+         */
+      series_buckets?: string[] | null;
       /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
        *
        * * `number` - number
@@ -107494,8 +107640,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 15
+         * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 16
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -107813,8 +107959,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 15
+         * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 16
          */
       readonly write_scopes: readonly string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -111741,8 +111887,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 15
+         * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 16
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -122871,12 +123017,16 @@ export namespace Schemas {
          */
       owner_id?: number | null;
       /**
-         * IDs of the feature flags that control who gets the release.
+         * IDs of the feature flags that control who gets the release, at most 100.
+         * @maxItems 100
          * @items.minimum 1
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
-      /** IDs of the broadcasts that announce the release. */
+      /**
+         * IDs of the broadcasts that announce the release, at most 100.
+         * @maxItems 100
+         */
       broadcast_ids?: string[];
     }
 
@@ -124444,7 +124594,7 @@ export namespace Schemas {
          * @nullable
          */
       promql?: string | null;
-      /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+      /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo. */
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
       dateTo?: string;
@@ -140166,7 +140316,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), 'self_driving' (stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo policy names the bot that authored the PR).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -140176,6 +140326,7 @@ export namespace Schemas {
 
     export const StamphogReviewRunsListTrigger = {
       All: 'all',
+      BotAdmission: 'bot_admission',
       Label: 'label',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
