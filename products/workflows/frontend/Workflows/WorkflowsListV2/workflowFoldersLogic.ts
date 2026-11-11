@@ -13,6 +13,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { withTimeout } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
@@ -20,7 +21,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { fileSystemFolderCountsRetrieve, fileSystemList, fileSystemUnfiledRetrieve } from '~/generated/core/api'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import type { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
-import { parentPath, splitPath, joinPath, isPathUnder, reparentPath } from '~/layout/panel-layout/ProjectTree/utils'
+import {
+    convertFileSystemEntryToTreeDataItem,
+    parentPath,
+    splitPath,
+    joinPath,
+    isPathUnder,
+    reparentPath,
+} from '~/layout/panel-layout/ProjectTree/utils'
 import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
@@ -74,6 +82,7 @@ export interface workflowFoldersLogicValues {
     folderSearchItems: WorkflowFolderFileRow[]
     folderSidebarCollapsed: boolean
     folderTemplates: FileSystemEntry[]
+    folderTree: TreeDataItem[]
     folderTreeEntries: (FileSystemEntry | FileSystemImport)[]
     hasActiveQuery: boolean
     matchingRows: WorkflowListRow[]
@@ -182,6 +191,7 @@ export interface workflowFoldersLogicMeta {
             folderPaths: string[],
             savedItems: FileSystemEntry[]
         ) => (FileSystemEntry | FileSystemImport)[]
+        folderTree: (folderTreeEntries: (FileSystemEntry | FileSystemImport)[], folderPaths: string[]) => TreeDataItem[]
         workflowFacets: (
             facets: FacetDefinition<WorkflowListRow>[],
             placements: Record<string, FileSystemEntry> | null,
@@ -595,6 +605,32 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     items.filter((entry) => entry.type === 'folder').map((entry) => [entry.path, entry])
                 )
                 return folderPaths.map((path) => folderByPath.get(path) ?? { path, type: 'folder' })
+            },
+        ],
+        // Built from the folders alone: counts and the open folder change on every keystroke, and building the tree
+        // walks each folder's siblings, so the sidebar reads them per row instead.
+        folderTree: [
+            (s) => [s.folderTreeEntries, s.folderPaths],
+            (entries: (FileSystemEntry | FileSystemImport)[], folderPaths: string[]): TreeDataItem[] => {
+                const foldersOnly = (items: TreeDataItem[]): TreeDataItem[] =>
+                    items
+                        .filter((item) => item.record?.type === 'folder')
+                        .map((item) => ({ ...item, children: item.children ? foldersOnly(item.children) : undefined }))
+                const children = convertFileSystemEntryToTreeDataItem({
+                    imports: entries,
+                    folderStates: Object.fromEntries(folderPaths.map((path) => [path, 'loaded'])),
+                    checkedItems: {},
+                    users: {},
+                    root: 'project://',
+                })
+                return [
+                    {
+                        id: 'project://',
+                        name: 'Project files',
+                        record: { path: '', type: 'folder' },
+                        children: foldersOnly(children),
+                    },
+                ]
             },
         ],
         // The list knows nothing of project folders, so `in:` joins its facets here.
