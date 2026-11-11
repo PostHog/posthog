@@ -14443,7 +14443,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-routing-runs-list": {
-        "description": "List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, and the model's one-line `model_reason` when it proposed a cut. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. Add `outcome` (for example `cut`) or `reason` to keep only the runs where that owner got it, and `created_after` or `created_before` to set a time window. `head_sha` finds the run for one commit. An owner missing from a run was not a candidate: it owns none of the changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed fewer files than the pull request changes (`files_truncated`). An empty result with `owner`, `outcome`, `reason` or a time window can mean only that the owner was not a candidate, so drop those filters first. No runs at all for a pull request means no run was recorded: read `routing` and `routing_mode` on `stamphog-pull-requests-list` with `pr_number` to see whether routing is off, waiting for stamphog's verdict, or still running. A `done` record whose head has no run means the log has no entry for it, most often because the log write failed. Use `stamphog-routing-runs-get` for the files each owner owns and the ownership file that decided each one.",
+        "description": "List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, and the model's one-line `model_reason` when it proposed a cut. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. Add `outcome` (for example `cut`) or `reason` to keep only the runs where that owner got it, and `created_after` or `created_before` to set a time window. `head_sha` finds the run for one commit. On a run with scope `pinned` (stamphog approved the head), only pinned owners are requested, and `not_requested` means routing would have asked this owner without the approval, while `cut` means the model would have cut it anyway. On an older pinned run whose `llm_skipped` is `stamphog_approved`, no model ran, and `not_requested` means only that the owner owns changed code. An owner missing from a run was not a candidate: it owns none of the changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed fewer files than the pull request changes (`files_truncated`). An empty result with `owner`, `outcome`, `reason` or a time window can mean only that the owner was not a candidate, so drop those filters first. No runs at all for a pull request means no run was recorded: read `routing` and `routing_mode` on `stamphog-pull-requests-list` with `pr_number` to see whether routing is off, waiting for stamphog's verdict, or still running. A `done` record whose head has no run means the log has no entry for it, most often because the log write failed. Use `stamphog-routing-runs-get` for the files each owner owns and the ownership file that decided each one.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "List stamphog reviewer routing runs",
@@ -17998,6 +17998,22 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-transactional-email-activity": {
+        "description": "Get the events of one transactional email's recipient from the 7 days before and after the send, oldest first, with the page and session of each. Use it to answer \"did jane come back after the password reset\" or \"what did this person do before the email\". Find the send's message_id with workflows-transactional-emails-list first. Events from before the person signed in count too. It returns at most 50 events before and 100 after, and has_more_before or has_more_after is true when it left some out. sessions lists each session once, and started_after_send is true when the person started it after the email. Pass a session_id to the session recording tools to watch it. The lists are empty when the send named no distinct ID. Pass expand to get the element each autocaptured click happened on.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get what a transactional email's recipient did around the send",
+        "title": "Get what a transactional email's recipient did around the send",
+        "required_scopes": ["hog_flow:read", "person:read", "query:read"],
+        "api_operations": ["GET /api/projects/{project_id}/transactional_email_log/{id}/activity/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-transactional-email-get": {
         "description": "Get one transactional email send by its message_id, with every step it went through: queued, sent, delivered or bounced, and each open and click, with their times and reasons. The subject is empty when the email was never sent, and an email marked sensitive keeps no subject values. Share the _posthogUrl so the user can see the rendered email.",
