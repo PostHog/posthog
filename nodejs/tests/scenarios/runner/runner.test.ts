@@ -4,7 +4,7 @@ import path from 'path'
 
 import { LoadedCard, load } from '../cards'
 import { Environment } from '../environment/environment'
-import { createRunner } from './runner'
+import { Runner, createRunner } from './runner'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
@@ -20,6 +20,7 @@ describe('runner', () => {
     let cacheHome: string
     let stateDir: string
     let duringReset: () => void
+    let runner: Runner
 
     const environment: Environment = {
         up: () => Promise.resolve(),
@@ -30,16 +31,19 @@ describe('runner', () => {
         down: () => Promise.resolve(),
     }
 
-    const runner = () =>
-        createRunner(environment, { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL })
-
     beforeEach(() => {
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
+        runner = createRunner(environment, {
+            ...process.env,
+            XDG_CACHE_HOME: cacheHome,
+            DATABASE_URL: PROCESS_DATABASE_URL,
+        })
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+        await runner.down()
         rmSync(cacheHome, { recursive: true, force: true })
     })
 
@@ -59,9 +63,23 @@ describe('runner', () => {
     ])('%s', async (_story, arrange, loaded, statusReason) => {
         arrange()
 
-        const result = await runner().run(loaded, NEVER_ABORTED)
+        const result = await runner.run(loaded, NEVER_ABORTED)
 
         expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringMatching(statusReason) })
+    })
+
+    it('produces with the Kafka settings each card profile names', async () => {
+        await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        const result = await runner.run(
+            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL, KAFKA_PRODUCER_SCENARIO_UNKNOWN: 'on' }),
+            NEVER_ABORTED
+        )
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: expect.stringMatching(/^the run stopped: .*scenario\.unknown/),
+        })
     })
 
     it("keeps only this run's part of each role log", async () => {
@@ -70,7 +88,7 @@ describe('runner', () => {
         writeFileSync(log, 'line from an earlier run\n')
         duringReset = () => appendFileSync(log, 'line from this run\n')
 
-        const { evidenceDir } = await runner().run(withSettings({}), NEVER_ABORTED)
+        const { evidenceDir } = await runner.run(withSettings({}), NEVER_ABORTED)
 
         expect(readFileSync(path.join(evidenceDir, 'logs', 'cdp-api.log'), 'utf8')).toBe('line from this run\n')
     })
