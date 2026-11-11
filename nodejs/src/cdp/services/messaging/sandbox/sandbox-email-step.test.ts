@@ -24,7 +24,7 @@ import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
-import { useSandboxWorld } from './_tests/sandbox-world'
+import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { claimSandboxCaps } from './sandbox-caps'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
@@ -119,10 +119,11 @@ describe('SandboxEmailSendStep', () => {
 
     const buildExecutor = (
         dailyCaps = caps,
-        deliveredAddress: DeliveredAddressReader = deliveredAddressReader(world.postgres)
+        deliveredAddress: DeliveredAddressReader = deliveredAddressReader(world.postgres),
+        faults?: SandboxFaults
     ): HogFlowExecutorService => {
         const step = new SandboxEmailSendStep({
-            service: world.service({ caps: dailyCaps }),
+            service: world.service({ caps: dailyCaps, faults }),
             hogInputsService: new HogInputsService({} as any, tokens, {} as any),
             deliveredAddress,
             siteUrl: 'http://localhost:8000',
@@ -400,6 +401,25 @@ describe('SandboxEmailSendStep', () => {
         } finally {
             store.stopLeavingClientsSilent()
         }
+    })
+
+    it("retries a step without an SES attempt while the team's email settings wait behind a lock, and sends it once they are read", async () => {
+        const executor = buildExecutor(caps, undefined, { teamConfigReadTimeoutMs: 200 })
+        const routed = await executor.execute(runFor(member()))
+        const release = await world.lockTable('workflows_teamworkflowsconfig')
+        let stalled: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+        try {
+            stalled = await executor.execute(nextDequeue(routed.invocation))
+        } finally {
+            await release()
+        }
+
+        expect(world.ses.attempts).toBe(0)
+        expect(stalled.invocation.queue).toBe('emailsandbox')
+
+        await runSandboxQueue(executor, stalled.invocation)
+        expect(world.ses.delivered).toHaveLength(1)
+        expect(await world.takeSlotsLeft(sesBucket)).toBe(sesBucket.capacity - 1)
     })
 
     it('refuses a job redelivered from before its send once SES took the email, reset the connection, and spent the caps', async () => {

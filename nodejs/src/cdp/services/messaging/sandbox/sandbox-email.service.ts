@@ -1,6 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PubSub } from '~/common/utils/pubsub'
 
 import { MessageOptOutRecord } from '../../../types'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
@@ -11,6 +12,7 @@ import {
     SandboxAuthorization,
     queryPrimaryBeforeDeadline,
     readSandboxAuthorization,
+    readerBeforeDeadline,
 } from './sandbox-authorization'
 import { SandboxCapClaim, SandboxCapClaimRequest, SandboxCaps, claimSandboxCaps } from './sandbox-caps'
 import { SandboxRenderedEmailSchema, buildSandboxMessage } from './sandbox-message'
@@ -58,12 +60,17 @@ export type SandboxEmailServiceDeps = {
     authorize: (request: { teamId: number; recipient: string; tenantName: string }) => Promise<SandboxAuthorization>
     checkRecipient: (request: SandboxRecipientCheckRequest) => Promise<SandboxRecipientCheck>
     claimCaps: (claim: SandboxCapClaimRequest) => Promise<SandboxCapClaim>
-    teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'getEmailSendingSuspension'>
+    teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'get'>
     ses: Pick<SandboxSesClient, 'send'>
     now?: () => Date
 }
 
-const RETRYABLE_REFUSALS = new Set(['authorization_unavailable', 'pause_state_unavailable', 'cap_storage_unavailable'])
+const RETRYABLE_REFUSALS = new Set([
+    'authorization_unavailable',
+    'suspension_state_unavailable',
+    'pause_state_unavailable',
+    'cap_storage_unavailable',
+])
 const MAX_ADDRESS_LENGTH = 254
 const SINGLE_ADDRESS = /^[^\s@"<>,;:()[\]\\]+@[^\s@"<>,;:()[\]\\]+\.[^\s@"<>,;:()[\]\\]+$/
 const LINE_BREAK = /[\r\n]/
@@ -95,7 +102,11 @@ export class SandboxEmailService {
         if (!this.deps.enabled) {
             return { status: 'skipped', reason: 'sending_disabled' }
         }
-        if ((await this.deps.teamWorkflowsConfig.getEmailSendingSuspension(request.teamId)) === 'staff') {
+        const teamConfig = await this.deps.teamWorkflowsConfig.get(request.teamId).catch(() => null)
+        if (!teamConfig) {
+            return refusal('suspension_state_unavailable')
+        }
+        if (teamConfig.email_sending_suspended) {
             return { status: 'skipped', reason: 'sending_suspended' }
         }
         if (request.workflowEmailPaused) {
@@ -228,7 +239,7 @@ export function createSandboxEmailService({
     recipientChecks,
     limiter,
     caps,
-    teamWorkflowsConfig,
+    pubSub,
     ses,
     fromAddress,
     tenantName,
@@ -238,7 +249,7 @@ export function createSandboxEmailService({
     recipientChecks: SandboxRecipientCheckDependencies
     limiter: RateLimiterService
     caps: SandboxCaps
-    teamWorkflowsConfig: SandboxEmailServiceDeps['teamWorkflowsConfig']
+    pubSub: PubSub
     ses: Pick<SandboxSesClient, 'send'>
     fromAddress: string
     tenantName: string
@@ -251,9 +262,17 @@ export function createSandboxEmailService({
         authorize: (request) => readSandboxAuthorization(db, request),
         checkRecipient: (request) => checkSandboxRecipient(recipientChecks, request),
         claimCaps: (claim) => claimSandboxCaps(limiter, caps, claim),
-        teamWorkflowsConfig,
+        teamWorkflowsConfig: sandboxTeamWorkflowsConfig(db, pubSub),
         ses,
     })
+}
+
+export function sandboxTeamWorkflowsConfig(
+    db: PostgresRouter,
+    pubSub: PubSub,
+    timeoutMs: number = AUTHORIZATION_TIMEOUT_MS
+): TeamWorkflowsConfigService {
+    return new TeamWorkflowsConfigService(readerBeforeDeadline(db, timeoutMs, 'sandbox-email-team-config'), pubSub)
 }
 
 export async function hasSandboxSenderRow(db: PostgresRouter, teamId: number): Promise<boolean> {
