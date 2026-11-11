@@ -3443,7 +3443,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         # The form keeps a configured cursor, so it needs no recommendation.
         if not instance.incremental_field:
-            apply_stored_suggestion(schema, instance.sync_type_config, team_id=self.team_id, schema_id=str(instance.id))
+            apply_stored_suggestion(schema, instance.sync_type_config, team=self.team, schema_id=str(instance.id))
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.

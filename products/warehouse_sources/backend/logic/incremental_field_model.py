@@ -57,6 +57,7 @@ TIMEOUT_SECONDS = 3.0
 MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
 CACHE_TTL_SECONDS = 24 * 60 * 60
+PENDING_TTL_SECONDS = 10 * 60
 # Keyed per team: one team's table names must never answer for another team.
 CACHE_KEY_PREFIX = "warehouse_incremental_field_model"
 # Gateway requests per team. Renamed tables miss the cache, so the cache alone does not bound the calls.
@@ -105,7 +106,7 @@ def recommend_for_candidates(
 
 
 def apply_stored_suggestion(
-    schema: SourceSchema, sync_type_config: Mapping[str, Any] | None, *, team_id: int, schema_id: str
+    schema: SourceSchema, sync_type_config: Mapping[str, Any] | None, *, team: "Team", schema_id: str
 ) -> None:
     """Move a stored model pick to the front, or queue one to be computed and stored.
 
@@ -113,18 +114,33 @@ def apply_stored_suggestion(
     the person wait for it. The first open shows the rule-based order and queues the question; later
     opens read the stored answer. A stored pick only counts while the table has the same candidates.
     """
-    stored = (sync_type_config or {}).get(SUGGESTION_KEY)
     key = _candidates_key(schema)
-    if isinstance(stored, dict) and stored.get("candidates") == key and isinstance(stored.get("field"), str):
-        _apply_pick(schema, stored["field"])
+    stored = (sync_type_config or {}).get(SUGGESTION_KEY)
+    stored_field = (
+        stored["field"]
+        if isinstance(stored, dict) and stored.get("candidates") == key and isinstance(stored.get("field"), str)
+        else None
+    )
+    # Checked before a stored pick too, so turning the flag off also withdraws stored picks.
+    if (stored_field is None and not _is_open(schema)) or not _model_allowed(team):
         return
-    if _is_open(schema):
-        # Deferred import: the task module imports this one.
-        from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion  # noqa: PLC0415
+    if stored_field is not None:
+        _apply_pick(schema, stored_field)
+        return
+    queued_key = f"{CACHE_KEY_PREFIX}:queued:{team.pk}:{schema_id}:{key}"
+    if not _cache_add(queued_key, PENDING_TTL_SECONDS):
+        return
+    # Deferred import: the task module imports this one.
+    from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion  # noqa: PLC0415
 
+    try:
         compute_incremental_field_suggestion.delay(
-            team_id=team_id, schema_id=schema_id, table=schema.name, fields=[dict(f) for f in _candidates(schema)]
+            team_id=team.pk, schema_id=schema_id, table=schema.name, fields=[dict(f) for f in _candidates(schema)]
         )
+    except Exception as error:
+        capture_exception(error, {"team_id": team.pk})
+        # Nothing was queued, so the next open may try again.
+        _cache_delete(queued_key)
 
 
 def store_incremental_field_suggestion(
@@ -324,6 +340,22 @@ def _cache_key(team_id: int, schema: SourceSchema) -> str:
         json.dumps([MODEL, PROMPT_VERSION, MIN_CONFIDENCE, _table_state(schema)], sort_keys=True).encode()
     ).hexdigest()
     return f"{CACHE_KEY_PREFIX}:{team_id}:{digest}"
+
+
+def _cache_add(key: str, timeout: int) -> bool:
+    """Set `key` only if it is absent. False when it was present or the cache failed."""
+    try:
+        return bool(cache.add(key, 1, timeout))
+    except Exception:
+        logger.warning("incremental_field_model_cache_add_failed", exc_info=True)
+        return False
+
+
+def _cache_delete(key: str) -> None:
+    try:
+        cache.delete(key)
+    except Exception:
+        logger.warning("incremental_field_model_cache_delete_failed", exc_info=True)
 
 
 def _cache_get_many(keys: list[str]) -> dict[str, str]:
