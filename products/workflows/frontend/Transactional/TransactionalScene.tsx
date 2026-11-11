@@ -1,11 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
-
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,12 +10,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
-import { newTransactionalPushLogic } from './push/newTransactionalPushLogic'
 import { NewTransactionalPushModal } from './push/NewTransactionalPushModal'
+import { TransactionalNewButtons } from './TransactionalNewButtons'
 import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
@@ -64,61 +59,11 @@ export function TransactionalScene(): JSX.Element {
 }
 
 function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, 'new'> }): JSX.Element | null {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const showPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API')
-    const { openModal: openNewPushModal } = useActions(newTransactionalPushLogic)
     if (tab === 'webhooks') {
         return null
     }
     if (tab !== 'transactional' && tab !== 'log' && tab !== 'metrics') {
         return <MessagingTabActions tab={tab} channelsUrl={urls.transactional('channels')} />
     }
-    return (
-        <div className="flex items-center gap-2">
-            {showPush ? (
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Workflow}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    {todayRailNav ? (
-                        <Button data-attr="new-transactional-push" onClick={openNewPushModal} variant="outline">
-                            New push notification
-                        </Button>
-                    ) : (
-                        <LemonButton
-                            data-attr="new-transactional-push"
-                            onClick={openNewPushModal}
-                            type="secondary"
-                            size="small"
-                        >
-                            New push notification
-                        </LemonButton>
-                    )}
-                </AccessControlAction>
-            ) : null}
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Workflow}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                {todayRailNav ? (
-                    <Button
-                        data-attr="new-transactional-email"
-                        onClick={() => router.actions.push(urls.transactionalNew())}
-                        variant="primary"
-                    >
-                        New transactional email
-                    </Button>
-                ) : (
-                    <LemonButton
-                        data-attr="new-transactional-email"
-                        to={urls.transactionalNew()}
-                        type="primary"
-                        size="small"
-                    >
-                        New transactional email
-                    </LemonButton>
-                )}
-            </AccessControlAction>
-        </div>
-    )
+    return <TransactionalNewButtons />
 }

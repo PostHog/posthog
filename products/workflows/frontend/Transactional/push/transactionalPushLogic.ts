@@ -50,6 +50,7 @@ export interface transactionalPushLogicValues {
     lastTestSendLoading: boolean
     loadError: 'failed' | 'not_found' | null
     name: string
+    publishBlockedReason: string | null
     savedDraft: PushDraft
     savedVariables: string[]
     tab: TransactionalPushTab
@@ -162,6 +163,12 @@ export interface transactionalPushLogicMeta {
         dataError: (draft: PushDraft) => string | null
         draftError: (draft: PushDraft) => string | null
         variables: (draft: PushDraft) => string[]
+        publishBlockedReason: (
+            templateLoading: boolean,
+            hasChanges: boolean,
+            name: string,
+            draftError: string | null
+        ) => string | null
         savedVariables: (savedDraft: PushDraft) => string[]
         breadcrumbs: (id: string, template: MessageTemplateApi | null) => Breadcrumb[]
     }
@@ -299,6 +306,17 @@ export const transactionalPushLogic = kea<transactionalPushLogicType>([
         dataError: [(s) => [s.draft], (draft: PushDraft): string | null => pushDataError(draft.data)],
         draftError: [(s) => [s.draft], (draft: PushDraft): string | null => pushDraftError(draft)],
         variables: [(s) => [s.draft], (draft: PushDraft): string[] => variablesInPush(draft)],
+        publishBlockedReason: [
+            (s) => [s.templateLoading, s.hasChanges, s.name, s.draftError],
+            (templateLoading: boolean, hasChanges: boolean, name: string, draftError: string | null): string | null =>
+                templateLoading
+                    ? 'Loading'
+                    : !hasChanges
+                      ? 'No changes to publish'
+                      : !name.trim()
+                        ? 'Add a name'
+                        : draftError,
+        ],
         // A test goes out through the published version, so it asks for the variables that version reads.
         savedVariables: [(s) => [s.savedDraft], (savedDraft: PushDraft): string[] => variablesInPush(savedDraft)],
         breadcrumbs: [
