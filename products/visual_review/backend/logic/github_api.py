@@ -302,8 +302,12 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
-    # Prevent path traversal — each segment must be safe
-    safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
+    segments = path.split("/")
+    # `quote` leaves a dot segment as it is, and the HTTP client resolves it to another path, so refuse it.
+    if any(segment in (".", "..") for segment in segments):
+        raise ValueError(f"GitHub API path has a dot segment: {path!r}")
+    # Quoting each segment keeps a `?` or `#` inside a value from starting a query or a fragment.
+    safe_path = "/".join(quote(segment, safe="") for segment in segments)
 
     github = get_github_integration_for_repo(repo, priority)
 

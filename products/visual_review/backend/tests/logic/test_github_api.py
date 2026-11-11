@@ -104,6 +104,17 @@ class TestCompareCommits:
         assert len(comparison.commits) == min(total_commits, github_api.MAX_COMPARE_COMMITS)
         assert comparison.commits[0].subject == "feat: x (#1)"
 
+    @pytest.mark.parametrize("head", ["../../pulls/1", "abc/./def"])
+    def test_a_head_with_dot_segments_sends_no_request(self, head: str) -> None:
+        github = MagicMock()
+        repo = Repo(repo_full_name="org/repo", repo_external_id=1)
+
+        with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+            comparison = github_api.compare_commits(repo, "base", head)
+
+        assert comparison is None
+        github.api_request.assert_not_called()
+
 
 @pytest.mark.parametrize(
     ("merged_at", "expected"),
