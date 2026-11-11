@@ -111,6 +111,24 @@ describe('LemonTree', () => {
         expect(screen.queryByLabelText('tree item: child-0')).not.toBeInTheDocument()
     })
 
+    it('keeps the rendered rows bounded when a focused top row scrolls offscreen', async () => {
+        const data: TreeDataItem[] = Array.from({ length: 300 }, (_, index) => ({
+            id: `folder-${index}`,
+            name: `folder-${index}`,
+            children: [],
+        }))
+
+        const { container } = render(<LemonTree data={data} virtualized />)
+        const viewport = setViewportHeight(container, 66)
+        const topRow = screen.getByLabelText('tree item: folder-0')
+        act(() => topRow.focus())
+        await scrollViewport(viewport, 31 * 250)
+
+        expect(screen.getByLabelText('tree item: folder-250')).toBeInTheDocument()
+        expect(topRow).toHaveFocus()
+        expect(container.querySelectorAll('[role="treeitem"]').length).toBeLessThan(100)
+    })
+
     it.each([false, true])('expands scrolled folders on the first click (nested: %s)', async (nested) => {
         const folders: TreeDataItem[] = Array.from({ length: 60 }, (_, index) => ({
             id: `folder-${index}`,

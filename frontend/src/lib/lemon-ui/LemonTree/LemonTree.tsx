@@ -932,13 +932,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         }, [])
 
         const computeVirtualWindow = useCallback(
-            (
-                scrollTop: number,
-                viewportHeight: number,
-                focusId?: string,
-                scrollDirection: ScrollDirection = 'idle'
-            ): VirtualWindow => {
-                const focusedIndex = focusId ? flattenedVisibleItems.findIndex(({ item }) => item.id === focusId) : -1
+            (scrollTop: number, viewportHeight: number, scrollDirection: ScrollDirection = 'idle'): VirtualWindow => {
                 const overscanBehind =
                     scrollDirection === 'forward'
                         ? Math.max(1, Math.floor(virtualizedOverscan / 2))
@@ -956,16 +950,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     flattenedVisibleItems.length,
                     Math.ceil((scrollTop + viewportHeight) / virtualizedRowHeight) + overscanAhead
                 )
-                const focusStartIndex =
-                    focusedIndex >= 0 ? Math.max(0, focusedIndex - virtualizedOverscan) : viewportStartIndex
-                const focusEndIndex =
-                    focusedIndex >= 0
-                        ? Math.min(flattenedVisibleItems.length, focusedIndex + virtualizedOverscan + 1)
-                        : viewportEndIndex
 
                 return {
-                    startIndex: Math.min(viewportStartIndex, focusStartIndex),
-                    endIndex: Math.max(viewportEndIndex, focusEndIndex),
+                    startIndex: viewportStartIndex,
+                    endIndex: viewportEndIndex,
                     scrollTop,
                     viewportHeight,
                 }
@@ -1441,12 +1429,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     scrollDirection,
                 }
 
-                const nextWindow = computeVirtualWindow(
-                    nextScrollTop,
-                    nextViewportHeight,
-                    focusedItemId,
-                    scrollDirection
-                )
+                const nextWindow = computeVirtualWindow(nextScrollTop, nextViewportHeight, scrollDirection)
                 const previousWindow = virtualWindowRef.current
 
                 if (
@@ -1490,13 +1473,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 }
                 resizeObserver.disconnect()
             }
-        }, [computeVirtualWindow, focusedItemId, virtualizationScrollContainerRef])
+        }, [computeVirtualWindow, virtualizationScrollContainerRef])
 
         useEffect(() => {
             const nextWindow = computeVirtualWindow(
                 virtualMetricsRef.current.scrollTop,
                 virtualMetricsRef.current.viewportHeight,
-                focusedItemId,
                 virtualMetricsRef.current.scrollDirection
             )
             if (
@@ -1506,7 +1488,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             ) {
                 setVirtualWindow(nextWindow)
             }
-        }, [computeVirtualWindow, focusedItemId, flattenedVisibleItems.length])
+        }, [computeVirtualWindow, flattenedVisibleItems.length])
 
         useEffect(() => {
             if (!imperativeFocusRequest || (isFinishedBuildingTreeData ?? true) === false) {
@@ -1558,28 +1540,33 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 ),
             [flattenedVisibleItems, indexByItemId]
         )
+        const focusedIndex = focusedItemId !== undefined ? indexByItemId.get(focusedItemId) : undefined
         const sortedRenderedIndexes = useMemo(() => {
             const renderedIndexes = new Set<number>()
+            // The focused row gets its own band, so focus scrolled offscreen keeps it mounted without
+            // stretching the viewport window over every row in between.
+            const ranges: [number, number][] = [[virtualizedStartIndex, virtualizedEndIndex]]
+            if (focusedIndex !== undefined) {
+                ranges.push([Math.max(0, focusedIndex - virtualizedOverscan), focusedIndex + virtualizedOverscan + 1])
+            }
 
-            for (
-                let index = virtualizedStartIndex;
-                index < Math.min(virtualizedEndIndex, parentIndexesByIndex.length);
-                index++
-            ) {
-                renderedIndexes.add(index)
+            for (const [start, end] of ranges) {
+                for (let index = start; index < Math.min(end, parentIndexesByIndex.length); index++) {
+                    renderedIndexes.add(index)
 
-                let parentIndex = parentIndexesByIndex[index]
-                while (parentIndex !== undefined) {
-                    if (renderedIndexes.has(parentIndex)) {
-                        break
+                    let parentIndex = parentIndexesByIndex[index]
+                    while (parentIndex !== undefined) {
+                        if (renderedIndexes.has(parentIndex)) {
+                            break
+                        }
+                        renderedIndexes.add(parentIndex)
+                        parentIndex = parentIndexesByIndex[parentIndex]
                     }
-                    renderedIndexes.add(parentIndex)
-                    parentIndex = parentIndexesByIndex[parentIndex]
                 }
             }
 
             return [...renderedIndexes].sort((left, right) => left - right)
-        }, [parentIndexesByIndex, virtualizedEndIndex, virtualizedStartIndex])
+        }, [focusedIndex, parentIndexesByIndex, virtualizedEndIndex, virtualizedOverscan, virtualizedStartIndex])
 
         const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
             for (const item of items) {
