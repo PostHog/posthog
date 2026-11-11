@@ -92,7 +92,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     const featureFlags = {
         'self-driving-usage-display': true,
         tracing: true,
-        'logs-agent-tools': true,
         tasks: true,
         'tasks-mcp-agent-run-start': true,
         loops: true,
