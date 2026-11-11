@@ -121,7 +121,13 @@ function withEvidenceError(result: RunResult, error: string | undefined): RunRes
           }
 }
 
-export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
+export type RunnerOptions = { edgeUrl: string }
+
+export function createRunner(
+    environment: Environment,
+    env: NodeJS.ProcessEnv = process.env,
+    { edgeUrl = EDGE_URL }: Partial<RunnerOptions> = {}
+): Runner {
     const stateDir = defaultStateDir(env)
     let stuckProducer: string | undefined
 
@@ -141,13 +147,13 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const writeLogTails = keepLogTails(stateDir)
-            const specs = roleSpecs(env, EDGE_URL, secretsOf(env), profile.settings)
+            const specs = roleSpecs(env, edgeUrl, secretsOf(env), profile.settings)
             const [
                 {
                     topics: [eventsTopic],
                 },
             ] = consumerGroupsOf(specs)
-            const judge = createJudge({ edgeUrl: EDGE_URL, probe: createCyclotronProbe(cyclotronUrlOf(specs[0])) })
+            const judge = createJudge({ edgeUrl, probe: createCyclotronProbe(cyclotronUrlOf(specs[0])) })
             const postgres = new PostgresRouter(
                 {
                     DATABASE_URL: specs[0].env.DATABASE_URL || STACK.postgresUrl,
