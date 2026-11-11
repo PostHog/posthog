@@ -269,7 +269,7 @@ class _CohortCreation:
             return _not_converted(
                 label,
                 "No cohort condition matches these rules exactly: " + "; ".join(translated.untranslated) + ". "
-                "Create a realtime cohort for it and import again with that cohort in segment_cohorts.",
+                "Create a realtime cohort for it by hand, then use that cohort in the workflow.",
             )
 
         if self.blocked is None:
