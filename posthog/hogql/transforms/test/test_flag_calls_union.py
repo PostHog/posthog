@@ -17,7 +17,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import param, parameterized
 
@@ -40,6 +40,7 @@ from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.test.test_prompt_jev import gateway_response
 from posthog.hogql.transforms.flag_calls_union import rename_flag_call_scans_to_union
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -1544,6 +1545,19 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 ),
             )
 
+    def _flag_calls_read_at_each_execution(
+        self, query: str, mode: FlagEvaluationsMode, **modifiers: Any
+    ) -> list[list[str] | None]:
+        tagged: list[list[str] | None] = []
+
+        def record_tag(*args: Any, **kwargs: Any):
+            tagged.append(json.loads(get_query_tags().to_json()).get("flag_calls_read"))
+            return sync_execute(*args, **kwargs)
+
+        with patch("posthog.hogql.query.sync_execute", side_effect=record_tag):
+            self._run(query, mode, **modifiers)
+        return tagged
+
     @parameterized.expand(
         [
             *(
@@ -1679,16 +1693,21 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, mode: FlagEvaluationsMode, query: str, expected: list[str] | None
     ):
         cohort = _performed_flag_call_cohort(self.team, "probe-flag")
-        tagged: list[list[str] | None] = []
 
-        def record_tag(*args: Any, **kwargs: Any):
-            tagged.append(json.loads(get_query_tags().to_json()).get("flag_calls_read"))
-            return sync_execute(*args, **kwargs)
-
-        with patch("posthog.hogql.query.sync_execute", side_effect=record_tag):
-            self._run(query.format(cohort=cohort.pk), mode, inlineCohortCalculation=InlineCohortCalculation.ALWAYS)
+        tagged = self._flag_calls_read_at_each_execution(
+            query.format(cohort=cohort.pk), mode, inlineCohortCalculation=InlineCohortCalculation.ALWAYS
+        )
 
         assert tagged == [expected]
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+    def test_jev_source_query_keeps_its_tag_out_of_the_query_that_reads_its_rows(self):
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response):
+            tagged = self._flag_calls_read_at_each_execution(
+                "SELECT jev(event, 'Flag call?') AS p FROM events WHERE event = '$feature_flag_called'", ONLY
+            )
+
+        assert tagged == [["flag_evaluations"], None]
 
     def test_ratio_sample_keeps_the_same_distinct_ids_in_both_tables(self):
         now = datetime.now(UTC)
