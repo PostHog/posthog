@@ -1856,16 +1856,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
             }
             captureAiEmailDraft('broadcast', request, aiEmailDraft, skipped)
-            if (cache.landingAwaitsAiDraft) {
-                cache.landingAwaitsAiDraft = false
-                actions.landOnPrefilledStep()
-            }
-        },
-        loadAiEmailDraftFailure: () => {
-            if (cache.landingAwaitsAiDraft) {
-                cache.landingAwaitsAiDraft = false
-                actions.landOnPrefilledStep()
-            }
         },
         landOnStep: ({ step }) => {
             // Unlike setStep, this doesn't create a draft on the content step: following a link must
@@ -2685,6 +2675,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     listeners(({ actions, values, cache }) => ({
+        // Registered after the listener that applies the draft, so the landing sees the drafted email.
+        loadAiEmailDraftSuccess: () => {
+            if (cache.landingAwaitsAiDraft) {
+                cache.landingAwaitsAiDraft = false
+                actions.landOnPrefilledStep()
+            }
+        },
+        loadAiEmailDraftFailure: () => {
+            if (cache.landingAwaitsAiDraft) {
+                cache.landingAwaitsAiDraft = false
+                actions.landOnPrefilledStep()
+            }
+        },
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
             actions.loadChannelReach(null)
