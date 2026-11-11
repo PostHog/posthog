@@ -11,6 +11,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AEOBrandApi,
     AEOBrandCreateRequestApi,
+    AEOKeywordApi,
+    AEOKeywordCreateRequestApi,
+    AEOKeywordCreateResultApi,
+    AEOKeywordModifierReportApi,
+    AEOKeywordReportApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
@@ -26,6 +31,8 @@ import type {
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
     AeoBrandsListParams,
+    AeoKeywordsModifiersParams,
+    AeoKeywordsReportParams,
     AeoPromptsChecksParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
@@ -201,6 +208,138 @@ export const aeoBrandsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedAEOBrandUpdateRequestApi),
+    })
+}
+
+export const getAeoKeywordsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/`
+}
+
+/**
+ * Lists the project's keyword list, by keyword. The list holds at most 200 keywords, so it is never paged.
+ * @summary List AEO keywords
+ */
+export const aeoKeywordsList = async (projectId: string, options?: RequestInit): Promise<AEOKeywordApi[]> => {
+    return apiMutator<AEOKeywordApi[]>(getAeoKeywordsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoKeywordsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/`
+}
+
+/**
+ * Adds keywords to the project's keyword list. Send many at once. Blank entries and keywords already in the list are skipped and counted. Fails with 400 when the new keywords would take the list past 200.
+ * @summary Add AEO keywords
+ */
+export const aeoKeywordsCreate = async (
+    projectId: string,
+    aEOKeywordCreateRequestApi: AEOKeywordCreateRequestApi,
+    options?: RequestInit
+): Promise<AEOKeywordCreateResultApi> => {
+    return apiMutator<AEOKeywordCreateResultApi>(getAeoKeywordsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOKeywordCreateRequestApi),
+    })
+}
+
+export const getAeoKeywordsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/${id}/`
+}
+
+/**
+ * Gets one keyword from the project's keyword list.
+ * @summary Get an AEO keyword
+ */
+export const aeoKeywordsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOKeywordApi> => {
+    return apiMutator<AEOKeywordApi>(getAeoKeywordsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoKeywordsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/${id}/`
+}
+
+/**
+ * Removes a keyword from the project's keyword list. Checks are not changed, so adding it back restores its report.
+ * @summary Remove an AEO keyword
+ */
+export const aeoKeywordsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAeoKeywordsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getAeoKeywordsModifiersUrl = (projectId: string, params?: AeoKeywordsModifiersParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_keywords/modifiers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_keywords/modifiers/`
+}
+
+/**
+ * Gets the words and two-word phrases the engines added to their web searches beyond the prompt over the last 'days' days (default 7), such as years, 'pricing', 'vs' or 'site:'. They show the content the engines look for. Each modifier has a kind, how many answers used it, the citation rate in those answers against the baseline, the engines that used it and example searches. Pass 'keyword' to only count answers whose searches contain it.
+ * @summary Get AEO search modifiers
+ */
+export const aeoKeywordsModifiers = async (
+    projectId: string,
+    params?: AeoKeywordsModifiersParams,
+    options?: RequestInit
+): Promise<AEOKeywordModifierReportApi> => {
+    return apiMutator<AEOKeywordModifierReportApi>(getAeoKeywordsModifiersUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoKeywordsReportUrl = (projectId: string, params?: AeoKeywordsReportParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_keywords/report/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_keywords/report/`
+}
+
+/**
+ * Gets one row per keyword for the last 'days' days (default 7) in the project's timezone: how many prompts contain it and how those answers mention and cite the project, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, citation position and how early the brand is named in those answers. All rates are over answered checks. A keyword matches as a phrase, case ignored.
+ * @summary Get the AEO keyword report
+ */
+export const aeoKeywordsReport = async (
+    projectId: string,
+    params?: AeoKeywordsReportParams,
+    options?: RequestInit
+): Promise<AEOKeywordReportApi> => {
+    return apiMutator<AEOKeywordReportApi>(getAeoKeywordsReportUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

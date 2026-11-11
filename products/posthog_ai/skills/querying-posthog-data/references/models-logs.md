@@ -4,7 +4,7 @@
 
 OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_distributed`.
 
-**Prefer the typed tool when it fits:** `posthog:query-logs` for filtered list queries (with the encoded discovery → narrow → count → drill-down workflow). Reach for HogQL when you need cross-signal joins (with `posthog.trace_spans` or `posthog.metrics` by `trace_id`) or aggregations the typed tool doesn't expose.
+**Prefer the typed tool when it fits:** `posthog:query-logs` for filtered list queries (with the encoded discovery → narrow → count → drill-down workflow). Reach for HogQL when you need cross-signal joins with `posthog.trace_spans` by `trace_id`, or aggregations the typed tool doesn't expose. `posthog.metrics` is on a separate cluster, so it cannot appear in the same query as `logs`.
 
 **Namespacing:** `logs` and `log_attributes` are registered at the HogQL root level — reference them as bare names. (Asymmetric with `posthog.trace_spans` and `posthog.metrics`, which require the `posthog.` namespace prefix.)
 
@@ -41,7 +41,7 @@ OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_dist
 - **Unset `trace_id` is `'AAAAAAAAAAAAAAAAAAAAAA=='`** (16 zero bytes encoded), not the hex zero-padded form. Use `trace_id != 'AAAAAAAAAAAAAAAAAAAAAA=='` to find logs with trace context. Or use the explicit decode: `tryBase64Decode(trace_id) != unhex('00000000000000000000000000000000')`.
 - **Use `hex(tryBase64Decode(trace_id))` to display trace_ids in hex** for human-readable output.
 - **Prefer `severity_text` over `severity_number` / `level`** for human-readable filters.
-- Cross-signal joins by `trace_id` work against `posthog.trace_spans` (both store base64) and `posthog.metrics` on points that carry an exemplar (filter `trace_id != ''`) — see the metrics reference.
+- Cross-signal joins by `trace_id` work against `posthog.trace_spans` (both store base64). For `posthog.metrics`, read the exemplar `trace_id` in a separate query (filter `trace_id != ''`), then use it as a literal here — see the metrics reference.
 - User HogQL queries on `logs` are capped at 50 GB read per query.
 
 ## `log_attributes`
