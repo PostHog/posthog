@@ -54,6 +54,15 @@ export function statusOf({ minOffered, units, down, convergence, invariants, tim
                 .join('; '),
         }
     }
+    const unreleased = timeline.filter(({ releasedAt }) => releasedAt === undefined)
+    if (unreleased.length > 0) {
+        return {
+            status: 'invalid',
+            statusReason: unreleased
+                .map(({ valve, target, error }) => `${valve} on ${target} was not released: ${error ?? 'no record'}`)
+                .join('; '),
+        }
+    }
     const reasons = [
         ...exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline)),
         ...(convergence.converged

@@ -21,6 +21,7 @@ type StackSetup = {
     probeFailure?: string
     probeFailsFor?: number
     runningJobs?: number
+    releaseFailure?: string
 }
 
 function stackOf({
@@ -30,6 +31,7 @@ function stackOf({
     probeFailure,
     probeFailsFor = Infinity,
     runningJobs = 0,
+    releaseFailure,
 }: StackSetup = {}) {
     let probeReads = 0
     let nextPid = 1
@@ -65,7 +67,8 @@ function stackOf({
                 }
                 return Promise.resolve({
                     observed: () => Promise.resolve(gone.includes(pid)),
-                    release: () => Promise.resolve(),
+                    release: () =>
+                        releaseFailure === undefined ? Promise.resolve() : Promise.reject(new Error(releaseFailure)),
                 })
             },
         },
@@ -307,23 +310,52 @@ describe('valves', () => {
             expect(valves.timeline()[0].error).toBeUndefined()
         })
 
-        it('records a throttle that no send went over as never observed', async () => {
-            const valves = createValves({ pollMs: 5, faultObservedWithinMs: 50 })
+        it.each<[string, string, number | undefined, 'error' | 'releasedAt' | undefined]>([
+            ['its observation window passes', '1m', 50, 'error'],
+            ['its hold ends', '100ms', undefined, 'releasedAt'],
+            ['the drive ends', '1m', undefined, undefined],
+        ])(
+            'records a throttle that no send went over as never observed once %s, and lifts it',
+            async (_story, holdFor, faultObservedWithinMs, recordedBeforeDriveEnds) => {
+                const valves = createValves({ pollMs: 5, faultObservedWithinMs })
 
-            await valves.start([throttle(1, '1m')], { ...stackOf().context, edgeUrl: edge.url })
-            expect(await send()).toBe('sent')
-            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
-            await valves.releaseAll()
+                await valves.start([throttle(1, holdFor)], { ...stackOf().context, edgeUrl: edge.url })
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                expect(await send()).toBe('sent')
+                if (recordedBeforeDriveEnds) {
+                    await waitForExpect(
+                        () => expect(valves.timeline()[0][recordedBeforeDriveEnds]).toBeDefined(),
+                        2000,
+                        5
+                    )
+                }
+                await valves.releaseAll()
 
-            expect(valves.timeline()[0]).toEqual(
-                expect.objectContaining({
-                    error: 'applied but not observed',
-                    appliedAt: expect.any(String),
-                    releasedAt: expect.any(String),
-                })
-            )
-            expect(valves.timeline()[0].observedAt).toBeUndefined()
-        })
+                expect(await send()).toBe('sent')
+                expect(valves.timeline()[0]).toEqual(
+                    expect.objectContaining({
+                        error: 'applied but not observed',
+                        appliedAt: expect.any(String),
+                        releasedAt: expect.any(String),
+                    })
+                )
+                expect(valves.timeline()[0].observedAt).toBeUndefined()
+            }
+        )
+    })
+
+    it('records a release that failed, and still ends the drive', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf({ releaseFailure: 'connection refused' })
+
+        await valves.start([kill({ at: '0ms' })], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        expect(valves.timeline()[0]).toEqual(
+            expect.objectContaining({ observedAt: expect.any(String), error: 'connection refused' })
+        )
+        expect(valves.timeline()[0].releasedAt).toBeUndefined()
     })
 
     it('cuts an applied entry short when the drive ends before its hold does', async () => {
