@@ -24,6 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.email import (
     EMAIL_TASK_KWARGS,
     EmailMessage,
+    EmailRecipientUndeliverableError,
     get_email_team_and_org_context,
     is_email_available,
     is_http_email_service_available,
@@ -451,7 +452,11 @@ def check_invite_email_suppression(invite_id: str) -> None:
         capture(
             distinct_id=str(invite.created_by.distinct_id) if invite.created_by else f"invite_{invite_id}",
             event="invite email suppressed",
-            properties={"invite_id": invite_id, "is_setup_delegation": invite.is_setup_delegation},
+            properties={
+                "invite_id": invite_id,
+                "is_setup_delegation": invite.is_setup_delegation,
+                "$update_person_last_seen_at": False,
+            },
             groups={"organization": str(invite.organization_id)},
         )
 
@@ -711,6 +716,7 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
         capture(
             distinct_id=str(user.distinct_id),
             event="verification code sent",
+            properties={"$update_person_last_seen_at": False},
             groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
         )
 
@@ -734,10 +740,12 @@ def send_code_based_verification(user_id: int, code: str) -> None:
         },
     )
     message.add_user_recipient(user)
-    message.send(send_async=False)
+    if message.send(send_async=False):
+        raise EmailRecipientUndeliverableError("the login code email was refused as undeliverable")
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
+        properties={"$update_person_last_seen_at": False},
         groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
     )
 
@@ -1095,11 +1103,13 @@ def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
-def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, demoted_at: str) -> None:
+def send_email_sending_tier_demoted(team_id: int, per_day: int, demoted_at: str, per_hour: int = 0) -> None:
     """
     Tell a project's admins that its workflow email sending limit was lowered for deliverability
     problems. Admin+ recipients and no notification-setting gate, matching the suspension emails:
     the limit stays down until someone acts on the list quality.
+
+    `per_hour` is accepted and ignored so a task queued by an older release still deserializes.
     """
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1114,7 +1124,6 @@ def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, d
         template_context={
             "team": team,
             "per_day": f"{per_day:,}",
-            "per_hour": f"{per_hour:,}",
             "reputation_path": f"/project/{team.id}/workflows/reputation",
         },
     )
@@ -1544,7 +1553,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         run_at = (job.last_run_at if job else None) or sq.last_run_at
         # `is_materialized` stays True after a pause, so read the cadence and the table instead.
         # Pausing clears the cadence and keeps the table; reverting clears both.
-        if qid in declared_targets or sq.sync_frequency_interval is not None:
+        if qid in declared_targets:
             schedule = "scheduled"
         elif sq.table_id is not None:
             schedule = "paused"
@@ -1794,6 +1803,7 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
             distinct_id=str(user.distinct_id),
             event="wizard pr ready email sent",
             properties={
+                "$update_person_last_seen_at": False,
                 "task_id": str(context.task_id),
                 "run_id": str(context.run_id),
                 "team_id": context.team_id,
@@ -2050,6 +2060,7 @@ def login_from_new_device_notification(
         distinct_id=str(user.distinct_id),
         event="login notification sent",
         properties={
+            "$update_person_last_seen_at": False,
             "ip_address": ip_address,
             "geoip_country": country,
             "geoip_city": city,
@@ -2080,9 +2091,15 @@ def get_users_for_orgs_with_no_ingested_events(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_error_tracking_issue_assigned(assignment_id: str | uuid.UUID, assigner_id: int) -> None:
+def send_error_tracking_issue_assigned(
+    assignment_id: str | uuid.UUID, assigner_id: int | None, assigned_by: str | None = None
+) -> None:
+    """Pass `assigner_id` for a person, or `assigned_by` (e.g. "An assignment rule") for an automatic assignment."""
+    if assigner_id is None and not assigned_by:
+        raise ValueError("assigned_by is required when there is no assigner")
+
     assignment = error_tracking_api.get_issue_assignment_for_notification(assignment_id=assignment_id)
-    assigner = User.objects.get(pk=assigner_id)
+    assigner = User.objects.get(pk=assigner_id) if assigner_id is not None else None
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -2097,23 +2114,28 @@ def send_error_tracking_issue_assigned(assignment_id: str | uuid.UUID, assigner_
         memberships_to_email = [
             membership
             for membership in memberships_to_email
-            if (membership.user_id == assignment.assigned_user_id and membership.user_id != assigner.id)
+            if (membership.user_id == assignment.assigned_user_id and membership.user_id != assigner_id)
         ]
     elif assignment.role_id:
         role_user_ids = set(assignment.role_member_user_ids)
         memberships_to_email = [
             membership
             for membership in memberships_to_email
-            if (membership.user_id in role_user_ids and membership.user_id != assigner.id)
+            if (membership.user_id in role_user_ids and membership.user_id != assigner_id)
         ]
 
-    campaign_key: str = f"error_tracking_issue_assigned_{assignment.id}_updated_at_{assignment.created_at.timestamp()}"
+    campaign_key_segment = "" if assigner_id is not None else "automatic_"
+    campaign_key: str = (
+        f"error_tracking_issue_assigned_{campaign_key_segment}{assignment.id}"
+        f"_updated_at_{assignment.created_at.timestamp()}"
+    )
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"[Issue]: {assignment.issue.name} assigned to you in project '{team}'",
         template_name="error_tracking_issue_assigned",
         template_context={
             "assigner": assigner,
+            "assigned_by": assigned_by,
             "assignment": assignment,
             "team": team,
             "site_url": settings.SITE_URL,

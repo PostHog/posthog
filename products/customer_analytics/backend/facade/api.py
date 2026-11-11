@@ -39,7 +39,6 @@ from django.db.models import (
     Exists,
     ExpressionWrapper,
     F,
-    FilteredRelation,
     FloatField,
     IntegerField,
     Max,
@@ -53,7 +52,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast, Coalesce, Left
 from django.utils import timezone
 
 import structlog
@@ -110,6 +109,7 @@ from products.customer_analytics.backend.facade.enums import (
     TaskDigestCadence,
 )
 from products.customer_analytics.backend.logic import (
+    account_automations as _account_automations_logic,
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
     account_views as _account_views_logic,
@@ -188,7 +188,10 @@ from products.customer_analytics.backend.models.custom_property_definition impor
     NUMERIC_DISPLAY_TYPES,
     DataType,
 )
+from products.customer_analytics.backend.models.custom_property_value import SORT_VALUE_STR_PREFIX_LENGTH
 from products.customer_analytics.backend.tasks.tasks import send_announcement
+from products.data_modeling.backend.facade import api as data_modeling_facade
+from products.data_modeling.backend.facade.contracts import SavedQuerySchedule
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
@@ -202,6 +205,7 @@ from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, sa
 from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
+    get_viewable_workflow_ids,
 )
 from products.workflows.backend.facade.contracts import HogFlowReference
 
@@ -1796,7 +1800,7 @@ def _to_sync_run_view(
         sync_phase=run.phase,
         attempt=run.attempt,
         workflow_id=run.workflow_id if include_temporal_url else None,
-        workflow_run_id=run.workflow_run_id if include_temporal_url else None,
+        workflow_run_id=run.workflow_run_id,
         temporal_url=_temporal_run_url(run) if include_temporal_url else None,
         trigger=run.trigger,
         status=run.status,
@@ -1874,11 +1878,16 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control:
     return saved_query
 
 
-def _saved_query_meta(saved_query: Any) -> _ProfileWarehouseMeta:
+def _saved_query_meta(saved_query: Any, schedule: SavedQuerySchedule | None = None) -> _ProfileWarehouseMeta:
     """Display metadata for a view-bound source. A view's name is already its HogQL name, so it needs
-    no table-name resolution. A view's frequency lives on its DAG node, which leaves the next run
-    unknown rather than guessable — so both schedule fields stay None."""
-    return _ProfileWarehouseMeta(table_name=saved_query.name, saved_query_name=saved_query.name)
+    no table-name resolution. A view's frequency lives on its DAG node rather than on the view, so the
+    schedule is resolved separately and is None for a view the scheduler doesn't run."""
+    return _ProfileWarehouseMeta(
+        table_name=saved_query.name,
+        saved_query_name=saved_query.name,
+        sync_frequency_interval_seconds=schedule.interval.total_seconds() if schedule else None,
+        next_sync_at=schedule.next_run_at if schedule else None,
+    )
 
 
 def _resolve_profile_warehouse_meta(
@@ -1891,7 +1900,10 @@ def _resolve_profile_warehouse_meta(
         return None
     if binding.is_saved_query:
         saved_query = _resolve_saved_query(source.team_id, binding.id, user_access_control)
-        return _saved_query_meta(saved_query) if saved_query is not None else None
+        if saved_query is None:
+            return None
+        schedule = data_modeling_facade.saved_query_schedules(source.team_id, [saved_query]).get(str(saved_query.id))
+        return _saved_query_meta(saved_query, schedule)
     schema = _resolve_schema(source.team_id, binding.id, user_access_control)
     return _schema_meta(schema) if schema is not None else None
 
@@ -2020,6 +2032,10 @@ def _batch_source_enrichment(
             )
         }
 
+    schedules_by_saved_query_id = (
+        data_modeling_facade.saved_query_schedules(team_id, saved_queries_by_id.values()) if saved_queries_by_id else {}
+    )
+
     # Latest run per source in one query: DISTINCT ON (source_id) keeps the newest row per source.
     latest_run_by_source_id: dict[Any, CustomPropertySyncRun] = {
         run.source_id: run
@@ -2033,7 +2049,9 @@ def _batch_source_enrichment(
     for source in profile_sources:
         binding = bindings[source.id]
         assert binding is not None  # profile_sources is filtered on exactly this
-        meta = _batched_meta(binding, schemas_by_id, saved_queries_by_id, user_access_control)
+        meta = _batched_meta(
+            binding, schemas_by_id, saved_queries_by_id, schedules_by_saved_query_id, user_access_control
+        )
         latest = latest_run_by_source_id.get(source.id) if meta is not None else None
         # Only mutate runs the caller can view; expiring runs for hidden warehouse objects would let a
         # denied viewer flip their status through the source-list endpoint.
@@ -2048,6 +2066,7 @@ def _batched_meta(
     binding: "WarehouseBinding",
     schemas_by_id: dict[str, Any],
     saved_queries_by_id: dict[str, Any],
+    schedules_by_saved_query_id: dict[str, SavedQuerySchedule],
     user_access_control: "UserAccessControl | None",
 ) -> _ProfileWarehouseMeta | None:
     """One binding's metadata from the prefetched maps, or None when it is missing or access-denied.
@@ -2061,7 +2080,7 @@ def _batched_meta(
             saved_query, required_level="viewer"
         ):
             return None
-        return _saved_query_meta(saved_query)
+        return _saved_query_meta(saved_query, schedules_by_saved_query_id.get(binding.id))
 
     schema = schemas_by_id.get(binding.id)
     if schema is None:
@@ -3432,7 +3451,6 @@ def _apply_account_table_sort(
     *,
     team_id: int,
     sort: contracts.AccountTableSort | None,
-    custom_property_display_types: dict[UUID, DisplayType],
 ) -> QuerySet[Account]:
     if sort is None:
         return queryset.order_by("-created_at", "-id")
@@ -3489,27 +3507,6 @@ def _apply_account_table_sort(
         queryset = queryset.annotate(
             _account_table_sort=Subquery(relationship_values, output_field=ArrayField(IntegerField()))
         )
-    elif sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
-        if sort.definition_id is None:
-            raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
-        display_type = custom_property_display_types[sort.definition_id]
-        value_field = {
-            DataType.STRING: "value_str",
-            DataType.NUMERIC: "value_num",
-            DataType.BOOLEAN: "value_bool",
-            DataType.DATETIME: "value_datetime",
-        }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-        queryset = queryset.annotate(
-            _custom_property_sort_value=FilteredRelation(
-                "custom_property_values",
-                condition=Q(
-                    custom_property_values__team_id=team_id,
-                    custom_property_values__definition_id=sort.definition_id,
-                    custom_property_values__is_deleted=False,
-                ),
-            ),
-            _account_table_sort=F(f"_custom_property_sort_value__{value_field}"),
-        )
 
     order = F("_account_table_sort")
     primary_order = (
@@ -3518,6 +3515,58 @@ def _apply_account_table_sort(
         else order.desc(nulls_last=True)
     )
     return queryset.order_by(primary_order, "id")
+
+
+def _list_accounts_sorted_by_custom_property(
+    queryset: QuerySet[Account],
+    *,
+    team_id: int,
+    sort: contracts.AccountTableSort,
+    custom_property_display_types: dict[UUID, DisplayType],
+    offset: int,
+    limit: int,
+) -> list[Account]:
+    if sort.definition_id is None:
+        raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
+    value_field = {
+        DataType.STRING: "value_str",
+        DataType.NUMERIC: "value_num",
+        DataType.BOOLEAN: "value_bool",
+        DataType.DATETIME: "value_datetime",
+    }[DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[sort.definition_id]]]
+    sort_value = F(f"custom_property_values__{value_field}")
+    with_value = queryset.filter(
+        custom_property_values__team_id=team_id,
+        custom_property_values__definition_id=sort.definition_id,
+        custom_property_values__is_deleted=False,
+        **{f"custom_property_values__{value_field}__isnull": False},
+    ).annotate(
+        _account_table_sort=(
+            Left(sort_value, SORT_VALUE_STR_PREFIX_LENGTH) if value_field == "value_str" else sort_value
+        ),
+    )
+    sort_keys = [F("_account_table_sort"), *([sort_value] if value_field == "value_str" else [])]
+    if sort.direction == contracts.AccountTableSortDirection.ASCENDING:
+        with_value = with_value.order_by(*(key.asc() for key in sort_keys), "id")
+    else:
+        with_value = with_value.order_by(*(key.desc() for key in sort_keys), "-id")
+    accounts: list[Account] = list(with_value[offset : offset + limit])
+    if len(accounts) == limit:
+        return accounts
+
+    with_value_count = offset + len(accounts) if accounts or offset == 0 else with_value.count()
+    without_value = queryset.exclude(
+        Exists(
+            CustomPropertyValue.objects.for_team(team_id).filter(
+                account_id=OuterRef("pk"),
+                definition_id=sort.definition_id,
+                is_deleted=False,
+                **{f"{value_field}__isnull": False},
+            )
+        )
+    ).order_by("id")
+    without_value_offset = max(offset - with_value_count, 0)
+    return accounts + list(without_value[without_value_offset : without_value_offset + limit - len(accounts)])
 
 
 class _PercentileCont(Aggregate):
@@ -3704,13 +3753,18 @@ def query_accounts_table(
         include_churned=include_churned,
         include_ignored=include_ignored,
     )
-    queryset = _apply_account_table_sort(
-        queryset,
-        team_id=team_id,
-        sort=sort,
-        custom_property_display_types=custom_property_display_types,
-    )
-    fetched_accounts = list(queryset[offset : offset + limit + 1])
+    if sort is not None and sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
+        fetched_accounts = _list_accounts_sorted_by_custom_property(
+            queryset,
+            team_id=team_id,
+            sort=sort,
+            custom_property_display_types=custom_property_display_types,
+            offset=offset,
+            limit=limit + 1,
+        )
+    else:
+        queryset = _apply_account_table_sort(queryset, team_id=team_id, sort=sort)
+        fetched_accounts = list(queryset[offset : offset + limit + 1])
     has_more = len(fetched_accounts) > limit
     accounts = fetched_accounts[:limit]
     account_ids = [account.id for account in accounts]
@@ -3923,6 +3977,22 @@ def get_account_for_view(
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     return _to_account_details(account)
+
+
+def list_account_automations(
+    *, team: Team, account_id: str, user_access_control: UserAccessControl, page: PageRequest
+) -> Page[contracts.AccountAutomation]:
+    account = get_account_for_view(
+        team_id=team.pk, account_id=account_id, user_access_control=user_access_control, required_level="viewer"
+    )
+    return _account_automations_logic.list_account_runs(
+        team=team,
+        account_id=str(account.id),
+        external_id=account.external_id,
+        workflow_ids=get_viewable_workflow_ids(team_id=team.pk, user_access_control=user_access_control),
+        user_access_control=user_access_control,
+        page=page,
+    )
 
 
 def get_account_for_view_by_external_id(
@@ -4332,6 +4402,7 @@ def _to_account_notebook_view(notebook: "notebook_contracts.AccountNotebook") ->
         created_by=_notebook_user_to_basic_info(notebook.created_by),
         last_modified_at=notebook.last_modified_at,
         last_modified_by=_notebook_user_to_basic_info(notebook.last_modified_by),
+        tags=list(notebook.tags),
     )
 
 
@@ -4943,15 +5014,38 @@ def list_account_notebooks(
     *,
     search: str | None = None,
     order: str | None = None,
+    tags: list[str] | None = None,
+    created_by_ids: list[int] | None = None,
 ) -> list[contracts.AccountNotebookView] | None:
     """Internal notebooks linked to an accessible account. Optionally full-text filtered by
-    ``search`` (title + content) and sorted by ``order`` (creation date or author); defaults to
-    newest first. None when the parent account isn't accessible (→ 404)."""
+    ``search`` (title + content), narrowed to notes carrying any of ``tags`` or written by any of
+    ``created_by_ids``, and sorted by ``order``; defaults to newest first. None when the parent
+    account isn't accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     return [
-        _to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id, search=search, order=order)
+        _to_account_notebook_view(n)
+        for n in notebooks.list_account_notebooks(
+            account_id, search=search, order=order, tags=tags, created_by_ids=created_by_ids
+        )
     ]
+
+
+def update_account_notebook(
+    *,
+    team_id: int,
+    account_id: str,
+    short_id: str,
+    input: contracts.UpdateAccountNotebookInput,
+    user: "User",
+    user_access_control: "UserAccessControl",
+) -> contracts.AccountNotebookView | None:
+    """Replace the tags of an internal notebook linked to an accessible account. None when the
+    account isn't accessible or no such notebook exists (→ 404)."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    updated = notebooks.update_account_notebook(account_id, short_id, tags=input.tags)
+    return _to_account_notebook_view(updated) if updated is not None else None
 
 
 def list_account_notes_for_view(
@@ -4963,12 +5057,14 @@ def list_account_notes_for_view(
     account_id: UUID | str | None = None,
     created_by_ids: list[int] | None = None,
     assigned_to_ids: list[int] | None = None,
+    tags: list[str] | None = None,
+    order: str | None = None,
 ) -> Page[contracts.AccountNoteView]:
     """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
     restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
     and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
     notes authored by the given users, ``assigned_to_ids`` to notes on accounts where one of the
-    given users actively holds a relationship."""
+    given users actively holds a relationship, ``tags`` to notes carrying any of the tags."""
     accounts = _accounts_queryset(team_id, user_access_control)
     if assigned_to_ids:
         # "Assigned to" means any active relationship, matching the accounts list HogQL
@@ -4985,6 +5081,8 @@ def list_account_notes_for_view(
         account_id=account_id,
         created_by_ids=created_by_ids,
         search=search,
+        tags=tags,
+        order=order,
         offset=page.offset,
         limit=page.limit,
     )
@@ -4997,6 +5095,7 @@ def list_account_notes_for_view(
             account_id=note.account_id,
             account_name=note.account_name,
             created_by=_notebook_user_to_basic_info(note.created_by),
+            tags=list(note.tags),
         )
         for note in notes
     ]
@@ -5029,15 +5128,21 @@ def create_account_notebook(
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     content = input.synthesized_content if input.synthesized_content is not None else input.content
-    created = notebooks.create_account_notebook(
-        team_id,
-        account_id,
-        title=input.title,
-        content=content,
-        text_content=input.text_content,
-        created_by_id=user.id,
-        last_modified_by_id=user.id,
-    )
+    with transaction.atomic():
+        created = notebooks.create_account_notebook(
+            team_id,
+            account_id,
+            title=input.title,
+            content=content,
+            text_content=input.text_content,
+            created_by_id=user.id,
+            last_modified_by_id=user.id,
+        )
+        tags: list[str] = []
+        if input.tags:
+            updated = notebooks.update_account_notebook(account_id, created.short_id, tags=input.tags)
+            if updated is not None:
+                tags = list(updated.tags)
     # The creator is also the (only) modifier of a just-created notebook, so the user the
     # caller already holds is both `created_by` and `last_modified_by` — no extra fetch.
     author = _to_user_basic_info(user)
@@ -5051,6 +5156,7 @@ def create_account_notebook(
         created_by=author,
         last_modified_at=created.last_modified_at,
         last_modified_by=author,
+        tags=tags,
     )
 
 

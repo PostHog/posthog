@@ -63,12 +63,6 @@ function fakePort(): ExtensionPort {
     },
     scripting: { executeScript: async () => [{}] },
     runtime: { onMessage: fakeEvent(), onConnect: fakeEvent(), getURL: (path: string) => `/${path}` },
-    permissions: {
-        contains: async () => true,
-        request: async () => true,
-        getAll: async () => ({ origins: [] }),
-        onAdded: fakeEvent(),
-        onRemoved: fakeEvent(),
-    },
+    permissions: { contains: async () => true, request: async () => true },
     action: { onClicked: fakeEvent() },
 }

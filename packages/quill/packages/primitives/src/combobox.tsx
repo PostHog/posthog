@@ -27,8 +27,6 @@ function Combobox<Value, Multiple extends boolean | undefined = false>({
     )
 }
 
-const useComboboxFilteredItems = ComboboxPrimitive.useFilteredItems
-
 function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props): React.ReactElement {
     return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />
 }
@@ -191,8 +189,7 @@ const ComboboxItem = React.forwardRef<
 ) {
     const hasReason = hasTooltipContent(disabledReason)
     const described = hasTooltipContent(description)
-    // A disabled item ignores the pointer, so the tooltip listens on a wrapper and opens beside the row.
-    return withTooltip(
+    const item = (
         <ComboboxPrimitive.Item
             ref={ref}
             data-slot="combobox-item"
@@ -214,10 +211,12 @@ const ComboboxItem = React.forwardRef<
             >
                 <CheckIcon className="quill-combobox__indicator-icon pointer-events-none size-3.5" />
             </ComboboxPrimitive.ItemIndicator>
-        </ComboboxPrimitive.Item>,
-        hasReason ? disabledReason : tooltip,
-        { target: 'block', side: 'inline-end' }
+        </ComboboxPrimitive.Item>
     )
+    const content = hasReason ? disabledReason : tooltip
+    // A disabled item ignores the pointer, so the tooltip listens on a wrapper and opens beside the row. Rows without a
+    // tooltip skip the wrapper: a long list would mount one per row, and it hides a row's neighbours from sibling selectors.
+    return hasTooltipContent(content) ? withTooltip(item, content, { target: 'block', side: 'inline-end' }) : item
 })
 
 const ComboboxGroup = React.forwardRef<
@@ -356,7 +355,6 @@ function useComboboxAnchor(): React.RefObject<HTMLDivElement> {
 }
 
 export {
-    useComboboxFilteredItems,
     Combobox,
     ComboboxInput,
     ComboboxContent,

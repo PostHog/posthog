@@ -17,9 +17,11 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
+from posthog.hogql_queries.query_runner import AR, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 
 if TYPE_CHECKING:
     from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
@@ -131,3 +133,14 @@ def mcp_query_date_range(
         interval=interval,
         now=datetime.now(team.timezone_info),
     )
+
+
+class HarnessLabelQueryRunner(AnalyticsQueryRunner[AR]):
+    """A runner whose results carry harness labels, which depend on the team's custom harness rules."""
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # Without the rules in the key, a save keeps serving cached results with the old labels until they expire.
+        if rules := custom_harness_rules(self.team):
+            payload["mcp_custom_harness_rules"] = [[rule.name, rule.pattern] for rule in rules]
+        return payload

@@ -91,7 +91,6 @@ def summary_payload(summary: contracts.ErrorTrackingIssueSummary) -> dict[str, o
             "likely_cause": summary.likely_cause,
             "who_is_affected": summary.who_is_affected,
             "suggested_next_step": summary.suggested_next_step,
-            "category": summary.category.value if summary.category is not None else None,
             "generated_at": summary.generated_at.isoformat(),
         }
     )

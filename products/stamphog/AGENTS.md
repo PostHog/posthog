@@ -64,7 +64,7 @@ A team left with none of those is not a digest audience at all.
 Subtracting rather than only dropping the all-generated case came from the same channel getting swept again: one regenerated file next to one real one read as a two-file stake, which is above the graze rule's threshold, so the sweep looked like ownership.
 Three things keep it from being the harmless-file rule above.
 It decides who hears about a merge, never whether code is safe to approve.
-The root `CLAUDE.md` forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
+[`.agents/architecture.md`](../../.agents/architecture.md) forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
 And it names one exact directory shape rather than any `generated/` directory, which is the match that would catch hand-editable code elsewhere.
 
 Both sides are read with `compare_diff`, from the base and head shas the run and the payload already fixed.

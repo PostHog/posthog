@@ -141,6 +141,21 @@ class EvaluateAlertResult:
     # Persisted alert.created_by — the investigation workflow uses this to attribute
     # the resulting Notebook. Optional because legacy alerts may not have it.
     investigation_user_id: int | None = None
+    # The check starts a firing episode the agent does not investigate. The workflow sends its inbox
+    # signal last, so the send never delays the notification.
+    signal_candidate: bool = False
+    # The alert state before this check. The signal phase reads it to tell a new episode from one
+    # that an errored check interrupted.
+    previous_state: AlertState | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class EmitAlertFiringSignalActivityInputs:
+    alert_id: str
+    alert_check_id: str
+    team_id: int
+    previous_state: AlertState
+    breaches: list[str] | None = None
 
 
 @dataclasses.dataclass(frozen=True)

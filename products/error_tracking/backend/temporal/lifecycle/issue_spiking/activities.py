@@ -98,6 +98,13 @@ async def emit_issue_spiking_signal_activity(inputs: IssueSpikingWorkflowInputs)
             f"(baseline: {inputs.computed_baseline:.1f}, current: {inputs.current_bucket_value:.1f}) "
             f"({multiplier:.1f} over baseline)"
         ),
+        event="$error_tracking_issue_spiking",
+        exception_timestamp=inputs.detected_at,
+        extra_properties={
+            "computed_baseline": inputs.computed_baseline,
+            "current_bucket_value": inputs.current_bucket_value,
+        },
+        include_status=False,
     )
 
 

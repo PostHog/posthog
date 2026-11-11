@@ -1,6 +1,7 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from unittest import TestCase
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckKey,
     ExperimentHealthCheckStatus,
     ExperimentHealthFindingCode,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
@@ -21,9 +23,13 @@ from products.experiments.backend.health.context import (
     ExposureTotals,
     FlagHistoryNotCheckedReason,
     FlagKeyFilter,
+    FlagReleaseGroup,
     FlagState,
     HealthContext,
+    LatestCalculation,
     MetricEvents,
+    MetricWindow,
+    ReachableCondition,
 )
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
@@ -32,6 +38,7 @@ from products.experiments.backend.health.registry import (
     evaluate,
 )
 from products.experiments.backend.health.test.factories import DRAFT, RUNNING_CONTEXT, flag_history
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.feature_flags.backend.facade.edits import FlagVariant
 
 UNEVEN_SPLIT_TOTALS = ExposureTotals(
@@ -64,6 +71,7 @@ ENDED: dict[str, Any] = {"is_running": False, "has_ended": True}
 LAUNCHED_AT = datetime(2026, 10, 1, tzinfo=UTC)
 
 Key = ExperimentHealthCheckKey
+Value = ExperimentHealthValueKey
 Status = ExperimentHealthCheckStatus
 NOT_LOOKED = (Status.NOT_APPLICABLE, Status.NOT_CHECKED)
 FLAG_CHANGE_KEYS = (Key.SPLIT_CHANGED_MID_RUN, Key.BUCKETING_CHANGED_MID_RUN, Key.RELEASE_CONDITIONS_CHANGED_MID_RUN)
@@ -111,8 +119,18 @@ def _raise(_ctx: HealthContext) -> Any:
     raise ValueError("malformed")
 
 
+UNSERVED_CONTROL_FLAG = replace(
+    UNEVEN_FLAG,
+    variants=(FlagVariant(key="control", rollout_percentage=0), FlagVariant(key="test", rollout_percentage=100)),
+    reachable_conditions=(ReachableCondition(number=1, pinned_variant=None, variant_property=None),),
+    saved_at=LAUNCHED_AT,
+)
+UNSERVED_CONTROL_TOTALS = replace(
+    UNEVEN_SPLIT_TOTALS, daily_exposures={"control": {date(2026, 10, 3): 30}, "test": {date(2026, 10, 3): 70}}
+)
+
 MULTIPLE_VARIANTS_CHECK = next(check for check in EXPOSURE_HEALTH_CHECKS if check.key == Key.MULTIPLE_VARIANTS_SHARE)
-FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", run=_raise)
+FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", description="Fails.", run=_raise)
 
 
 class TestEvaluate(TestCase):
@@ -173,8 +191,8 @@ class TestEvaluate(TestCase):
                 [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
             ),
             (
-                "test_account_filter_keeps_10_percent_after_the_end",
-                {**ENDED, "exposures": _filtered_totals(100, 1000)},
+                "test_account_filter_keeps_9_percent_after_the_end",
+                {**ENDED, "exposures": _filtered_totals(90, 1000)},
                 [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
             ),
             ("test_account_filter_keeps_95_percent", {"exposures": _filtered_totals(950, 1000)}, []),
@@ -215,14 +233,14 @@ class TestEvaluate(TestCase):
                 "flag_changes_are_not_checked_without_the_history",
                 {
                     "flag_history": flag_history(
-                        [], launched_at=LAUNCHED_AT, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
+                        [], start_date=LAUNCHED_AT, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
                     )
                 },
                 {Key.FLAG_HISTORY: Status.FINDING, **dict.fromkeys(FLAG_CHANGE_KEYS, Status.NOT_CHECKED)},
             ),
             (
                 "flag_changes_pass_with_a_history_without_changes",
-                {"flag_history": flag_history([], launched_at=LAUNCHED_AT)},
+                {"flag_history": flag_history([], start_date=LAUNCHED_AT)},
                 {Key.FLAG_HISTORY: Status.PASSED, **dict.fromkeys(FLAG_CHANGE_KEYS, Status.PASSED)},
             ),
             (
@@ -237,7 +255,10 @@ class TestEvaluate(TestCase):
                         _totals_with_multiple(60, 1000), multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN
                     )
                 },
-                {Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED, Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.PASSED},
+                {
+                    Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED,
+                    Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE,
+                },
             ),
             (
                 "flag_traffic_is_left_to_zero_exposures_after_launch",
@@ -269,6 +290,34 @@ class TestEvaluate(TestCase):
                 _events("$$plugin_metrics", {}),
                 dict.fromkeys(EVENT_KEYS, Status.NOT_CHECKED),
             ),
+            (
+                "test_account_filter_waits_for_enough_exposures",
+                {"exposures": _filtered_totals(5, 60)},
+                {Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_does_not_apply_to_an_even_split",
+                {"flag": EVEN_SPLIT_FLAG},
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_waits_for_exposures",
+                {"exposures": NO_EXPOSURES},
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_does_not_apply_when_the_split_assigns_nobody",
+                {
+                    "flag": replace(
+                        UNEVEN_FLAG,
+                        reachable_conditions=(
+                            ReachableCondition(number=1, pinned_variant="test", variant_property=None),
+                        ),
+                    ),
+                    "exposures": _totals_with_multiple(60, 1000),
+                },
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
+            ),
         ]
     )
     def test_check_statuses(self, _name: str, changes: dict[str, Any], expected: dict[Key, Status]) -> None:
@@ -280,6 +329,10 @@ class TestEvaluate(TestCase):
         self.assertEqual({key: statuses[key] for key in expected}, expected)
         self.assertEqual(
             [check.key for check in health.checks if (check.reason is None) == (check.status in NOT_LOOKED)], []
+        )
+        self.assertEqual(
+            sorted(finding.check for finding in health.findings if finding.check),
+            sorted(check.key for check in health.checks if check.status == Status.FINDING),
         )
 
     @parameterized.expand(
@@ -340,6 +393,214 @@ class TestEvaluate(TestCase):
             f for f in health.findings if f.code == ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES
         )
         self.assertIn(share, finding.detail)
+
+    @parameterized.expand(
+        [
+            (
+                "srm_compares_the_variants_without_multiple",
+                Key.SRM,
+                {"exposures": replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.71)},
+                Status.PASSED,
+                {Value.P_VALUE: 0.71, Value.COMPARED_COUNT: 1000, Value.MULTIPLE_VARIANT_COUNT: 20},
+            ),
+            (
+                "srm_leaves_out_the_multiple_count_under_first_seen",
+                Key.SRM,
+                {
+                    "exposures": replace(
+                        UNEVEN_SPLIT_TOTALS,
+                        total_exposures={"control": 800, "test": 200},
+                        multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN,
+                        sample_ratio_mismatch_p_value=0.71,
+                    )
+                },
+                Status.PASSED,
+                {Value.P_VALUE: 0.71, Value.COMPARED_COUNT: 1000},
+            ),
+            (
+                "bias_risk_divides_by_every_exposure",
+                Key.BIAS_RISK_MULTIPLE_EXCLUDED,
+                {},
+                Status.FINDING,
+                {
+                    Value.EXPOSED_COUNT: 1020,
+                    Value.MULTIPLE_VARIANT_COUNT: 20,
+                    Value.MULTIPLE_VARIANT_PERCENTAGE: 20 / 1020 * 100,
+                    Value.MULTIPLE_VARIANT_HANDLING: "exclude",
+                },
+            ),
+            (
+                "multiple_variants_share",
+                Key.MULTIPLE_VARIANTS_SHARE,
+                {"exposures": _totals_with_multiple(30, 1000)},
+                Status.PASSED,
+                {
+                    Value.EXPOSED_COUNT: 1000,
+                    Value.MULTIPLE_VARIANT_COUNT: 30,
+                    Value.MULTIPLE_VARIANT_PERCENTAGE: 3.0,
+                    Value.MULTIPLE_VARIANT_HANDLING: "exclude",
+                },
+            ),
+            (
+                "multiple_variants_are_not_counted_under_first_seen",
+                Key.MULTIPLE_VARIANTS_SHARE,
+                {
+                    "exposures": replace(
+                        _totals_with_multiple(30, 1000), multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN
+                    )
+                },
+                Status.NOT_CHECKED,
+                {Value.EXPOSED_COUNT: 1000, Value.MULTIPLE_VARIANT_HANDLING: "first_seen"},
+            ),
+            (
+                "kept_share",
+                Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                {"exposures": _filtered_totals(400, 1000)},
+                Status.PASSED,
+                {
+                    Value.EXPOSED_COUNT: 400,
+                    Value.EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT: 1000,
+                    Value.KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE: 40.0,
+                },
+            ),
+            (
+                "kept_share_without_the_count_without_the_filter",
+                Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                {"exposures": _filtered_totals(400, None)},
+                Status.NOT_CHECKED,
+                {Value.EXPOSED_COUNT: 400},
+            ),
+            (
+                "zero_exposures_in_the_first_day",
+                Key.ZERO_EXPOSURES,
+                {"exposures": replace(NO_EXPOSURES, hours_since_launch=23.94)},
+                Status.NOT_APPLICABLE,
+                {Value.EXPOSED_COUNT: 0, Value.SINCE_LAUNCH_HOURS: 23.9},
+            ),
+            (
+                "metrics_not_matured_with_the_setting_off",
+                Key.METRICS_NOT_MATURED,
+                {},
+                Status.NOT_APPLICABLE,
+                {Value.ONLY_COUNT_MATURED_USERS: False},
+            ),
+            (
+                "metrics_not_matured_counts_the_metrics_without_users",
+                Key.METRICS_NOT_MATURED,
+                {
+                    "only_count_matured_users": True,
+                    "primary_metric_windows": (
+                        MetricWindow(name="Day", window_seconds=86_400, first_users_count_at=LAUNCHED_AT),
+                        MetricWindow(name="Week", window_seconds=7 * 86_400, first_users_count_at=LAUNCHED_AT),
+                    ),
+                },
+                Status.PASSED,
+                {Value.ONLY_COUNT_MATURED_USERS: True, Value.PRIMARY_METRIC_COUNT: 2, Value.WAITING_METRIC_COUNT: 1},
+            ),
+            (
+                "metric_calculation",
+                Key.METRIC_CALCULATION_FAILED,
+                {
+                    "latest_calculation": LatestCalculation(
+                        metric_count=3,
+                        finished_at=datetime(2026, 10, 2, 12, tzinfo=ZoneInfo("Europe/Berlin")),
+                        failures=(),
+                        completed_count=3,
+                        completed_exposures_paths=frozenset(),
+                    )
+                },
+                Status.PASSED,
+                {
+                    Value.METRIC_COUNT: 3,
+                    Value.COMPLETED_METRIC_COUNT: 3,
+                    Value.FAILED_METRIC_COUNT: 0,
+                    Value.CALCULATED_AT: "2026-10-02T10:00:00+00:00",
+                },
+            ),
+            (
+                "flag_state_names_a_shipped_variant",
+                Key.FLAG_STATE,
+                {
+                    "flag": replace(
+                        UNEVEN_FLAG,
+                        release_groups=(FlagReleaseGroup(rollout_percentage=100, property_count=0),),
+                        variants=(
+                            FlagVariant(key="control", rollout_percentage=0),
+                            FlagVariant(key="test", rollout_percentage=100),
+                        ),
+                    )
+                },
+                Status.FINDING,
+                {
+                    Value.FLAG_ACTIVE: True,
+                    Value.FLAG_DELETED: False,
+                    Value.FLAG_ROLLED_OUT: True,
+                    Value.SHIPPED_VARIANT: "test",
+                },
+            ),
+            (
+                "unserved_variants_read_the_users_first_exposed_after_the_save",
+                Key.UNSERVED_VARIANT_EXPOSURES,
+                {"flag": UNSERVED_CONTROL_FLAG, "exposures": UNSERVED_CONTROL_TOTALS},
+                Status.FINDING,
+                {Value.UNSERVED_EXPOSED_COUNT: 30, Value.UNSERVED_EXPOSED_PERCENTAGE: 30.0},
+            ),
+            (
+                "unserved_variants_read_nothing_when_they_dont_judge",
+                Key.UNSERVED_VARIANT_EXPOSURES,
+                {"flag": UNSERVED_CONTROL_FLAG, "exposures": UNSERVED_CONTROL_TOTALS, **ENDED},
+                Status.NOT_APPLICABLE,
+                {},
+            ),
+        ]
+    )
+    def test_a_check_reports_what_it_read(
+        self, _name: str, key: Key, changes: dict[str, Any], status: Status, values: dict[Value, Any]
+    ) -> None:
+        health = evaluate(
+            replace(RUNNING_UNEVEN_SPLIT, **changes), (*EXPERIMENT_HEALTH_CHECKS, *EXPOSURE_HEALTH_CHECKS)
+        )
+
+        check = next(check for check in health.checks if check.key == key)
+        self.assertEqual((check.status, dict(check.values)), (status, values))
+
+    @parameterized.expand(
+        [
+            (Key.SRM, {"exposures": replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.71)}),
+            (Key.BIAS_RISK_MULTIPLE_EXCLUDED, {"exposures": _totals_with_multiple(30, 1000)}),
+            (Key.MULTIPLE_VARIANTS_SHARE, {"exposures": _totals_with_multiple(30, 1000)}),
+            (Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES, {"exposures": _filtered_totals(400, 1000)}),
+            (Key.ZERO_EXPOSURES, {}),
+            (Key.UNSERVED_VARIANT_EXPOSURES, {"flag": UNSERVED_CONTROL_FLAG}),
+        ]
+    )
+    def test_a_rule_names_values_that_its_check_reads(self, key: Key, changes: dict[str, Any]) -> None:
+        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, **changes), EXPOSURE_HEALTH_CHECKS)
+
+        check = next(check for check in health.checks if check.key == key)
+        assert check.rule is not None and check.rule.minimum is not None
+        self.assertEqual(
+            {check.rule.value, check.rule.minimum.value} - check.values.keys(), set(), (check.status, check.values)
+        )
+
+    @parameterized.expand([(check.key.value, check) for check in EXPOSURE_HEALTH_CHECKS if check.rule])
+    def test_an_exposure_rule_converts_to_the_exposure_schema(self, _name: str, check: HealthCheck) -> None:
+        assert check.rule is not None
+
+        rule = ExperimentExposuresQueryRunner._health_check_rule(check.rule)
+
+        self.assertEqual(rule.value.value, check.rule.value.value)
+
+    def test_a_failing_read_keeps_the_status(self) -> None:
+        check = replace(MULTIPLE_VARIANTS_CHECK, read=_raise)
+
+        with patch.object(registry, "capture_exception") as capture:
+            health = evaluate(replace(RUNNING_UNEVEN_SPLIT, exposures=_totals_with_multiple(60, 1000)), (check,))
+
+        self.assertEqual(
+            (health.checks[0].status, dict(health.checks[0].values), len(health.findings)), (Status.FINDING, {}, 1)
+        )
+        capture.assert_called_once()
 
     @parameterized.expand(
         [

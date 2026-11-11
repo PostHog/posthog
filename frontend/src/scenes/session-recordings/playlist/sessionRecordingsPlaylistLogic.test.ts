@@ -172,8 +172,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        // The list memo is module state, so it survives the kea context these tests reset
-        clearMemoizedListResponses()
     })
 
     afterEach(() => {
@@ -2672,7 +2670,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         // An embedded playlist unmounts with its tab, so most repeats arrive on a fresh logic
         // instance. The memo has to outlive the one that issued the read.
-        it('reads once when a remount inside the memo window repeats the request', async () => {
+        it.each([
+            { when: 'a remount inside the memo window', elapsedMs: LIST_MEMO_WINDOW_MS - 1, resetKea: false, reads: 1 },
+            {
+                when: 'a remount the memo window no longer covers',
+                elapsedMs: LIST_MEMO_WINDOW_MS + 1,
+                resetKea: false,
+                reads: 2,
+            },
+            {
+                when: 'a reset kea context inside the memo window',
+                elapsedMs: LIST_MEMO_WINDOW_MS - 1,
+                resetKea: true,
+                reads: 2,
+            },
+        ])('reads $reads time(s) when $when repeats the request', async ({ elapsedMs, resetKea, reads }) => {
             const advanceClock = mockClock()
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
@@ -2685,36 +2697,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(firstMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             firstMount.unmount()
 
-            advanceClock(LIST_MEMO_WINDOW_MS - 1)
+            advanceClock(elapsedMs)
+            if (resetKea) {
+                initKeaTests()
+                featureFlagLogic.mount()
+            }
             const secondMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount' })
             secondMount.mount()
             await expectLogic(secondMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
 
-            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(listSpy).toHaveBeenCalledTimes(reads)
             expect(secondMount.values.sessionRecordings).toEqual([aRecording])
-
-            secondMount.unmount()
-        })
-
-        it('reads again when a remount repeats a request the memo window no longer covers', async () => {
-            const advanceClock = mockClock()
-            const listSpy = jest
-                .spyOn(api.recordings, 'list')
-                .mockImplementation(
-                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
-                )
-
-            const firstMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount-expired' })
-            firstMount.mount()
-            await expectLogic(firstMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
-            firstMount.unmount()
-
-            advanceClock(LIST_MEMO_WINDOW_MS + 1)
-            const secondMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount-expired' })
-            secondMount.mount()
-            await expectLogic(secondMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
-
-            expect(listSpy).toHaveBeenCalledTimes(2)
 
             secondMount.unmount()
         })

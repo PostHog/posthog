@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -353,6 +354,29 @@ class TestRateGate:
         assert c.process_record(self._VALUE) == SENT
         assert capture.call_count == 1
         assert len(sleeps) == 2  # backed off once per grant error before the grant
+
+    def test_grant_error_from_a_dead_db_connection_recovers_after_reset(self):
+        connection = {"alive": False}
+
+        def grant() -> bool:
+            if not connection["alive"]:
+                raise OperationalError("the connection is closed")
+            return True
+
+        capture = MagicMock(return_value=_capture_result(succeeded=True))
+        c = PersonPropertyUpdateConsumer(capture_fn=capture, grant_fn=grant, dlq_producer=MagicMock())
+        retries: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            retries.append(seconds)
+            if len(retries) >= 5:
+                c._shutdown = True
+
+        c._sleep = sleep
+
+        with patch(f"{_MODULE}.close_old_connections", side_effect=lambda: connection.update(alive=True)):
+            assert c.process_record(self._VALUE) == SENT
+        assert capture.call_count == 1
 
     def test_reports_liveness_while_throttled(self):
         # A pod that's merely rate-limited must keep heartbeating, or its liveness probe kills it

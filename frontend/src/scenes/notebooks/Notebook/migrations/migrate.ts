@@ -11,12 +11,6 @@ import { LegacyRecordingFilters } from '~/types'
 
 import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent'
 
-// NOTE: Increment this number when you add a new content migration
-// It will bust the cache on the localContent in the notebookLogic
-// so that the latest content will fall back to the remote content which
-// is filtered through the migrate function below that ensures integrity
-export const NOTEBOOKS_VERSION = '3'
-
 export interface MigrateOptions {
     /**
      * Skips the query migrate step which issues a POST request to the backend which will result

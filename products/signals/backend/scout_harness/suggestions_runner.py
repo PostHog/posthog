@@ -40,13 +40,13 @@ from products.signals.backend.scout_harness.suggestions import (
     mark_generation_failed,
     persist_suggestion_batch,
 )
+from products.signals.backend.task_profiles import SCOUT_SUGGESTIONS
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
     resolve_acting_user_id_for_team,
 )
 from products.skills.backend.api.skill_serializers import validate_new_skill_name_value
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, turn_failure_error_type
 
 logger = structlog.get_logger(__name__)
@@ -216,7 +216,7 @@ async def arun_scout_suggestions(
     try:
         fleet = await database_sync_to_async(fleet_context, thread_sensitive=False)(team.id)
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-            team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+            team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, SCOUT_SUGGESTIONS
         )
         runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
             team.id, STEP_SCOUT_SUGGESTIONS
@@ -245,12 +245,9 @@ async def arun_scout_suggestions(
             context=context,
             model=ScoutSuggestionBatch,
             step_name="scout_suggestions",
-            origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            # Not a user's task: hidden from the task tracker and never mounts personal MCP grants.
-            internal=True,
+            profile=SCOUT_SUGGESTIONS,
             # Runs as the Scout agent with an empty server allowlist, so nothing from the MCP Store
             # is mounted; the scan needs only the PostHog MCP.
-            mcp_builtin_agent_key="scout",
             mcp_gateway_server_ids=[],
             ai_stage=SUGGESTIONS_AI_STAGE,
             max_poll_seconds=settings.max_runtime_s,

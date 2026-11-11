@@ -85,14 +85,16 @@ def _is_own_bot_actor(user: dict, expected_login: str | None, *, allow_any_bot: 
     return allow_any_bot
 
 
-def _is_own_sticky_comment(comment: dict, expected_login: str | None) -> bool:
+def _is_own_sticky_comment(comment: dict, expected_login: str | None, *, allow_any_bot: bool = False) -> bool:
     """Whether ``comment`` was posted by this App, not just any account carrying the marker.
 
     The marker is visible in the rendered comment source, so a user could plant it to trick a naive
-    upsert into PATCHing (hijacking) their comment. The "any Bot" fallback is acceptable here — a
-    mis-targeted sticky PATCH is cosmetic, never a standing approval (contrast the approval paths).
+    upsert into PATCHing (hijacking) their comment. The "any Bot" fallback is acceptable for an
+    upsert — a mis-targeted sticky PATCH is cosmetic, never a standing approval (contrast the
+    approval paths). So only the upsert passes ``allow_any_bot=True``. A delete keeps the exact
+    match, because it cannot be undone.
     """
-    return _is_own_bot_actor(comment.get("user") or {}, expected_login, allow_any_bot=True)
+    return _is_own_bot_actor(comment.get("user") or {}, expected_login, allow_any_bot=allow_any_bot)
 
 
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
@@ -1328,7 +1330,7 @@ class StamphogGitHubClient:
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
 
-    def get_default_branch_file(self, repo: str, path: str) -> str | None:
+    def get_default_branch_file(self, repo: str, path: str, *, priority: Priority = Priority.CRITICAL) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 
         Policy files are always read from the default branch (never PR head), so a PR can't rewrite the
@@ -1340,6 +1342,7 @@ class StamphogGitHubClient:
             f"/repos/{repo}/contents/{path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             headers={"Accept": "application/vnd.github.raw+json"},
+            priority=priority,
         )
         if response.status_code == 404:
             return None
@@ -1518,15 +1521,16 @@ class StamphogGitHubClient:
                 error_types=[e.get("type") for e in errors or [] if isinstance(e, dict)],
             )
 
-    def upsert_sticky_comment(self, repo: str, number: int, body: str) -> dict:
-        """Create or update Stamphog's single status comment on a PR, identified by a hidden marker.
+    def upsert_sticky_comment(self, repo: str, number: int, body: str, *, marker: str = STICKY_COMMENT_MARKER) -> dict:
+        """Create or update one of Stamphog's comments on a PR, identified by a hidden marker.
 
-        Finds an existing comment carrying :data:`STICKY_COMMENT_MARKER` and edits it in place; otherwise
-        posts a new one. The marker is prepended so it survives round-trips but stays invisible in the
-        rendered comment. Returns the created/updated comment object.
+        Finds an existing comment of this App carrying ``marker`` and edits it in place; otherwise
+        posts a new one. The marker is prepended unless the body already starts with it, so it
+        survives round-trips but stays invisible in the rendered comment. Returns the
+        created/updated comment object.
         """
-        marked_body = f"{STICKY_COMMENT_MARKER}\n{body}"
-        existing_id = self._find_sticky_comment_id(repo, number)
+        marked_body = body if body.startswith(marker) else f"{marker}\n{body}"
+        existing_id = self._find_sticky_comment_id(repo, number, marker=marker, allow_any_bot=True)
         if existing_id is not None:
             path = f"/repos/{repo}/issues/comments/{existing_id}"
             response = self._request(
@@ -1555,6 +1559,88 @@ class StamphogGitHubClient:
                 status_code=response.status_code,
             )
         return self._json(response, path)
+
+    def delete_sticky_comment(self, repo: str, number: int, *, marker: str) -> bool:
+        """Delete this App's comment carrying ``marker``. Returns whether there was one to delete.
+
+        Matches only the exact ``<slug>[bot]`` login, so it does nothing when the slug is unset.
+        """
+        existing_id = self._find_sticky_comment_id(repo, number, marker=marker)
+        if existing_id is None:
+            return False
+        response = self._request(
+            "DELETE",
+            f"/repos/{repo}/issues/comments/{existing_id}",
+            endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
+        )
+        if response.status_code not in (204, 404):
+            raise StamphogGitHubError(
+                f"Failed to delete comment on {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+        return True
+
+    def _post_requested_reviewers(self, repo: str, number: int, body: dict[str, list[str]]) -> int:
+        response = self._request(
+            "POST",
+            f"/repos/{repo}/pulls/{number}/requested_reviewers",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+            json_body=body,
+        )
+        if response.status_code not in (201, 422):
+            raise StamphogGitHubError(
+                f"Failed to request reviewers on {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+        return response.status_code
+
+    def request_reviewers(self, repo: str, number: int, *, users: list[str], teams: list[str]) -> list[str]:
+        """Request reviews from ``users`` (logins) and ``teams`` (slugs). Returns the ones GitHub refused.
+
+        GitHub answers 422 for the whole request when any one reviewer cannot be requested: a renamed
+        team, a login that left, or the PR author. So a 422 retries each reviewer alone, and the
+        refused ones come back as ``@login`` or the team slug rather than failing the rest.
+        """
+        if not users and not teams:
+            return []
+        bulk: dict[str, list[str]] = {}
+        if users:
+            bulk["reviewers"] = users
+        if teams:
+            bulk["team_reviewers"] = teams
+        if self._post_requested_reviewers(repo, number, bulk) == 201:
+            return []
+        refused: list[str] = []
+        for user in users:
+            if self._post_requested_reviewers(repo, number, {"reviewers": [user]}) == 422:
+                refused.append(f"@{user}")
+        for team in teams:
+            if self._post_requested_reviewers(repo, number, {"team_reviewers": [team]}) == 422:
+                refused.append(team)
+        return refused
+
+    def add_pr_labels(self, repo: str, number: int, labels: list[str]) -> bool:
+        """Add labels to a PR (``POST .../issues/{number}/labels``). Returns whether GitHub took them.
+
+        A refused label (403, 422) returns False, because it must not stop the review requests. A 5xx
+        raises, so the caller retries: for a fork PR the label is the only signal those teams get.
+        """
+        if not labels:
+            return True
+        response = self._request(
+            "POST",
+            f"/repos/{repo}/issues/{number}/labels",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels",
+            json_body={"labels": labels},
+        )
+        if response.status_code == 200:
+            return True
+        if response.status_code >= 500:
+            raise StamphogGitHubError(
+                f"Failed to add labels on {repo}#{number}: {response.text[:200]}", status_code=response.status_code
+            )
+        logger.info("stamphog github: labels not added", repo=repo, pr_number=number, status_code=response.status_code)
+        return False
 
     def _team_lookup_page(self, org: str, login: str, after: str | None) -> dict | None:
         """One page of the teams that ``login`` belongs to in ``org``, or None after logging a failure."""
@@ -1631,8 +1717,10 @@ class StamphogGitHubClient:
         logger.warning("stamphog_github_team_lookup_page_cap", org=org, login=login, pages=_MAX_PAGES)
         return sorted(slugs)
 
-    def _find_sticky_comment_id(self, repo: str, number: int) -> int | None:
-        """Return the id of the App's own sticky comment on the PR, or ``None`` if there isn't one.
+    def _find_sticky_comment_id(
+        self, repo: str, number: int, *, marker: str = STICKY_COMMENT_MARKER, allow_any_bot: bool = False
+    ) -> int | None:
+        """Return the id of the App's own comment carrying ``marker``, or ``None`` if there isn't one.
 
         Matching on the marker alone would let a user plant the (source-visible) marker and have the App
         PATCH their comment; candidates are filtered to this App's bot identity (see
@@ -1655,9 +1743,9 @@ class StamphogGitHubClient:
             if not isinstance(comments, list):
                 raise StamphogGitHubError(f"Unexpected comments payload for {repo}#{number}")
             for comment in comments:
-                if not (isinstance(comment, dict) and STICKY_COMMENT_MARKER in (comment.get("body") or "")):
+                if not (isinstance(comment, dict) and marker in (comment.get("body") or "")):
                     continue
-                if not _is_own_sticky_comment(comment, expected_login):
+                if not _is_own_sticky_comment(comment, expected_login, allow_any_bot=allow_any_bot):
                     continue
                 comment_id = comment.get("id")
                 if isinstance(comment_id, int):

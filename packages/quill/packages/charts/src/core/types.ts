@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import type { LegendItem } from '../components/Legend/Legend'
+import type { LegendItem, LegendTableConfig } from '../components/Legend/Legend'
 import type { LegendItemControls } from '../components/Legend/useChartLegend'
 import type { DefaultTooltipProps } from '../overlays/DefaultTooltip'
 
@@ -285,7 +285,8 @@ export interface ChartConfig {
     /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
      *  line with monotone-cubic curves that pass through every point without overshooting. */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
+    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement on the base
+     *  `Chart`. Charts that apply `DEFAULT_CHART_CONFIG` use `cursor` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
@@ -380,6 +381,9 @@ export interface ChartLegendConfig {
      *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
      *  untouched. */
     renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
+    /** Renders the legend as a table with one column per summary (`{ values: ['mean', 'max', 'last'] }`).
+     *  Rows still isolate and toggle on click, and a header click sorts by that column. */
+    table?: LegendTableConfig
 }
 
 export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {
@@ -407,8 +411,10 @@ export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer'
     showTotal?: boolean
     totalLabel?: string
     totalFormatter?: (value: number) => string
-    /** Sort series rows by value descending so the highest value appears at the top. */
-    sortedByValue?: boolean
+    /** Sort series rows by value: `true` or `'desc'` highest first, `'asc'` lowest first. */
+    sortedByValue?: boolean | 'asc' | 'desc'
+    /** `single` lists only the series closest to the cursor. Defaults to `all`. */
+    mode?: 'all' | 'single'
     /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
      *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
     hitArea?: 'bar' | 'band'
@@ -458,7 +464,7 @@ export interface BarsConfig {
      *  light→dark sheen. `gloss` is a curved radial highlight for a glassy look. */
     fillStyle?: BarFillStyle
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
-     *  baseline (positives above). Default `false` clamps negatives to 0. */
+     *  baseline (positives above). A stacked layout with a negative value uses it without this flag. */
     divergingStack?: boolean
     /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while gridlines
      *  still span the full width — useful for few-category funnel-style charts. */
@@ -549,8 +555,8 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
      *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Stacked layout only — use d3.stackOffsetDiverging so negative bar values stack below the
-     *  zero baseline (positives above). Default `false` clamps negatives to 0. Mirrors
-     *  {@link BarsConfig.divergingStack}. */
+     *  zero baseline (positives above). A stacked layout with a negative bar value uses it without
+     *  this flag. Mirrors {@link BarsConfig.divergingStack}. */
     divergingStack?: boolean
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number

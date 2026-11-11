@@ -4,24 +4,25 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from products.warehouse_sources.sources.salesloft.settings import (
+    PAGE_SIZE,
     SALESLOFT_ENDPOINTS,
     SALESLOFT_UPDATED_AT_FIELD,
     SalesloftEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    DependentEndpointConfig,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
 
 SALESLOFT_BASE_URL = "https://api.salesloft.com/v2"
-# Salesloft caps per_page at 100; larger pages keep us under the per-page rate-limit
-# cost penalties that escalate past page 100.
-PAGE_SIZE = 100
 
 
 @dataclasses.dataclass(frozen=False)
@@ -32,6 +33,8 @@ class SalesloftResumeConfig:
     # legacy ``next_url``.
     next_url: str = ""
     next_page: Optional[int] = None
+    # Fan-out endpoints (cadence_stats) save the framework's per-parent checkpoint here instead.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _format_datetime(value: Any) -> str:
@@ -56,9 +59,11 @@ def _build_params(
     params: dict[str, Any] = {"per_page": PAGE_SIZE}
 
     if config.incremental:
-        # Default sort key on these endpoints is `updated_at`; ascending order lets the
-        # pipeline advance its incremental watermark deterministically.
+        # The default sort key is `updated_at` unless the endpoint sets `sort_by`; ascending order
+        # lets the pipeline advance its incremental watermark deterministically.
         params["sort_direction"] = "ASC"
+        if config.sort_by:
+            params["sort_by"] = config.sort_by
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             filter_field = incremental_field or SALESLOFT_UPDATED_AT_FIELD
@@ -90,6 +95,66 @@ def validate_credentials(api_key: str) -> bool:
     return ok
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": SALESLOFT_BASE_URL,
+        # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+        # logs and raised errors; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+    }
+
+
+def _page_paginator() -> JSONResponseCursorPaginator:
+    # Salesloft returns the next page NUMBER in the body; feed it back as the `page` query param.
+    # A null `next_page` stops pagination — matching the API's own end-of-list signal rather than
+    # probing one extra empty page.
+    return JSONResponseCursorPaginator(cursor_path="metadata.paging.next_page", cursor_param="page")
+
+
+def _fanout_source(
+    api_key: str,
+    config: SalesloftEndpointConfig,
+    fanout: DependentEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SalesloftResumeConfig],
+) -> SourceResponse:
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(SalesloftResumeConfig(fanout_state=state))
+
+    resource = build_dependent_resource(
+        endpoint_configs=SALESLOFT_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        # The child is a single-object endpoint that takes no page-size param; the parent's rides
+        # in `parent_params`.
+        page_size_param=None,
+        parent_endpoint_extra={"paginator": _page_paginator(), "data_selector": "data"},
+        child_endpoint_extra={"paginator": "single_page", "data_selector": "data"},
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_mode=None,
+    )
+
+
 def salesloft_source(
     api_key: str,
     endpoint: str,
@@ -102,16 +167,13 @@ def salesloft_source(
 ) -> SourceResponse:
     config = SALESLOFT_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        return _fanout_source(api_key, config, config.fanout, team_id, job_id, resumable_source_manager)
+
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": SALESLOFT_BASE_URL,
-            # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
-            # logs and raised errors; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": api_key},
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [
             {
@@ -120,12 +182,7 @@ def salesloft_source(
                     "path": config.path,
                     "params": params,
                     "data_selector": "data",
-                    # Salesloft returns the next page NUMBER in the body; feed it back as the
-                    # `page` query param. A null `next_page` stops pagination — matching the API's
-                    # own end-of-list signal rather than probing one extra empty page.
-                    "paginator": JSONResponseCursorPaginator(
-                        cursor_path="metadata.paging.next_page", cursor_param="page"
-                    ),
+                    "paginator": _page_paginator(),
                 },
             }
         ],
@@ -159,7 +216,7 @@ def salesloft_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=["id"],
+        primary_keys=config.primary_keys,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,

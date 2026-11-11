@@ -62,7 +62,20 @@
       depNameTemplate: 'nodejs',
       datasourceTemplate: 'deb',
       versioningTemplate: 'deb',
-      registryUrlTemplate: 'https://deb.nodesource.com/node_24.x?suite=nodistro&components=main&binaryArch=amd64',
+      registryUrlTemplate: 'https://deb.nodesource.com/node_26.x?suite=nodistro&components=main&binaryArch=amd64',
+    },
+    {
+      customType: 'regex',
+      description: 'Update the standalone corepack pinned wherever an image or workflow runs corepack enable',
+      managerFilePatterns: [
+        '/(^|/)Dockerfile[^/]*$/',
+        '/^products/tasks/backend/logic/services/modal_sandbox\\.py$/',
+        '/^\\.github/workflows/ci-ml-mirror-image-scrub-container\\.yml$/',
+        '/^docs/published/handbook/engineering/manual-dev-setup\\.md$/',
+      ],
+      matchStrings: ['corepack@(?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      depNameTemplate: 'corepack',
+      datasourceTemplate: 'npm',
     },
   ],
   customDatasources: {

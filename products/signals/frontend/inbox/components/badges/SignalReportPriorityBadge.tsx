@@ -1,31 +1,24 @@
+import clsx from 'clsx'
+
 import { IconQuestion } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { PRIORITY_MEANING } from '../../filterOptions'
+import { PRIORITY_ACCENT, PRIORITY_MEANING } from '../../filterOptions'
 import { SignalReportPriority } from '../../types'
-
-/**
- * Per-priority color, mirroring `PRIORITY_TAG_TYPE`'s LemonTag semantics but as raw CSS vars
- * so the badge can paint its own border + text. Theme-aware, so contrast holds in both modes.
- */
-const PRIORITY_COLOR: Record<SignalReportPriority, string> = {
-    P0: 'var(--danger)',
-    P1: 'var(--warning)',
-    P2: 'var(--danger-lighter)',
-    P3: 'var(--color-accent)',
-    P4: 'var(--color-text-secondary)',
-}
 
 /**
  * Sleek priority chip: a square box of accent text on a faint accent fill with a matching border
  * and a tight radius. Built bespoke since no LemonTag variant gives this filled-square look.
- * Shared verbatim between report cards and the detail header.
+ * Shared between report cards and the detail header.
  */
 export function SignalReportPriorityBadge({
     priority,
     explanation,
+    size = 'medium',
 }: {
     priority: SignalReportPriority | null | undefined
+    /** `small` fits the chip on a line of title text, where the medium chip would push the line taller. */
+    size?: 'small' | 'medium'
     /**
      * When set, a circled help icon overlays the chip's top-right corner and the whole chip is
      * hoverable, surfacing this rationale. The icon is out of flow, so the chip stays a square.
@@ -36,11 +29,14 @@ export function SignalReportPriorityBadge({
         return null
     }
 
-    const color = PRIORITY_COLOR[priority]
+    const color = PRIORITY_ACCENT[priority]
     const borderColor = `color-mix(in srgb, ${color} 40%, transparent)`
     const chip = (
         <span
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold tabular-nums select-none"
+            className={clsx(
+                'inline-flex shrink-0 items-center justify-center rounded-sm border font-semibold tabular-nums select-none',
+                size === 'small' ? 'size-5 text-[9px]' : 'size-6 text-[10px]'
+            )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 color,

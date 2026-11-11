@@ -11,7 +11,8 @@ import {
     writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
+import { z } from 'zod'
 
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
@@ -32,7 +33,77 @@ function project(files: Record<string, string>): string {
     return folder
 }
 
+const UploadOutput = z.looseObject({
+    symbolSets: z.array(z.looseObject({ contentHash: z.string() })).default([]),
+    skipped: z.array(z.object({ path: z.string(), reason: z.string() })).default([]),
+    release: z.unknown(),
+})
+
 describe('hog error-tracking upload', () => {
+    test('release without git or complete coordinates returns null without a request', async () => {
+        const result = await runHog(['et', 'release', '--release-version', 'abc123', '-o', 'json'], {
+            env: { CLAUDECODE: '1' },
+            cwd: project({}),
+            useDisk: true,
+        })
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toBeNull()
+        expect(result.requests).toEqual([])
+    })
+
+    test.each(['inject', 'upload', 'process'] as const)(
+        '%s skips an incomplete release without git and warns once',
+        async (command) => {
+            const folder = project({
+                'dist/a.js': 'a();\n//# debugId=11111111-2222-4333-8444-555555555555\n//# sourceMappingURL=a.js.map\n',
+                'dist/a.js.map': JSON.stringify({
+                    version: 3,
+                    sources: ['a.ts'],
+                    names: [],
+                    mappings: 'AAAA',
+                    debugId: '11111111-2222-4333-8444-555555555555',
+                }),
+            })
+            const result = await runHog(
+                ['et', command, 'dist', '--release-mode', 'symbol-set', '--release-version', 'abc123', '--dry-run'],
+                { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true }
+            )
+            expect(result.exitCode).toBe(0)
+            const report = result.json(z.looseObject({ warnings: z.array(z.string()) }))
+            expect(
+                report.warnings.filter((warning) => warning.includes('Sourcemaps will upload without a release.'))
+            ).toHaveLength(1)
+            expect(result.requests).toEqual([])
+        }
+    )
+
+    test.each([
+        ['clone', ['packager.map', 'composed.map']],
+        ['upload', ['composed.map']],
+    ])('%s warns when a Hermes release cannot be resolved', async (command, paths) => {
+        const map = {
+            version: 3,
+            sources: ['a.ts'],
+            names: [],
+            mappings: 'AAAA',
+            chunk_id: '11111111-2222-4333-8444-555555555555',
+        }
+        const folder = project({
+            'packager.map': JSON.stringify(map),
+            'composed.map': JSON.stringify({ ...map, x_hermes_function_offsets: { '0': [0] } }),
+        })
+        const result = await runHog(
+            ['et', command, ...paths, '--release-mode', 'symbol-set', '--release-version', 'abc123', '--dry-run'],
+            { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true }
+        )
+        expect(result.exitCode).toBe(0)
+        const report = result.json(z.looseObject({ warnings: z.array(z.string()) }))
+        expect(
+            report.warnings.filter((warning) => warning.includes('Sourcemaps will upload without a release.'))
+        ).toHaveLength(1)
+        expect(result.requests).toEqual([])
+    })
+
     test.each([
         ['the map ID from posthog.json', [], 'map-1'],
         ['--map-id over the one in posthog.json', ['--map-id', 'map-2'], 'map-2'],
@@ -120,7 +191,7 @@ describe('hog error-tracking upload', () => {
             cwd: folder,
             useDisk: true,
         })
-        expect(result.json().symbolSets).toEqual([
+        expect(result.json(UploadOutput).symbolSets).toEqual([
             expect.objectContaining({ chunkId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7/) }),
         ])
     })
@@ -152,10 +223,41 @@ describe('hog error-tracking upload', () => {
         const result = await runHog(['et', 'inject'], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
 
         expect(result.exitCode).toBe(0)
-        expect(result.json().skipped).toEqual([
+        expect(result.json(UploadOutput).skipped).toEqual([
             { path: expect.stringMatching(/dist\/a\.js$/), reason: expect.stringContaining(reason) },
         ])
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
+    })
+
+    test('upload --dry-run calls an empty map a bundler problem only when its file is 4096 bytes or more', async () => {
+        const files: Record<string, string> = {
+            'dist/ok.js': 'a();\n//# sourceMappingURL=ok.js.map\n//# chunkId=00000000-0000-4000-8000-000000000000',
+            'dist/ok.js.map': MAP,
+        }
+        for (const [name, size, id] of [
+            ['page', 2900, 1],
+            ['stub', 4095, 2],
+            ['chunk', 4096, 3],
+        ] as const) {
+            const tail = `\n//# sourceMappingURL=${name}.js.map\n//# chunkId=00000000-0000-4000-8000-00000000000${id}`
+            files[`dist/${name}.js`] = 'a'.repeat(size - tail.length) + tail
+            files[`dist/${name}.js.map`] = JSON.stringify({ version: 3, sources: [], names: [], mappings: '' })
+        }
+        const result = await runHog(['et', 'upload', '--dry-run', 'dist'], {
+            env: { CLAUDECODE: '1' },
+            cwd: project(files),
+            useDisk: true,
+        })
+
+        expect(result.exitCode).toBe(0)
+        const reasons = Object.fromEntries(
+            result.json(UploadOutput).skipped.map((skip) => [basename(skip.path), skip.reason])
+        )
+        expect(reasons).toEqual({
+            'page.js': 'the sourcemap is empty',
+            'stub.js': 'the sourcemap is empty',
+            'chunk.js': 'the sourcemap is empty although the file is large. Check your bundler sourcemap setting.',
+        })
     })
 
     test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
@@ -238,7 +340,9 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
         expect(result.exitCode).toBe(0)
-        expect(result.json().symbolSets).toEqual([expect.objectContaining({ path: composed, kind: 'hermes' })])
+        expect(result.json(UploadOutput).symbolSets).toEqual([
+            expect.objectContaining({ path: composed, kind: 'hermes' }),
+        ])
     })
 
     test('upload fails when Hermes bundles have no composed maps', async () => {
@@ -292,7 +396,9 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
         expect(result.exitCode).toBe(exitCode)
-        expect(exitCode === 0 ? JSON.stringify(result.json().symbolSets) : result.error().message).toContain(expected)
+        expect(
+            exitCode === 0 ? JSON.stringify(result.json(UploadOutput).symbolSets) : result.error().message
+        ).toContain(expected)
     })
 
     test.each([
@@ -317,7 +423,7 @@ describe('hog error-tracking upload', () => {
 
         if (linkOutside) {
             expect(result.exitCode).toBe(0)
-            expect(result.json().symbolSets).toEqual([
+            expect(result.json(UploadOutput).symbolSets).toEqual([
                 expect.objectContaining({ path: 'apple/Shop.app.dSYM', status: 'planned' }),
             ])
         } else {
@@ -351,7 +457,7 @@ describe('hog error-tracking upload', () => {
                 useDisk: true,
             })
             expect(result.exitCode).toBe(0)
-            return result.json().symbolSets[0].contentHash
+            return result.json(UploadOutput).symbolSets[0]!.contentHash
         }
         try {
             const all = await plan([])
@@ -376,7 +482,7 @@ describe('hog error-tracking upload', () => {
             cwd: outside,
             useDisk: true,
         })
-        expect(result.json().release).toEqual({
+        expect(result.json(UploadOutput).release).toEqual({
             name: 'example-app',
             version: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
             id: null,

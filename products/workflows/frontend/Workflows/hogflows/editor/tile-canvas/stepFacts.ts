@@ -1,5 +1,5 @@
-import { isBranchingAction } from '../../tree/workflowTree'
 import type { HogFlow, HogFlowAction } from '../../types'
+import { isBranchingAction } from '../../workflowBranches'
 import { StepPresentation, stepPresentation, TimeWindowPresentation, WaitPresentation } from './stepPresentation'
 import {
     ActionOf,

@@ -11,6 +11,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -33,6 +34,7 @@ class ShopWiredResumeConfig:
     # resume state so a resumed run keeps the same window — recomputing it from a watermark that
     # advanced mid-run would shift rows under the saved offset.
     from_timestamp: int | None = None
+    fanout_state: dict[str, Any] | None = None
 
 
 def to_unix_timestamp(value: Any) -> int | None:
@@ -62,6 +64,54 @@ def to_unix_timestamp(value: Any) -> int | None:
     return None
 
 
+def _product_variations_source(
+    api_key: str,
+    api_secret: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ShopWiredResumeConfig],
+) -> SourceResponse:
+    config = SHOPWIRED_ENDPOINTS["product_variations"]
+    assert config.fanout is not None
+    initial_fanout_state: dict[str, Any] | None = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_fanout_state = resume.fanout_state
+
+    def save_fanout_checkpoint(state: dict[str, Any] | None) -> None:
+        resumable_source_manager.save_state(ShopWiredResumeConfig(fanout_state=state))
+
+    variations = build_dependent_resource(
+        endpoint_configs=SHOPWIRED_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=config.fanout,
+        client_config={
+            "base_url": SHOPWIRED_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": HttpBasicAuth(username=api_key, password=api_secret),
+            "paginator": OffsetPaginator(limit=PAGE_SIZE, offset_param="offset", limit_param="count", total_path=None),
+        },
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        page_size_param=None,
+        parent_endpoint_extra={"data_selector_malformed_retryable": True},
+        child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector_malformed_retryable": True},
+        resume_hook=save_fanout_checkpoint,
+        initial_paginator_state=initial_fanout_state,
+        resume_parent_pagination=True,
+    )
+    return SourceResponse(
+        name=config.name,
+        items=lambda: variations,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def shopwired_source(
     api_key: str,
     api_secret: str,
@@ -73,8 +123,10 @@ def shopwired_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SHOPWIRED_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _product_variations_source(api_key, api_secret, team_id, job_id, resumable_source_manager)
 
-    # Only orders exposes a server-side created-date filter (`from`). The value is pinned into the
+    # Orders and incomplete orders support a creation-date filter. The value is pinned into the
     # resume state so a resumed run keeps the same window even if the DB watermark advanced.
     last_value = db_incremental_field_last_value if should_use_incremental_field else None
     from_timestamp = to_unix_timestamp(last_value)

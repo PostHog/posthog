@@ -13,7 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
-import type { AcceptedSend } from './services/hogflows/transactional-email'
+import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
@@ -257,6 +257,8 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_link_clicked_by_link'
+        | 'email_opened_by_person'
+        | 'email_clicked_by_person'
         | 'email_bounced'
         | 'email_bounced_hard'
         | 'email_bounced_transient'
@@ -432,7 +434,8 @@ export type CyclotronJobInvocationHogFunctionContext = {
     sensitive?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
-    send?: AcceptedSend
+    send?: QueuedSend
+    renderedWorkflowVersion?: number
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -504,7 +507,7 @@ export type HogFlowInvocationContext = {
         // invocation rebuilds its filter globals from stored state, which can arrive without the event
         // properties the expression reads, so re-evaluating on wake is allowed to fail back to this.
         delayUntilAt?: string
-        // Set when a delay_until step could not work out when to continue. The run aborts on it whatever
+        // Set when a delay_until or time window step could not work out when to continue. The run aborts on it whatever
         // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
         // run the next step immediately, which for a "N days before X" message is worse than not sending.
         delayUntilUnresolved?: boolean
@@ -579,7 +582,7 @@ export type HogFlowInvocationContext = {
     // conversions are counted by the matcher and never touch this flag.
     conversionCounted?: boolean
     variables?: Record<string, any>
-    send?: AcceptedSend
+    send?: QueuedSend
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on

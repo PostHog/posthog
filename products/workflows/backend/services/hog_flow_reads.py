@@ -12,7 +12,7 @@ from django.db.models import Count, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
 
-from django_filters import BooleanFilter, FilterSet
+from django_filters import BooleanFilter, CharFilter, FilterSet
 
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
@@ -206,6 +206,7 @@ WORKFLOW_FIELD_FILTER_PARAMS: Final[tuple[str, ...]] = (
     "origin_product",
     "source_record",
     "optimization_enabled",
+    "name",
 )
 
 
@@ -236,6 +237,7 @@ def _list_queryset(
 ) -> QuerySet:
     queryset: QuerySet = (
         HogFlow.objects.filter(team_id=team_id)
+        .exclude(origin_product__in=HIDDEN_ORIGIN_PRODUCTS)
         .select_related("created_by")
         # _to_workflow reads prefetched_tags, so a page costs one tag query rather than one per row.
         .prefetch_related(
@@ -417,6 +419,7 @@ OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
     "broadcast": HogFlow.OriginProduct.BROADCASTS,
     "transactional_email": HogFlow.OriginProduct.TRANSACTIONAL_EMAILS,
 }
+HIDDEN_ORIGIN_PRODUCTS: Final[tuple[str, ...]] = (HogFlow.OriginProduct.TRANSACTIONAL_EMAIL_KEYS,)
 
 
 def workflow_type_q(requested: set[str]) -> Q:
@@ -428,7 +431,7 @@ def workflow_type_q(requested: set[str]) -> Q:
     messaging = Q()
     for action_type in MESSAGING_ACTION_TYPES:
         messaging |= Q(actions__contains=[{"type": action_type}])
-    unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
+    unowned = ~Q(origin_product__in=[*OWNED_WORKFLOW_TYPES.values(), *HIDDEN_ORIGIN_PRODUCTS])
     if behavioural == {"messaging", "automation"}:
         return owned | unowned
     return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
@@ -478,7 +481,7 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
     )
 
 
-BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
+BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "partially_sent", "failed", "archived")
 
 
 class _WorkflowFilterSet(FilterSet):
@@ -486,6 +489,11 @@ class _WorkflowFilterSet(FilterSet):
     optimization_enabled = BooleanFilter(
         method="filter_optimization_enabled",
         label="Only workflows someone turned suggestions on for.",
+    )
+    name = CharFilter(
+        field_name="name",
+        lookup_expr="icontains",
+        label="Only workflows whose name contains this text, ignoring case.",
     )
 
     class Meta:

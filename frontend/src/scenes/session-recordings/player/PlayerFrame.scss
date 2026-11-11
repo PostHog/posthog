@@ -14,9 +14,26 @@
         touch-action: pan-x pan-y;
     }
 
+    .PlayerFrame__ambient {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+    }
+
+    .PlayerFrame__ambient-layer {
+        position: absolute;
+        filter: blur(40px) saturate(1.2) brightness(0.85);
+        opacity: 0;
+
+        &--hidden {
+            visibility: hidden;
+        }
+    }
+
     // The rrweb wrapper renders inside this frame's document, which this stylesheet cannot reach, so
     // posthog/templates/replay_player_frame/index.html carries the wrapper's styles.
     .PlayerFrame__document {
+        position: relative;
         width: 100%;
         height: 100%;
         border: 0;

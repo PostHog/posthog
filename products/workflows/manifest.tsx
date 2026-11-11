@@ -57,6 +57,12 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Send emails from your code with one API call',
         },
+        TransactionalEmailLogEntry: {
+            import: () => import('./frontend/Transactional/log/TransactionalEmailLogEntryScene'),
+            name: 'Transactional',
+            iconType: 'transactional',
+            projectBased: true,
+        },
         WorkflowsEmailDomain: {
             import: () => import('./frontend/Channels/EmailDomain/EmailDomainScene'),
             name: 'Workflows',
@@ -93,6 +99,9 @@ export const manifest: ProductManifest = {
         '/transactional/reputation': ['Transactional', 'transactional'],
         '/transactional/settings': ['Transactional', 'transactional'],
         '/transactional/new': ['Transactional', 'transactional'],
+        '/transactional/log': ['Transactional', 'transactional'],
+        '/transactional/metrics': ['Transactional', 'transactional'],
+        '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
         // A template opened from a section's Templates tab stays in that section.
         '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -115,6 +124,9 @@ export const manifest: ProductManifest = {
         broadcastNew: (): string => '/broadcasts/new',
         transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
         transactionalNew: (): string => '/transactional/new',
+        transactionalLog: (): string => '/transactional/log',
+        transactionalMetrics: (): string => '/transactional/metrics',
+        transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
         transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
     },

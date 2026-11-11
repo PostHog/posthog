@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonBanner, LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -56,8 +54,6 @@ export function AISection(): JSX.Element {
     } = useValues(supportSettingsLogic)
     const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
         useActions(supportSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
 
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
@@ -98,15 +94,6 @@ export function AISection(): JSX.Element {
                         />
                     </div>
                 </LemonCard>
-                {aiSuggestionsEnabled && businessKnowledgeEnabled && (
-                    <LemonBanner type="info" className="max-w-[800px] mt-3">
-                        Add your documents, links, and general context to{' '}
-                        <Link to={urls.businessKnowledge()} target="_blank">
-                            Business knowledge
-                        </Link>{' '}
-                        so the AI can ground its replies in your company's information.
-                    </LemonBanner>
-                )}
             </SceneSection>
 
             {aiSuggestionsEnabled && (

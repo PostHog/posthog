@@ -6,8 +6,10 @@ export type TraceDrawerListId =
     | 'generations'
     | 'prompt-traces'
     | 'reviews'
+    | 'review-queue'
     | 'evaluation-runs'
     | 'dataset-items'
+    | 'offline-experiment'
     | 'cluster-traces'
 
 export interface TraceDrawerListConfig {
@@ -19,6 +21,7 @@ export interface TraceDrawerListConfig {
     openingMode?: TraceOpeningMode
     detailTab?: NodeDetailTab
     rowClick: boolean
+    showNavigation?: boolean
 }
 
 export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig> = {
@@ -46,6 +49,14 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backLabel: 'Back to reviews',
         rowClick: true,
     },
+    // Shares its path with reviews: the two are tabs of one scene, and only the open tab mounts its list. It also
+    // shares the back target, because the legacy trace page only keeps queue context for `back_to=reviews`.
+    'review-queue': {
+        pathMatcher: /^\/ai-observability\/reviews$/,
+        backTo: 'reviews',
+        backLabel: 'Back to reviews',
+        rowClick: true,
+    },
     'evaluation-runs': {
         pathMatcher: /^\/ai-evals\/evaluations\/(?!(?:templates|offline|scorers)$)[^/]+$/,
         backTo: 'evaluation',
@@ -58,6 +69,13 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backTo: 'dataset',
         backLabel: 'Back to dataset',
         rowClick: false,
+    },
+    'offline-experiment': {
+        pathMatcher: /^\/ai-evals\/evaluations\/offline\/experiments\/[^/]+$/,
+        backTo: 'offline-experiment',
+        backLabel: 'Back to experiment',
+        rowClick: false,
+        showNavigation: false,
     },
     'cluster-traces': {
         pathMatcher: /^\/ai-observability\/clusters\/[^/]+\/[^/]+$/,

@@ -3,13 +3,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { configSchema } from '@/core/config'
-import { runHog } from '@/testing'
+import { readJson, runHog } from '@/testing'
 
 const VALID = JSON.stringify({ errorTracking: { sources: [{ path: 'dist', kind: 'js' }] } })
 
 describe('hog config', () => {
     test('posthog.schema.json matches the zod definitions', () => {
-        const file = JSON.parse(readFileSync(join(import.meta.dir, '../../../posthog.schema.json'), 'utf8'))
+        const file = readJson(readFileSync(join(import.meta.dir, '../../../posthog.schema.json'), 'utf8'))
         expect(file).toEqual(configSchema())
     })
 
