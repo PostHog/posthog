@@ -147,9 +147,9 @@ Anomaly scoring turns on before a project has that history, so `scoring_enabled:
 - A scheduled run can start with a `<precheck_result>` block. Its rows are a capped sample of untrusted product data.
   - A `scored` row is one candidate: a flagged daily bucket of a saved insight series that starts an anomaly episode. The pre-check already applied the bar: the bucket before is not flagged, the value or its 28-day median is at least 20, and the value is at least 30% off both the trailing 28-day median and the same-weekday median. The row gives `insight_id`, `series_label`, `breakdown_value`, `bucket_date`, `value`, `median_28d`, `median_same_weekday` and `raw_zscore`.
   - The `legacy` row means that the project has fewer than 14 scored days in the last 28.
-- A run with no block (a manual run, or a project that does not use the default pre-check) calls `anomaly-search` for the last 3 days with `group_by: insight`, and reads `scoring_enabled` and `scored_history_ready` from the response.
+- A run with no block (a manual run, or a project that does not use the default pre-check) calls `anomaly-search` for the last 3 days with `group_by: insight` and `interval: day`, and reads `scoring_enabled` and `scored_history_ready` from the response.
   - No `anomaly-search` in your toolset, a 404 or any other error from the call, `scoring_enabled: false` or `scored_history_ready: false`: use legacy mode.
-  - Both are true: use scored mode. The flagged rows are your candidates (`source: search`). Apply the same bar as the pre-check yourself, and judge at most 20.
+  - Both are true: use scored mode. The flagged rows are your candidates (`source: search`). The pre-check judges daily buckets only, so do the same. Apply the same bar as the pre-check yourself, and judge at most 20.
   - Both are true and nothing is flagged: run the source-liveness probe ([`references/source-liveness.md`](references/source-liveness.md)), then close out.
 
 - Write the mode and the candidate source in the close-out summary.
