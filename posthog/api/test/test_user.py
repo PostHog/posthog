@@ -2903,6 +2903,14 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
                 "non_boolean_session_replay_filter_test_accounts",
                 {"version": 1, "session_replay": {"filter_test_accounts": "nope"}},
             ),
+            (
+                "coercible_string_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "false"}},
+            ),
+            (
+                "coercible_int_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": 1}},
+            ),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2920,6 +2928,7 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
                 "analytics_list",
                 {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
             ),
+            ("session_replay", {"version": 1, "session_replay": {"filter_test_accounts": False}}),
             (
                 # A layout can name a widget that a later release removed. Rejecting it would block every later save.
                 "ticket_sidebar_with_removed_widget",
