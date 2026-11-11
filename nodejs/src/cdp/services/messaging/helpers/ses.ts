@@ -38,6 +38,9 @@ export type SnsEnvelope = z.infer<typeof SnsEnvelopeSchema>
 
 export const parseSnsEnvelope = (raw: string): SnsEnvelope => SnsEnvelopeSchema.parse(parseJSON(raw))
 
+// Below the default, so a batch records well within the 30s heartbeat health check.
+export const SES_NOTIFICATIONS_PER_BATCH = 200
+
 /**
  * ---------- SES event types ----------
  * AWS posts an array of records in the "Message" (or directly as body if raw_message_delivery=true).

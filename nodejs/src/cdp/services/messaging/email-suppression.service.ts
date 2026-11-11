@@ -7,6 +7,8 @@ import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
 import type { ValueMatcher } from '~/types'
 
+import { SES_NOTIFICATIONS_PER_BATCH } from './helpers/ses'
+
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
     help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced; `transient_bounce_repeat` = a soft bounce already counted, seen again on a redelivery; `unstorable_address` = an address left out of a write because Postgres cannot store it.',
@@ -31,7 +33,7 @@ const DIAGNOSTIC_MAX_LENGTH = 1000
 
 const EVENT_ID_MAX_LENGTH = 128
 
-const TRANSIENT_BOUNCE_EVENT_IDS_KEPT = 20
+const TRANSIENT_BOUNCE_EVENT_IDS_KEPT = SES_NOTIFICATIONS_PER_BATCH
 
 const normalizeIdentifier = (email: string): string => email.trim().toLowerCase()
 

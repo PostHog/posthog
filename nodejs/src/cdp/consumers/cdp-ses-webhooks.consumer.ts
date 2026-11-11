@@ -7,14 +7,11 @@ import { logger, serializeError } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { sesQueuedNotificationsCounter } from '../services/messaging/email-tracking.service'
-import { SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/ses'
+import { SES_NOTIFICATIONS_PER_BATCH, SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/ses'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 type SkipReason = 'unparseable' | 'not_an_sns_envelope' | 'invalid_ses_event' | 'rejected'
-
-// Below the default, so a batch records well within the 30s heartbeat health check.
-const SES_NOTIFICATIONS_PER_BATCH = 200
 
 // Safe in any order: every write is an atomic upsert, an atomic Redis script or a Kafka append.
 const SES_NOTIFICATIONS_IN_FLIGHT = 10

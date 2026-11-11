@@ -9,6 +9,7 @@ import {
     SuppressionLookupError,
     emailSuppressionConfigFromEnv,
 } from './email-suppression.service'
+import { SES_NOTIFICATIONS_PER_BATCH } from './helpers/ses'
 
 interface SuppressionRow {
     identifier: string
@@ -76,6 +77,18 @@ describe('EmailSuppressionService', () => {
                 suppressed: expectedSuppressed,
                 deleted: false,
             })
+        })
+
+        it('a replayed full batch of bounces for one address counts each once', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'busy@example.com'
+            const eventIds = Array.from({ length: SES_NOTIFICATIONS_PER_BATCH }, (_, i) => `event-${i}`)
+
+            for (const eventId of [...eventIds, ...eventIds]) {
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, eventId)
+            }
+
+            expect(await readRow(email)).toMatchObject({ transient_bounce_count: SES_NOTIFICATIONS_PER_BATCH })
         })
     })
 
