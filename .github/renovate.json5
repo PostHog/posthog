@@ -11,8 +11,9 @@
   updateNotScheduled: false,
   // The schedule bounds the volume, and the default of 2 PRs an hour cannot open every group inside the window
   prHourlyLimit: 0,
-  // Renovate opens groups in a fixed order, so a limit below the number of groups holds back the same groups every week
-  prConcurrentLimit: 20,
+  // Renovate opens groups in a fixed order, so a limit below the number of groups holds back the same groups every week.
+  // A PR approved on the dashboard also counts toward the limit
+  prConcurrentLimit: 40,
   lockFileMaintenance: {
     dependencyDashboardApproval: true,
   },
@@ -98,22 +99,17 @@
     },
   },
   packageRules: [
-    // Majors, replacements and pins can need code changes, so each waits for approval on the dashboard
+    // Majors, replacements and pins can need code changes, and a digest update follows a commit
+    // that has no release, so each waits for approval on the dashboard
     {
-      matchUpdateTypes: ['major', 'replacement', 'pin', 'pinDigest'],
+      matchUpdateTypes: ['major', 'replacement', 'pin', 'pinDigest', 'digest'],
       dependencyDashboardApproval: true,
     },
     // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml.
-    // Go modules and GitHub Actions have no package manager cooldown, so this is their only one
+    // Go modules have no package manager cooldown, so this is their only one
     {
-      matchDatasources: ['npm', 'pypi', 'crate', 'go', 'github-tags'],
+      matchDatasources: ['npm', 'pypi', 'crate', 'go'],
       matchUpdateTypes: ['major', 'minor', 'patch'],
-      minimumReleaseAge: '7 days',
-    },
-    // A Go pseudo-version moves to a new commit as a digest update
-    {
-      matchDatasources: ['go'],
-      matchUpdateTypes: ['digest'],
       minimumReleaseAge: '7 days',
     },
     // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
@@ -173,14 +169,20 @@
       matchUpdateTypes: ['minor', 'patch'],
       groupName: 'cargo non-major',
     },
-    // Digest updates join the group because a pseudo-version pin (such as x/vt in tools/phrocs)
-    // can depend on the same libraries as its tagged neighbors
     {
       matchManagers: ['gomod'],
-      matchUpdateTypes: ['minor', 'patch', 'digest'],
+      matchUpdateTypes: ['minor', 'patch'],
       groupName: 'go non-major',
     },
-    // Products with their own pnpm workspace and lock file
+    // Directories outside the root workspace with their own npm lock file. Each has few updates, so they share one PR.
+    // `matchFileNames` also tests the lock file of each package file, and these patterns do not match a lock file at the root
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['*/**/pnpm-lock.yaml', '*/**/package-lock.json'],
+      groupName: 'npm standalone packages non-major',
+    },
+    // Products with their own pnpm workspace and lock file. These rules come after the rule above so that their groupName wins
     {
       matchManagers: ['npm'],
       matchUpdateTypes: ['minor', 'patch'],
@@ -205,22 +207,6 @@
       matchFileNames: ['products/canvas/packages/canvas_builder/**'],
       groupName: 'canvas builder non-major',
     },
-    // Small directories with their own lock file. Each has few updates, so they share one PR
-    {
-      matchManagers: ['npm'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchFileNames: [
-        'rust/batch-import-worker/scripts/**',
-        'tools/hedgebox-dummy/**',
-        'frontend/@posthog/lemon-ui/**',
-        'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**',
-        '.depot/actions/paths-filter/**',
-        '.github/actions/paths-filter/**',
-        '.github/actions/shared-image-releases/**',
-        'products/visual_review/cli/**',
-      ],
-      groupName: 'npm standalone packages non-major',
-    },
     {
       matchManagers: ['pep621'],
       matchUpdateTypes: ['minor', 'patch'],
@@ -244,12 +230,45 @@
       matchUpdateTypes: ['minor', 'patch'],
       groupName: 'expo monorepo',
     },
-    // Dagster and its 0.x libraries require exact versions of each other, so they update together
+    // Dagster libraries require exact versions of each other, so they update together
     {
       matchManagers: ['pep621'],
       matchUpdateTypes: ['minor', 'patch'],
       matchPackageNames: ['dagster*'],
       groupName: 'python dagster non-major',
+    },
+    // Each of these packages has a patch that pnpm applies to one exact version. A bump leaves the patch unused,
+    // and `pnpm install` then fails for every package in the same PR. A person ports the patch with the bump.
+    // Keep in sync with patchedDependencies in each pnpm-workspace.yaml
+    {
+      matchManagers: ['npm'],
+      matchPackageNames: [
+        'avsc',
+        'react-draggable',
+        'react-grid-layout',
+        'v86',
+        'jest-junit',
+        '@connectrpc/connect-node',
+        'heatmap.js',
+        'dayjs',
+        'html-to-image',
+        'kea',
+        '@base-ui/react',
+        '@base-ui/utils',
+        'app-builder-lib',
+        '@posthog/react-native-plugin',
+        'victory-native',
+      ],
+      groupName: null,
+      dependencyDashboardApproval: true,
+    },
+    // Each package requires an exact version of the other, so they update together.
+    // The rule comes after the patch rule so that its groupName wins
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['@connectrpc/connect', '@connectrpc/connect-node'],
+      groupName: 'npm connectrpc non-major',
     },
     {
       matchDepTypes: ['requires-python', 'packageManager'],
@@ -267,6 +286,7 @@
     {
       matchManagers: ['github-actions'],
       groupName: 'github-actions',
+      dependencyDashboardApproval: true,
     },
     // Renovate cannot regenerate `.github/workflows/actions.lock`, so an action bump in a locked workflow fails Lint workflows.
     // Action bumps are manual. Image digests in `container:` and `services:` still update
@@ -276,10 +296,11 @@
       enabled: false,
     },
     // The sandbox images and the Modal slim image rebuild only when this pin changes,
-    // so open the PR as soon as nodesource ships a release
+    // so skip the dashboard approval and the weekly schedule, and open the PR as soon as nodesource ships a release
     {
       matchDatasources: ['deb'],
       matchDepNames: ['nodejs'],
+      dependencyDashboardApproval: false,
       schedule: ['at any time'],
       groupName: 'sandbox nodejs',
     },
