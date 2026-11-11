@@ -10,11 +10,19 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Pool } from 'pg'
 
+import { IntegrationKeyLoader } from './auth/integration-keys'
+import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
 import { SigningKeyLoader } from './auth/registry'
+import { PostgresReplayStore } from './auth/replay-postgres'
+import { Envelope } from './crypto/envelope'
+import { createKms } from './crypto/kms'
+import { deleteExpiredIdempotencyKeys } from './db/idempotency'
 import { createPool, pingDatabase } from './db/pool'
 import { isProductionEnv, runtimeRoleRefusal } from './db/role-guard'
-import { createApp } from './http/app'
+import { type AppOptions, type IntegrationDeps, createApp } from './http/app'
+import { AuditQueue } from './integrations/audit'
+import { IntegrationsService } from './integrations/service'
 import type { Config, DatabaseConfig } from './lib/config'
 import { logger } from './lib/logging'
 import { register, shuttingDown } from './metrics'
@@ -24,9 +32,14 @@ import type { Lifecycle } from './types'
 
 /** How long a drain may take once the prestop window has passed. */
 const DRAIN_TIMEOUT_MS = 10_000
+// Rows still queued when this runs out fail against the ended pool and count as dropped.
+const AUDIT_DRAIN_TIMEOUT_MS = 5_000
 
 /** How often to try the database again when it was unreachable at boot. */
 const DATABASE_RETRY_MS = 5_000
+
+/** How often to delete idempotency keys that passed their 24 hour window. */
+const IDEMPOTENCY_CLEANUP_MS = 10 * 60 * 1000
 
 interface DrainableServer {
     close(cb: () => void): void
@@ -67,9 +80,14 @@ export class CredentialsServer {
     private mount: SecretMount | undefined
     private signingKeys: SigningKeyLoader | undefined
     private pool: Pool | undefined
+    private audit: AuditQueue | undefined
+    private integrations: IntegrationDeps | undefined
     private secretsReady = false
     private databaseReady = false
     private databaseRefused = false
+    // Set once enableIntegrations has run to the end, so a database that answers late does not
+    // turn the pod ready while the integration routes are still missing.
+    private integrationsSettled = false
     private cancelTimers: (() => void)[] = []
     private processListeners = new Map<string, (...args: unknown[]) => void>()
     private stopping = false
@@ -129,7 +147,8 @@ export class CredentialsServer {
     // take the platform secrets down with it: those do not need the database.
     private updateReadiness(): void {
         this.lifecycle.ready =
-            this.secretsReady && (!this.config.database || this.databaseReady || this.databaseRefused)
+            this.secretsReady &&
+            (!this.config.database || (this.databaseReady && this.integrationsSettled) || this.databaseRefused)
     }
 
     /** The pool, once the database answered and the runtime role passed the production check. */
@@ -174,11 +193,56 @@ export class CredentialsServer {
         }
         logger.error('startup:database_unreachable', {})
         const cancel = every(DATABASE_RETRY_MS, async () => {
-            if (!this.databaseReady && !this.databaseRefused && (await this.admitDatabase(pool, config))) {
-                cancel()
+            if (!this.databaseReady && !this.databaseRefused && !(await this.admitDatabase(pool, config))) {
+                return
             }
+            // A throw here retries on the next tick, because the database is now admitted.
+            await this.enableIntegrations()
+            cancel()
         })
         this.cancelTimers.push(cancel)
+    }
+
+    /**
+     * Turns on the integration routes once the pool is admitted. In production the pool serves
+     * integrations only after the runtime role check passed. A database that answers late
+     * enables them from the retry loop, so a pod never turns ready with the routes missing.
+     */
+    private async enableIntegrations(): Promise<void> {
+        const config = this.config
+        if (this.integrations) {
+            return
+        }
+        const pool = this.pool
+        const poolAdmitted = pool !== undefined && (this.databaseReady || !isProductionEnv(config.env))
+        if (pool && poolAdmitted && config.kms && config.integrationCallerPublicKeysDir) {
+            const integrationKeys = new IntegrationKeyLoader(config.integrationCallerPublicKeysDir)
+            await integrationKeys.load()
+            this.cancelTimers.push(every(config.reloadSeconds * 1000, () => integrationKeys.reload()))
+            this.cancelTimers.push(
+                every(IDEMPOTENCY_CLEANUP_MS, () => deleteExpiredIdempotencyKeys(pool).then(() => undefined))
+            )
+            this.audit = new AuditQueue(pool)
+            this.audit.start()
+            this.integrations = {
+                verifier: new IntegrationVerifier(integrationKeys, { replay: new PostgresReplayStore(pool) }),
+                service: new IntegrationsService({
+                    pool,
+                    envelope: new Envelope(createKms(config.kms)),
+                    audit: this.audit,
+                }),
+            }
+        } else if (pool || config.kms) {
+            logger.warn('integrations:disabled', {
+                database: poolAdmitted,
+                kms: Boolean(config.kms),
+                keys: Boolean(config.integrationCallerPublicKeysDir),
+            })
+        }
+        if (poolAdmitted || !pool) {
+            this.integrationsSettled = true
+            this.updateReadiness()
+        }
     }
 
     async start(): Promise<void> {
@@ -205,11 +269,14 @@ export class CredentialsServer {
             await this.connectDatabase(this.pool, config.database)
         }
 
-        const app = createApp({
+        await this.enableIntegrations()
+        const appOptions: AppOptions = {
             verifier: new JwtVerifier(signingKeys),
             lifecycle: this.lifecycle,
             secrets: () => mount.current(),
-        })
+            integrations: () => this.integrations,
+        }
+        const app = createApp(appOptions)
 
         if (!this.secretsReady) {
             logger.error('startup:no_secrets_on_mount', { source: source.description })
@@ -273,6 +340,9 @@ export class CredentialsServer {
             await Promise.race([new Promise<void>((resolve) => server.close(() => resolve())), sleep(DRAIN_TIMEOUT_MS)])
         }
         this.metricsServer?.close()
+        if (this.audit) {
+            await Promise.race([this.audit.stop(), sleep(AUDIT_DRAIN_TIMEOUT_MS)])
+        }
         await this.pool?.end().catch((err: unknown) => {
             logger.warn('shutdown:pool_end_failed', { error: err instanceof Error ? err.message : String(err) })
         })
