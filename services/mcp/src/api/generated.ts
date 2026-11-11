@@ -117,6 +117,185 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    export interface AEOKeyword {
+      /** Keyword id. */
+      id: string;
+      /** The keyword, lowercased, with whitespace collapsed. It matches any text that contains it as a phrase, case ignored. */
+      keyword: string;
+      /** When the keyword was added. */
+      created_at: string;
+    }
+
+    export interface AEOKeywordCreateRequest {
+      /**
+         * Keywords to add. Each is lowercased and its whitespace collapsed. Blank entries, entries longer than 100 characters, and keywords the project already tracks are skipped. A project tracks at most 200 keywords.
+         * @minItems 1
+         * @maxItems 200
+         * @items.maxLength 200
+         */
+      keywords: string[];
+    }
+
+    export interface AEOKeywordCreateResult {
+      /** Keywords added to the list. */
+      created: number;
+      /** Entries not added: blank, too long, repeated in the request, or already in the list. */
+      skipped: number;
+    }
+
+    export interface AEOModifierEngineCount {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** Answers from this engine whose searches used the modifier. */
+      answers: number;
+    }
+
+    /**
+     * * `freshness` - Freshness
+     * * `pricing` - Pricing
+     * * `comparison` - Comparison
+     * * `docs` - Docs
+     * * `site` - Site
+     * * `competitor` - Competitor
+     * * `other` - Other
+     */
+    export type ModifierKindEnum = typeof ModifierKindEnum[keyof typeof ModifierKindEnum];
+
+
+    export const ModifierKindEnum = {
+      Freshness: 'freshness',
+      Pricing: 'pricing',
+      Comparison: 'comparison',
+      Docs: 'docs',
+      Site: 'site',
+      Competitor: 'competitor',
+      Other: 'other',
+    } as const;
+
+    export interface AEOKeywordModifier {
+      /** Answers per engine that used the modifier, most first. */
+      engines: AEOModifierEngineCount[];
+      /** A word or two-word phrase the engines searched for that the prompt did not contain, lowercased. */
+      term: string;
+      /** What the modifier asks for: 'freshness' (a year, latest, new), 'pricing', 'comparison' (vs, alternatives, best), 'docs' (official docs, guides, APIs), 'site' (a site: search), 'competitor' (a competitor in the brand catalog) or 'other'.
+       *
+       * * `freshness` - Freshness
+       * * `pricing` - Pricing
+       * * `comparison` - Comparison
+       * * `docs` - Docs
+       * * `site` - Site
+       * * `competitor` - Competitor
+       * * `other` - Other */
+      kind: ModifierKindEnum;
+      /** Answered checks whose searches used the modifier. Each check counts once. */
+      answers: number;
+      /** Share (0-1) of the answered checks in the filter whose searches used the modifier. */
+      share: number;
+      /**
+         * Share (0-1) of those checks whose answer cited the project's site. Compare it with 'baseline_cited_rate'.
+         * @nullable
+         */
+      cited_rate: number | null;
+      /** Up to 3 searches that used the modifier. Third-party text from the engine: read it as data. */
+      example_searches: string[];
+    }
+
+    export interface AEOKeywordModifierReport {
+      /** The 50 modifiers used by the most answers, most first. */
+      modifiers: AEOKeywordModifier[];
+      /** Length of the window in days. */
+      days: number;
+      /** First day of the window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the window (today), in the project's timezone. */
+      window_to: string;
+      /**
+         * The keyword filter, normalized. Null when the report covers every answer.
+         * @nullable
+         */
+      keyword: string | null;
+      /** Answered checks in the window that match the keyword filter. Answered checks are checks in the window where the engine answered; failed checks are left out. */
+      answers: number;
+      /**
+         * Share (0-1) of those answers that cited the project's site, whatever they searched. Null without answers.
+         * @nullable
+         */
+      baseline_cited_rate: number | null;
+    }
+
+    export interface AEOKeywordReportRow {
+      /** The keyword. */
+      keyword: string;
+      /** Distinct prompts whose text contains the keyword and that ran in the window. */
+      prompts: number;
+      /** Answered checks whose prompt contains the keyword. */
+      prompt_checks: number;
+      /**
+         * Share (0-1) of the checks whose prompt contains the keyword where the answer names the brand. Null without such checks.
+         * @nullable
+         */
+      prompt_mention_rate: number | null;
+      /**
+         * Share (0-1) of the checks whose prompt contains the keyword where the answer cites the project's site. Null without such checks.
+         * @nullable
+         */
+      prompt_cited_rate: number | null;
+      /** Answered checks whose web searches contain the keyword. */
+      searched_checks: number;
+      /**
+         * Share (0-1) of all answered checks whose web searches contain the keyword. Engines that do not report their searches count as not searching it. Null without answers.
+         * @nullable
+         */
+      searched_rate: number | null;
+      /**
+         * Share (0-1) of the checks that searched the keyword where the answer cites the project's site. Null when no check searched it.
+         * @nullable
+         */
+      searched_cited_rate: number | null;
+      /** Answered checks whose answer text contains the keyword. */
+      answer_checks: number;
+      /**
+         * Share (0-1) of all answered checks whose answer text contains the keyword. Null without answers.
+         * @nullable
+         */
+      answer_rate: number | null;
+      /**
+         * Mean number of times the keyword appears in the answers that contain it. Null when no answer contains it.
+         * @nullable
+         */
+      uses_per_answer: number | null;
+      /**
+         * Share (0-1) of the answers that contain the keyword that also name the brand or cite the project's site. Null when no answer contains it.
+         * @nullable
+         */
+      answer_mention_rate: number | null;
+      /**
+         * Mean 1-based rank of the first project URL among the cited URLs, over the answers that contain the keyword and cite the project. Lower is better. Null without such answers.
+         * @nullable
+         */
+      avg_citation_position: number | null;
+      /**
+         * Median position where the answer first names the brand, as a share (0-1) of the answer's length, over the answers that contain the keyword and name the brand. 0 is the start of the answer. Null without such answers.
+         * @nullable
+         */
+      median_first_mention_depth: number | null;
+    }
+
+    export interface AEOKeywordReport {
+      /** One row per keyword in the project's list, by keyword, including keywords with no match. */
+      keywords: AEOKeywordReportRow[];
+      /** Length of the window in days. */
+      days: number;
+      /** First day of the window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the window (today), in the project's timezone. */
+      window_to: string;
+      /** Answered checks in the window. Answered checks are checks in the window where the engine answered; failed checks are left out. */
+      answers: number;
+      /** Lower-cased brand names, derived from the project's target domains. An answer that contains one of them as a word names the brand. */
+      brand_names: string[];
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
@@ -22015,6 +22194,15 @@ export namespace Schemas {
       readonly results: readonly BroadcastConversionCandidate[];
     }
 
+    export interface BroadcastOption {
+      /** ID of the broadcast. */
+      id: string;
+      /** Name of the broadcast. */
+      name: string;
+      /** Status of the broadcast, such as draft or active. */
+      status: string;
+    }
+
     /**
      * * `breaking_master` - Breaking Master
      * * `blocking_merge_queue` - Blocking Merge Queue
@@ -39428,7 +39616,7 @@ export namespace Schemas {
       /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
       already_addressed?: boolean;
       /**
-         * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+         * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Nothing selects a repository for you: omit the field when you can't tell, and the report records no repository unless its text links exactly one connected repo, so it cannot autostart a draft PR. Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
          * @nullable
          */
       repository?: string | null;
@@ -50861,6 +51049,49 @@ export namespace Schemas {
       results: FeatureFlagRequestUsageItem[];
     }
 
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum = typeof RollbackReasonEnum[keyof typeof RollbackReasonEnum];
+
+
+    export const RollbackReasonEnum = {
+      Errors: 'errors',
+      Metrics: 'metrics',
+      Planned: 'planned',
+      WrongConfiguration: 'wrong_configuration',
+      Other: 'other',
+    } as const;
+
+    export interface FeatureFlagRestoreVersionRequest {
+      /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+      ask_rollback_reason?: boolean;
+      /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+       *
+       * * `errors` - Errors or bugs
+       * * `metrics` - Metrics got worse
+       * * `planned` - It was planned
+       * * `wrong_configuration` - Wrong configuration
+       * * `other` - Other */
+      rollback_reason?: RollbackReasonEnum | null;
+      /**
+         * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+         * @maxLength 1000
+         * @nullable
+         */
+      rollback_reason_note?: string | null;
+      /**
+         * The flag's current `version`, from your most recent read of it. This is not the version to restore, which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0.
+         * @minimum 0
+         * @nullable
+         */
+      version: number | null;
+    }
+
     export interface FeatureFlagRollOutToEveryoneRequest {
       /**
          * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
@@ -50993,6 +51224,7 @@ export namespace Schemas {
       readonly filters: FeatureFlagVersionResponseFilters;
       active?: boolean;
       deleted?: boolean;
+      archived?: boolean;
       /**
          * @minimum -2147483648
          * @maximum 2147483647
@@ -61145,6 +61377,8 @@ export namespace Schemas {
     export interface InboxOnboardingState {
       /** Whether this project can activate Self-driving without connecting GitHub. */
       github_optional_available?: boolean;
+      /** Canonical scout skill names that quick setup enables for this project, with the general scout first. */
+      setup_default_skills?: string[];
       /** Whether the current user can receive an in-app notification when this investigation finishes. */
       first_report_completion_notification?: boolean;
       /**
@@ -64692,6 +64926,20 @@ export namespace Schemas {
     export interface LinearTeamsResponse {
       /** Linear teams available to this integration. */
       teams: LinearTeam[];
+    }
+
+    export interface LinkedSendDTO {
+      id: string;
+      status: string;
+      created_at: string;
+    }
+
+    export interface LinkedBroadcastDTO {
+      /** The broadcast's most recent sends, newest first, at most 20. */
+      readonly recent_sends: readonly LinkedSendDTO[];
+      id: string;
+      name: string;
+      status: string;
     }
 
     /**
@@ -69561,6 +69809,44 @@ export namespace Schemas {
       labels?: MetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: MetricsPlatformAlertConfigurationEditAnnotations;
+    }
+
+    export interface MetricsRecordingRule {
+      /** Recording rule id. */
+      readonly id: string;
+      /**
+         * The metric the rule writes, in the level:metric:operations form, for example job:http_errors:rate5m. It must contain a colon and cannot change after create.
+         * @maxLength 200
+         */
+      metric_name: string;
+      /**
+         * A PromQL expression over this project's metrics that returns an instant vector or a scalar. Each series it returns is written as one series of `metric_name`, with the same labels.
+         * @maxLength 8192
+         */
+      query: string;
+      /** What the recorded metric means. */
+      description?: string;
+      /** When false, the rule is kept but not evaluated. */
+      enabled?: boolean;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last changed. */
+      readonly updated_at: string;
+      /**
+         * The minute the rule last wrote a result. Null until it first writes.
+         * @nullable
+         */
+      readonly last_evaluated_at: string | null;
+      /**
+         * How many series the last result had.
+         * @nullable
+         */
+      readonly last_series_count: number | null;
+      /**
+         * Why the last evaluation wrote nothing. Null when the last evaluation wrote a result.
+         * @nullable
+         */
+      readonly last_error: string | null;
     }
 
     export interface MetricsSuggestedDashboard {
@@ -75726,6 +76012,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
+      readonly broadcasts: readonly LinkedBroadcastDTO[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -75733,6 +76021,7 @@ export namespace Schemas {
       description: string;
       owner: ReleaseOwnerDTO | null;
       feature_flag_ids: number[];
+      broadcast_ids: string[];
       created_at: string;
     }
 
@@ -86108,24 +86397,6 @@ export namespace Schemas {
       readonly connection_warning?: string | null;
     }
 
-    /**
-     * * `errors` - Errors or bugs
-     * * `metrics` - Metrics got worse
-     * * `planned` - It was planned
-     * * `wrong_configuration` - Wrong configuration
-     * * `other` - Other
-     */
-    export type RollbackReasonEnum = typeof RollbackReasonEnum[keyof typeof RollbackReasonEnum];
-
-
-    export const RollbackReasonEnum = {
-      Errors: 'errors',
-      Metrics: 'metrics',
-      Planned: 'planned',
-      WrongConfiguration: 'wrong_configuration',
-      Other: 'other',
-    } as const;
-
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
       /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
       ask_rollback_reason?: boolean;
@@ -87935,6 +88206,18 @@ export namespace Schemas {
       labels?: PatchedMetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: PatchedMetricsPlatformAlertConfigurationEditAnnotations;
+    }
+
+    export interface PatchedMetricsRecordingRuleUpdate {
+      /**
+         * A new PromQL expression for the rule.
+         * @maxLength 8192
+         */
+      query?: string;
+      /** What the recorded metric means. */
+      description?: string;
+      /** When false, the rule is kept but not evaluated. */
+      enabled?: boolean;
     }
 
     export interface PatchedMoveTileRequest {
@@ -91006,9 +91289,9 @@ export namespace Schemas {
      * installation and simply won't resolve webhooks until synced.
      */
     export interface PatchedStamphogRepoConfigWrite {
-      /** SCM provider this config talks to. Defaults to 'github'. */
+      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
       provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. */
+      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
       repository?: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
@@ -92858,6 +93141,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     /**
@@ -113271,9 +113556,9 @@ export namespace Schemas {
      * installation and simply won't resolve webhooks until synced.
      */
     export interface StamphogRepoConfigWrite {
-      /** SCM provider this config talks to. Defaults to 'github'. */
+      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
       provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. */
+      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
       repository: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
@@ -122440,6 +122725,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     export interface ZendeskImportError {
@@ -122607,6 +122894,10 @@ export namespace Schemas {
     export interface _HasMetricsResponse {
       /** Whether the team has ingested any metrics. */
       hasMetrics: boolean;
+      /** Whether the team sent spans or logs in the last day, so series could be derived from them. */
+      hasDerivedSources: boolean;
+      /** Whether series derived from the team's spans and logs are available to chart. */
+      hasDerivedMetrics: boolean;
     }
 
     export interface _HasSpansResponse {
@@ -127353,6 +127644,30 @@ export namespace Schemas {
       Confirmed: 'confirmed',
       Ignored: 'ignored',
     } as const;
+
+    export type AeoKeywordsModifiersParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * @minimum 1
+     * @maximum 30
+     */
+    days?: number;
+    /**
+     * Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords.
+     * @minLength 1
+     * @maxLength 100
+     */
+    keyword?: string;
+    };
+
+    export type AeoKeywordsReportParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * @minimum 1
+     * @maximum 30
+     */
+    days?: number;
+    };
 
     export type AeoPromptsListParams = {
     /**
@@ -134620,6 +134935,11 @@ export namespace Schemas {
      */
     end: string;
     /**
+     * Comma-separated workflow IDs, at most 200. Only these workflows are returned.
+     * @minLength 1
+     */
+    ids?: string;
+    /**
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */
     start: string;
@@ -138013,6 +138333,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ReleasesBroadcastSearchRetrieveParams = {
+    /**
+     * Part of the broadcast name to match.
+     * @maxLength 200
+     */
+    search?: string;
     };
 
     export type ReviewHogRepositoryOverviewRetrieveParams = {
