@@ -1694,6 +1694,11 @@ describe('sourceWizardLogic', () => {
         const supabaseSource = buildSourceConfig({ name: 'Supabase' })
         const postgresSource = buildSourceConfig({ name: 'Postgres' })
 
+        beforeEach(() => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: true })
+        })
+
         const apiSchema = (
             table: string,
             overrides: Partial<ExternalDataSourceSyncSchema> = {}
@@ -2047,6 +2052,27 @@ describe('sourceWizardLogic', () => {
                 const wide = logic.values.databaseSchema[0]
                 expect(wide.incremental_fields).toHaveLength(20)
                 expect(wide.incremental_fields[0].field).toBe('c0')
+            } finally {
+                unmount()
+            }
+        })
+
+        it('asks for no recommendations without the feature flag', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: false })
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('public.orders', {
+                    incremental_fields: [
+                        { ...createdAt, recommended: true },
+                        { ...modelPick, recommended: false },
+                    ],
+                }),
+            ] as ExternalDataSourceSyncSchema[])
+            const recommend = jest.mocked(externalDataSourcesIncrementalFieldRecommendationsCreate).mockReset()
+
+            const { unmount } = await mountAndLoadSchemas(postgresSource)
+
+            try {
+                expect(recommend).not.toHaveBeenCalled()
             } finally {
                 unmount()
             }

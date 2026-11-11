@@ -1990,20 +1990,25 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const tables = values.databaseSchema.filter(
                 (schema) => schema.incremental_fields.filter((field) => field.recommended !== undefined).length >= 2
             )
-            if (!connectorName || values.currentTeamId === null || tables.length === 0) {
+            if (
+                !connectorName ||
+                values.currentTeamId === null ||
+                tables.length === 0 ||
+                !values.featureFlags[FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]
+            ) {
                 return
             }
             // A rediscovery, even for the same connector, makes the answer belong to another database.
             const discovery = cache.schemaDiscovery
             const selection = values.connectorSelectionCount
-            let picked: Map<string, IncrementalField[]>
-            try {
-                // The endpoint takes at most this many tables per request, so larger sources go in batches.
-                const batches = chunk(tables, MAX_RECOMMENDATION_TABLES)
-                // A failed batch drops only its own tables.
-                const settled = await Promise.allSettled(
-                    batches.map((batch) =>
-                        externalDataSourcesIncrementalFieldRecommendationsCreate(String(values.currentTeamId), {
+            // One batch at a time keeps a large discovery from sending a burst of requests, and a
+            // failed batch drops only its own tables.
+            const picked = new Map<string, IncrementalField[]>()
+            for (const batch of chunk(tables, MAX_RECOMMENDATION_TABLES)) {
+                try {
+                    const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(
+                        String(values.currentTeamId),
+                        {
                             tables: batch.map((schema) => ({
                                 table: schema.table,
                                 // The model reads only the leading ranked candidates, so the rest stay local.
@@ -2011,21 +2016,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                     .filter((field) => field.recommended !== undefined)
                                     .slice(0, MAX_RECOMMENDATION_CANDIDATES),
                             })),
-                        })
+                        }
                     )
-                )
-                picked = new Map(
-                    settled.flatMap((result) =>
-                        result.status === 'fulfilled'
-                            ? result.value.tables.map((table) => [
-                                  table.table,
-                                  table.incremental_fields as IncrementalField[],
-                              ])
-                            : []
-                    )
-                )
-            } catch {
-                return
+                    for (const table of response.tables) {
+                        picked.set(table.table, table.incremental_fields as IncrementalField[])
+                    }
+                } catch {
+                    continue
+                }
             }
             if (
                 cache.schemaDiscovery !== discovery ||
