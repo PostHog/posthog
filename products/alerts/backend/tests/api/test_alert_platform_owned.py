@@ -662,6 +662,28 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert read(self._copy()) == expected
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
 
+    def test_enabling_an_alert_insight_keeps_no_row_for_keeps_its_requested_start_time(self) -> None:
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            platform_testing.set_enabled(self.copy_id, False)
+            assign_native_creator(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=self.copy_id,
+                created_by_id=self.user.id,
+            )
+        start = timezone.now() + timedelta(hours=3)
+
+        response = self.client.patch(
+            f"{self.url}/{self.copy_id}/",
+            {"enabled": True, "schedule_start_time": start.strftime("%H:%M")},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        next_check_at = self._copy().next_check_at
+        assert next_check_at is not None and next_check_at > timezone.now() + timedelta(hours=2)
+
     def test_renaming_a_firing_alert_insight_keeps_no_row_for_answers_with_its_state(self) -> None:
         with team_scope(self.team.id):
             platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=timezone.now())

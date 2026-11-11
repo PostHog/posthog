@@ -216,14 +216,22 @@ def update_configuration(
             if spec is not None and legacy_configuration_id is None and not source_checked
             else None
         )
-        # The cadence goes first so the guard and admission judge the requested cadence, and the snooze
-        # goes last so the due time it defers is not overwritten by the cadence's.
+        edit, pending = _apply(
+            configuration,
+            change,
+            now=now,
+            snoozing=snoozing,
+            admit=True,
+            guard=guard,
+            check_interval_minutes=cadence.check_interval_minutes if cadence is not None else None,
+        )
+        # After the edit, whose enable would reset the due time the cadence sets, and before the snooze,
+        # whose deferred due time the cadence would otherwise overwrite.
         if cadence is not None:
             try:
                 platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
             except ValueError as error:
                 raise InvalidPlatformAlertEdit("check_interval_minutes", str(error)) from error
-        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True, guard=guard)
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         if write_source is not None:
@@ -697,10 +705,13 @@ def _apply(
     snoozing: bool = False,
     admit: bool = False,
     guard: NativeEditGuard | None = None,
+    check_interval_minutes: int | None = None,
 ) -> tuple[PlatformAlertConfigurationEdit, control_plane.PendingClose | None]:
     """Validates and writes an edit onto a configuration locked by the caller, and ends the firings it
     makes meaningless. With `admit`, the source's admission decides first on an edit that turns the
-    alert on: an edit the source made on its own row has already passed its own checks."""
+    alert on: an edit the source made on its own row has already passed its own checks. The guard and
+    admission judge `check_interval_minutes` when the caller is about to change the cadence."""
+    interval = configuration.check_interval_minutes if check_interval_minutes is None else check_interval_minutes
     if configuration.owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(
             f"This alert is managed by the {configuration.source_kind} product. Edit it there."
@@ -717,7 +728,7 @@ def _apply(
             team_id=configuration.team_id,
             current=current,
             edit=edit,
-            check_interval_minutes=configuration.check_interval_minutes,
+            check_interval_minutes=interval,
         )
     if admit and edit.enabled and not current.enabled:
         _admit(
@@ -725,7 +736,7 @@ def _apply(
             source_kind=source_kind,
             current=current,
             edit=edit,
-            check_interval_minutes=configuration.check_interval_minutes,
+            check_interval_minutes=interval,
         )
 
     regrouped = not edit.grouping.splits_like(current.grouping)
