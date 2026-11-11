@@ -107,8 +107,10 @@ describe('AddDeliveryWebhookModal', () => {
     it('lets the user close the dialog again after a failed create', async () => {
         await startCreate()
 
-        act(() => releaseCreate!([500, { detail: 'Server error' }]))
-        expect(await screen.findByText(/Couldn't create the webhook/)).toBeInTheDocument()
+        act(() => releaseCreate!([500, { detail: 'A server error occurred.' }]))
+        expect(
+            await screen.findByText("Couldn't create the webhook: A server error occurred. Try again.")
+        ).toBeInTheDocument()
 
         fireEvent.click(screen.getByText('Cancel'))
         await waitFor(() => expect(isDialogOpen()).toBe(false))
