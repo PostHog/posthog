@@ -16,6 +16,7 @@ import {
     createHogExecutionGlobals,
     createHogFunction,
     insertHogFunction,
+    insertIntegration,
 } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
@@ -244,6 +245,45 @@ describe('CdpCyclotronWorker', () => {
                 'Fetch response:, {"status":200,"body":{}}',
                 expect.stringContaining('Function completed in'),
             ])
+        })
+
+        it.each([
+            ['while it builds the inputs', undefined],
+            ['when it fetches with built inputs', { url: 'https://example.com/posthog-webhook' }],
+        ])('sends nothing from a batch whose integration lookup fails %s', async (_, inputs) => {
+            hub.CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS = '*'
+            processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub), createMockJobQueue())
+
+            const integration = await insertIntegration(hub.postgres, team.id, { kind: 'oauth' })
+            const fnWithIntegration = await insertHogFunction(
+                hub.postgres,
+                team.id,
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    inputs_schema: [
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema!,
+                        { key: 'oauth', type: 'integration', label: 'OAuth', integration: 'oauth' },
+                    ],
+                    inputs: { ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs, oauth: { value: integration.id } },
+                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                })
+            )
+            const invocationWithIntegration = createExampleInvocation(fnWithIntegration, {
+                ...createHogExecutionGlobals(),
+                inputs,
+            })
+
+            const query = hub.postgres.query.bind(hub.postgres)
+            jest.spyOn(hub.postgres, 'query').mockImplementation((use, text, values, tag, ...rest) =>
+                tag === 'fetchIntegrations'
+                    ? Promise.reject(new Error('connection refused'))
+                    : query(use, text, values, tag, ...rest)
+            )
+
+            await expect(processor.processInvocations([invocation, invocationWithIntegration])).rejects.toThrow(
+                'connection refused'
+            )
+            expect(mockFetch).not.toHaveBeenCalled()
         })
 
         it('should dequeue an invocation if the hog function cannot be found', async () => {

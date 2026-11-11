@@ -65,6 +65,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_BOUNDED_POLLS: boolean
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
+    // Comma-separated team ids, or `*`, whose hog function batches load their integrations before any destination runs.
+    CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS: string
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
@@ -345,6 +347,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BOUNDED_POLLS: false,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
+        CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS: '',
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,

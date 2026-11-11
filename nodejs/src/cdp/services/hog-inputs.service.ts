@@ -320,6 +320,13 @@ export class HogInputsService {
         return resolvedInputs
     }
 
+    public async pinIntegrations(hogFunctions: HogFunctionType[]): Promise<() => void> {
+        const ids = hogFunctions.flatMap((hogFunction) =>
+            [...configuredIntegrationIds(hogFunction).values()].flatMap((keyIds) => [...keyIds])
+        )
+        return await this.integrationManager.pin(ids)
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
         newGlobals?: HogFunctionInvocationGlobalsWithInputs,

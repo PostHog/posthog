@@ -1,10 +1,11 @@
 import { Histogram } from 'prom-client'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
-import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import { HealthCheckResult, PluginsServerConfig, ValueMatcher } from '../../types'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
@@ -35,6 +36,7 @@ export class CdpCyclotronWorker<
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: JobQueue
     protected queue: CyclotronJobQueueKind
+    private preloadsIntegrationsForTeam: ValueMatcher<number>
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue, queue?: CyclotronJobQueueKind) {
         super(config, deps)
@@ -45,25 +47,38 @@ export class CdpCyclotronWorker<
         }
 
         this.cyclotronJobQueue = jobQueue
+        this.preloadsIntegrationsForTeam = buildIntegerMatcher(config.CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS, true)
     }
 
     @instrumented({ key: 'cdpConsumer.handleEachBatch.executeInvocations', timeoutMs: 30_000, sendException: false })
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
+        const releaseIntegrations = await this.preloadIntegrations(loadedInvocations)
 
-        return await Promise.all(
-            loadedInvocations.map((item) => {
-                if (isNativeHogFunction(item.hogFunction)) {
-                    return this.nativeDestinationExecutorService.execute(item)
-                } else if (isLegacyPluginHogFunction(item.hogFunction)) {
-                    return this.pluginDestinationExecutorService.execute(item)
-                } else if (isSegmentPluginHogFunction(item.hogFunction)) {
-                    return this.segmentDestinationExecutorService.execute(item)
-                } else {
-                    return this.hogExecutorAsync.executeWithAsyncFunctions(item)
-                }
-            })
-        )
+        try {
+            return await Promise.all(
+                loadedInvocations.map((item) => {
+                    if (isNativeHogFunction(item.hogFunction)) {
+                        return this.nativeDestinationExecutorService.execute(item)
+                    } else if (isLegacyPluginHogFunction(item.hogFunction)) {
+                        return this.pluginDestinationExecutorService.execute(item)
+                    } else if (isSegmentPluginHogFunction(item.hogFunction)) {
+                        return this.segmentDestinationExecutorService.execute(item)
+                    } else {
+                        return this.hogExecutorAsync.executeWithAsyncFunctions(item)
+                    }
+                })
+            )
+        } finally {
+            releaseIntegrations()
+        }
+    }
+
+    private async preloadIntegrations(invocations: CyclotronJobInvocationHogFunction[]): Promise<() => void> {
+        const hogFunctions = invocations
+            .filter((item) => this.preloadsIntegrationsForTeam(item.teamId))
+            .map((item) => item.hogFunction)
+        return await this.hogInputsService.pinIntegrations(hogFunctions)
     }
 
     @instrumented({ key: 'cdpConsumer.handleEachBatch.loadHogFunctions', timeoutMs: 10_000, sendException: false })

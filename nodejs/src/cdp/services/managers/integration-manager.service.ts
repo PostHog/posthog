@@ -16,8 +16,14 @@ const integrationDecryptFailures = new Counter({
     labelNames: ['source', 'kind', 'reason'],
 })
 
+type PinnedIntegration = {
+    record: IntegrationSourceRecord | null
+    holders: number
+}
+
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationSourceRecord>
+    private pinned = new Map<IntegrationReference, PinnedIntegration>()
 
     constructor(
         private pubSub: PubSub,
@@ -42,7 +48,7 @@ export class IntegrationManagerService {
         if (reference === null) {
             return null
         }
-        return (await this.lazyLoader.get(reference))?.integration ?? null
+        return (await this.getRecords([reference]))[reference]?.integration ?? null
     }
 
     /**
@@ -51,12 +57,58 @@ export class IntegrationManagerService {
      */
     public async getMany(ids: IntegrationIdInput[]): Promise<Record<IntegrationReference, IntegrationType | null>> {
         const references = toReferences(ids)
-        const records = await this.lazyLoader.getMany(references)
+        const records = await this.getRecords(references)
         const result: Record<IntegrationReference, IntegrationType | null> = {}
         for (const reference of references) {
             result[reference] = records[reference]?.integration ?? null
         }
         return result
+    }
+
+    public async pin(ids: IntegrationIdInput[]): Promise<() => void> {
+        const references = toReferences(ids)
+        if (references.length === 0) {
+            return () => {}
+        }
+        const records = await this.lazyLoader.getMany(references, { flush: true })
+        for (const reference of references) {
+            const holders = this.pinned.get(reference)?.holders ?? 0
+            this.pinned.set(reference, { record: records[reference] ?? null, holders: holders + 1 })
+        }
+        return () => this.unpin(references)
+    }
+
+    private unpin(references: IntegrationReference[]): void {
+        for (const reference of references) {
+            const pin = this.pinned.get(reference)
+            if (!pin) {
+                continue
+            }
+            if (pin.holders <= 1) {
+                this.pinned.delete(reference)
+            } else {
+                pin.holders--
+            }
+        }
+    }
+
+    private async getRecords(
+        references: IntegrationReference[]
+    ): Promise<Record<IntegrationReference, IntegrationSourceRecord | null>> {
+        const records: Record<IntegrationReference, IntegrationSourceRecord | null> = Object.create(null)
+        const unpinned: IntegrationReference[] = []
+        for (const reference of references) {
+            const pin = this.pinned.get(reference)
+            if (pin && !isExpired(pin.record)) {
+                records[reference] = pin.record
+            } else {
+                unpinned.push(reference)
+            }
+        }
+        if (unpinned.length > 0) {
+            Object.assign(records, await this.lazyLoader.getMany(unpinned))
+        }
+        return records
     }
 
     private onIntegrationsReloaded(integrationIds: IntegrationIdInput[]): void {
@@ -92,6 +144,10 @@ export class IntegrationManagerService {
             failures: record.decryptFailures,
         })
     }
+}
+
+function isExpired(record: IntegrationSourceRecord | null): boolean {
+    return record?.expiresAt !== undefined && record.expiresAt <= Date.now()
 }
 
 function toReferences(ids: IntegrationIdInput[]): IntegrationReference[] {
