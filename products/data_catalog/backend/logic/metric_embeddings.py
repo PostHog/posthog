@@ -11,6 +11,8 @@ approved AI data processing. The read path also needs the semantic search featur
 import hashlib
 from collections.abc import Iterable
 
+from django.db.models import Q
+
 import structlog
 import posthoganalytics
 
@@ -28,6 +30,11 @@ SEMANTIC_SEARCH_FEATURE_FLAG = "data-catalog-metric-semantic-search"
 # A query embedding sits in the request path, so a slow worker must fall back to lexical search fast.
 QUERY_EMBEDDING_TIMEOUT_SECONDS = 2.0
 DOCUMENT_EMBEDDING_TIMEOUT_SECONDS = 15.0
+
+# The backfill sweep queues at most this many refreshes per run, spaced this far apart, so one batch
+# ends before the next run and the embedding worker sees a steady trickle.
+BACKFILL_BATCH_SIZE = 100
+BACKFILL_SPACING_SECONDS = 4
 
 # A write to any of these fields changes the search text, so it needs a fresh embedding.
 EMBEDDED_FIELDS = frozenset({"name", "display_name", "description", "unit"})
@@ -137,3 +144,17 @@ def refresh_metric_embedding(metric: Metric, *, force: bool = False) -> Embeddin
 
 def metrics_needing_embedding(metrics: Iterable[Metric]) -> list[Metric]:
     return [metric for metric in metrics if not embedding_is_current(metric)]
+
+
+def metrics_missing_embedding(limit: int) -> list[tuple[str, int]]:
+    """``(metric id, team id)`` of live metrics with no vector from the current model, in organizations
+    that approved AI data processing. Random order, so a metric that keeps failing cannot hold a batch.
+    """
+    rows = (
+        Metric.objects.unscoped()
+        .filter(deleted=False, team__organization__is_ai_data_processing_approved=True)
+        .filter(Q(embedding__isnull=True) | ~Q(embedding_model=METRIC_EMBEDDING_MODEL))
+        .order_by("?")
+        .values_list("id", "team_id")[:limit]
+    )
+    return [(str(metric_id), team_id) for metric_id, team_id in rows]

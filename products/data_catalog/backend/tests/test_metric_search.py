@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.embedding_worker import EmbeddingResponse
+from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
 from products.data_catalog.backend.logic.metric_embeddings import (
@@ -20,6 +21,7 @@ from products.data_catalog.backend.logic.metric_embeddings import (
 from products.data_catalog.backend.logic.metric_search import search_metrics, split_search
 from products.data_catalog.backend.logic.metrics import update_metric, upsert_metric
 from products.data_catalog.backend.models import Metric
+from products.data_catalog.backend.tasks.tasks import backfill_metric_embeddings_task
 from products.data_catalog.evals.metric_search_cases import LEXICAL_CASE_TYPES, SEARCH_CASES, CaseType, SearchCase
 from products.data_catalog.evals.metric_search_runner import LEXICAL, run_case, score_case, seed_metric_search_catalog
 
@@ -230,6 +232,23 @@ class TestMetricEmbeddingRefresh(BaseTest):
         assert self._stored("mrr").embedding == [0.1, 0.2]
         assert self._stored("nps").embedding == [0.1, 0.2]
         assert self._stored("arr").embedding == [0.5, 0.5]
+
+    def test_backfill_sweep_embeds_only_metrics_without_a_vector_in_consenting_orgs(self, generate: MagicMock) -> None:
+        other_org = Organization.objects.create(name="No AI consent", is_ai_data_processing_approved=False)
+        other_team = Team.objects.create(organization=other_org, name="No AI consent")
+        for team, name in [(self.team, "mrr"), (self.team, "arr"), (other_team, "nps")]:
+            with team_scope(team.id):
+                Metric.objects.for_team(team.id).create(team=team, name=name, description=f"{name} metric")
+        Metric.objects.for_team(self.team.id).filter(name="arr").update(
+            embedding=[0.5, 0.5], embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash="any"
+        )
+
+        backfill_metric_embeddings_task()
+
+        assert generate.call_count == 1
+        assert self._stored("mrr").embedding == [0.1, 0.2]
+        with team_scope(other_team.id):
+            assert Metric.objects.for_team(other_team.id).get(name="nps").embedding is None
 
 
 def _hash_of(metric: Metric) -> str:
