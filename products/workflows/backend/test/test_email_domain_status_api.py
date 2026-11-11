@@ -314,6 +314,9 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         )
 
         assert verified.status_code == status.HTTP_200_OK, verified.json()
+        assert {r["recordHostname"] for r in verified.json()["dnsRecords"] if r["type"] == "mail_from"} == {
+            f"bounce.{DOMAIN}"
+        }
         assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
         assert Integration.objects.get(id=other_teams_sender).config["mail_from_subdomain"] == "bounce"
 
