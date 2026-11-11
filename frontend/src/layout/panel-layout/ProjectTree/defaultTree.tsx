@@ -138,6 +138,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     marketing_settings: {
         icon: <IconMegaphone />,
+        iconColor: ['var(--color-product-marketing-analytics-light)', 'var(--color-product-marketing-analytics-dark)'],
     },
     marketing_analytics: {
         icon: <IconMegaphone />,
@@ -184,6 +185,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     session_profile: {
         icon: <IconReceipt />,
+        iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
     },
     session_replay: {
         icon: <IconRewindPlay />,
@@ -245,6 +247,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     data_pipeline_metadata: {
         icon: <IconPlug />,
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
     },
     data_warehouse: {
         icon: <IconDatabase />,
@@ -271,9 +274,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     activity: {
         icon: <IconClock />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
     comment: {
         icon: <IconNotification />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
     annotation: {
         icon: <IconPencil />,
@@ -281,6 +286,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     event: {
         icon: <IconApps />,
+        iconColor: ['var(--color-product-event-definitions-light)', 'var(--color-product-event-definitions-dark)'],
     },
     event_definition: {
         icon: <IconApps />,
@@ -295,9 +301,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     ingestion_warning: {
         icon: <IconWarning />,
+        iconColor: ['var(--color-product-event-definitions-light)', 'var(--color-product-event-definitions-dark)'],
     },
     persons: {
         icon: <IconPerson />,
+        iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'],
     },
     user: {
         icon: <IconUser />,
@@ -307,6 +315,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     group: {
         icon: <IconPeople />,
+        iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'],
     },
     // The IconInsight* glyphs carry their own multi-color palette (--insight-icon-*);
     // structural parts follow currentColor, so no iconColor override here.
@@ -366,15 +375,21 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     health: {
         icon: <IconStethoscope />,
+        iconColor: [
+            'var(--color-product-engineering-analytics-light)',
+            'var(--color-product-engineering-analytics-dark)',
+        ],
     },
     inbox: {
         icon: <IconSelfDriving />,
+        iconColor: ['var(--color-product-self-driving-light)', 'var(--color-product-self-driving-dark)'],
     },
     sdk_health: {
         icon: <IconCode />,
     },
     pipeline_status: {
         icon: <IconDatabase />,
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
     },
     llm_evaluations: {
         icon: <IconListCheck />,
@@ -503,12 +518,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
 
 export const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
     // Manifest color takes precedence
-    const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
-        type as keyof typeof fileSystemTypes
-    ]?.iconColor
+    const fileSystemType = (
+        fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor; iconType?: string }>
+    )[type as keyof typeof fileSystemTypes]
+    const fileSystemColor = fileSystemType?.iconColor
 
-    // Fallback to iconTypes if no manifest color is provided
-    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
+    // Fallback to iconTypes if no manifest color is provided, also via the manifest's iconType (e.g. insight/bi)
+    const iconTypeColor =
+        (type && iconTypes[type as keyof typeof iconTypes]?.iconColor) ||
+        (fileSystemType?.iconType && iconTypes[fileSystemType.iconType as keyof typeof iconTypes]?.iconColor)
 
     // If we have a color override, use it
     // Otherwise, use the above colors in order of precedence
