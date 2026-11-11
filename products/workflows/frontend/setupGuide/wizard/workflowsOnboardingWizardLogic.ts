@@ -39,6 +39,7 @@ import {
     customFrequencyCapError,
     firstOpenStepIndex,
     initialFrequencyCapChoice,
+    onboardingWizardUrl,
     requiredConnections,
     sendingRulesToSave,
     wizardStepCopy,
@@ -69,6 +70,7 @@ export interface workflowsOnboardingWizardLogicValues {
     workflowTemplatesLoading: boolean // workflowTemplatesLogic
     chosenReachChannels: ReachChannel[] | null // workflowsSetupGuideLogic
     guideSteps: SetupGuideStep[] | null // workflowsSetupGuideLogic
+    broadcastLinkUrl: string
     canEditSendingRules: boolean
     chosenFrequencyCap: FrequencyCap
     connectionsNeeded: WizardConnection[]
@@ -250,11 +252,16 @@ export interface workflowsOnboardingWizardLogicMeta {
             wizardPath: WorkflowsOnboardingPath,
             pushEnabled: boolean,
             reachChannels: ('email' | 'push')[] | null,
-            journeyFirst: any
+            journeyFirst: boolean
         ) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
-        stepCopy: (currentStep: WizardStepKey, wizardPath: WorkflowsOnboardingPath, journeyFirst: any) => WizardStepCopy
-        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, journeyFirst: any) => boolean
+        stepCopy: (
+            currentStep: WizardStepKey,
+            wizardPath: WorkflowsOnboardingPath,
+            journeyFirst: boolean
+        ) => WizardStepCopy
+        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, journeyFirst: boolean) => boolean
+        broadcastLinkUrl: (journeyFirst: boolean) => string
         suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
         isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
         templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
@@ -555,6 +562,10 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (wizardPath: WorkflowsOnboardingPath, journeyFirst: boolean): boolean =>
                 wizardPath === 'messaging' && !journeyFirst,
         ],
+        broadcastLinkUrl: [
+            (s) => [s.journeyFirst],
+            (journeyFirst: boolean): string => (journeyFirst ? onboardingWizardUrl('broadcast') : urls.broadcastNew()),
+        ],
         suggestionsFirst: [
             (s) => [s.offersSuggestions, s.currentStep, s.templatesShown],
             (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean): boolean =>
@@ -705,14 +716,12 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                     return
                 }
                 cache.pendingSearchParams = null
-                const steps = wizardSteps(
-                    path,
-                    values.pushEnabled,
-                    values.reachChannels,
-                    isJourneyFirst(path, values.featureFlags)
-                )
-                const step = steps.includes(searchParams.step) ? (searchParams.step as WizardStepKey) : null
+                const journeyFirst = isJourneyFirst(path, values.featureFlags)
+                const steps = wizardSteps(path, values.pushEnabled, values.reachChannels, journeyFirst)
                 const templateId = searchParams.template ? String(searchParams.template) : null
+                const requestedStep = steps.includes(searchParams.step) ? (searchParams.step as WizardStepKey) : null
+                const step =
+                    requestedStep && journeyFirst && path === 'messaging' && !templateId ? 'journey' : requestedStep
                 const entry = isWizardEntry(searchParams.entry) ? searchParams.entry : null
                 if (
                     !values.initialized ||

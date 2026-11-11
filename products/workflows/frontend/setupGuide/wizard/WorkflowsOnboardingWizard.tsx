@@ -5,7 +5,6 @@ import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 import { CustomerIOImportModal } from '../../OptOuts/CustomerIOImportModal'
 import { OptOutCategories } from '../../OptOuts/OptOutCategories'
@@ -46,6 +45,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
         setupCheckFailed,
         suggestionsFirst,
         stepCopy: copy,
+        broadcastLinkUrl,
     } = useValues(workflowsOnboardingWizardLogic)
     const { setStepIndex, next, back, exit, loadHasMessagingWorkflow } = useActions(workflowsOnboardingWizardLogic)
 
@@ -107,7 +107,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                     <div className="mt-1 text-secondary">
                         Sending one email to a list of people?{' '}
                         <Link
-                            to={urls.broadcastNew()}
+                            to={broadcastLinkUrl}
                             onClick={() => {
                                 // pinned: analytics event name - renaming breaks dashboards
                                 posthog.capture('workflows onboarding wizard broadcast clicked')

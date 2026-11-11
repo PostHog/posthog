@@ -93,13 +93,16 @@ describe('workflowsOnboardingWizardLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it.each<[string, WorkflowsOnboardingPath, string | undefined, string[], string]>([
+    const BROADCAST_WIZARD = onboardingWizardUrl('broadcast')
+
+    it.each<[string, WorkflowsOnboardingPath, string | undefined, string[], string, string]>([
         [
             'the test arm picks the journey before the connected email',
             'messaging',
             'test',
             ['journey', 'channel', 'domain', 'opt-outs', 'sending-rules'],
             'journey',
+            BROADCAST_WIZARD,
         ],
         [
             'the test arm shows the broadcast before the connected email',
@@ -107,6 +110,7 @@ describe('workflowsOnboardingWizardLogic', () => {
             'test',
             ['broadcast', 'channel', 'domain', 'opt-outs', 'sending-rules'],
             'broadcast',
+            BROADCAST_WIZARD,
         ],
         [
             'the control arm sets up email first',
@@ -114,6 +118,7 @@ describe('workflowsOnboardingWizardLogic', () => {
             'control',
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'journey'],
             'domain',
+            urls.broadcastNew(),
         ],
         [
             'no flag sets up email first',
@@ -121,6 +126,7 @@ describe('workflowsOnboardingWizardLogic', () => {
             undefined,
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'journey'],
             'domain',
+            urls.broadcastNew(),
         ],
         [
             'the control arm sets up the broadcast email first',
@@ -128,9 +134,17 @@ describe('workflowsOnboardingWizardLogic', () => {
             'control',
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'broadcast'],
             'domain',
+            urls.broadcastNew(),
         ],
-        ['the test arm leaves automation alone', 'automation', 'test', ['template', 'connect', 'create'], 'template'],
-    ])('%s', async (_, path, variant, expectedSteps, landsOn) => {
+        [
+            'the test arm leaves automation alone',
+            'automation',
+            'test',
+            ['template', 'connect', 'create'],
+            'template',
+            urls.broadcastNew(),
+        ],
+    ])('%s', async (_, path, variant, expectedSteps, landsOn, broadcastLink) => {
         setJourneyFirstVariant(variant)
         logic = workflowsOnboardingWizardLogic()
         logic.mount()
@@ -139,6 +153,7 @@ describe('workflowsOnboardingWizardLogic', () => {
 
         expect(logic.values.stepKeys).toEqual(expectedSteps)
         expect(logic.values.currentStep).toBe(landsOn)
+        expect(logic.values.broadcastLinkUrl).toBe(broadcastLink)
     })
 
     it('opens the journey picked at the first step once the setup steps are done', async () => {
@@ -157,14 +172,20 @@ describe('workflowsOnboardingWizardLogic', () => {
         expect(router.values.searchParams).toMatchObject({ templateId: WELCOME_TEMPLATE.id })
     })
 
-    it('keeps the step and the picked journey when a test arm person reloads a later step', async () => {
+    it.each<[string, string | undefined, string]>([
+        ['keeps a later step when the journey is picked', WELCOME_TEMPLATE.id, 'domain'],
+        ['sends a resume without a picked journey back to the pick', undefined, 'journey'],
+    ])('%s when a test arm person reloads it', async (_, template, landsOn) => {
         setJourneyFirstVariant('test')
         logic = workflowsOnboardingWizardLogic()
         logic.mount()
 
-        router.actions.push(onboardingWizardUrl('messaging', { step: 'domain', template: WELCOME_TEMPLATE.id }))
+        router.actions.push(onboardingWizardUrl('messaging', { step: 'domain', template }))
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.currentStep).toBe('domain')
+        expect(logic.values.currentStep).toBe(landsOn)
+        if (!template) {
+            logic.actions.selectTemplate(WELCOME_TEMPLATE.id)
+        }
         await continueToTheEnd()
 
         expect(router.values.searchParams).toMatchObject({ templateId: WELCOME_TEMPLATE.id })
