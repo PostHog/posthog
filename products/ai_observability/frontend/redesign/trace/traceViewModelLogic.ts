@@ -229,19 +229,19 @@ export interface traceViewModelLogicMeta {
             tree: TraceNodeApi[],
             status: TraceViewStatus,
             defaultNodeId: string,
-            nodeIdsByAlias: Record<string, string>,
+            nodeIdsByAlias: ReadonlyMap<string, string>,
             traceId: string
         ) => string
         nodeIdToRead: (status: TraceViewStatus, requestedStepId: string | null, selectedNodeId: string) => string | null
         selectedTreeNode: (tree: TraceNodeApi[], selectedNodeId: string) => TraceNodeApi | null
-        selectedNodeLoad: (selectedNodeId: string, nodes: Record<string, NodeLoad>) => NodeLoad
-        selectedRaw: (selectedNodeId: string, rawNodes: Record<string, RawLoad>) => RawLoad | undefined
+        selectedNodeLoad: (selectedNodeId: string, nodes: ReadonlyMap<string, NodeLoad>) => NodeLoad
+        selectedRaw: (selectedNodeId: string, rawNodes: ReadonlyMap<string, RawLoad>) => RawLoad | undefined
         rawNodeIdToRead: (
             detailTab: NodeDetailTab,
             nodeIdToRead: string | null,
             createdAt: string | null
         ) => string | null
-        threadNodeLoad: (threadNodeIds: string[], nodes: Record<string, NodeLoad>) => NodeLoad | null
+        threadNodeLoad: (threadNodeIds: string[], nodes: ReadonlyMap<string, NodeLoad>) => NodeLoad | null
         datasetsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         datasetItemSource: (
             datasetsEnabled: boolean,
