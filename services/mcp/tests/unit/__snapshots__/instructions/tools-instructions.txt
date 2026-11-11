@@ -72,7 +72,7 @@ The first call for that shape is `metric-list`; `read-data-schema`, `info query-
 - For an exact match, call `data-catalog-metric-run` instead of running its query yourself. If only time or interval differ on an insight-based metric, pass them to the run. Otherwise, if the measure fits, adapt its `metric-describe` query, run it with `execute-sql`, explain the change, and don't call it canonical.
 - An approved match outranks a `proposed` or drifted one. Check response `status` and `is_drifted` before calling it canonical. Use a drifted/proposed one only if its definition fits, and follow the run's `NONCANONICAL` note. Either way, warn the user that it is proposed or drifted, and say why you used it or not.
 - For a drill-down such as "which tools are driving the failures?", run the canonical metric for the headline first, then label the breakdown noncanonical.
-- With no match, put "governed catalog consulted: no match" in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it. Explain failures. Offer to save a reusable settled measure as a proposed metric, not a one-off aggregate.
+- Only when `metric-list` or a metric listing in your instructions found no match, put "governed catalog consulted: no match" in the `context` of the answering `execute-sql` call, never in the answer. Explain failures. Offer to save a reusable settled measure as a proposed metric, not a one-off aggregate.
 - After an approved, non-drifted run, open with `🛡️ **From your data catalog**: <display_name>, approved definition, reviewed by <approver> on <date like Oct 6, 2026>`, both from `metric-describe`. No 🛡️ elsewhere.
 - Listings: omit the filter and report status. Never edit metrics.
 
