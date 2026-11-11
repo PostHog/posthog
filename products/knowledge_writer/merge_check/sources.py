@@ -94,6 +94,23 @@ def read_github(
     return response
 
 
+def read_github_or_none(
+    github: GitHubReader,
+    path: str,
+    *,
+    endpoint: str,
+    params: dict[str, str | int] | None = None,
+    headers: dict[str, str] | None = None,
+) -> requests.Response | None:
+    response = github.api_request(
+        "GET", path, endpoint=endpoint, params=params, headers=headers, priority=Priority.NORMAL
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response
+
+
 def commit_sha_or_none(value: object) -> str | None:
     if not isinstance(value, str) or not COMMIT_SHA_PATTERN.match(value) or value == NULL_COMMIT_SHA:
         return None
@@ -196,17 +213,15 @@ def is_test_path(path: str) -> bool:
 
 
 def read_generated_path_patterns(github: GitHubReader, repository: str, commit_sha: str) -> list[str]:
-    response = github.api_request(
-        "GET",
+    response = read_github_or_none(
+        github,
         f"/repos/{repository}/contents/.gitattributes",
         endpoint="/repos/{owner}/{repo}/contents/{path}",
         params={"ref": commit_sha},
         headers={"Accept": "application/vnd.github.raw"},
-        priority=Priority.NORMAL,
     )
-    if response.status_code == 404:
+    if response is None:
         return []
-    response.raise_for_status()
     attribute_lines = [line.split() for line in response.text.splitlines() if not line.startswith("#")]
     return [
         fields[0].lstrip("/")
@@ -228,16 +243,14 @@ def read_page_sources(
 ) -> dict[str, str]:
     page_text_by_key: dict[str, str] = {}
     for page_key, source_path in list(source_path_by_key.items())[:MAX_READ_PAGES]:
-        response = github.api_request(
-            "GET",
+        response = read_github_or_none(
+            github,
             f"/repos/{docs_repository}/contents/{source_path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             params={"ref": docs_commit_sha} if docs_commit_sha else None,
             headers={"Accept": "application/vnd.github.raw"},
-            priority=Priority.NORMAL,
         )
-        if response.status_code == 404:
+        if response is None:
             continue
-        response.raise_for_status()
         page_text_by_key[page_key] = response.text[:MAX_PAGE_SOURCE_CHARACTERS]
     return page_text_by_key

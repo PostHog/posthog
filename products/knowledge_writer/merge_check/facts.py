@@ -1,14 +1,27 @@
 import re
+from collections.abc import Callable
 from enum import StrEnum
+from typing import Any
 
+import structlog
 from anthropic import Anthropic
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from .gather import MergeEvidence, PathClass
-from .judge import MIN_QUOTE_CHARACTERS, JudgedChangeKind, is_quoted_in, normalized, system_with_cached_page_list
+from .judge import (
+    MIN_QUOTE_CHARACTERS,
+    Declined,
+    JudgedChangeKind,
+    is_quoted_in,
+    normalized,
+    page_tags,
+    parse_structured_output,
+    system_with_cached_page_list,
+)
+
+logger = structlog.get_logger(__name__)
 
 FACTS_MODEL = "claude-sonnet-5-5"
-FACTS_PROMPT_VERSION = "facts-v1"
 FACTS_TIMEOUT_SECONDS = 150
 MAX_FACTS_DIFF_CHARACTERS = 400_000
 MAX_PAGE_CHECK_FINDINGS = 20
@@ -88,28 +101,26 @@ class MergeFacts(BaseModel):
     changed_pages: list[ChangedPage]
 
 
-def extract_facts(
-    anthropic_client: Anthropic, evidence: MergeEvidence, *, release_text: str, docs_page_paths: list[str]
-) -> MergeFacts | None:
-    try:
-        response = anthropic_client.with_options(timeout=FACTS_TIMEOUT_SECONDS, max_retries=0).messages.parse(
-            model=FACTS_MODEL,
-            max_tokens=4096,
-            system=system_with_cached_page_list(FACTS_INSTRUCTIONS, docs_page_paths),
-            messages=[{"role": "user", "content": facts_request(evidence, release_text)}],
-            output_format=MergeFacts,
-        )
-    except ValidationError:
+def extract_facts(anthropic_client: Anthropic, evidence: MergeEvidence) -> MergeFacts | None:
+    parsed = parse_structured_output(
+        anthropic_client,
+        MergeFacts,
+        model=FACTS_MODEL,
+        timeout_seconds=FACTS_TIMEOUT_SECONDS,
+        max_retries=0,
+        system=system_with_cached_page_list(FACTS_INSTRUCTIONS, evidence.docs_page_paths),
+        content=facts_request(evidence),
+    )
+    if isinstance(parsed, Declined):
+        logger.warning("knowledge_writer_facts_declined", cause=parsed.cause)
         return None
-    if response.stop_reason == "refusal":
-        return None
-    return response.parsed_output
+    return parsed
 
 
-def facts_request(evidence: MergeEvidence, release_text: str) -> str:
+def facts_request(evidence: MergeEvidence) -> str:
     path_lines = "\n".join(f"{path_class}: {path}" for path, path_class in evidence.path_class_by_path.items())
     return (
-        f"Title: {evidence.title}\n\nLabels: {', '.join(evidence.labels)}\n\nRelease line: {release_text}\n\n"
+        f"Title: {evidence.title}\n\nLabels: {', '.join(evidence.labels)}\n\nRelease line: {evidence.release_text}\n\n"
         f"<body>\n{evidence.body}\n</body>\n\nChanged paths by class:\n{path_lines}\n\n"
         f"<diff>\n{facts_diff(evidence)[:MAX_FACTS_DIFF_CHARACTERS]}\n</diff>"
     )
@@ -125,9 +136,7 @@ def facts_diff(evidence: MergeEvidence) -> str:
     return "".join(chunk for _path, chunk in judged_first)
 
 
-def verify_quotes(
-    facts: MergeFacts, evidence: MergeEvidence, *, release_text: str, docs_page_paths: list[str]
-) -> tuple[MergeFacts, bool]:
+def verify_quotes(facts: MergeFacts, evidence: MergeEvidence) -> tuple[MergeFacts, bool]:
     diff = facts_diff(evidence)
     quotable = normalized(
         "\n".join(
@@ -135,45 +144,43 @@ def verify_quotes(
                 evidence.title,
                 *evidence.labels,
                 evidence.body,
-                release_text,
+                evidence.release_text,
                 diff,
                 DIFF_LINE_MARKER_PATTERN.sub("", diff),
             ]
         )
     )
-    listed_page_paths = set(docs_page_paths)
+    listed_page_paths = set(evidence.docs_page_paths)
 
     def is_supported(quote: str) -> bool:
         normalized_quote = normalized(quote)
         return len(normalized_quote) >= MIN_QUOTE_CHARACTERS and normalized_quote in quotable
 
+    fact_defaults: list[tuple[str, Callable[[Any], bool], BaseModel]] = [
+        (
+            "release_state",
+            lambda fact: fact.value != ReleaseState.GA,
+            ReleaseStateFact(value=ReleaseState.GA, quote="", rests_only_on_release_marker=False),
+        ),
+        ("audience", lambda fact: fact.value != Audience.CUSTOMER, AudienceFact(value=Audience.CUSTOMER, quote="")),
+        (
+            "doc_impact",
+            lambda fact: fact.value not in DOCS_DOC_IMPACTS,
+            DocImpactFact(value=DocImpact.CHANGED_BEHAVIOR, quote=""),
+        ),
+        ("generated_only", lambda fact: fact.value, YesNoFact(value=False, quote="")),
+        ("no_public_page_fits", lambda fact: fact.value, YesNoFact(value=False, quote="")),
+    ]
+    updates: dict[str, object] = {
+        name: default
+        for name, is_off_default, default in fact_defaults
+        if is_off_default(getattr(facts, name)) and not is_supported(getattr(facts, name).quote)
+    }
     verified_pages = [
         page for page in facts.changed_pages if page.page_path in listed_page_paths and is_supported(page.quote)
     ]
-    release_state = facts.release_state
-    if release_state.value != ReleaseState.GA and not is_supported(release_state.quote):
-        release_state = ReleaseStateFact(value=ReleaseState.GA, quote="", rests_only_on_release_marker=False)
-    audience = facts.audience
-    if audience.value != Audience.CUSTOMER and not is_supported(audience.quote):
-        audience = AudienceFact(value=Audience.CUSTOMER, quote="")
-    doc_impact = facts.doc_impact
-    if doc_impact.value not in DOCS_DOC_IMPACTS and not is_supported(doc_impact.quote):
-        doc_impact = DocImpactFact(value=DocImpact.CHANGED_BEHAVIOR, quote="")
-    generated_only = facts.generated_only
-    if generated_only.value and not is_supported(generated_only.quote):
-        generated_only = YesNoFact(value=False, quote="")
-    no_public_page_fits = facts.no_public_page_fits
-    if no_public_page_fits.value and not is_supported(no_public_page_fits.quote):
-        no_public_page_fits = YesNoFact(value=False, quote="")
-    verified = MergeFacts(
-        release_state=release_state,
-        audience=audience,
-        doc_impact=doc_impact,
-        generated_only=generated_only,
-        no_public_page_fits=no_public_page_fits,
-        changed_pages=verified_pages,
-    )
-    return verified, verified.model_copy(update={"changed_pages": facts.changed_pages}) != facts
+    has_dropped_quotes = bool(updates)
+    return facts.model_copy(update={**updates, "changed_pages": verified_pages}), has_dropped_quotes
 
 
 PAGE_CHECK_INSTRUCTIONS = """You check whether one merged pull request makes named docs pages wrong or incomplete.
@@ -194,40 +201,36 @@ class PageCheck(BaseModel):
     findings: list[PageFinding]
 
 
-def check_named_pages(
+def verified_page_findings(
     anthropic_client: Anthropic, evidence: MergeEvidence, *, page_text_by_key: dict[str, str]
 ) -> list[PageFinding] | None:
-    page_texts = "".join(f'<page path="{key}">\n{text}\n</page>\n' for key, text in page_text_by_key.items())
-    try:
-        response = anthropic_client.with_options(timeout=FACTS_TIMEOUT_SECONDS, max_retries=0).messages.parse(
-            model=FACTS_MODEL,
-            max_tokens=4096,
-            system=PAGE_CHECK_INSTRUCTIONS,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Title: {evidence.title}\n\n{page_texts}\n"
-                        f"<diff>\n{facts_diff(evidence)[:MAX_FACTS_DIFF_CHARACTERS]}\n</diff>"
-                    ),
-                }
-            ],
-            output_format=PageCheck,
-        )
-    except ValidationError:
+    diff = facts_diff(evidence)
+    page_texts = page_tags(page_text_by_key, separator="\n")
+    parsed = parse_structured_output(
+        anthropic_client,
+        PageCheck,
+        model=FACTS_MODEL,
+        timeout_seconds=FACTS_TIMEOUT_SECONDS,
+        max_retries=0,
+        system=PAGE_CHECK_INSTRUCTIONS,
+        content=f"Title: {evidence.title}\n\n{page_texts}\n<diff>\n{diff[:MAX_FACTS_DIFF_CHARACTERS]}\n</diff>",
+    )
+    if isinstance(parsed, Declined):
+        logger.warning("knowledge_writer_page_check_declined", cause=parsed.cause)
         return None
-    if response.stop_reason == "refusal" or response.parsed_output is None:
-        return None
-    return response.parsed_output.findings[:MAX_PAGE_CHECK_FINDINGS]
+    return [
+        finding
+        for finding in parsed.findings[:MAX_PAGE_CHECK_FINDINGS]
+        if is_verified_finding(finding, diff, page_text_by_key)
+    ]
 
 
-def is_verified_finding(finding: PageFinding, evidence: MergeEvidence, page_text_by_key: dict[str, str]) -> bool:
+def is_verified_finding(finding: PageFinding, diff: str, page_text_by_key: dict[str, str]) -> bool:
     page_text = page_text_by_key.get(finding.page_path)
     if page_text is None:
         return False
     if is_quoted_in(finding.outdated_sentence, page_text):
         return True
-    diff = facts_diff(evidence)
     is_diff_quoted = is_quoted_in(finding.diff_quote, diff) or is_quoted_in(
         finding.diff_quote, DIFF_LINE_MARKER_PATTERN.sub("", diff)
     )

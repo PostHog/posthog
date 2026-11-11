@@ -266,13 +266,15 @@ def publish_claimed_pull_request(
     joined_pull_request = pull_request_json.validate_python(joined) if isinstance(joined, dict) else None
     issued = tasks_facade.read_task_state_entry(task_id, team_id, HEAD_BRANCH_STATE_KEY)
     head_branch = issued if isinstance(issued, str) and reported_branches == [issued] else None
-    draft = DraftAttempt(request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id)
     comparison = (
         comparison_with_default_branch(github, writer.docs_repository, head_branch) if head_branch is not None else {}
     )
+    draft = DraftAttempt(
+        request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id, comparison=comparison
+    )
     refusal = "head_branch_not_issued" if head_branch is None else publication_refusal(comparison, writer)
     if head_branch is None or refusal is not None:
-        capture_draft(draft, comparison, outcome="refused", refusal=refusal)
+        capture_draft(draft, outcome="refused", refusal=refusal)
         refuse_publication(task_id, team_id, task_run_id, refusal or "head_branch_not_issued")
         if joined_pull_request is not None:
             warn_on_joined_pull_request(github, docs_name, joined_pull_request, team_id, task_run_id)
@@ -281,7 +283,7 @@ def publish_claimed_pull_request(
     if is_opening_pull_requests is None:
         raise WriterPullRequestFailed("knowledge writer could not read the open pull requests flag")
     if not is_opening_pull_requests:
-        capture_draft(draft, comparison, outcome="logged")
+        capture_draft(draft, outcome="logged")
         record_pull_request_failure(task_id, team_id, OPEN_PULL_REQUESTS_OFF)
         if joined_pull_request is None and not github.delete_branch(docs_name, head_branch).get("success"):
             logger.warning("knowledge_writer_draft_branch_not_deleted", team_id=team_id, head_branch=head_branch)
@@ -292,10 +294,10 @@ def publish_claimed_pull_request(
         else open_pull_request(github, docs_name, request, head_branch, section=read_section(task_id, team_id))
     )
     if isinstance(pull_request, GitHubStepFailed):
-        capture_draft(draft, comparison, outcome="failed", refusal=pull_request.step)
+        capture_draft(draft, outcome="failed", refusal=pull_request.step)
         raise reported_step_failure(pull_request, team_id, task_run_id)
     publication = publication_kind(joined_pull_request, pull_request)
-    capture_draft(draft, comparison, outcome=publication, pull_request_url=pull_request.url)
+    capture_draft(draft, outcome=publication, pull_request_url=pull_request.url)
     stored = pull_request_json.dump_python(pull_request, mode="json")
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
@@ -317,38 +319,48 @@ class DraftAttempt:
     task_id: UUID
     task_run_id: UUID
     team_id: int
+    comparison: dict
 
 
 def capture_draft(
     draft: DraftAttempt,
-    comparison: dict,
     *,
     outcome: DraftOutcome,
     refusal: str | None = None,
     pull_request_url: str | None = None,
 ) -> None:
+    capture_writer_event(
+        DRAFT_EVENT,
+        team_id=draft.team_id,
+        event_key=f"draft:{draft.task_run_id}",
+        failure_log="knowledge_writer_draft_capture_failed",
+        properties={
+            "dedupe_id": draft.request.dedupe_id,
+            "source": draft.request.source,
+            "source_url": draft.request.source_url,
+            "routed_page_urls": list(draft.request.suggested_page_urls),
+            "task_id": str(draft.task_id),
+            "task_run_id": str(draft.task_run_id),
+            "outcome": outcome,
+            "refusal": refusal,
+            "pull_request_url": pull_request_url,
+            "files": drafted_files(draft.comparison),
+            "team_id": draft.team_id,
+        },
+    )
+
+
+def capture_writer_event(event: str, *, team_id: int, event_key: str, failure_log: str, properties: dict) -> None:
     try:
         with ph_scoped_capture() as capture:
             capture(
-                DRAFT_EVENT,
-                distinct_id=f"knowledge_writer:{draft.team_id}",
-                uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:draft:{draft.task_run_id}"),
-                properties={
-                    "dedupe_id": draft.request.dedupe_id,
-                    "source": draft.request.source,
-                    "source_url": draft.request.source_url,
-                    "routed_page_urls": list(draft.request.suggested_page_urls),
-                    "task_id": str(draft.task_id),
-                    "task_run_id": str(draft.task_run_id),
-                    "outcome": outcome,
-                    "refusal": refusal,
-                    "pull_request_url": pull_request_url,
-                    "files": drafted_files(comparison),
-                    "team_id": draft.team_id,
-                },
+                event,
+                distinct_id=f"knowledge_writer:{team_id}",
+                uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:{event_key}"),
+                properties=properties,
             )
     except Exception:
-        logger.warning("knowledge_writer_draft_capture_failed", team_id=draft.team_id, exc_info=True)
+        logger.warning(failure_log, team_id=team_id, exc_info=True)
 
 
 def drafted_files(comparison: dict) -> list[dict]:
