@@ -2442,8 +2442,18 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
         Team.objects.all().delete()
         return super().setUp()
 
+    # `sends_logs_or_traces` targets the metrics experiment, so a quiet day must not unset it.
+    @parameterized.expand(
+        [
+            ("no_logs_or_traces", {}, {}),
+            ("sends_logs", {"logs_records_in_period": 12}, {"sends_logs_or_traces": True}),
+            ("sends_traces", {"apm_tracing_spans_in_period": 40}, {"sends_logs_or_traces": True}),
+        ]
+    )
     @patch("posthog.tasks.usage_report.get_ph_client")
-    def test_capture_report_sets_org_group_properties(self, mock_client: MagicMock) -> None:
+    def test_capture_report_sets_org_group_properties(
+        self, _name: str, telemetry: dict, expected_telemetry_properties: dict, mock_client: MagicMock
+    ) -> None:
         from posthog.tasks.usage_report import capture_report
 
         mock_posthog = MagicMock()
@@ -2457,6 +2467,9 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
             "dashboard_count": 3,
             "ff_count": 1,
             "survey_count": 2,
+            "logs_records_in_period": 0,
+            "apm_tracing_spans_in_period": 0,
+            **telemetry,
         }
 
         capture_report(
@@ -2473,6 +2486,7 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
                 "dashboard_count": 3,
                 "ff_count": 1,
                 "survey_count": 2,
+                **expected_telemetry_properties,
             },
         )
 
