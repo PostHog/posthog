@@ -287,8 +287,8 @@ export interface stepDelayLogicActions {
                           }
                       }
                   }
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
               }
             | {
                   cohort_id: number | null
@@ -631,8 +631,8 @@ export interface stepDelayLogicActions {
                           }
                       }
                   }
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
               }
             | {
                   filters: {
