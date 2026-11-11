@@ -375,6 +375,8 @@ Only the Environment has two implementations, and only it knows how a role is fo
 The card format and the scorecard event are the external contracts: other people and tools read them, so they change only with a schema version.
 The other interfaces are internal seams; each module keeps the responsibilities in the module table.
 
+These contracts cover the whole first slice, so some members are not in the code yet; later stacks add them: the `Valves` module, `Environment.actuate`, the edge's `caDir` and `feedbackUrl` with its CONNECT proxy and SNS feedback, `Judge.measure` and the measurements, the `event_webhook`, `transactional_email` and `bounce_followup` traffic kinds, and the `duplicate_sends`, `refused_at_intake` and `bounced_suppressed` invariants.
+
 ### Cards
 
 The schema is `Card` in `cards/schema.ts`.
