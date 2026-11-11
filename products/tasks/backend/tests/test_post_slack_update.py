@@ -20,6 +20,7 @@ post_slack_update = _post_slack_update_module.post_slack_update
 class TestPostSlackUpdate(TestCase):
     def setUp(self):
         self.slack_thread_context = {
+            "team_id": 1,
             "integration_id": 1,
             "channel": "C001",
             "thread_ts": "1111.0000",
