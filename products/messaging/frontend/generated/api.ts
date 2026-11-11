@@ -47,6 +47,7 @@ import type {
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
     TopicPreferencesApi,
+    TransactionalEmailActivityApi,
     TransactionalEmailLogDetailApi,
     TransactionalEmailLogListApi,
     TransactionalEmailLogListParams,
@@ -1082,6 +1083,25 @@ export const transactionalEmailLogRetrieve = async (
     options?: RequestInit
 ): Promise<TransactionalEmailLogDetailApi> => {
     return apiMutator<TransactionalEmailLogDetailApi>(getTransactionalEmailLogRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogActivityRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_email_log/${id}/activity/`
+}
+
+/**
+ * The recipient's events in the 7 days before and after one send, with the sessions they belong to.
+ * @summary Get what a transactional email's recipient did around the send
+ */
+export const transactionalEmailLogActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TransactionalEmailActivityApi> => {
+    return apiMutator<TransactionalEmailActivityApi>(getTransactionalEmailLogActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
