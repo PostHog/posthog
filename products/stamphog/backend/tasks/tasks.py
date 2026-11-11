@@ -61,6 +61,7 @@ from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     FinishedReview,
     ReviewPath,
+    route_after_approval_retracted,
     route_after_external_review,
     route_after_verdict,
     route_on_pull_request_event,
@@ -569,6 +570,8 @@ def _retract_approvals_on_base_retarget(repo_config: StamphogRepoConfig, pr: dic
             superseded=superseded,
             dismissed=dismissed,
         )
+    if dismissed:
+        queue_routing_after_approval_retracted(repo_config, pr_number=pr_number)
 
 
 def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> str | None:
@@ -671,6 +674,24 @@ def _record_retained_head(run: ReviewRun, head_sha: str) -> None:
     retained.append(head_sha)
     run.output = {**(run.output or {}), RETAINED_HEADS_KEY: retained[-MAX_RETAINED_HEADS:]}
     run.save(update_fields=["output", "updated_at"])
+
+
+def _approval_retention_on_label_skip(
+    repo_config: StamphogRepoConfig, repo: str, pr: dict[str, Any], delivery_id: str
+) -> str | None:
+    """Why a standing approval survives a push that the missing trigger label skips, or None to dismiss it.
+
+    The main path decides retention only after the author write-permission gate, which the label skip
+    runs before. This checks that gate first, so the skip retains an approval only where the main path
+    would retain it too. Any error answers None, which dismisses, like the main path's fallback.
+    """
+    try:
+        if _author_lacks_write_permission(repo_config, repo, pr):
+            return None
+        return _standing_approval_retention(repo_config, pr)
+    except Exception:
+        logger.warning("stamphog_pr_event_retention_check_failed", delivery_id=delivery_id, exc_info=True)
+        return None
 
 
 _BOT_AUTHOR_LABEL_MESSAGE = (
@@ -814,6 +835,7 @@ def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[s
             pr_number=pr_number,
             dismissed=dismissed,
         )
+        queue_routing_after_approval_retracted(repo_config, pr_number=pr_number)
 
 
 def _stamp_digest_audiences(team_id: int, pr_obj: PullRequest, audiences: list[ResolvedAudience]) -> None:
@@ -1273,11 +1295,19 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         # label still invalidates any standing approval. Retract it before marking the delivery processed,
         # and retry (don't drop) on failure so a transient blip can't leave the stale approval live.
         if action in _HEAD_CHANGING_ACTIONS and repo_config.review_mode == ReviewMode.LABEL:
-            try:
-                _retract_stale_approvals_on_skip(repo_config, pr, _LABEL_SKIP_DISMISS_MESSAGE)
-            except Exception as e:
-                logger.exception("stamphog_pr_event_label_skip_dismiss_failed", delivery_id=delivery_id, error=str(e))
-                raise cast(Any, process_pull_request_event).retry(exc=e)
+            retention_reason = _approval_retention_on_label_skip(repo_config, repo, pr, delivery_id)
+            if retention_reason is not None:
+                logger.info(
+                    "stamphog_pr_event_approval_retained", repo=repo, pr_number=pr_number, reason=retention_reason
+                )
+            else:
+                try:
+                    _retract_stale_approvals_on_skip(repo_config, pr, _LABEL_SKIP_DISMISS_MESSAGE)
+                except Exception as e:
+                    logger.exception(
+                        "stamphog_pr_event_label_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
+                    )
+                    raise cast(Any, process_pull_request_event).retry(exc=e)
         if mode_skip_reason == "label_cooldown":
             _reject_label_in_cooldown(repo_config, pr, delivery_id)
         logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=mode_skip_reason)
@@ -2194,6 +2224,39 @@ def queue_routing_after_verdict(
             head_sha=head_sha,
             outcome=verdict_outcome(status, verdict),
             silent=silent,
+        )
+    except Exception:
+        logger.exception("stamphog_reviewer_routing_queue_failed", pr_number=pr_number)
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
+def route_reviewers_after_approval_retracted(self: Task, team_id: int, repo_config_id: str, pr_number: int) -> None:
+    """Route a FALLBACK pull request in full when a retraction left it with neither an approval nor its owners.
+
+    Only a pull request whose routing requested just the pinned owners of an approved head routes, and only
+    while no review of the live head exists or comes for the trigger label.
+    """
+    _run_routing_step(
+        self,
+        lambda: route_after_approval_retracted(
+            team_id=team_id,
+            repo_config_id=repo_config_id,
+            pr_number=pr_number,
+            task_id=self.request.id or "",
+            review_path=_ROUTING_REVIEW_PATH,
+        ),
+        pr_number=pr_number,
+    )
+
+
+def queue_routing_after_approval_retracted(repo_config: StamphogRepoConfig, *, pr_number: int) -> None:
+    """Queue FALLBACK routing after a skip path retracted an approval. Never raises, because the dismissal is done."""
+    # ALWAYS already requested every owner when the pull request opened. The task reads the mode again.
+    if repo_config.routing_mode != RoutingMode.FALLBACK:
+        return
+    try:
+        route_reviewers_after_approval_retracted.delay(
+            team_id=repo_config.team_id, repo_config_id=str(repo_config.id), pr_number=pr_number
         )
     except Exception:
         logger.exception("stamphog_reviewer_routing_queue_failed", pr_number=pr_number)

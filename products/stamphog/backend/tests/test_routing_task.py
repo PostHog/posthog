@@ -23,6 +23,7 @@ from products.stamphog.backend.models import PullRequest, ReviewRun, RoutingRun,
 from products.stamphog.backend.tasks.tasks import (
     ROUTING_BUSY_RETRY_SECONDS,
     ROUTING_SAFETY_NET_SECONDS,
+    queue_routing_after_approval_retracted,
     queue_routing_after_verdict,
     route_reviewers_after_external_review,
     route_reviewers_after_verdict,
@@ -670,6 +671,72 @@ def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
     else:
         assert routing_chain.recorder.github_writes == []
         assert (record["head_sha"], record["status"]) == (HEAD_SHA, "waiting")
+
+
+@pytest.mark.parametrize(
+    "name,first_verdict,later_routing_mode,push,live_labels,expect_routed",
+    [
+        ("push_without_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, [], True),
+        # The trigger label starts a visible review of the live head, and its verdict routes it.
+        ("push_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, [{"name": "stamphog"}], False),
+        ("already_routed_in_full", ReviewVerdict.REFUSED, "fallback", True, [], False),
+        ("always_mode", ReviewVerdict.APPROVED, "always", True, [], False),
+        # A base retarget keeps the head, and the approving run of that head is no review of the new diff.
+        ("base_retarget", ReviewVerdict.APPROVED, "fallback", False, [], True),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
+    name: str,
+    first_verdict: ReviewVerdict,
+    later_routing_mode: str,
+    push: bool,
+    live_labels: list[dict[str, str]],
+    expect_routed: bool,
+    team,
+    user,
+    routing_chain,
+    safety_net,
+) -> None:
+    repo_config = _setup(routing_chain, team, user, routing_mode="fallback", review_mode=ReviewMode.LABEL)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
+            review_on_clean_external_review=True
+        )
+        repo_config.refresh_from_db()
+    _route()
+    with team_scope(team.id):
+        ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
+            head_sha=HEAD_SHA,
+            status=ReviewRunStatus.COMPLETED,
+            verdict=first_verdict,
+        )
+    _finish_review(repo_config, ReviewRunStatus.COMPLETED, first_verdict, silent=True)
+    requests_before = len(_writes(routing_chain, "request_reviewers"))
+    record_before = _stored(team.id)
+    if push:
+        _push(routing_chain, _HEAD_2)
+    routing_chain.recorder.prs[(REPO, PR_NUMBER)]["labels"] = live_labels
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(routing_mode=later_routing_mode)
+        repo_config.refresh_from_db()
+
+    queue_routing_after_approval_retracted(repo_config, pr_number=PR_NUMBER)
+
+    record = _stored(team.id)
+    if expect_routed:
+        assert len(_writes(routing_chain, "request_reviewers")) == requests_before + 1
+        assert (record["head_sha"], record["trigger"], record["scope"], record["status"]) == (
+            _HEAD_2 if push else HEAD_SHA,
+            "approval_retracted",
+            "full",
+            "done",
+        )
+    else:
+        assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+        assert record == record_before
 
 
 @pytest.mark.parametrize(

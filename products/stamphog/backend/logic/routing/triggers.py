@@ -1,4 +1,4 @@
-"""What each routing trigger decides: a pull request event, a finished review, and the safety net.
+"""What each routing trigger decides: a pull request event, a finished review, a retracted approval, and the safety net.
 
 Every trigger takes the same path. It reads the stored record and lets an own claim continue from
 its last saved step. Then its guards decide on the record and the live pull request. Then
@@ -26,6 +26,7 @@ from products.stamphog.backend.logic.routing.service import (
     SCOPE_PINNED,
     STATUS_DONE,
     STATUS_WAITING,
+    TRIGGER_APPROVAL_RETRACTED,
     TRIGGER_EXTERNAL_REVIEW,
     TRIGGER_SAFETY_NET,
     RoutingBusy,
@@ -459,3 +460,49 @@ def route_on_safety_net(
         return
     step = _safety_net_step(client, state)
     _execute(client, state, step, review_path, retry_when_busy=False)
+
+
+def _retracted_approval_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
+    record = state.record
+    if record is None or record.get(FULL_ROUTED_HEAD):
+        return None
+    if record.get("status") != STATUS_DONE or record.get("scope") != SCOPE_PINNED:
+        return None
+    pr = _live_head(client, state.repo_config, state.pr_number)
+    if pr is None:
+        return None
+    # The payload can admit a review that a later gate refuses, such as the author's write permission, and then
+    # no verdict routes the head. The net routes it in that case, and does nothing once a routing covers the head.
+    review_path.schedule_safety_net(state.repo_config, state.pr_number)
+    live_head_sha = _head_sha(pr)
+    if live_head_sha != record.get("head_sha"):
+        return _full_step_on_live_head(pr, state, trigger=TRIGGER_APPROVAL_RETRACTED, review_path=review_path)
+    # A base retarget retracts the approval of the head that the run reviewed, and that run still counts as a
+    # review of the head. Only a visible review judges the retargeted diff.
+    if review_path.will_review(state.repo_config, pr, count_silent=False):
+        return None
+    return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_APPROVAL_RETRACTED)
+
+
+def route_after_approval_retracted(
+    *, team_id: int, repo_config_id: str, pr_number: int, task_id: str, review_path: ReviewPath
+) -> None:
+    """Route a FALLBACK pull request in full after a retraction removed the approval that held it to its pinned owners.
+
+    A push to an unlabeled pull request, or a base retarget, retracts the approval and starts no review, so no
+    verdict comes to upgrade the pinned-only routing. A review of the live head, or a visible one that comes for
+    it such as for the trigger label, routes it by its verdict instead. ``task_id`` is the Celery task id, which a
+    retry of the same task keeps, so a retry knows its own claim.
+    """
+    repo_config = _fallback_repo_config(team_id, repo_config_id)
+    if repo_config is None:
+        return
+    client = StamphogGitHubClient(repo_config.installation_id)
+    state = _load_state(repo_config, pr_number, task_id)
+    if _resume(client, state):
+        return
+    if is_foreign_claim(state.stored, task_id):
+        # The claim can end in a pinned-only routing, which this retraction still upgrades, so decide after it ends.
+        raise RoutingBusy(f"another task holds the routing claim of PR {pr_number}")
+    step = _retracted_approval_step(client, state, review_path=review_path)
+    _execute(client, state, step, review_path, retry_when_busy=True)

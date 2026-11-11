@@ -208,6 +208,7 @@ A comment names the cut owners and why.
   - A WAIT keeps waiting, because stamphog reviews again later. A WAIT on a head that was not waiting starts waiting there.
   - Any other outcome (refused, escalate, gated, failed) routes in full.
   - A verdict for a head that the author pushed past, an approval included, routes the live head in full when the PR waits on either head, unless a review of the live head exists or comes for the trigger label. In label mode a push to an unlabeled PR stops no run, and a run that ends on a moved head reports a failure to routing for the same reason.
+  - A push to an unlabeled PR, or a base retarget, retracts the approval and starts no review, so nothing upgrades a pinned-only routing. When stamphog retracts an approval on a PR whose routing requested only the pinned owners, it routes the live head in full with the `approval_retracted` trigger, unless a review of the live head exists or comes for the trigger label. A safety net backs that review in case a later gate refuses it. A push that keeps the approval (see approval retention in `AGENTS.md`) retracts nothing, so it routes nothing.
   - A safety net fires 30 minutes after a head starts waiting. Unless the PR was already routed in full, or its current head was approved, it routes the current head in full, even when the head moved since.
   - Full routing happens at most once per PR, like `always`. After it, later verdicts and safety nets do nothing.
   - A PR that opened before `fallback` was on has no routing record, so its verdicts route nothing. Its reviewers came from elsewhere, and routing it would request again owners its author removed.
@@ -223,7 +224,7 @@ Routing only adds review requests, so a second assigner that requests every owne
 In PostHog/posthog, `.github/workflows/auto-assign-reviewers.yml` stops when the repository variable `AUTO_ASSIGN_REVIEWERS_PAUSED` is `true`.
 Turn routing on first, then set the variable. To roll back, delete the variable first, then turn routing off.
 
-The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>`, `external_review` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
+The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>`, `external_review`, `approval_retracted` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
 `full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
 Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
 `GET pull_requests/` and `stamphog-pull-requests-list` return an allowlist of that record as `routing` (status, head, mode, trigger, scope, timestamps, the routed heads, and `claim_expired`), next to the repository's `routing_mode` now. The plan, the pins and the pending comment stay internal.

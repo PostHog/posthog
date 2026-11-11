@@ -73,6 +73,8 @@ _CLAIMED_STATUSES = frozenset({STATUS_ROUTING, STATUS_REQUESTED})
 TRIGGER_SAFETY_NET = "safety_net"
 # ReviewHog will not start a silent review of the waiting head, so no verdict comes for it.
 TRIGGER_EXTERNAL_REVIEW = "external_review"
+# A push or a base retarget that no review follows retracted the approval that held the full routing back.
+TRIGGER_APPROVAL_RETRACTED = "approval_retracted"
 SCOPE_FULL = RoutingScope.FULL.value
 SCOPE_PINNED = RoutingScope.PINNED.value
 
