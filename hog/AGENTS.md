@@ -56,7 +56,9 @@ export default defineCommand({
       result.flags.map((flag) => [flag.key, flag.active])
     )
     if (result.nextOffset !== null) {
-      out.line(`Run ${out.style(`hog flags list --offset ${result.nextOffset}`, 'bold')} for the next page.`)
+      out.notes({
+        notes: [`Run ${out.style(`hog flags list --offset ${result.nextOffset}`, 'bold')} for the next page.`],
+      })
     }
   },
   agent({ result, out }) {
@@ -68,6 +70,7 @@ export default defineCommand({
 ## Rules
 
 - `run` returns data and never prints. `human` decides what a person at a terminal sees, and `agent` decides what agents, pipes and `-o json` see. Without them, people get indented JSON and agents get one line of JSON.
+- Human output reads result, then side effects, then notes. A command that changes something prints through `out.report`: its first line says whether the command worked, the lines under it say what changed, and warnings, tips and next steps come last. A command that prints data prints the data first, then passes page hints, tips and warnings to `out.notes`.
 - Agent output is JSON only, on stdout, with no color and no prose. Prefer `out.jsonLines` for rows a command reads in one go, like query results, so an agent can stream them. A paged list prints one JSON object, so it can carry the next offset.
 - A command never reads a whole PostHog list. A list command reads one page per run with `getPage` from `src/posthog/pagination.ts`. It takes `--limit` and the option that picks a page in that endpoint's DRF paginator, such as `--offset`. Its human output names the command for the next page, and its agent output has the next offset as a field. A command that needs particular items from a list uses `findNamed`, which stops when it has them. Only a command whose purpose is the whole list, like `hog endpoints pull --all`, uses `readAll`. Both stop at `MAX_PAGES`.
 - `out.table` colors each column by kind (number, date, boolean, JSON) and fits the terminal width. Pass a `kind` when the API declares column types, as `hog query run` does with ClickHouse types. Otherwise the kind comes from the values.
