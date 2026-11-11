@@ -7,6 +7,8 @@ from posthog.models import OrganizationMembership
 
 from ..facade.contracts import LinkedBroadcastDTO, LinkedSendDTO, ReleaseDTO
 
+MAX_LINKED = 100
+
 
 class BroadcastSearchQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
@@ -63,12 +65,14 @@ class WriteReleaseSerializer(serializers.Serializer):
     feature_flag_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1, max_value=2**31 - 1),
         required=False,
-        help_text="IDs of the feature flags that control who gets the release.",
+        max_length=MAX_LINKED,
+        help_text=f"IDs of the feature flags that control who gets the release, at most {MAX_LINKED}.",
     )
     broadcast_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
-        help_text="IDs of the broadcasts that announce the release.",
+        max_length=MAX_LINKED,
+        help_text=f"IDs of the broadcasts that announce the release, at most {MAX_LINKED}.",
     )
 
     def validate_owner_id(self, value: int | None) -> int | None:
@@ -82,3 +86,7 @@ class WriteReleaseSerializer(serializers.Serializer):
 
 class UpdateReleaseSerializer(WriteReleaseSerializer):
     name = serializers.CharField(max_length=255, required=False, help_text="Name of the release.")
+
+
+class ImportAllResponseSerializer(serializers.Serializer):
+    created_count = serializers.IntegerField(help_text="How many releases the import created.")
