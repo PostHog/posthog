@@ -77,7 +77,12 @@ export const DataCatalogMetricsListQueryParams = () => zod.object({
     definition_kind: zod.string().optional().describe('Only metrics with this query node kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('A search term.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            "Words to match against the metric name, display name, description, and definition. Any word can match, and words are reduced to their stem, but synonyms and acronyms do not match unless the metric's text contains them."
+        ),
     status: zod.string().optional().describe('Only metrics with this review status.'),
 })
 

@@ -92,6 +92,12 @@ class CatalogSearchFilter(SearchFilter):
 
 
 class MetricSearchFilter(CatalogSearchFilter):
+    search_description = (
+        "Words to match against the metric name, display name, description, and definition. Any word can "
+        "match, and words are reduced to their stem, but synonyms and acronyms do not match unless the "
+        "metric's text contains them."
+    )
+
     def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
         definition = Func(
             Value("english"),

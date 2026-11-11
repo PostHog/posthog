@@ -129641,7 +129641,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
+     * Words to match against the metric name, display name, description, and definition. Any word can match, and words are reduced to their stem, but synonyms and acronyms do not match unless the metric's text contains them.
      */
     search?: string;
     /**
