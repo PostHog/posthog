@@ -175,6 +175,11 @@ def _group_type_index_of_blob(column_name: str) -> int | None:
     return int(group_column_match.group(1)) if group_column_match else None
 
 
+_TRY_CAST_DATE_PATTERN = (
+    r"^\d{4}-\d{2}-\d{2}([ T]([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d{1,9})?)?)?(Z|[+-]([01]\d|2[0-3])(:?[0-5]\d)?)?$"
+)
+
+
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
@@ -535,6 +540,60 @@ class ClickHousePrinter(BasePrinter):
 
     def visit_values_query(self, node: ast.ValuesQuery):
         raise QueryError("VALUES clause is not supported in ClickHouse dialect")
+
+    def visit_try_cast(self, node: ast.TryCast):
+        type_name = node.type_name.lower()
+        match type_name:
+            case "int" | "integer":
+                target = "Int64"
+            case "int8" | "int16" | "int32" | "int64" | "uint8" | "uint16" | "uint32" | "uint64":
+                target = type_name.replace("u", "U").replace("int", "Int")
+            case "float" | "double" | "double precision" | "real" | "float64":
+                target = "Float64"
+            case "float32":
+                target = "Float32"
+            case "text" | "varchar" | "char" | "string" | "nullable(string)":
+                target = "String"
+            case "boolean" | "bool":
+                target = "Bool"
+            case "date":
+                target = "Date"
+            case (
+                "datetime"
+                | "datetime64"
+                | "timestamp"
+                | "timestamptz"
+                | "timestamp with time zone"
+                | "timestamp with local time zone"
+            ):
+                target = f"DateTime64(6, '{self._get_timezone()}')"
+            case _:
+                raise QueryError(f"Unsupported type cast to '{node.type_name}'")
+        expr = self.visit(node.expr)
+        input_type = node.expr.type.resolve_constant_type(self.context) if node.expr.type is not None else None
+        if target == "Date" or target.startswith("DateTime64("):
+            if isinstance(input_type, ast.StringType):
+                return self._try_cast_date_string(expr, target)
+        return f"accurateCastOrNull({expr}, {self.visit(ast.Constant(value=target))})"
+
+    def _try_cast_date_string(self, expr: str, target: str) -> str:
+        # ClickHouse normalizes or clamps invalid dates instead of returning NULL: 2024-02-30 becomes 2024-03-01,
+        # hour 25 rolls into the next day, and a year outside the type's range becomes its bound. So the string must be
+        # ISO 8601 with in-range time fields, and its date part must survive a round trip through the target range.
+        # arrayMap binds the input once, so a nested expression is not repeated in the output.
+        pattern = self.visit(ast.Constant(value=_TRY_CAST_DATE_PATTERN))
+        date_format = self.visit(ast.Constant(value="%Y-%m-%d"))
+        if target == "Date":
+            date_check, converted = "toDateOrNull(substring(__s, 1, 10))", "toDateOrNull(substring(__s, 1, 10))"
+        else:
+            date_check = "toDate32OrNull(substring(__s, 1, 10))"
+            converted = (
+                f"parseDateTime64BestEffortOrNull(__s, 6, {self.visit(ast.Constant(value=self._get_timezone()))})"
+            )
+        return (
+            f"arrayMap(__s -> if(match(__s, {pattern}) AND formatDateTime({date_check}, {date_format}) = substring(__s, 1, 10), "
+            f"{converted}, NULL), [trimBoth({expr})])[1]"
+        )
 
     def visit_and(self, node: ast.And):
         """
