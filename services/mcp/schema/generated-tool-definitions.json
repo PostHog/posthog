@@ -7731,7 +7731,7 @@
         }
     },
     "file-system-list": {
-        "description": "List entries in the project tree, the folder sidebar that holds dashboards, insights, notebooks, canvases and other saved items. To find where an item is filed, pass `type` (such as `insight`, `dashboard` or `notebook`) and `ref` (the insight or notebook short_id, or the dashboard id). Pass `parent` to list a folder's contents. Each entry's `path` ends with the item's own name; everything before it is the folder. Use an entry's `id` with file-system-move.",
+        "description": "List entries in the project tree, the folder sidebar that holds dashboards, insights, notebooks, canvases and other saved items. To find where an item is filed, pass `type` (such as `insight`, `dashboard` or `notebook`) and `ref` (the insight or notebook short_id, or the dashboard id). Pass `parent` to list a folder's contents. Each entry's `path` ends with the item's own name; everything before it is the folder. An item can also have shortcut entries (`shortcut: true`) with the same `type` and `ref`; the item itself is the entry with `shortcut: false`. Use an entry's `id` with file-system-move.",
         "category": "Core",
         "feature": "core",
         "summary": "List project tree entries",

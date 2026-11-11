@@ -58,7 +58,8 @@ tools:
             and other saved items. To find where an item is filed, pass `type` (such as `insight`, `dashboard` or
             `notebook`) and `ref` (the insight or notebook short_id, or the dashboard id). Pass `parent` to list a
             folder's contents. Each entry's `path` ends with the item's own name; everything before it is the folder.
-            Use an entry's `id` with file-system-move.
+            An item can also have shortcut entries (`shortcut: true`) with the same `type` and `ref`; the item itself
+            is the entry with `shortcut: false`. Use an entry's `id` with file-system-move.
         response:
             include:
                 - id
@@ -66,6 +67,7 @@ tools:
                 - type
                 - ref
                 - href
+                - shortcut
     file-system-move:
         operation: file_system_move_create
         enabled: true

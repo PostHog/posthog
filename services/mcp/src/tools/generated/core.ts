@@ -82,7 +82,7 @@ const fileSystemList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'path', 'type', 'ref', 'href'])
+                pickResponseFields(item, ['id', 'path', 'type', 'ref', 'href', 'shortcut'])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/')
