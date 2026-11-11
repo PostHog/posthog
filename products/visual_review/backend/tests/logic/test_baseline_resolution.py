@@ -65,15 +65,30 @@ class TestResolveLedgerBaseline:
         assert (resolution.record.merge_base_sha, resolution.record.position) == (SEED, 0)
         assert resolution.record.candidate_approval_ids == ()
 
-    def test_merge_base_past_the_cursor_is_learned_by_advance(self, repo, git, mocker) -> None:
+    @pytest.mark.parametrize(
+        ("older_commit_unreadable", "expected_position"),
+        [
+            pytest.param(False, 1, id="advance_succeeds"),
+            pytest.param(True, 2, id="retry_of_an_older_commit_fails_after_the_merge_base_is_written"),
+        ],
+    )
+    def test_merge_base_past_the_cursor_is_learned_by_advance(
+        self, repo, git, mocker, older_commit_unreadable, expected_position
+    ) -> None:
         ancestry = mocker.patch.object(github_api, "commit_ancestry")
-        git.commit("m1", SEED, subject="chore: tidy (#9)")
+        parent = SEED
+        if older_commit_unreadable:
+            # GitHub does not return pull request #3, so the retry of its unresolved commit raises.
+            approve(repo, 3, "Card", "c3")
+            parent = git.commit("u1", SEED, subject="feat: card (#3)")
+            ledger.append_commit(repo, position=1, commit_sha="u1", pr_number=3, resolved=False)
+        git.commit("m1", parent, subject="chore: tidy (#9)")
         git.head = "m1"
         git.commit("f1", "m1")
 
         resolution = baseline_resolution.resolve_ledger_baseline(_run(repo, "f1"), {"Button": "b0"})
 
-        assert (resolution.record.position, resolution.record.clamped_to_seed) == (1, False)
+        assert (resolution.record.position, resolution.record.clamped_to_seed) == (expected_position, False)
         ancestry.assert_not_called()
         assert git.priorities
         assert set(git.priorities) == {Priority.CRITICAL}

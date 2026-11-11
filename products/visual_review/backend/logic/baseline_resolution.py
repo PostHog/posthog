@@ -93,6 +93,22 @@ def _advance_ledger(run: Run) -> None:
         ) from e
 
 
+def _advance_to_merge_base(run: Run, merge_base_sha: str) -> int | None:
+    """Advance the ledger, then the position of the merge-base, or None when the ledger does not hold it."""
+    try:
+        _advance_ledger(run)
+    except errors.BaselineResolutionError:
+        # Advance writes the new commits before it retries older unresolved commits of other pull
+        # requests. A failed retry can come after the merge-base got its position, and the run only
+        # needs that position.
+        position = ledger.position_of(run.repo_id, merge_base_sha)
+        if position is None:
+            raise
+        logger.warning("visual_review.ledger_advance_failed_after_merge_base", run_id=str(run.id), exc_info=True)
+        return position
+    return ledger.position_of(run.repo_id, merge_base_sha)
+
+
 def _merge_base_position(run: Run, merge_base_sha: str, seed: BaselineCommit) -> _MergeBasePosition:
     """The ledger position of the merge-base.
 
@@ -105,8 +121,7 @@ def _merge_base_position(run: Run, merge_base_sha: str, seed: BaselineCommit) ->
     advances = repo.baseline_mode == BaselineMode.LEDGER
     position = ledger.position_of(repo.id, merge_base_sha)
     if position is None and advances:
-        _advance_ledger(run)
-        position = ledger.position_of(repo.id, merge_base_sha)
+        position = _advance_to_merge_base(run, merge_base_sha)
     if position is not None:
         return _MergeBasePosition(position=position, clamped_to_seed=False)
     if _is_older_than_seed(run, merge_base_sha, seed):
