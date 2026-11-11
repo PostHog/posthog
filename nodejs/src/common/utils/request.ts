@@ -27,6 +27,7 @@ import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
 import { ColdStartGate } from './cold-start-gate'
 import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
+import { IpCircuitBreaker } from './ip-circuit-breaker'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 import { checkOobDomain } from './oob-domains'
@@ -86,6 +87,10 @@ const dnsNegativeCacheCounter = new Counter({
 // destinations while the resolver is under load. The key is the hostname, which is customer-supplied and unbounded, so
 // the entry count is capped as well as the age.
 const dnsNegativeCache = new LRUCache<string, true>({ max: 10_000, ttl: 10_000 })
+
+// The addresses each hostname last resolved to, so the circuit breaker can check a request before undici connects. A
+// request on a kept-alive socket does no lookup, which is why the entries outlive the keep-alive timeout.
+const hostnameAddresses = new LRUCache<string, string[]>({ max: 10_000, ttl: 5 * 60_000 })
 
 // The hosts file matches a name exactly, so 'alias.test.' misses an 'alias.test' entry from Docker's --add-host or
 // Kubernetes hostAliases.
@@ -171,6 +176,15 @@ export class ResolutionError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'ResolutionError'
+    }
+}
+
+export class CircuitOpenError extends Error {
+    constructor(address: string, retryInMs: number) {
+        super(
+            `Requests to ${address} are paused for ${Math.ceil(retryInMs / 1000)} seconds because many recent requests to that address failed or timed out`
+        )
+        this.name = 'CircuitOpenError'
     }
 }
 
@@ -346,6 +360,10 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
+    hostnameAddresses.set(
+        cacheKey,
+        validAddrinfo.map((a) => a.address)
+    )
     return validAddrinfo
 }
 
@@ -812,6 +830,52 @@ async function gatedLifecycle(
     }
 }
 
+const circuitBreakerCounter = new Counter({
+    name: 'node_request_circuit_breaker_total',
+    help: 'Destination IP addresses the circuit breaker opened, and third-party requests it rejected',
+    labelNames: ['event'],
+})
+
+const ipCircuitBreaker = requestConfig.EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED
+    ? new IpCircuitBreaker({
+          minFailures: requestConfig.EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES,
+          failureRatio: 0.5,
+          windowMs: 10_000,
+          cooldownMs: requestConfig.EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS,
+      })
+    : null
+
+// The NAT gateway limits ports per destination IP and port, so the key includes the port.
+function addressesOf(url: URL): string[] | undefined {
+    const literal = url.hostname.replace(/^\[(.*)\]$/, '$1')
+    const ips = net.isIP(literal) ? [literal] : hostnameAddresses.get(literal.toLowerCase().replace(/\.$/, ''))
+    const port = url.port || (url.protocol === 'https:' ? '443' : '80')
+    return ips?.map((ip) => (net.isIPv6(ip) ? `[${ip}]:${port}` : `${ip}:${port}`))
+}
+
+// These errors happen before a connection exists, so they cost no NAT port.
+function discardsConnection(error: unknown): boolean {
+    return !(
+        error instanceof SecureRequestError ||
+        error instanceof InvalidRequestError ||
+        error instanceof ResolutionError ||
+        error instanceof CircuitOpenError
+    )
+}
+
+// A 429 or 5xx on a kept-alive socket costs nothing. The same response with `Connection: close` makes the next request
+// open a new connection.
+function failedAndClosed(response: FetchResponse): boolean {
+    return (response.status === 429 || response.status >= 500) && response.headers['connection'] === 'close'
+}
+
+function recordCircuitOutcome(url: URL, failed: boolean): void {
+    const addresses = ipCircuitBreaker && addressesOf(url)
+    if (addresses) {
+        circuitBreakerCounter.inc({ event: 'opened' }, ipCircuitBreaker.record(addresses, failed))
+    }
+}
+
 export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     return await _fetch(url, options, sharedInsecureAgent)
 }
@@ -825,6 +889,12 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
+    const knownAddresses = ipCircuitBreaker && addressesOf(parsed)
+    const rejection = knownAddresses && ipCircuitBreaker.check(knownAddresses)
+    if (rejection) {
+        circuitBreakerCounter.inc({ event: 'rejected' })
+        throw new CircuitOpenError(rejection.address, rejection.retryInMs)
+    }
     inflightExternalRequests.inc()
     let lifecycle: RequestLifecycle | undefined
     let release: (() => void) | undefined
@@ -834,10 +904,21 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
         const signal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
         lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
-        return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS, lifecycle)
+        const response = await _fetch(
+            url,
+            options,
+            dispatcher,
+            requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS,
+            lifecycle
+        )
+        recordCircuitOutcome(parsed, failedAndClosed(response))
+        return response
     } catch (error) {
         // Releases the probe when a throw happens before request() runs. The release is idempotent.
         lifecycle?.onError()
+        if (discardsConnection(error)) {
+            recordCircuitOutcome(parsed, true)
+        }
         throw error
     } finally {
         release?.()

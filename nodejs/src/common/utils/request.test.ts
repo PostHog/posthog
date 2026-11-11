@@ -63,23 +63,16 @@ afterAll(async () => {
     await new Promise<void>((resolve, reject) => testServer.close((err) => (err ? reject(err) : resolve())))
 })
 
-async function withIsolatedProxy(
-    proxy: net.Server,
+async function withIsolatedRequestModule(
+    overrides: Record<string, string>,
     run: (fresh: typeof import('./request')) => Promise<void>
 ): Promise<void> {
-    const proxySockets = new Set<net.Socket>()
-    proxy.on('connection', (socket: net.Socket) => proxySockets.add(socket))
-    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-    const overrides: Record<string, string> = {
-        NODE_ENV: 'test',
-        HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
-        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: '200',
-    }
-    const originalValues = Object.fromEntries(Object.keys(overrides).map((name) => [name, process.env[name]]))
-    Object.assign(process.env, overrides)
+    const env = { NODE_ENV: 'test', ...overrides }
+    const originalValues = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]))
+    Object.assign(process.env, env)
     try {
         await jest.isolateModulesAsync(async () => {
-            // request.ts reads the proxy URL and the timeouts once, at module load.
+            // request.ts reads its config once, at module load.
             const fresh: typeof import('./request') = require('./request')
             try {
                 await run(fresh)
@@ -95,6 +88,25 @@ async function withIsolatedProxy(
                 process.env[name] = value
             }
         }
+    }
+}
+
+async function withIsolatedProxy(
+    proxy: net.Server,
+    run: (fresh: typeof import('./request')) => Promise<void>
+): Promise<void> {
+    const proxySockets = new Set<net.Socket>()
+    proxy.on('connection', (socket: net.Socket) => proxySockets.add(socket))
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    try {
+        await withIsolatedRequestModule(
+            {
+                HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
+                EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: '200',
+            },
+            run
+        )
+    } finally {
         proxySockets.forEach((socket) => socket.destroy())
         proxy.close()
     }
@@ -459,6 +471,37 @@ describe('fetch', () => {
             // Parallel should be significantly faster than sequential
             const speedup = sequentialTime / parallelTime
             expect(speedup).toBeGreaterThan(3)
+        })
+    })
+
+    describe('circuit breaker', () => {
+        it('stops opening connections to an address whose requests keep timing out', async () => {
+            let connections = 0
+            const unresponsive = http.createServer(() => {})
+            unresponsive.on('connection', () => connections++)
+            await new Promise<void>((resolve) => unresponsive.listen(0, '127.0.0.1', resolve))
+            const url = `http://localhost:${(unresponsive.address() as AddressInfo).port}/`
+            try {
+                await withIsolatedRequestModule(
+                    {
+                        EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED: 'true',
+                        EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES: '3',
+                    },
+                    async (fresh) => {
+                        for (const _ of range(3)) {
+                            await expect(fresh.fetch(url, { timeoutMs: 50 })).rejects.toThrow()
+                        }
+                        const connectionsBeforePause = connections
+
+                        await expect(fresh.fetch(url, { timeoutMs: 50 })).rejects.toBeInstanceOf(fresh.CircuitOpenError)
+                        expect(connectionsBeforePause).toBeGreaterThan(0)
+                        expect(connections).toBe(connectionsBeforePause)
+                    }
+                )
+            } finally {
+                unresponsive.closeAllConnections()
+                unresponsive.close()
+            }
         })
     })
 })
