@@ -1063,7 +1063,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         mock_score.assert_not_called()
         mock_validate.assert_not_called()
 
-    def test_start_training_with_a_deleted_target_action_returns_400(self):
+    def test_start_training_with_a_deleted_target_action_returns_409(self):
         action = create_action(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
         pipeline = self._make_pipeline(
             target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
@@ -1071,7 +1071,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         # The Action API soft-deletes, so the row stays behind.
         update_action(action, deleted=True)
         resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_409_CONFLICT
         assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
 
     def test_patch_writes_only_the_fields_it_carries(self):
@@ -1097,7 +1097,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             ("paused", AutoresearchPipeline.Status.PAUSED, False),
         ]
     )
-    def test_start_training_refused_returns_400(self, _name: str, start: AutoresearchPipeline.Status, live_run: bool):
+    def test_start_training_refused_returns_409(self, _name: str, start: AutoresearchPipeline.Status, live_run: bool):
         pipeline = self._make_pipeline(status=start)
         if live_run:
             AutoresearchTrainingRun.objects.create(
@@ -1106,7 +1106,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         with patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training:
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_409_CONFLICT
         mock_run_training.assert_not_called()
 
     @parameterized.expand([("limit_reached", 1), ("training_turned_off", 0)])
@@ -1195,7 +1195,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("first_run_of_a_draft_is_refused", AutoresearchPipeline.Status.DRAFT, status.HTTP_400_BAD_REQUEST),
+            ("first_run_of_a_draft_is_refused", AutoresearchPipeline.Status.DRAFT, status.HTTP_409_CONFLICT),
             # A pipeline that is already live keeps training at the cap.
             ("retrain_of_a_live_pipeline", AutoresearchPipeline.Status.RUNNING, status.HTTP_200_OK),
         ]

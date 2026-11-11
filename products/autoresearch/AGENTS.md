@@ -52,7 +52,7 @@ Runs that `open_training_run()` opens for an external agent do not count against
 A project has at most `max_live_pipelines` live pipelines (default 3).
 Live means `bootstrapping`, `running` or `converged`; `draft`, `paused` and `archived` do not count.
 A draft with an open training run counts too, because its promotion makes it live with no check.
-The facade refuses a pipeline going live at the limit with `LivePipelineCapReached` (a 400): starting a draft's first run, opening an external run on a draft, and resuming a paused pipeline.
+The facade refuses a pipeline going live at the limit with `LivePipelineCapReached` (a 400, or a 409 from the train action): starting a draft's first run, opening an external run on a draft, and resuming a paused pipeline.
 Pipelines already over the limit keep running and training.
 All three limits resolve from the `autoresearch-limits` flag payload: the project's `team_configs["<team_id>"]` entry, then `default_team_config`, then the code constants.
 Edit the payload to change a limit without a deploy.

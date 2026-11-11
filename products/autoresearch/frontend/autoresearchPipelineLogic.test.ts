@@ -22,6 +22,7 @@ import {
     autoresearchRunsList,
     autoresearchRunsRetrieve,
     autoresearchScoreCreate,
+    autoresearchTrainCreate,
     autoresearchTrainingRunsList,
 } from './generated/api'
 import {
@@ -40,6 +41,7 @@ jest.mock('./generated/api', () => ({
     autoresearchRunsRetrieve: jest.fn(),
     autoresearchScoreCreate: jest.fn(),
     autoresearchSuggestionsList: jest.fn(),
+    autoresearchTrainCreate: jest.fn(),
 }))
 
 const mockRetrieve = autoresearchRetrieve as jest.Mock
@@ -48,6 +50,7 @@ const mockRunsList = autoresearchRunsList as jest.Mock
 const mockRunsRetrieve = autoresearchRunsRetrieve as jest.Mock
 const mockScoreCreate = autoresearchScoreCreate as jest.Mock
 const mockTrainingRunsList = autoresearchTrainingRunsList as jest.Mock
+const mockTrainCreate = autoresearchTrainCreate as jest.Mock
 
 function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
     const now = new Date().toISOString()
@@ -208,6 +211,34 @@ describe('autoresearchPipelineLogic', () => {
         } finally {
             logic.unmount()
             jest.useRealTimers()
+        }
+    })
+
+    it('reloads training runs when a start is refused with a 409, so the button sees the live run', async () => {
+        jest.clearAllMocks()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainingRunsList
+            .mockResolvedValueOnce({ results: [], next: null })
+            .mockResolvedValue({ results: [makeRun({ status: 'running' })], next: null })
+        mockTrainCreate.mockRejectedValue({ status: 409, detail: 'A training run is already in progress.' })
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTrainingRunsSuccess'])
+            expect(logic.values.hasLiveTrainingRun).toBe(false)
+
+            await expectLogic(logic, () => logic.actions.startTraining()).toDispatchActions([
+                'startTrainingFailure',
+                'loadTrainingRunsSuccess',
+            ])
+            expect(logic.values.hasLiveTrainingRun).toBe(true)
+        } finally {
+            logic.unmount()
         }
     })
 

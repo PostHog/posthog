@@ -1783,6 +1783,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             })
             // A project at its daily training limit explains when the next run can start in `detail`.
             lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not start training run')
+            // A 409 means this page is stale, for example the daily sweep started a run, so reload what disables the button.
+            if (errorObject?.status === 409) {
+                actions.loadTrainingRuns()
+                actions.loadPipeline()
+            }
         },
         pausePipelineSuccess: () => {
             posthog.capture('autoresearch model paused', { pipeline_id: props.id })
