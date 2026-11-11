@@ -11,6 +11,7 @@ import { AccountPropertiesWidget } from '../../scenes/CustomerAnalyticsAccountSc
 import { getAccountWidgetProperties } from '../../scenes/CustomerAnalyticsAccountScene/accountPropertiesWidgetConfig'
 import { AccountPropertiesWidgetConfiguration } from '../../scenes/CustomerAnalyticsAccountScene/AccountPropertiesWidgetConfiguration'
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
+import { AccountAgentActivityWidget } from './AccountAgentActivityWidget'
 import { AccountAutomationsExpansion } from './AccountAutomationsExpansion'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
@@ -53,6 +54,8 @@ export type AccountViewComponentKind =
     | 'session_replays'
     | 'dot_matrix'
     | 'sql_query'
+    | 'agent_activity'
+
 interface AccountViewComponentBase {
     tagName: string
     label: string
@@ -77,7 +80,7 @@ export interface AccountSystemTabDefinition extends AccountViewComponentBase {
 export type AccountViewComponentDefinition =
     | AccountSystemTabDefinition
     | (AccountViewComponentBase & {
-          kind: 'properties' | 'session_replays' | 'dot_matrix' | 'sql_query'
+          kind: 'properties' | 'session_replays' | 'dot_matrix' | 'sql_query' | 'agent_activity'
           systemTabId?: never
       })
 
@@ -178,6 +181,13 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
             posthog.capture(AccountsEvents.SqlQueryTileConfigured, {
                 query_length: getAccountSqlQuery(config).length,
             }),
+    },
+    {
+        kind: 'agent_activity',
+        tagName: 'AgentActivity',
+        label: 'Agent activity',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_PRODUCT_USAGE,
+        Component: (props) => <AccountAgentActivityWidget accountId={props.accountId} {...getTileLogicProps(props)} />,
     },
     {
         kind: 'notes',

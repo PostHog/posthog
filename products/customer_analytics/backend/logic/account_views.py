@@ -43,6 +43,7 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "SessionReplays": "Session replays",
     "DotMatrix": "Dot matrix",
     "SqlQuery": "SQL query",
+    "AgentActivity": "Agent activity",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400

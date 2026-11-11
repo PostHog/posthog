@@ -6,6 +6,7 @@ from uuid import UUID
 from posthog.schema import (
     AccountActivityMatrixColumn,
     AccountActivityMatrixQuery,
+    AccountAgentActivityQuery,
     BookActivityFirstsQuery,
     BookActivityMatrixQuery,
     BookActivityPeopleQuery,
@@ -27,14 +28,21 @@ MAX_ROW_LIMIT = 200
 
 
 class ActivityQueryRunner(AnalyticsQueryRunner[AR], Generic[AR]):
-    query: AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery
+    query: (
+        AccountActivityMatrixQuery
+        | AccountAgentActivityQuery
+        | BookActivityMatrixQuery
+        | BookActivityPeopleQuery
+        | BookActivityFirstsQuery
+    )
 
     def query_status_labels(self) -> list[str]:
         return [get_activity_query_property_access_label(self.team, self.user)]
 
     @cached_property
     def _row_limit(self) -> int:
-        return max(1, min(self.query.rowLimit or DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT))
+        # Account-scoped queries such as AccountAgentActivityQuery have no row limit to pass.
+        return max(1, min(getattr(self.query, "rowLimit", None) or DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT))
 
     @cached_property
     def _week_start_day(self) -> WeekStartDay:
