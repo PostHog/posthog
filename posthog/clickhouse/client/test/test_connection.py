@@ -27,6 +27,7 @@ from posthog.clickhouse.client.connection import (
     get_pool,
     init_clickhouse_users,
     make_ch_pool,
+    query_cluster_name,
     set_default_clickhouse_workload_type,
 )
 from posthog.clickhouse.client.execute import sync_execute
@@ -107,10 +108,13 @@ def test_projects_on_the_events_table_connect_to_the_events_cluster(
     settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = "events-offline.example.com"
     settings.CLICKHOUSE_EVENTS_ONLINE_HTTP_URL = "https://events.example.com:8443/"
     settings.CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL = "https://events-offline.example.com:8443/"
+    settings.CLICKHOUSE_CLUSTER = "posthog"
+    settings.CLICKHOUSE_EVENTS_CLUSTER = "events"
 
     with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=reads_events_json)):
         assert get_kwargs_for_client(workload, team_id=team_id).get("host") == expected_host
         assert events_cluster_http_url(workload, team_id) == expected_http_url
+        assert query_cluster_name(workload, team_id) == ("events" if expected_http_url else "posthog")
 
 
 @pytest.mark.parametrize("value,expected", [("ONLINE", Workload.ONLINE), ("OFFLINE", Workload.OFFLINE)])

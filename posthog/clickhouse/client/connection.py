@@ -524,7 +524,12 @@ def _events_cluster_workload(workload: Workload, team_id: int | None) -> Workloa
         return None
     if workload == Workload.DEFAULT:
         workload = _default_workload
-    if workload not in (Workload.ONLINE, Workload.OFFLINE):
+    configured_hosts = {
+        Workload.ONLINE: settings.CLICKHOUSE_EVENTS_ONLINE_HOST,
+        Workload.OFFLINE: settings.CLICKHOUSE_EVENTS_OFFLINE_HOST,
+    }
+    # The schema switch can read Postgres, so a deployment without events hosts never resolves it.
+    if not configured_hosts.get(workload):
         return None
     # Deferred: importing it loads the posthog.models package, which imports this module.
     from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
@@ -554,6 +559,11 @@ def events_cluster_http_url(workload: Workload, team_id: int | None) -> str | No
         case Workload.OFFLINE:
             return settings.CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL
     return None
+
+
+def query_cluster_name(workload: Workload, team_id: int | None) -> str:
+    """The cluster a project's query runs on, for lookups across its nodes such as system.processes or KILL."""
+    return settings.CLICKHOUSE_EVENTS_CLUSTER if events_cluster_host(workload, team_id) else settings.CLICKHOUSE_CLUSTER
 
 
 def get_kwargs_for_client(

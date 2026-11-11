@@ -67,6 +67,7 @@ from posthog.clickhouse.client.connection import (
     get_kwargs_for_client,
     is_file_backed_user,
     make_ch_pool,
+    query_cluster_name,
 )
 from posthog.clickhouse.client.execute import kill_switch_overrides
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
@@ -796,7 +797,7 @@ class _ArrowTailReader:
         return chunk
 
 
-def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
+def _fetch_query_log_exception(ch_query_id: str, workload: Workload, team_id: int) -> tuple[int, str] | None:
     """Best-effort lookup of a failed query's exception in system.query_log.
 
     Returns (exception_code, exception_message), or None when no exception entry appears
@@ -825,7 +826,9 @@ def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
                 ORDER BY event_time DESC
                 LIMIT 1
                 """,
-                {"cluster": settings.CLICKHOUSE_CLUSTER, "query_id": ch_query_id},
+                {"cluster": query_cluster_name(workload, team_id), "query_id": ch_query_id},
+                workload=workload,
+                team_id=team_id,
             )
         except Exception as exc:
             # A broken lookup silently downgrades error classification (deterministic
@@ -861,7 +864,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             query_id=inputs.query_id,
         )
     mode = "ch_writes" if ch_writes else "streaming"
-    ch_url = events_cluster_http_url(Workload.OFFLINE if offline else Workload.ONLINE, inputs.team_id) or (
+    stream_workload = Workload.OFFLINE if offline else Workload.ONLINE
+    ch_url = events_cluster_http_url(stream_workload, inputs.team_id) or (
         settings.CLICKHOUSE_OFFLINE_HTTP_URL if offline else settings.CLICKHOUSE_HTTP_URL
     )
     # Reports where the query actually went, not what the flag asked for, and the two paths
@@ -1116,7 +1120,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # closed cleanly without the EOS marker (corrupt object, deleted above). Recover
             # the real error from the query log: a query-side exception is deterministic for
             # an identical retry, so surface it and stop instead of re-running the scan.
-            logged = _fetch_query_log_exception(ch_query_id)
+            logged = _fetch_query_log_exception(ch_query_id, stream_workload, inputs.team_id)
             if logged is None:
                 raise  # no query-side exception found — plausibly transient, retry per policy
             exception_code, exception_message = logged
