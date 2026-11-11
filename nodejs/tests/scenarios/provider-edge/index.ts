@@ -16,12 +16,12 @@ import {
     trackingCodeOf,
     unitIdOf,
 } from './ses'
-import { TRUTH_PAGE_LIMIT, Truth, TruthRecord } from './truth'
+import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
-export type { TruthPage, TruthRecord } from './truth'
+export type { TruthAttachment, TruthMessage, TruthPage, TruthRecord } from './truth'
 
 export type ProviderEdgeOptions = {
     port: number
@@ -31,7 +31,7 @@ export type ProviderEdgeOptions = {
 
 export type ProviderEdge = {
     url: string
-    records: readonly TruthRecord[]
+    sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
     clearFaults(): void
     close(): Promise<void>
@@ -68,6 +68,7 @@ function integerAtLeast(value: string | null, min: number, fallback: number): nu
 
 export async function startProviderEdge(options: ProviderEdgeOptions): Promise<ProviderEdge> {
     const truth = new Truth()
+    const sent: SesMessage[] = []
     const faults = new FaultList()
     const signer = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
@@ -94,8 +95,9 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return sesError(answer)
         }
         const messageId = `provider-edge-${truth.records.length + 1}`
-        const sent: SesMessage = { messageId, ...message }
-        truth.append({ kind: 'ses.send', status: 200, ...correlation, detail: { message: sent } })
+        const accepted: SesMessage = { messageId, ...message }
+        sent.push(accepted)
+        truth.append({ kind: 'ses.send', status: 200, ...correlation, detail: { message: truthMessageOf(accepted) } })
         return { status: 200, body: { MessageId: messageId } }
     }
 
@@ -182,7 +184,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
 
     return {
         url: `http://127.0.0.1:${port}`,
-        records: truth.records,
+        sent,
         addFault: (rule) => faults.add(rule),
         clearFaults: () => faults.clear(),
         close: async () => {
