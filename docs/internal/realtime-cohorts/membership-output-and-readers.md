@@ -131,6 +131,8 @@ There is no dead-letter queue, so a malformed message stops the feed until it is
 
 The topic's other Node readers, the workflow trigger consumer and the subscription matcher, skip a malformed message and count a parse error.
 They skip a control record without counting one.
+The Kafka tables that fill the legacy ClickHouse `cohort_membership` table read this topic too, and they store a control record as an `entered` row with a zero person id.
+So nothing may produce a control record while they still read the topic.
 
 ## Mark and sweep
 
