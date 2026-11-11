@@ -9,6 +9,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { keyIntent } from './commandKKeys'
 import { queryAsText } from './commandKQuery'
 import { commandKSearchLogic } from './commandKSearchLogic'
+import { CommandKSearchPlaceholder } from './CommandKSearchPlaceholder'
 import { rowDomId } from './CommandKSearchRow'
 
 export const COMMAND_K_LISTBOX_ID = 'command-k-listbox'
@@ -114,7 +115,7 @@ export function CommandKSearchInput(): JSX.Element {
                     aria-label="Search"
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder={chips.length === 0 ? 'Search or ask PostHog AI… try is:dashboard' : undefined}
+                    placeholder={chips.length === 0 ? <CommandKSearchPlaceholder /> : undefined}
                     className="min-w-24 flex-1"
                     value={text}
                     onPaste={() => {
