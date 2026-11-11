@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'child_process'
 import { closeSync, openSync } from 'fs'
 import Redis from 'ioredis'
+import { Producer } from 'node-rdkafka'
 import path from 'path'
 import { Client } from 'pg'
 import { promisify } from 'util'
@@ -48,12 +49,16 @@ async function runHogli(hogli: Hogli, args: string[], logFile: string, env: Node
 }
 
 const NOT_REACHABLE = 3
+const PHROCS_SOCKET_GRACE_S = 30
 
 export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    if ((await hogliExit(hogli, ['wait', '--timeout', '0'], logFile, hogliEnv)) === NOT_REACHABLE) {
+    if (
+        (await hogliExit(hogli, ['wait', '--timeout', String(PHROCS_SOCKET_GRACE_S + 1)], logFile, hogliEnv)) ===
+        NOT_REACHABLE
+    ) {
         await runHogli(hogli, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
         await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
     }
@@ -240,7 +245,6 @@ export async function pingRedis({ host, port }: { host: string; port: number }):
 }
 
 async function pingKafka(): Promise<void> {
-    const { Producer } = await import('node-rdkafka')
     const producer = new Producer({ 'metadata.broker.list': STACK.kafkaHosts })
     await new Promise<void>((resolve, reject) =>
         producer.connect({ timeout: PROBE_TIMEOUT_MS }, (error) => (error ? reject(error) : resolve()))
