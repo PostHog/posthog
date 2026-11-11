@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.19.3 — 2026-11-11
+
+### Patch changes
+
+- [83f1feb2b24](https://github.com/PostHog/posthog/commit/83f1feb2b2447410b3caed7c2c38df85f1e7e695) Keep presigned S3 credentials out of upload and download error logs — Thanks @jakesciotto!
+
 ## 0.19.2 — 2026-11-10
 
 ### Patch changes
