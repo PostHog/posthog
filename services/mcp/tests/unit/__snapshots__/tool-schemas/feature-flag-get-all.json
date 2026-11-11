@@ -43,6 +43,10 @@
             "enum": ["false", "true"],
             "type": "string"
         },
+        "ids": {
+            "description": "Comma-separated flag IDs, at most 200. Returns exactly those flags, including archived flags and flags that surveys or product tours own. Other filters are ignored, and soft-deleted flags are left out unless deleted=true.",
+            "type": "string"
+        },
         "key": {
             "description": "Filter by exact feature flag key match. Case insensitive.",
             "type": "string"

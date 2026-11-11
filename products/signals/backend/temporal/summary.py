@@ -4,7 +4,7 @@ import json
 import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -43,7 +43,6 @@ from products.signals.backend.auto_start import (
     maybe_autostart_from_report_artefacts,
     start_requested_implementation,
 )
-from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
 from products.signals.backend.issue_dependencies import reports_waiting_on_issues_of
 from products.signals.backend.models import (
@@ -52,11 +51,6 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalSpend,
     SignalTeamConfig,
-)
-from products.signals.backend.quota import (
-    capture_signal_report_quota_paused,
-    record_quota_check_failed_open,
-    self_driving_quota_gate,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice, ReportLayer
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -297,6 +291,19 @@ RESEARCH_SANDBOX_RETRY_DELAYS = (timedelta(minutes=10), timedelta(minutes=20), t
 RESEARCH_SANDBOX_RETRY_BUDGET = sum(RESEARCH_SANDBOX_RETRY_DELAYS, timedelta())
 
 
+def summary_execution_timeout(debounce_seconds: int = 0) -> timedelta:
+    """The `execution_timeout` of a summary workflow that waits `debounce_seconds` before it researches.
+
+    The hour covers the research work. The other terms cover the workflow's own sleeps, which the hour
+    was never sized for: the research debounce at entry, the implementation buffer at settle, and the
+    waits between sandbox retries. A run that loops through several buffers can still outlive this.
+    It is a backstop, and the report stays READY and re-promotes.
+    """
+    return (
+        timedelta(hours=1, seconds=debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS) + RESEARCH_SANDBOX_RETRY_BUDGET
+    )
+
+
 def _is_research_sandbox_unavailable(error: BaseException) -> bool:
     cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
     return (
@@ -527,14 +534,11 @@ class SignalReportSummaryWorkflow:
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
-        # 0. Quota gate: a team whose org is over its self-driving credits quota gets no new research or PRs. The
-        # report stays candidate and re-promotes on the first matching signal after the quota
-        # lifts. patched(): executions recorded before the gate existed replay the old command
-        # sequence (see also the two mid-run gates below, same patch id).
+        # Keep the recorded gate command; report-pass admission owns the limits.
         if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
             inputs, stage="summary_entry"
         ):
-            log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
+            log.info("Report run paused: daily report limit reached", stage="summary_entry")
             return False
         # Pending signals and the implementation buffer may cause more research passes in
         # this same pipeline. Admission covers all of them through the final implementation.
@@ -642,7 +646,7 @@ class SignalReportSummaryWorkflow:
             if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
                 inputs, stage="pre_repo_selection"
             ):
-                log.info("Report run paused: org over self-driving credits quota", stage="pre_repo_selection")
+                log.info("Report run paused: daily report limit reached", stage="pre_repo_selection")
                 await self._revert_report_to_candidate(inputs)
                 return False
             # 4. Select repository for the agentic research
@@ -694,7 +698,7 @@ class SignalReportSummaryWorkflow:
                 if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
                     inputs, stage="pre_research"
                 ):
-                    log.info("Report run paused: org over self-driving credits quota", stage="pre_research")
+                    log.info("Report run paused: daily report limit reached", stage="pre_research")
                     await self._revert_report_to_candidate(inputs)
                     return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
@@ -971,42 +975,8 @@ class CheckReportQuotaGateInput:
 @scoped_temporal()
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
-    """Check limits before accepting a report pipeline, never between its stages."""
-    # Existing histories still schedule these activities. Returning False preserves replay
-    # compatibility while letting the admitted pass finish repository selection and research.
-    if input.operator_rerun or input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
-        return False
-    try:
-        if await (
-            SignalReport.objects.filter(team_id=input.team_id, id=input.report_id)
-            .exclude(billing_exempt_reason__isnull=True)
-            .exclude(billing_exempt_reason="")
-            .aexists()
-        ):
-            return False
-        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(
-            team, signal_id=input.signal_id
-        )
-        if gate.limited:
-            capture_signal_report_quota_paused(
-                team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
-            )
-        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
-        if daily_gate.limited:
-            capture_signal_report_daily_limit_paused(
-                team, report_id=input.report_id, stage=input.stage, gate=daily_gate
-            )
-        return gate.enforced or daily_gate.limited
-    except Exception:
-        record_quota_check_failed_open()
-        logger.exception(
-            "Self-driving quota gate check failed open",
-            report_id=input.report_id,
-            team_id=input.team_id,
-            stage=input.stage,
-        )
-        return False
+    """Recorded histories still call this activity; report-pass admission owns the limits."""
+    return False
 
 
 @frozen
@@ -1026,6 +996,22 @@ async def report_has_assigned_signals_activity(input: ReportHasAssignedSignalsIn
     return await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id, signal_count__gt=0).aexists()
 
 
+def revert_report_to_candidate(team_id: int, report_id: str, *, started_before: datetime | None = None) -> bool:
+    """Move an IN_PROGRESS report back to CANDIDATE under a row lock. Returns whether the report moved.
+
+    With `started_before`, the report moves only if its current run started before that time. A caller
+    that decided from an earlier read therefore leaves alone a run that started after that read.
+    """
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        if report.status != SignalReport.Status.IN_PROGRESS:
+            return False
+        if started_before is not None and (report.last_run_at is None or report.last_run_at >= started_before):
+            return False
+        report.save(update_fields=report.transition_to(SignalReport.Status.CANDIDATE))
+    return True
+
+
 @dataclass
 class RevertReportToCandidateInput:
     team_id: int
@@ -1039,16 +1025,7 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
     """Return a report paused mid-run by the quota gate from in_progress to candidate, so the next
     matching signal re-promotes it (no promotion rule ever picks up an in_progress report).
     """
-
-    @transaction.atomic
-    def do_update() -> None:
-        report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-        if report.status != SignalReport.Status.IN_PROGRESS:
-            return
-        updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-        report.save(update_fields=updated_fields)
-
-    await database_sync_to_async(do_update, thread_sensitive=False)()
+    await database_sync_to_async(revert_report_to_candidate, thread_sensitive=False)(input.team_id, input.report_id)
     logger.info(
         "Reverted quota-paused report to candidate",
         report_id=input.report_id,

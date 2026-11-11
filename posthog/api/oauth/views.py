@@ -2,7 +2,7 @@ import json
 import uuid
 import hashlib
 import calendar
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
@@ -1451,22 +1451,30 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
     )
 
 
-def _login_required_with_pending_connection(view):
+def login_required_with_pending_connection(
+    connection_for_request: Callable[[HttpRequest], PendingOAuthConnection | None],
+):
     """`login_required` that also sets the pending-connection cookie on the login redirect,
     so the login, signup and verification screens can name the application."""
-    base_handler = login_required(view)
 
-    @wraps(view)
-    def handler(request, *args, **kwargs):
-        response = base_handler(request, *args, **kwargs)
-        is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(settings.LOGIN_URL)
-        if is_login_redirect:
-            connection = _pending_connection_for_request(request)
-            if connection is not None:
-                set_pending_oauth_connection_cookie(request, response, connection)
-        return response
+    def decorator(view):
+        base_handler = login_required(view)
 
-    return handler
+        @wraps(view)
+        def handler(request, *args, **kwargs):
+            response = base_handler(request, *args, **kwargs)
+            is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(
+                settings.LOGIN_URL
+            )
+            if is_login_redirect:
+                connection = connection_for_request(request)
+                if connection is not None:
+                    set_pending_oauth_connection_cookie(request, response, connection)
+            return response
+
+        return handler
+
+    return decorator
 
 
 def cimd_creation_throttled(request, view, client_id: str) -> bool:
@@ -1626,7 +1634,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             },
         )
 
-    @method_decorator(_login_required_with_pending_connection)
+    @method_decorator(login_required_with_pending_connection(_pending_connection_for_request))
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
         if cimd_creation_throttled(request, self, request.query_params.get("client_id") or ""):

@@ -209,6 +209,7 @@
   list([
     'description',
     'documentation_url',
+    'image_url',
     'name',
     'payload',
     'stage',
