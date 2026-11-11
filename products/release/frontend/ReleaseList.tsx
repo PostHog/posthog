@@ -15,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ReleaseAutoImport } from './ReleaseAutoImport'
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
+import { ReleaseImportFailedNotice } from './ReleaseImportFailedNotice'
 import { releaseImportLogic } from './releaseImportLogic'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
@@ -138,6 +139,7 @@ function ReleaseListContent(): JSX.Element {
             <div data-quill className="flex flex-col gap-3">
                 {!showAutoImport && <ReleaseFilters />}
                 <ReleasePartialLoadWarning />
+                <ReleaseImportFailedNotice />
                 {loadFailed ? (
                     <ReleaseLoadError title="Releases could not load" />
                 ) : showAutoImport ? (

@@ -97,8 +97,6 @@ class CreateReleaseInput:
 
 
 class ImportReason(LabeledStrEnum):
-    EXPERIMENT = "experiment", "Experiment"
-    EARLY_ACCESS = "early_access", "Early access"
     RELATED_FLAGS = "related_flags", "Related flags"
     FLAG = "flag", "Flag"
 
@@ -109,8 +107,6 @@ class ImportFlag:
     key: str
     created_at: datetime
     created_by_id: int | None
-    has_experiment: bool = False
-    has_early_access: bool = False
 
 
 @dataclass(frozen=True)

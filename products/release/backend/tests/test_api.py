@@ -298,6 +298,18 @@ class TestReleaseAPI(APIBaseTest):
             "Quiet theme",
         ]
 
+    def test_import_all_covers_flags_the_caller_cannot_see(self) -> None:
+        flag_id = self._flag("secret-launch")
+        self._restrict_as_admin(f"feature_flags/{flag_id}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        created = self.client.post(self._url("import_all/")).json()["created_count"]
+
+        assert created == 1
+        assert [release["name"] for release in self.client.get(self._url()).json()["results"]] == [
+            "Release of a restricted flag"
+        ]
+
     def test_import_all_runs_once_per_project_and_writes_to_the_root_team(self) -> None:
         flag_id = self._flag("quiet-theme")
         environment = Team.objects.create(

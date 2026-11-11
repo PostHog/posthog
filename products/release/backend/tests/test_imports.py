@@ -10,16 +10,12 @@ from products.release.backend.logic.imports import group_import_candidates
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def flag(
-    flag_id: int, key: str, days: int = 0, creator: int | None = 1, experiment: bool = False, early_access: bool = False
-) -> ImportFlag:
+def flag(flag_id: int, key: str, days: int = 0, creator: int | None = 1) -> ImportFlag:
     return ImportFlag(
         id=flag_id,
         key=key,
         created_at=START + timedelta(days=days),
         created_by_id=creator,
-        has_experiment=experiment,
-        has_early_access=early_access,
     )
 
 
@@ -44,25 +40,12 @@ class TestGroupImportCandidates(SimpleTestCase):
             (
                 "measures the window from the first flag of a group",
                 [flag(1, "checkout-v2"), flag(2, "checkout-banner", days=10), flag(3, "checkout-autofill", days=20)],
-                [("related_flags", "Checkout", [1, 2]), ("flag", "Checkout autofill", [3])],
+                [("flag", "Checkout autofill", [3]), ("related_flags", "Checkout", [1, 2])],
             ),
             (
                 "keeps flags of different creators apart",
                 [flag(1, "checkout-v2"), flag(2, "checkout-banner", creator=2)],
                 [("flag", "Checkout v2", [1]), ("flag", "Checkout banner", [2])],
-            ),
-            (
-                "puts experiments and early access first, named after their flag",
-                [
-                    flag(1, "quiet-theme", days=5),
-                    flag(2, "new-pricing", experiment=True),
-                    flag(3, "beta-search", experiment=True, early_access=True),
-                ],
-                [
-                    ("experiment", "New pricing", [2]),
-                    ("early_access", "Beta search", [3]),
-                    ("flag", "Quiet theme", [1]),
-                ],
             ),
         ]
     )

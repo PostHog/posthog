@@ -19,7 +19,6 @@ RELATED_WINDOW = timedelta(days=14)
 MIN_PREFIX_LENGTH = 3
 MAX_NAME_LENGTH = 255
 MAX_GROUP_SIZE = 100
-REASON_ORDER = [ImportReason.EXPERIMENT, ImportReason.EARLY_ACCESS, ImportReason.RELATED_FLAGS, ImportReason.FLAG]
 
 _SEPARATORS = re.compile(r"[-_.:/\s]+")
 
@@ -136,16 +135,7 @@ def _related_groups(flags: list[ImportFlag]) -> list[list[ImportFlag]]:
 
 def group_import_candidates(flags: Iterable[ImportFlag], linked: set[int]) -> list[ImportCandidateDTO]:
     candidates: list[ImportCandidateDTO] = []
-    loose: list[ImportFlag] = []
-    for flag in flags:
-        if flag.id in linked:
-            continue
-        if flag.has_early_access:
-            candidates.append(_candidate(ImportReason.EARLY_ACCESS, humanize(flag.key), [flag]))
-        elif flag.has_experiment:
-            candidates.append(_candidate(ImportReason.EXPERIMENT, humanize(flag.key), [flag]))
-        else:
-            loose.append(flag)
+    loose = [flag for flag in flags if flag.id not in linked]
     groups = [
         group[start : start + MAX_GROUP_SIZE]
         for group in _related_groups(loose)
@@ -158,7 +148,6 @@ def group_import_candidates(flags: Iterable[ImportFlag], linked: set[int]) -> li
             prefix = _common_prefix([_tokens(flag.key) for flag in group])
             candidates.append(_candidate(ImportReason.RELATED_FLAGS, humanize(" ".join(prefix)), group))
     candidates.sort(key=lambda item: item.created_at, reverse=True)
-    candidates.sort(key=lambda item: REASON_ORDER.index(item.reason))
     return candidates
 
 

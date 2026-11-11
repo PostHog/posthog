@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save, pre_save
 
 from posthog.scopes import APIScopeObject
@@ -20,8 +20,6 @@ class ReleaseImportFlag:
     key: str
     created_at: datetime
     created_by_id: int | None
-    has_experiment: bool
-    has_early_access: bool
 
 
 def _visible(
@@ -73,14 +71,6 @@ def list_release_import_flags(
             ),
             access_control,
         )
-        .annotate(
-            release_has_experiment=Exists(
-                FeatureFlag.objects.filter(pk=OuterRef("pk"), experiment__deleted=False, experiment__archived=False)
-            ),
-            release_has_early_access=Exists(
-                FeatureFlag.objects.filter(pk=OuterRef("pk"), feature__isnull=False).exclude(feature__stage="archived")
-            ),
-        )
         .only("id", "key", "created_at", "created_by_id")
         .order_by("created_at", "id")
     )
@@ -90,8 +80,6 @@ def list_release_import_flags(
             key=flag.key,
             created_at=flag.created_at,
             created_by_id=flag.created_by_id,
-            has_experiment=flag.release_has_experiment,
-            has_early_access=flag.release_has_early_access,
         )
         for flag in flags
     ]

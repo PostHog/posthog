@@ -142,7 +142,7 @@ export const getReleasesImportAllCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create a release for every suggestion at once. Flags already in a release are skipped.
+ * Set up releases for the whole project once: one per group of related active flags. Later calls create nothing.
  */
 export const releasesImportAllCreate = async (
     projectId: string,
