@@ -30,12 +30,14 @@ class LinkAccountStep(OnboardingStep):
         )
         text = "*Link your PostHog account*\nPostHog answers you in Slack from your projects, with the access you have in PostHog."
         if is_slack_app_link_search_scopes_enabled(ctx.integration):
-            text += (
-                "\nAfter you link, I read your recent Slack messages and suggest what I can help with, then do it "
-                "again each workday morning. You can turn that off in the Home tab. "
-                if is_slack_app_daily_work_focus_enabled(ctx.integration)
-                else "\nAfter you link, I read your recent Slack messages once to suggest what I can help with. "
-            ) + "Slack lets you choose which kinds of conversations I can search."
+            if is_slack_app_daily_work_focus_enabled(ctx.integration):
+                text += (
+                    "\nAfter you link, I read your recent Slack messages and suggest what I can help with, then do it "
+                    "again each workday morning. You can turn that off in the Home tab. "
+                )
+            else:
+                text += "\nAfter you link, I read your recent Slack messages once to suggest what I can help with. "
+            text += "Slack lets you choose which kinds of conversations I can search."
         return [
             section_block(text),
             {
