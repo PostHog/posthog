@@ -3525,10 +3525,9 @@ jobs:
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
                   COVERAGE_CORE: sysmon
-                  # The coverage report skips narrowed runs, so
-                  # instrumenting one is pure overhead, and the events_json rows rerun
-                  # tests the legacy rows already measure.
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && !matrix.json-targets && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
+                  # Throwaway measurement: record which products/ files the core suite executes,
+                  # in every row. This replaces the posthog/ee measurement for this branch.
+                  COV_ARGS: --cov=products --cov-config=.github/coverage-products-reach.cfg --cov-report= --cov-context=test
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
@@ -3539,7 +3538,7 @@ jobs:
                       RETRY_ARGS=(--force-reruns 1 --reruns-delay 1)
                   fi
                   # A missing --cov-config file aborts pytest, so skip coverage if it is absent.
-                  if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
+                  if [[ -n "$COV_ARGS" && ! -f .github/coverage-products-reach.cfg ]]; then
                       COV_ARGS=""
                   fi
                   # A checkout without the matching test pins must use legacy mode.
@@ -3710,6 +3709,8 @@ jobs:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
                   TEMPORAL_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').temporal_files }}
+                  COVERAGE_CORE: sysmon
+                  COV_ARGS: --cov=products --cov-config=.github/coverage-products-reach.cfg --cov-report= --cov-context=test
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
@@ -3746,6 +3747,7 @@ jobs:
                           "${SELECTED_SPLIT[@]}" \
                           "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
+                          $COV_ARGS \
                           $PYTEST_ARGS
                   else
                       # No per-test pytest --timeout; rely on the job-level timeout-minutes as the single
@@ -3759,6 +3761,7 @@ jobs:
                           "${SPLIT_GRANULARITY[@]}" \
                           "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
+                          $COV_ARGS \
                           $PYTEST_ARGS
                   fi
                   exit_code=$?
@@ -3788,6 +3791,18 @@ jobs:
                   path: |
                       junit-*.xml
                       !junit-*-retry-failures.xml
+
+            - name: Upload products reach coverage
+              continue-on-error: true
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              # always(): a shard with failing tests still wrote its coverage data.
+              if: ${{ always() }}
+              with:
+                  # Must not match coverage-products-* or coverage-core-*, which the coverage report downloads.
+                  name: products-reach-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  path: products-reach.coverage
+                  if-no-files-found: ignore
+                  retention-days: 5
 
             - name: Upload events schema recording
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
