@@ -29,6 +29,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog import redis as posthog_redis
 from posthog.dataclasses import frozen
@@ -523,6 +524,9 @@ class GitHubRepositoryFullCache:
             except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
                 logger.warning("github_full_cache.activity_refresh_throttled", integration_id=self.integration.id)
                 break
+            except SoftTimeLimitExceeded:
+                # The task is out of time, and the broad handler below would run on to the hard kill.
+                raise
             except Exception:
                 logger.warning(
                     "github_full_cache.activity_batch_failed", integration_id=self.integration.id, exc_info=True
