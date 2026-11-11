@@ -513,6 +513,11 @@ class AutoProjectMiddleware:
         user = cast(User, request.user)
         current_team = user.team
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
+            if not user.is_staff:
+                # A short_id is unique per team only, and no index starts with short_id, so a lookup across all
+                # teams reads the whole table. Staff keep the lookup across all teams, because can_switch_to_team
+                # suggests users to log in as when a staff user opens an object in a team they cannot access.
+                target_queryset = target_queryset.filter(team__in=user.teams)
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
