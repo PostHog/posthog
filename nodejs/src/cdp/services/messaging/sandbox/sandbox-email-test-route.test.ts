@@ -241,7 +241,7 @@ describe('sandbox email test sends', () => {
 
     it('charges no daily allowance for a test the SES send rate refuses', async () => {
         const bucket = world.sesBucket(1)
-        serveWorker({ bucket, caps: { team: 5, recipient: 1 } })
+        serveWorker({ bucket, caps: { team: 1, recipient: 1 } })
         await world.takeSlotsLeft(bucket)
 
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
