@@ -693,7 +693,6 @@ export class EmailTrackingService {
     private async recordSesNotification(opts: {
         body: unknown
         verifySignature: boolean
-        // Stays the same when Kafka redelivers the notification, so a soft bounce in it counts once.
         eventId?: string
     }): Promise<SesRecordingOutcome> {
         try {

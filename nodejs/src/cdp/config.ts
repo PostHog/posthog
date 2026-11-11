@@ -221,8 +221,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
     CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
     CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
-    // Comma-separated team ids, or "*", whose failed suppression writes fail the SES notification so it is
-    // retried. For every other team a failed write is logged and dropped.
     CDP_SES_SUPPRESSION_RETRY_TEAMS: string
 
     // Destination migration diffing
