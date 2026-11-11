@@ -1,1 +1,1 @@
-0376_embedding_model_small_256
+0377_web_dimensional_channel_type
