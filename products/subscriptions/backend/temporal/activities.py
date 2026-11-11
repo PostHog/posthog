@@ -12,6 +12,7 @@ import temporalio.activity
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
@@ -85,7 +86,7 @@ class NoExportableInsightsError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class ResolvedExportableInsights:
     tile_insight_pairs: list[tuple[DashboardInsightTileSummary | None, Insight]]
     available_insight_count: int
