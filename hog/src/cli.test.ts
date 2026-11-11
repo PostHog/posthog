@@ -95,6 +95,9 @@ describe('hog', () => {
             arguments: [{ name: 'query', required: true, stdin: true }],
             scopes: ['query:read'],
         })
+        expect(manifest.commands.find((command: { name: string }) => command.name === 'setup')).toMatchObject({
+            refusesCI: true,
+        })
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
             'setup',
             'auth login',
