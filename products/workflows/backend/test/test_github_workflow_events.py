@@ -314,17 +314,23 @@ def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(produce, in
 
 
 def test_a_kafka_failure_for_one_project_does_not_reach_the_webhook_or_the_others(sink, integration) -> None:
-    second_team = Team.objects.create(organization=integration.team.organization, name="Second")
-    second_integration = Integration.objects.create(
-        team=second_team, kind="github", integration_id=str(INSTALLATION_ID), config={}
+    # The failing project sits between two others, so one of them comes after it in either lookup order.
+    failing_team, last_team = (
+        Team.objects.create(organization=integration.team.organization, name=name) for name in ("Failing", "Last")
     )
-    sink.failing_team_id = integration.team_id
+    last_integration = Integration.objects.create(
+        team=last_team, kind="github", integration_id=str(INSTALLATION_ID), config={}
+    )
+    Integration.objects.create(team=failing_team, kind="github", integration_id=str(INSTALLATION_ID), config={})
+    sink.failing_team_id = failing_team.pk
 
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
-    (event,) = sink.events_by_team[second_team.pk]
-    assert event.properties["integration_id"] == second_integration.pk
+    (first_event,) = sink.events_by_team[integration.team_id]
+    (last_event,) = sink.events_by_team[last_team.pk]
+    assert first_event.properties["integration_id"] == integration.pk
+    assert last_event.properties["integration_id"] == last_integration.pk
 
 
 def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(produce, integration) -> None:
