@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
+from uuid import UUID
 
 from django.conf import settings
 
@@ -78,13 +79,21 @@ from products.alerts.backend.platform_insight_alert import (
     insight_of,
     insight_row_settings,
     interval_of,
+    investigated_alert,
 )
 from products.alerts.backend.platform_investigation import with_investigation
-from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
+from products.alerts_platform.backend.facade.api import (
+    destination_hears_kind,
+    due_check_ids,
+    due_checks,
+    refresh_settings,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertDeliveryRequest,
     AlertEventKind,
+    DestinationType,
     GroupingMode,
     IncidentAction,
     InstanceCheckState,
@@ -1085,12 +1094,23 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
     ):
         raise ChartRenderPoolFull()
     try:
-        alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
+        # The id a firing names its chart by, which is the platform alert's own for an alert with no insight row.
+        alert = investigated_alert(team_id, UUID(alert_id))
         if alert is None:
             return None
         started = time.monotonic()
         try:
-            chart = render_alert_insight_chart_or_raise(alert)
+            chart = render_alert_insight_chart_or_raise(
+                alert,
+                # Destinations the platform keeps are keyed by its own id, which only a built alert carries.
+                platform_slack_destination=alert._state.adding
+                and destination_hears_kind(
+                    team_id=team_id,
+                    configuration_id=alert.id,
+                    destination_type=DestinationType.SLACK,
+                    event_kind=AlertEventKind.FIRING,
+                ),
+            )
         except InsightChartRenderFailed as error:
             # A timed-out export fails like any other, so only its duration tells the two apart.
             if time.monotonic() - started >= CHART_RENDER_TIMEOUT.total_seconds():
