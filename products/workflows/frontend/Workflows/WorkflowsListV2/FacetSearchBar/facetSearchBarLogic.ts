@@ -488,7 +488,10 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
                 // Typing a value keeps its scope, so each keystroke reuses the counts instead of walking every item.
                 const counters = new Map<string, (facetKey: string) => FacetValueCount[]>()
                 return (scope) => {
-                    const key = JSON.stringify([scope.filters.map(facetFilterKey), scope.text.trim()])
+                    const key = JSON.stringify([
+                        scope.filters.map((filter) => facetFilterKey(filter, facets)),
+                        scope.text.trim(),
+                    ])
                     let counter = counters.get(key)
                     if (!counter) {
                         counter = createFacetCounter(items, scope, facets, matchesText)
