@@ -317,6 +317,34 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
         assert Integration.objects.get(id=other_teams_sender).config["mail_from_subdomain"] == "bounce"
 
+    def test_a_failed_mail_from_read_after_ses_verifies_still_verifies_the_sender_and_is_reported(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        read_mail_from = self.world.ses._get_identity_mail_from_domain_attributes
+        reads_verify_makes_itself = 2
+        reads = 0
+
+        def ses_throttles_mail_from_reads_once_verify_has_read_its_state(*, Identities: list[str]) -> dict:
+            nonlocal reads
+            reads += 1
+            if reads > reads_verify_makes_itself:
+                raise AwsFault.THROTTLING.error("GetIdentityMailFromDomainAttributes")
+            return read_mail_from(Identities=Identities)
+
+        with (
+            patch.object(
+                self.world.ses,
+                "_get_identity_mail_from_domain_attributes",
+                ses_throttles_mail_from_reads_once_verify_has_read_its_state,
+            ),
+            patch("posthog.models.integration.email.capture_exception") as capture_exception,
+        ):
+            assert self.verify(sender).status_code == status.HTTP_200_OK
+
+        assert self.is_verified(sender)
+        assert Integration.objects.get(id=sender).config["mail_from_subdomain"] == "feedback"
+        capture_exception.assert_called_once_with(ANY, {"team_id": self.team.id, "domain": DOMAIN})
+
     def test_a_mail_from_change_that_lands_during_a_verify_is_kept(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         start_verification = self.world.ses._verify_domain_identity

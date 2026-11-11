@@ -177,7 +177,12 @@ class EmailIntegration:
             get_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
         )
 
-        ses_mail_from_subdomain = get_ses_mail_from_subdomain(self.integration.config["domain"])
+        domain = self.integration.config["domain"]
+        try:
+            ses_mail_from_subdomain = get_ses_mail_from_subdomain(domain)
+        except Exception as error:
+            capture_exception(error, {"team_id": self.integration.team_id, "domain": domain})
+            return
         if not ses_mail_from_subdomain or ses_mail_from_subdomain == stored_mail_from_subdomain:
             return
         with transaction.atomic():
