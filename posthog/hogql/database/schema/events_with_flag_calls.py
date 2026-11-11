@@ -36,9 +36,9 @@ EVENTS_WITH_FLAG_CALLS_TABLE = "events_with_flag_calls"
 EVENTS_WITH_FLAG_CALLS_CHAIN: list[str] = ["posthog", EVENTS_WITH_FLAG_CALLS_TABLE]
 
 # Ingestion writes a flag call to flag_evaluations only when `$feature_flag` is a non-empty JSON string. The raw JSON
-# text of a string value starts with a quote, and a number, boolean or object does not. On the native JSON events
-# table the printer converts a typed key before this test reads it, so mode 1 queries there keep reading events. The
-# test reads only the raw JSON text, because a materialized `$feature_flag` column reads an empty string as missing.
+# text of a string value starts with a quote, and a number, boolean or object does not. A query on the native JSON
+# events table reads every flag call from flag_evaluations, so this test never reads that table. The test reads only
+# the raw JSON text, because a materialized `$feature_flag` column reads an empty string as missing.
 _HAS_FLAG_KEY = (
     "startsWith(JSONExtractRaw(events.properties, '$feature_flag'), '\"') "
     "AND JSONExtractRaw(events.properties, '$feature_flag') != '\"\"'"
@@ -192,7 +192,7 @@ class EventsWithFlagCallsTable(LazyTable):
             )
 
         columns = FlagEvaluationsColumns(self, context.database.get_table(["posthog", "flag_evaluations"]))
-        only_in_flag_evaluations = context.database.flag_calls_only_in_flag_evaluations
+        only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
         cutoff = ast.Constant(value=flag_evaluations_coverage_start(datetime.now(UTC)))
         # Property type resolution ran before lazy tables, so the metadata holds the type of each property this query
         # reads, `$feature_flag` among them.
