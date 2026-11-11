@@ -37,6 +37,7 @@ describe('AI subscription settings access', () => {
                 [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false,
                 [FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD]: subscriptionEnabled,
             })
+            expect(logic.values.unavailableSection).toBeNull()
             expect(logic.values.selectedSection !== null).toBe(visible)
             expect(logic.values.sections.some(({ id }) => id === sectionId)).toBe(visible)
             expect(logic.values.settings.some(({ id }) => id === 'ai-subscription-codex')).toBe(visible)
