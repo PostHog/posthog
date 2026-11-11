@@ -19,6 +19,7 @@ from ..logic.certifications import (
 )
 from ..logic.drift import compute_drift
 from ..logic.execution import MAX_METRIC_RUN_PAGES, run_metric
+from ..logic.metric_embeddings import METRIC_EMBEDDING_MODEL, refresh_metric_embedding
 from ..logic.metric_reads import (
     get_metric_summary,
     live_metric_ids,
@@ -56,10 +57,12 @@ __all__ = [
     "MAX_DESCRIPTION_LENGTH",
     "MAX_METRIC_RUN_PAGES",
     "METRIC_BULK_MAX",
+    "METRIC_EMBEDDING_MODEL",
     "METRIC_NAME_MAX_LENGTH",
     "MetricSearchHit",
     "MetricSearchResult",
     "SEARCH_DEFAULT_LIMIT",
+    "refresh_metric_embedding",
     "search_catalog",
     "HogQLMetricDefinition",
     "Metric",

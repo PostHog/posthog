@@ -34,7 +34,7 @@ from products.product_analytics.backend.facade.models import Insight
 from ..facade.contracts import MetricBulkOwnerChange, MetricListFilters
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
-from ..tasks.tasks import sync_metric_lineage_task
+from ..tasks.tasks import refresh_metric_embedding_task, sync_metric_lineage_task
 from .analytics import (
     METRIC_APPROVAL_BLOCKED_EVENT,
     METRIC_APPROVED_EVENT,
@@ -47,6 +47,7 @@ from .analytics import (
 from .drift import canonical_query_hash, compute_drift, fetch_insight
 from .exceptions import MetricChanged, MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from .lineage import remove_metric_lineage
+from .metric_embeddings import EMBEDDED_FIELDS, can_embed
 from .validation import validate_description, validate_metric_definition
 
 if TYPE_CHECKING:
@@ -257,6 +258,18 @@ def _schedule_lineage_sync(metric: Metric) -> None:
     transaction.on_commit(lambda: sync_metric_lineage_task.delay(metric_id, team_id), robust=True)
 
 
+def _schedule_embedding_refresh(metric: Metric) -> None:
+    """Refresh the search embedding after the write commits, for organizations that allow embedding.
+
+    `robust=True` for the same reason as the lineage sync. The embedding backfill command repairs a
+    message that never went.
+    """
+    if not can_embed(metric.team):
+        return
+    metric_id, team_id = str(metric.id), metric.team_id
+    transaction.on_commit(lambda: refresh_metric_embedding_task.delay(metric_id, team_id), robust=True)
+
+
 def upsert_metric(
     *,
     team: Team,
@@ -359,6 +372,8 @@ def upsert_metric(
 
     if created or written_fields & _LINEAGE_FIELDS:
         _schedule_lineage_sync(metric)
+    if created or written_fields & EMBEDDED_FIELDS:
+        _schedule_embedding_refresh(metric)
     capture_metric_event(
         METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT,
         metric,
@@ -416,6 +431,8 @@ def update_metric(
         raise ValidationError({"name": "A metric with this name already exists."})
     if renamed_from is not None or changed_fields & _LINEAGE_FIELDS:
         _schedule_lineage_sync(metric)
+    if changed_fields & EMBEDDED_FIELDS:
+        _schedule_embedding_refresh(metric)
     capture_metric_event(
         METRIC_UPDATED_EVENT,
         metric,
