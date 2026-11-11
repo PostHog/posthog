@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { ToastContainer } from 'react-toastify'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -20,6 +21,7 @@ describe('AddDeliveryWebhookModal', () => {
         releaseCreate = null
         createdBody = null
         templatesLoad = 'succeeds'
+        jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': () =>
@@ -40,7 +42,7 @@ describe('AddDeliveryWebhookModal', () => {
             },
             post: {
                 '/api/projects/:team_id/hog_functions/': async ({ request }) => {
-                    createdBody = await request.json()
+                    createdBody = (await request.json()) as Record<string, any>
                     return new Promise<CreateResponse>((resolve) => {
                         releaseCreate = resolve
                     })
@@ -54,15 +56,11 @@ describe('AddDeliveryWebhookModal', () => {
     afterEach(() => {
         cleanup()
         deliveryWebhooksLogic.unmount()
+        jest.restoreAllMocks()
     })
 
     function openModal(): void {
-        render(
-            <>
-                <ToastContainer />
-                <AddDeliveryWebhookModal />
-            </>
-        )
+        render(<AddDeliveryWebhookModal />)
         act(() => deliveryWebhooksLogic.actions.openAddModal())
     }
 
@@ -126,7 +124,9 @@ describe('AddDeliveryWebhookModal', () => {
         await startCreate()
 
         act(() => releaseCreate!([500, { detail: 'Server error' }]))
-        expect(await screen.findByText(/Couldn't create the webhook/)).toBeInTheDocument()
+        await waitFor(() =>
+            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringMatching(/^Couldn't create the webhook/))
+        )
 
         fireEvent.click(screen.getByText('Cancel'))
         await waitFor(() => expect(isDialogOpen()).toBe(false))
@@ -151,7 +151,7 @@ describe('AddDeliveryWebhookModal', () => {
             '.LemonBanner'
         )!
         expect(screen.queryByText(/No transactional emails yet/)).not.toBeInTheDocument()
-        expect(document.querySelector('.Toastify__toast')).toBeNull()
+        expect(lemonToast.error).not.toHaveBeenCalled()
 
         templatesLoad = 'succeeds'
         fireEvent.click(within(banner as HTMLElement).getAllByText('Try again')[0])
@@ -174,7 +174,7 @@ describe('AddDeliveryWebhookModal', () => {
         submitUrl('http://example.com/hooks')
 
         expect(await screen.findByText('Enter a URL that starts with https://')).toBeInTheDocument()
-        expect(screen.queryByText(/Couldn't create the webhook/)).not.toBeInTheDocument()
+        expect(lemonToast.error).not.toHaveBeenCalled()
         expect(createdBody).toBeNull()
     })
 })
