@@ -31,7 +31,6 @@ export function BroadcastEmailPreview({
 }: {
     intro?: string
     showTestButton?: boolean
-    /** Adds the content step's hover overlay, so the email opens for editing from the preview. */
     onModifyContent?: () => void
 }): JSX.Element {
     const { email, savingForEmailEditor } = useValues(broadcastWizardLogic)

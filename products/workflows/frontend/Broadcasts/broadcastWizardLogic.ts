@@ -2790,11 +2790,6 @@ function wizardSchedule(values: broadcastWizardLogicType['values']): Partial<Hog
     }
 }
 
-/**
- * Saves the wizard to its draft, creating the draft when there is none, then stores its send time.
- * Store the draft before its schedule, so a failed schedule save can't make the next save create a second
- * draft. The draft URL reloads the wizard from the server, which forgets a send time that only the page held.
- */
 async function saveDraftAndSchedule(
     projectId: string,
     values: broadcastWizardLogicType['values'],
