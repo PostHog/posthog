@@ -5,6 +5,7 @@ Answers two questions for a project: **are AI answer engines citing our domain**
 Everything is built from existing machinery:
 
 - **Prompt execution (Track A)** goes through the AI gateway (`AI_GATEWAY_URL`) using the providers' native web-search tools, so the citations are the models' real ones. Every call emits a `$ai_generation` event carrying cost, which lands in the gateway-key owner's project (not the checked team's) tagged with `team_id` for attribution. Citations are parsed from the **live response**, because the gateway's captured events intentionally drop web-search result payloads, so the cited URLs exist nowhere else.
+- **Perplexity** (off by default) runs `posthog/perplexity/sonar` with the `web_search` tool through the AI gateway's `/responses` path, like the OpenAI engine. See [Perplexity engine](#perplexity-engine).
 - **Breadth (Track B)** uses Exa `/answer` — its citations are Exa's own (a proxy, not a measurement of ChatGPT/Claude behavior), useful as a cheap retrievability check and as a comparison baseline against Track A.
 - **Storage**: the citation record is a Postgres table read through HogQL as `system.aeo_citation_checks`, so insights, the SQL editor, the query API, and MCP all read it while the runner stays the only writer. Events were the first design and were wrong for this: anyone holding a project's public capture token can submit them, which would let a stranger forge citation results and feed text to the alerting scout. The prompt set is a second small table (`posthog_aeo_prompt`). No new ClickHouse tables.
 - **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads that table and files inbox/Slack reports on citation-rate drops or spikes. Engine-derived columns carry third-party text by nature, so the runner strips invisible characters and LLM framing markers before writing (`posthog/security/llm_prompt_sanitization.py`), and the scout drives findings from counts while quoting text inertly.
@@ -14,12 +15,14 @@ Everything is built from existing machinery:
 
 Environment (all default empty — the runner is a no-op until configured):
 
-| Variable                                   | Purpose                                                        |
-| ------------------------------------------ | -------------------------------------------------------------- |
-| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines. |
-| `EXA_API_KEY`                              | Enables the Exa engine.                                        |
-| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.          |
-| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                        |
+| Variable                                   | Purpose                                                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
+| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
+| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
+| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.                                                                          |
+| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
+| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
 The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
 
@@ -104,6 +107,27 @@ A run takes the whole prompt set, up to `AEO_MAX_PROMPTS_PER_RUN` (default 2,000
 It takes one prompt per topic in turn, so a capped run still samples every topic.
 Within a topic, prompts never checked come first, then the least recently checked, so a set larger than one run rotates, and a run cut short by a worker restart resumes on the next dispatch.
 
+## Perplexity engine
+
+`perplexity-web-search` sends each prompt to the AI gateway's `/responses` path, which routes it to Perplexity through the gateway's perplexity host.
+The request carries model `AEO_PERPLEXITY_MODEL` (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`), the `web_search` tool with `search_type: "fast"`, one research step, and instructions that ask for inline `[n]` citation markers.
+Like the other gateway engines, each call emits a `$ai_generation` event tagged with `aeo_prompt_id` and `aeo_run_id`.
+
+- **Off by default.** The engine runs only when the AI gateway is configured **and** `AEO_PERPLEXITY_ENABLED` is true. Legal sign-off is still pending: do not turn it on until legal confirms which Perplexity terms cover the `web_search` output that the runner stores and shows.
+- **Parsing.** The `search_results` output item gives the search queries and the retrieved results. The cited URLs come from `url_citation` annotations when the answer has them. Otherwise each inline `[n]` (or `[web:n]`) marker maps to the result whose `id` is `n`, in citation order. The markers are removed from the stored answer text. An answer without annotations or markers cites nothing.
+- **Failures.** A body that is not `completed`, carries an `error`, has no output list, or has no answer text is a failed check, never an uncited answer. So are HTTP errors after the gateway retries.
+- **Cost.** `cost_usd` is `usage.cost.total_cost` when the response carries it. The `$ai_generation` event joins on `gateway_trace_id` either way.
+
+### Measure cost before you enable it
+
+With the gateway configured and `AEO_PERPLEXITY_ENABLED` off, the management command runs Perplexity in dry-run mode.
+It makes real, billed calls, records nothing, and prints the total engine-reported cost.
+Without `--dry-run` it refuses Perplexity until `AEO_PERPLEXITY_ENABLED` is on.
+
+```bash
+python manage.py run_aeo_citation_checks --team-id <id> --engines perplexity --limit 50 --dry-run
+```
+
 ## The table
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
@@ -113,13 +137,13 @@ Within a topic, prompts never checked come first, then the least recently checke
 | `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
 | `prompt_version`                                                         | The prompt version that ran. Null for checks recorded before prompts had versions.                                  |
 | `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `perplexity-web-search`.                                 |
 | `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
 | `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic and Perplexity expose retrieved results; others don't).                   |
 | `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
 | `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
-| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
+| `cost_usd` / `gateway_trace_id`                                          | Exa or Perplexity cost, or the trace id joining to the gateway's `$ai_generation` event (token + web-search costs). |
 | `timestamp`, `distinct_id`, `person_id`                                  | Computed: `created_at`, and `prompt_id` twice. They let a Trends series read the table (see below).                 |
 
 A Trends series reads the table as `{"kind": "DataWarehouseNode", "table_name": "system.aeo_citation_checks", "timestamp_field": "timestamp", "id_field": "id", "distinct_id_field": "prompt_id"}`.
