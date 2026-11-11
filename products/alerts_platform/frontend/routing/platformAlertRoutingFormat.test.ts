@@ -4,6 +4,7 @@ import {
     ReceiverForm,
     receiverDestinationBody,
     receiverFormErrors,
+    routeFormErrors,
 } from './platformAlertRoutingFormat'
 
 const WEBHOOK_RECEIVER: AlertReceiverApi = {
@@ -112,5 +113,15 @@ describe('receiverDestinationBody', () => {
         ],
     ])('editing a PagerDuty receiver: %s', (_name, form, expected) => {
         expect(receiverFormErrors(form, PAGERDUTY_RECEIVER).pagerdutyRoutingKey).toEqual(expected)
+    })
+
+    // The modal hides the event options for PagerDuty, so an error on them could not be seen or fixed.
+    test.each<[string, 'slack' | 'pagerduty', string | undefined]>([
+        ['a chat receiver with no events', 'slack', 'Choose at least one event'],
+        ['a PagerDuty receiver with no events', 'pagerduty', undefined],
+    ])('route form: %s', (_name, receiverType, expected) => {
+        expect(routeFormErrors({ receiverId: 'r1', matchers: [], eventKinds: [] }, receiverType).eventKinds).toEqual(
+            expected
+        )
     })
 })

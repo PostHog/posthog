@@ -6,7 +6,13 @@ import { LemonButton, LemonCheckbox, LemonCollapse, LemonModal, LemonSelect } fr
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { PlatformAlertDestinationEventKindEnumApi } from '../generated/api.schemas'
-import { ALL_ROUTE_EVENT_KINDS, ROUTE_EVENT_KIND_OPTIONS, receiverTarget } from './platformAlertRoutingFormat'
+import {
+    ALL_ROUTE_EVENT_KINDS,
+    ROUTE_EVENT_KIND_OPTIONS,
+    opensIncidents,
+    receiverTarget,
+    receiverTypeOf,
+} from './platformAlertRoutingFormat'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 import { RouteMatchersField } from './RouteMatchersField'
 
@@ -15,9 +21,7 @@ export function PlatformAlertRouteModal(): JSX.Element {
         useValues(platformAlertRoutingLogic)
     const { closeRouteModal, submitRouteForm } = useActions(platformAlertRoutingLogic)
     const customEvents = routeForm.eventKinds.length !== ALL_ROUTE_EVENT_KINDS.length
-    // An incident manager hears every trigger and resolve, so the events a route lists change nothing for it.
-    const pagesIncidents =
-        (receivers ?? []).find((receiver) => receiver.id === routeForm.receiverId)?.type === 'pagerduty'
+    const pagesIncidents = opensIncidents(receiverTypeOf(receivers, routeForm.receiverId))
 
     return (
         <LemonModal
