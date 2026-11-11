@@ -1058,7 +1058,8 @@ class SessionRecordingPlaylistViewSet(
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, recording=recording
             )
-            queue_pinned_recording_metadata([recording], self.team)
+            if created:
+                queue_pinned_recording_metadata([recording], self.team)
 
             return response.Response({"success": True})
 
@@ -1114,8 +1115,8 @@ class SessionRecordingPlaylistViewSet(
                 playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                     playlist=playlist, recording=recording
                 )
-                pinned_recordings.append(recording)
                 if created:
+                    pinned_recordings.append(recording)
                     added_count += 1
             except Exception as e:
                 logger.warning(

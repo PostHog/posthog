@@ -1180,17 +1180,20 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
         )
+        # ClickHouse rows outlive each test case, so each case needs its own session IDs
+        in_clickhouse = f"in-clickhouse-{mode}"
+        not_in_clickhouse = f"not-in-clickhouse-{mode}"
         start_time = (datetime.now(UTC) - timedelta(days=3)).replace(microsecond=0)
         produce_replay_summary(
             team_id=self.team.id,
-            session_id="in-clickhouse",
+            session_id=in_clickhouse,
             distinct_id="123",
             first_timestamp=start_time,
             last_timestamp=start_time + timedelta(seconds=5),
         )
 
         base_url = f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
-        session_ids = ["in-clickhouse", "not-in-clickhouse"]
+        session_ids = [in_clickhouse, not_in_clickhouse]
         with self.captureOnCommitCallbacks(execute=True):
             if mode == "single_pin":
                 for session_id in session_ids:
@@ -1201,10 +1204,35 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 )
                 assert response.status_code == status.HTTP_200_OK
 
-        pinned = SessionRecording.objects.get(team=self.team, session_id="in-clickhouse")
+        pinned = SessionRecording.objects.get(team=self.team, session_id=in_clickhouse)
         assert pinned.start_time == start_time
         assert pinned.retention_period_days is not None
-        assert SessionRecording.objects.get(team=self.team, session_id="not-in-clickhouse").start_time is None
+        assert SessionRecording.objects.get(team=self.team, session_id=not_in_clickhouse).start_time is None
+
+    @parameterized.expand([["single_pin"], ["bulk_add"]])
+    def test_repinning_does_not_queue_metadata_lookup(self, mode: str) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="repins",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        base_url = f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
+
+        with (
+            patch("posthog.tasks.tasks.store_pinned_recording_metadata.delay") as mock_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for _ in range(3):
+                if mode == "single_pin":
+                    response = self.client.post(f"{base_url}/repinned")
+                else:
+                    response = self.client.post(
+                        f"{base_url}/bulk_add", {"session_recording_ids": ["repinned"]}, format="json"
+                    )
+                assert response.status_code == status.HTTP_200_OK
+
+        mock_delay.assert_called_once_with(self.team.id, ["repinned"])
 
     @parameterized.expand(
         [
