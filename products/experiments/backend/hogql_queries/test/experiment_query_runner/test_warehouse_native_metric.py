@@ -100,7 +100,8 @@ class TestWarehouseNativeMetric(APIBaseTest):
             ),
             start_date=timezone.make_aware(datetime(2026, 1, 1)),
             end_date=timezone.make_aware(datetime(2026, 2, 1)),
-            exposure_criteria={"exposure_config": self.exposure.model_dump(mode="json")},
+            # The exposure form turns the test account filter off for a warehouse-native exposure.
+            exposure_criteria={"exposure_config": self.exposure.model_dump(mode="json"), "filterTestAccounts": False},
             metrics=[self.metric.model_dump(mode="json")],
         )
 
@@ -165,6 +166,26 @@ class TestWarehouseNativeMetric(APIBaseTest):
 
         self.assertIn(message, str(raised.exception))
         self.warehouse.assert_not_called()
+
+    @parameterized.expand([("on", True, True), ("absent", None, True), ("off", False, False)])
+    def test_refuses_the_test_account_filter_when_the_project_has_filters(
+        self, _name: str, filter_test_accounts: bool | None, refused: bool
+    ) -> None:
+        # The test project has test account filters. An experiment saved before the form wrote the setting
+        # has no key, and the default for a missing key is on.
+        criteria = {**self.experiment.exposure_criteria, "filterTestAccounts": filter_test_accounts}
+        if filter_test_accounts is None:
+            del criteria["filterTestAccounts"]
+        self.experiment.exposure_criteria = criteria
+        self.experiment.save()
+
+        if refused:
+            with self.assertRaisesMessage(ExposedHogQLError, "Warehouse-native metrics cannot filter test accounts."):
+                self._calculate()
+            self.warehouse.assert_not_called()
+        else:
+            self._calculate()
+            self.warehouse.assert_called_once()
 
     def test_connection_is_checked_at_run_time(self) -> None:
         # The connection can be deleted after the experiment was saved. Nothing may then reach the warehouse.

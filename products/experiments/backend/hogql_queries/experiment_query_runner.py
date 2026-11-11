@@ -58,6 +58,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
     normalize_to_exposure_criteria,
+    resolve_filter_test_accounts,
 )
 from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
 from products.experiments.backend.hogql_queries.metric_events_precompute import (
@@ -587,9 +588,14 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             or not isinstance(self.metric, ExperimentMeanMetric | ExperimentRatioMetric)
         ):
             raise ExposedHogQLError("Warehouse-native experiments support mean and ratio metrics only.")
+        # Test account filters match PostHog persons and events. The warehouse rows have neither, so a result
+        # that claimed to apply them would be wrong. Without filters on the project the setting changes nothing.
+        if self.team.test_account_filters and resolve_filter_test_accounts(self.experiment.exposure_criteria):
+            raise ExposedHogQLError(
+                "Warehouse-native metrics cannot filter test accounts. "
+                "Turn off the test account filter in the exposure criteria."
+            )
 
-        # Test account filters match PostHog persons and events. The warehouse rows have neither, so the
-        # experiment's test account setting does not apply to this statement.
         statement = WarehouseNativeQueryBuilder(
             exposure=exposure,
             metric=self.metric,

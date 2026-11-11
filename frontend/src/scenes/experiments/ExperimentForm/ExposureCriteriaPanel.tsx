@@ -281,19 +281,21 @@ function ExposureCriteriaFields({
                 </div>
             </div>
 
-            {/* Test Account Filtering */}
-            <div>
-                <TestAccountFilterSwitch
-                    checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
-                    onChange={(checked: boolean) => {
-                        onChange({ filterTestAccounts: checked })
-                    }}
-                    bordered={false}
-                    fullWidth
-                    settingsLinkIcon="new-tab"
-                    className="p-0"
-                />
-            </div>
+            {/* Test account filters read PostHog person and event properties, which warehouse rows do not have */}
+            {!getWarehouseNativeExposure(experiment.exposure_criteria) && (
+                <div>
+                    <TestAccountFilterSwitch
+                        checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
+                        onChange={(checked: boolean) => {
+                            onChange({ filterTestAccounts: checked })
+                        }}
+                        bordered={false}
+                        fullWidth
+                        settingsLinkIcon="new-tab"
+                        className="p-0"
+                    />
+                </div>
+            )}
         </div>
     )
 }
@@ -373,9 +375,11 @@ export function ExposureCriteriaPanel({
                                     return
                                 }
                                 if (value === 'warehouse_native') {
+                                    // The backend refuses to run a warehouse-native metric with the filter on
                                     onChange({
                                         exposure_config: DEFAULT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG,
                                         activation_config: undefined,
+                                        filterTestAccounts: false,
                                     })
                                 } else if (value === 'custom') {
                                     onChange({
