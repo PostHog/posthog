@@ -1,3 +1,8 @@
+from rest_framework import exceptions
+
+from posthog.models.property import PropertyGroup
+from posthog.schema_enums import PropertyOperator
+
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
@@ -50,6 +55,27 @@ def find_realtime_behavioral_cohort(project_id: int, cohort_ids: list[int | str]
         if has_own_leaf and _filters_on_behavior(cohort):
             return cohort
     return None
+
+
+def reject_excluded_cohort_without_members(project_id: int, prop_group: PropertyGroup) -> None:
+    """Refuse an audience that excludes a dynamic cohort before its first calculation finishes.
+
+    Cohort expansion turns an included person-property cohort into its own conditions, so it matches
+    before any calculation. An excluded one stays a NOT IN over the calculated members, and before the
+    first calculation there are none, so the send would reach the people it must leave out.
+    """
+    for prop in prop_group.flat:
+        excluded = prop.negation or prop.operator == PropertyOperator.NOT_IN.value
+        if prop.type != "cohort" or not excluded or not isinstance(prop.value, str | int):
+            continue
+        cohort = Cohort.objects.filter(pk=prop.value, team__project_id=project_id, deleted=False).first()
+        if cohort is not None and not cohort.is_static and cohort.last_calculation is None:
+            raise exceptions.ValidationError(
+                {
+                    "filters": f"Can't exclude \"{cohort.name}\" until it has calculated who's in it. "
+                    "Try again when its calculation finishes."
+                }
+            )
 
 
 def sole_audience_cohort_id(filters: object) -> int | str | None:

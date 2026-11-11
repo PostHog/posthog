@@ -2,6 +2,9 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql.query import execute_hogql_query
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -143,26 +146,75 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         assert (result.affected, result.total) == (3, 6)
 
-    def test_excluded_static_cohort_is_left_out_of_preview_and_send(self):
+    def _audience_excluding_contacted(self, cohort_kind: str) -> tuple[list[str], dict]:
         people = [
-            _create_person(team=self.team, distinct_ids=[f"user-{i}"], properties={"subscribed": "true"})
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"user-{i}"],
+                properties={"subscribed": "true", "contacted": "true" if i <= 2 else "false"},
+            )
             for i in range(1, 5)
         ]
         flush_persons_and_events()
-        cohort = Cohort.objects.create(team=self.team, name="Already contacted", is_static=True)
-        cohort.insert_users_by_list(["user-1", "user-2"], team_id=self.team.id)
+        if cohort_kind == "static":
+            cohort = Cohort.objects.create(team=self.team, name="Already contacted", is_static=True)
+            cohort.insert_users_by_list(["user-1", "user-2"], team_id=self.team.id)
+        else:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Already contacted",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"type": "OR", "values": [{"key": "contacted", "value": ["true"], "type": "person"}]}
+                        ],
+                    }
+                },
+            )
+        if cohort_kind == "dynamic_calculated":
+            cohort.calculate_people_ch(pending_version=0)
         filters = {
             "properties": [
                 *FILTERS["properties"],
                 {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"},
             ]
         }
+        return sorted(str(person.uuid) for person in people[2:]), filters
 
-        result = get_person_audience_count_v2(self.team, filters)
-        sent_to = get_batch_audience_person_ids(self.team, filters)
+    @parameterized.expand(
+        [
+            ("static", "static", False),
+            # Without precalculated reads a calculated cohort stays a plain cohort condition, which the
+            # refusal for a cohort that has never calculated must let through.
+            ("dynamic", "dynamic_calculated", False),
+            ("dynamic_precalculated", "dynamic_calculated", True),
+        ]
+    )
+    def test_excluded_cohort_is_left_out_of_preview_and_send(self, _name, cohort_kind, use_precalculated):
+        not_contacted_ids, filters = self._audience_excluding_contacted(cohort_kind)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=use_precalculated):
+            result = get_person_audience_count_v2(self.team, filters)
+            sent_to = get_batch_audience_person_ids(self.team, filters)
 
         assert (result.affected, result.total) == (2, 4)
-        assert sorted(sent_to) == sorted(str(person.uuid) for person in people[2:])
+        assert sorted(sent_to) == not_contacted_ids
+
+    @parameterized.expand([("preview", "preview"), ("dedupe_preview", "dedupe_preview"), ("send", "send")])
+    def test_excluding_a_dynamic_cohort_before_its_first_calculation_is_refused(self, _name, path):
+        _, filters = self._audience_excluding_contacted("dynamic_uncalculated")
+        run = {
+            "preview": lambda: get_person_audience_count_v2(self.team, filters),
+            "dedupe_preview": lambda: get_dedupe_audience_count_v2(self.team, filters, "email"),
+            "send": lambda: get_batch_audience_person_ids(self.team, filters),
+        }[path]
+
+        with pytest.raises(ValidationError) as refusal:
+            run()
+
+        assert isinstance(refusal.value.detail, dict)
+        assert str(refusal.value.detail["filters"]).startswith('Can\'t exclude "Already contacted"')
 
     def test_dedupe_count_matches_deduped_audience_size(self):
         # Duplicate emails (case/whitespace variants) collapse to one send group; persons
