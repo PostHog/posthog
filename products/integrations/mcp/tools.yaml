@@ -59,6 +59,33 @@ tools:
             to find a channel_id when wiring up Slack delivery for an alert — pass the channel id into the
             cdp-functions-create inputs.channel.value field. Requires the Slack integration's id; use integrations-list
             (filter by kind=slack) to find it.
+    integrations-email-create:
+        operation: integrations_create
+        enabled: true
+        scopes:
+            - integration:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add an email sender
+        description: >
+            Add an email sender for a domain the project owns, the first step before any workflow can send email. Pass
+            config with email (the from address), name (the from name shown in the inbox), provider 'ses', and
+            optionally mail_from_subdomain (defaults to a bounce-handling subdomain nobody sees) and reply_to. A domain
+            that already has a sender keeps the mail_from_subdomain SES uses for it, if any, over the one you pass; the
+            response carries the value that applies. The domain is not verified yet: follow with
+            integrations-email-status-retrieve for the DNS records to publish, then integrations-email-verify-create
+            once they resolve. Use the domain people signed up at rather than a new one, so the mail comes from
+            somewhere they recognise. Ask the user before adding a sender; it is a sending identity for a domain they
+            control, and an address that cannot receive replies breaks any email that asks for one. An address that
+            already has a sender is rejected, so this cannot overwrite or unverify one: find that sender with
+            integrations-list (kind email) and continue setup with its id.
+        exclude_params:
+            - kind
+        inject_body:
+            kind: email
+        feature_flag: workflows-email-domain-agent-setup
     integrations-email-status-retrieve:
         operation: integrations_email_status_retrieve
         enabled: true
@@ -155,7 +182,9 @@ tools:
             List all third-party integrations configured in the current project. Returns each integration's type (kind),
             display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack,
             github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are
-            never serialized.
+            never serialized. For native email senders, filter kind=email and inspect config.verified: true means
+            verified, false means unverified, and a missing flag means unknown. An empty result means no visible sender;
+            check all pages before concluding none is configured. Other raw configuration is excluded.
         response:
             include:
                 - id
@@ -164,6 +193,31 @@ tools:
                 - errors
                 - created_at
                 - created_by
+                - config.verified
+    integrations-push-tokens-create:
+        operation: integrations_push_tokens_create
+        enabled: true
+        scopes:
+            - integration:write
+            - person:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Import push device tokens
+        description: >
+            Register existing mobile devices, for example exported from another push provider, on an APNs or Firebase
+            push channel so workflows can send them push notifications. Find the channel with integrations-list: kind
+            apns takes hex APNs device tokens, kind firebase takes FCM registration tokens. Expo push tokens
+            (ExponentPushToken[...]) work on neither and are always rejected. Each row pairs a device token with a
+            distinct_id, which must be the ID the app passes to identify, so the device lands on the person workflows
+            target. A distinct ID with no person fails as unknown_person unless create_missing_persons is true; leave it
+            false unless the user confirms those IDs are right. Always call with dry_run=true first: it reports every
+            failing row (unknown_person, token_mismatch) without storing anything. Fix or drop those rows, then call
+            again without dry_run. Send at most 1000 rows per call and at most 60 calls per minute per project; on HTTP
+            429 wait a minute and retry. Rows that fail as not_stored can be sent again. Importing the same row twice
+            stores it once.
+        feature_flag: workflows-push-token-import-mcp
     integrations-users-retrieve:
         operation: integrations_users_retrieve
         enabled: true

@@ -50,6 +50,7 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
                 LOGS_METRICS_RULES_ENABLED_TEAMS: config.TRACES_METRICS_RULES_ENABLED_TEAMS,
                 LOGS_METRICS_RULES_KILLSWITCH: config.TRACES_METRICS_RULES_KILLSWITCH,
                 LOGS_METRICS_RULES_EXPORT_URL: config.TRACES_METRICS_RULES_EXPORT_URL,
+                LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: config.TRACES_DEFAULT_METRIC_RULES_ENABLED_TEAMS,
                 // Span retention gates on traces-specific env config so it rolls out
                 // independently of log retention.
                 LOGS_RETENTION_ENABLED_TEAMS: config.TRACES_RETENTION_ENABLED_TEAMS,

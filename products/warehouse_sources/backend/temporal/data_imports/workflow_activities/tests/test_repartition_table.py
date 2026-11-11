@@ -828,6 +828,66 @@ class TestKilledAttemptRetry:
     @patch(f"{MODULE}.DeltaTableRef")
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_run_handed_off_mid_rewrite_is_judged_from_where_it_began(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # A worker shutdown hands the rewrite off at a commit and refunds the charge, and the run's next
+        # retry charges again. If that recharge re-stamps where the run began, a run that advanced the
+        # rewrite for hours and then lost one retry to a kill reads as stalled, and the cap abandons it.
+        schema = _schema(
+            name="public.deals",
+            s3_folder_name="deals",
+            pending={**PENDING_TARGET, "attempts": MAX_REPARTITION_ATTEMPTS - 1},
+            rewrite={"rows_written": 301744, "temp_uri": TEMP_URI},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        run = RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID)
+
+        async def advance_then_hand_off(*, should_stop: Any, **_kwargs: Any) -> dict[str, Any]:
+            schema.repartition_rewrite = {"rows_written": 488925, "temp_uri": TEMP_URI}
+            async with asyncio.timeout(10):
+                while not should_stop():
+                    await asyncio.sleep(0.01)
+            raise RepartitionStoppedError("stopped", rows_written=187181)
+
+        mock_repartition.side_effect = advance_then_hand_off
+        environment = ActivityEnvironment()
+        environment.worker_shutdown()
+        with pytest.raises(WorkerShuttingDownError):
+            environment.run(_maybe_repartition_table, run, MagicMock())
+
+        # The retry charges again and then dies without committing, which leaves the marker as it is.
+        mock_repartition.side_effect = None
+        mock_repartition.return_value = {"outcome": "completed"}
+        _maybe_repartition_table(run, MagicMock())
+        assert schema.repartition_pending["attempts"] == MAX_REPARTITION_ATTEMPTS
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(
+                team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=str(uuid.uuid4()), source_id=SOURCE_ID
+            ),
+            MagicMock(),
+        )
+
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        schema.abandon_repartition_if_claimed.assert_not_called()
+        assert mock_repartition.await_count == 3
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
     def test_the_cap_does_not_discard_a_swap_staged_while_it_was_deciding(
         self,
         mock_schema_model: MagicMock,

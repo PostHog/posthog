@@ -14,8 +14,9 @@ use common::{
     test_recovery, unique_team_id, NUM_PARTITIONS,
 };
 use personhog_common::partitioning::partition_for_person;
+use personhog_common::properties::jsonb_column_size;
 use personhog_leader::cache::{
-    CacheLookup, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey,
+    CacheLookup, CachedPerson, CachedVersion, DirtyIndex, PartitionedCache, PersonCacheKey,
 };
 use personhog_leader::emitted::EmittedVersions;
 use personhog_leader::fence::{
@@ -30,8 +31,8 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogL
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonsRequest, FoldPersonDocumentRequest, GetPersonRequest,
-    LifecycleOpType, Person, ReleaseFenceItem, ReleaseFenceRequest, ReleaseFencesRequest,
-    ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
+    LifecycleOpType, Person, RaisePersonVersionRequest, ReleaseFenceItem, ReleaseFenceRequest,
+    ReleaseFencesRequest, ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
 };
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
@@ -192,11 +193,12 @@ fn changelog_records(harness: &FenceHarness) -> Vec<Person> {
     let mut records = Vec::new();
     loop {
         match consumer.poll(Duration::from_millis(300)) {
-            Some(result) => {
-                let msg = result.expect("kafka error");
+            Some(Ok(msg)) => {
                 records
                     .push(Person::decode(msg.payload().unwrap()).expect("decode changelog record"));
             }
+            Some(Err(error)) if common::is_transient_broker_error(&error) => {}
+            Some(Err(error)) => panic!("kafka error: {error}"),
             None if !records.is_empty() || std::time::Instant::now() >= deadline => break,
             None => {}
         }
@@ -487,21 +489,12 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .expect("cleanup");
 }
 
-/// While the death document's mark stands, reads answer not-found even if
-/// PG already holds a revived row. Once the mark settles, the document
-/// leaves the cache and the next read serves the revival from PG.
-#[tokio::test]
-async fn a_revival_is_served_once_the_death_documents_mark_settles() {
-    let pool = common::create_persons_pool().await;
-    let mut harness = start_fence_harness(
-        test_cached_person(),
-        Some(PgFallback {
-            pool: pool.clone(),
-            table: "posthog_person".to_string(),
-            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
-        }),
-    )
-    .await;
+/// Fences and releases the harness person through a delete op marked in
+/// PG, leaving its death document cached. Returns the op and the document.
+async fn destroy_through_pg(
+    harness: &mut FenceHarness,
+    pool: &sqlx::PgPool,
+) -> (Uuid, CachedVersion) {
     let team_id = harness.team_id;
     let partition = harness.partition;
     let person_id = harness.person_id;
@@ -514,7 +507,7 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
     )
     .bind(op)
     .bind(team_id as i32)
-    .execute(&pool)
+    .execute(pool)
     .await
     .expect("insert op");
     sqlx::query(
@@ -524,7 +517,7 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
     .bind(op)
     .bind(team_id as i32)
     .bind(person_id)
-    .execute(&pool)
+    .execute(pool)
     .await
     .expect("insert mark");
 
@@ -563,9 +556,158 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
         .peek(partition, &key)
         .expect("the death document is cached");
     assert!(death.is_deleted);
+    (op, death)
+}
 
-    // A stub-create revived the row in place: same id and uuid, version
-    // above the death document's.
+/// A live PG row above the death document's version is served over the
+/// cached document, over one recovered from the changelog, and past the settle.
+#[tokio::test]
+async fn a_revival_is_served_over_the_death_document() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let (op, death) = destroy_through_pg(&mut harness, &pool).await;
+    let key = PersonCacheKey { team_id, person_id };
+
+    let get = || {
+        with_partition(
+            GetPersonRequest {
+                team_id,
+                person_id,
+                read_options: None,
+            },
+            partition,
+        )
+    };
+    let set_row = |version: i64, is_deleted: bool| {
+        let pool = pool.clone();
+        let person_uuid = person_uuid.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO posthog_person \
+                     (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
+                 VALUES ($1, $2, $3::uuid, '{\"revived\": true}'::jsonb, now(), $4, false, $5) \
+                 ON CONFLICT (team_id, id) DO UPDATE \
+                 SET version = EXCLUDED.version, is_deleted = EXCLUDED.is_deleted",
+            )
+            .bind(person_id)
+            .bind(team_id as i32)
+            .bind(&person_uuid)
+            .bind(version)
+            .bind(is_deleted)
+            .execute(&pool)
+            .await
+            .expect("write row");
+        }
+    };
+
+    // The saga's own tombstone, as PG holds it between the unmap and the
+    // writer's settle.
+    set_row(death.version, true).await;
+    let status = harness
+        .client
+        .get_person(get())
+        .await
+        .expect_err("the death document answers over a tombstoned row");
+    assert_eq!(status.code(), Code::NotFound);
+
+    // A live row at the death version is pre-death state, not a revival.
+    set_row(death.version, false).await;
+    let status = harness
+        .client
+        .get_person(get())
+        .await
+        .expect_err("the death document still answers");
+    assert_eq!(status.code(), Code::NotFound);
+
+    // A stub-create revival: same id and uuid, version above the death document's.
+    set_row(death.version + 1, false).await;
+    let revived = harness
+        .client
+        .get_person(get())
+        .await
+        .expect("the revival is served over the cached death document")
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(revived.version, death.version + 1);
+    assert_eq!(revived.uuid, person_uuid);
+
+    harness.cache.remove(partition, &key);
+    let recovered = harness
+        .client
+        .get_person(get())
+        .await
+        .expect("the revival is served over the recovered death document")
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(recovered.version, death.version + 1);
+
+    let mark = harness
+        .dirty_index
+        .get(&key)
+        .expect("the release marks the death record");
+    let (pruned, exhausted) =
+        harness
+            .dirty_index
+            .prune_chunk(partition, &mark.stream, mark.offset + 1);
+    assert!(exhausted);
+    assert_eq!(pruned.death_marks.len(), 1);
+    drop_settled_death_documents(&harness.cache, &harness.locks, &pruned.death_marks).await;
+    assert_eq!(
+        harness
+            .cache
+            .peek(partition, &key)
+            .map(|entry| entry.version),
+        Some(death.version + 1)
+    );
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup person");
+}
+
+/// A property write and a version raise land on the revived person with no
+/// read first, the path the persons store takes.
+#[tokio::test]
+async fn a_write_lands_on_the_revival_without_a_prior_read() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let (op, death) = destroy_through_pg(&mut harness, &pool).await;
+    let key = PersonCacheKey { team_id, person_id };
+
     sqlx::query(
         "INSERT INTO posthog_person \
              (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
@@ -579,50 +721,42 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
     .await
     .expect("insert revived row");
 
-    let get = || {
-        with_partition(
-            GetPersonRequest {
-                team_id,
-                person_id,
-                read_options: None,
-            },
+    let written = harness
+        .client
+        .update_person_properties(with_partition(
+            update_request(team_id, person_id),
             partition,
-        )
-    };
-    let status = harness
-        .client
-        .get_person(get())
+        ))
         .await
-        .expect_err("the death document answers while its mark stands");
-    assert_eq!(status.code(), Code::NotFound);
+        .expect("the write lands on the revived person")
+        .into_inner();
+    assert!(written.updated);
+    let person = written.person.expect("the written person is returned");
+    assert_eq!(person.uuid, person_uuid);
+    assert!(person.version > death.version + 1);
+    let properties: serde_json::Value =
+        serde_json::from_slice(&person.properties).expect("properties parse");
+    assert_eq!(properties["revived"], serde_json::json!(true));
+    assert_eq!(properties["name"], serde_json::json!("after-fence"));
 
-    // The writer commits past the death record; the prune settles its mark.
-    let mark = harness
-        .dirty_index
-        .get(&key)
-        .expect("the release marks the death record");
-    let (pruned, exhausted) =
-        harness
-            .dirty_index
-            .prune_chunk(partition, &mark.stream, mark.offset + 1);
-    assert!(exhausted);
-    assert_eq!(pruned.death_marks.len(), 1);
-    drop_settled_death_documents(&harness.cache, &harness.locks, &pruned.death_marks).await;
-    assert!(
-        harness.cache.peek(partition, &key).is_none(),
-        "the settled death document leaves the cache"
-    );
-
-    let revived = harness
+    let min_version = person.version + 10;
+    let raised = harness
         .client
-        .get_person(get())
+        .raise_person_version(with_partition(
+            raise_request(team_id, person_id, min_version),
+            partition,
+        ))
         .await
-        .expect("the revival is served from PG after the settle")
-        .into_inner()
-        .person
-        .unwrap();
-    assert_eq!(revived.version, death.version + 1);
-    assert_eq!(revived.uuid, person_uuid);
+        .expect("the raise lands on the revived person")
+        .into_inner();
+    assert!(raised.raised);
+    assert_eq!(raised.person.unwrap().version, min_version);
+    let cached = harness
+        .cache
+        .peek(partition, &key)
+        .expect("the revived person stays cached");
+    assert!(!cached.is_deleted);
+    assert_eq!(cached.version, min_version);
 
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
         .bind(op)
@@ -635,6 +769,47 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
         .execute(&pool)
         .await
         .expect("cleanup person");
+}
+
+/// Persons created before personhog from a client's zero `DateTime` carry
+/// year 1 as `created_at`. A write to one lands, keeps the value, and a
+/// `last_seen_at` in the same year floors to its hour rather than rounding up.
+#[tokio::test]
+async fn a_write_to_a_person_created_in_year_one_lands() {
+    const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            created_at: YEAR_ONE_MS,
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+
+    let written = harness
+        .client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                last_seen_at: Some(YEAR_ONE_MS + 1234),
+                ..update_request(team_id, person_id)
+            },
+            partition,
+        ))
+        .await
+        .expect("a write to a year-one person lands")
+        .into_inner();
+    assert!(written.updated);
+    let person = written.person.expect("the written person is returned");
+    assert_eq!(person.created_at, YEAR_ONE_MS);
+    assert_eq!(person.last_seen_at, Some(YEAR_ONE_MS));
+
+    let records = changelog_records(&harness);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].created_at, YEAR_ONE_MS);
+    assert_eq!(records[0].last_seen_at, Some(YEAR_ONE_MS));
 }
 
 /// A pre-fence write with an indeterminate produce outcome spends a
@@ -3617,4 +3792,159 @@ async fn a_release_trusts_the_snapshot_only_under_a_fence_sealed_before_it() {
         .execute(&pool)
         .await
         .expect("cleanup op");
+}
+
+fn raise_request(team_id: i64, person_id: i64, min_version: i64) -> RaisePersonVersionRequest {
+    RaisePersonVersionRequest {
+        team_id,
+        person_id,
+        min_version,
+    }
+}
+
+#[tokio::test]
+async fn a_raise_writes_the_current_state_at_the_minimum_once() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let request = raise_request(harness.team_id, harness.person_id, 10);
+
+    let first = harness
+        .client
+        .raise_person_version(with_partition(request, harness.partition))
+        .await
+        .expect("raise succeeds")
+        .into_inner();
+    assert!(first.raised);
+    assert_eq!(first.person.unwrap().version, 10);
+
+    let repeat = harness
+        .client
+        .raise_person_version(with_partition(request, harness.partition))
+        .await
+        .expect("repeat succeeds")
+        .into_inner();
+    assert!(!repeat.raised);
+
+    let records = changelog_records(&harness);
+    assert_eq!(records.len(), 1, "the repeat must not write");
+    assert_eq!(records[0].version, 10);
+    assert_eq!(
+        person_properties(&records[0]),
+        serde_json::json!({"email": "test@example.com"})
+    );
+}
+
+#[tokio::test]
+async fn a_raise_clears_a_spent_version_above_the_minimum() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    harness.emitted_versions.raise_for_test(
+        harness.partition,
+        PersonCacheKey {
+            team_id: harness.team_id,
+            person_id: harness.person_id,
+        },
+        12,
+    );
+
+    let raised = harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect("raise succeeds")
+        .into_inner();
+    assert_eq!(raised.person.unwrap().version, 13);
+}
+
+#[tokio::test]
+async fn a_fenced_person_refuses_a_raise() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(harness.team_id, harness.person_id, &Uuid::now_v7()),
+            harness.partition,
+        ))
+        .await
+        .expect("fence succeeds");
+
+    let status = harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect_err("a fenced person rejects the raise");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        status.metadata().get(FENCED_METADATA_KEY).unwrap(),
+        "delete"
+    );
+    assert!(changelog_records(&harness).is_empty());
+}
+
+#[tokio::test]
+async fn a_raise_trims_a_stored_person_over_the_size_limit() {
+    let big = "x".repeat(400_000);
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::to_vec(&serde_json::json!({
+                "email": "test@example.com", "custom_a": big, "custom_b": big,
+            }))
+            .unwrap(),
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect("raise succeeds");
+
+    let records = changelog_records(&harness);
+    assert_eq!(records.len(), 1);
+    let properties = person_properties(&records[0]);
+    assert!(jsonb_column_size(&properties) <= 524_288);
+    assert_eq!(properties["email"], "test@example.com");
+}
+
+#[tokio::test]
+async fn a_raise_refuses_a_person_whose_protected_properties_exceed_the_limit() {
+    let big = "x".repeat(400_000);
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::to_vec(&serde_json::json!({"email": big, "name": big}))
+                .unwrap(),
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    let status = harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect_err("an untrimmable person is refused");
+
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        status
+            .metadata()
+            .get(personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY)
+            .unwrap(),
+        "person-too-large"
+    );
+    assert!(changelog_records(&harness).is_empty());
 }

@@ -511,8 +511,9 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
         assert estimate.matched_sessions == 1
 
+    @pytest.mark.parametrize("operand", [FilterLogicalOperator.OR_, None])
     @pytest.mark.django_db
-    def test_unsampled_estimate_window_narrows_only_for_previews(self, team) -> None:
+    def test_unsampled_estimate_window_narrows_only_for_previews(self, team, operand) -> None:
         # An OR operand rules out the events SAMPLE, so a preview scans a shorter window instead of
         # paying full price. A persisted estimate keeps the whole week, because a partial week
         # inherits whichever weekdays it covered and biases the monthly projection.
@@ -525,8 +526,9 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             timestamp=first,
             properties={"$session_id": "older-match"},
         )
+        # The query builder reads a null operand as OR too, so the estimate must not sample it.
         query = RecordingsQuery(
-            operand=FilterLogicalOperator.OR_,
+            operand=operand,
             events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
         )
 

@@ -24,7 +24,6 @@ rules:
               - /posthog/kafka_client/test/test_client.py
               # Existing integration tests that explicitly opt out of the test stub
               # to exercise a real broker. These are gated behind KAFKA_ROUNDTRIP_TESTS.
-              - /posthog/dags/tests/test_person_property_reconciliation.py
               - /posthog/temporal/tests/dlq_replay/test_activities.py
               - /posthog/temporal/tests/common/test_logger.py
               # DLQ replay needs per-message header passthrough, which confluent's

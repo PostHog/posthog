@@ -120,9 +120,20 @@
             color 0.1s ease;
     }
 
-    .quill-select__item:focus {
+    .quill-select__item:is(:focus, :hover) {
         color: var(--foreground);
         background-color: var(--fill-hover);
+    }
+
+    /* Matches the ring Button gives a highlighted row. Select's rows are not Buttons, so the border is an inset shadow. */
+    .quill-select__item[data-highlighted] {
+        box-shadow:
+            inset 0 0 0 1px var(--ring),
+            var(--quill-row-ring);
+    }
+
+    .quill-select__item[data-highlighted]:hover {
+        box-shadow: none;
     }
 
     .quill-select__item:not(:hover)[aria-selected='true'] {

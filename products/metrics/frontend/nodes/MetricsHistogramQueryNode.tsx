@@ -1,5 +1,5 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -7,13 +7,28 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic, type dataNodeLogicType } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AnyResponseType, MetricsHistogramQuery, MetricsHistogramQueryResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { HeatmapPanel } from '../panels/HeatmapPanel'
+import { metricsDataNodeKey } from './dataNodeKey'
 
-let uniqueNode = 0
+/** Reloads the heatmap, bypassing the cache, each time `refreshCount` changes after the first render. */
+function useReloadOnRefresh(logic: BuiltLogic<dataNodeLogicType>, refreshCount: number | undefined): void {
+    const { loadData } = useActions(logic)
+    const loadedRefreshCount = useRef(refreshCount)
+    useEffect(() => {
+        if (refreshCount === loadedRefreshCount.current) {
+            return
+        }
+        loadedRefreshCount.current = refreshCount
+        // A new load aborts the running one, so a slow heatmap would never finish under auto-refresh.
+        if (!logic.values.responseLoading) {
+            loadData('force_blocking')
+        }
+    }, [refreshCount, loadData, logic])
+}
 
 /** Renders a `MetricsHistogramQuery` (a latency-over-time heatmap) wherever the generic `Query`
  * component is used — saved insights, dashboard tiles, notebooks. */
@@ -24,9 +39,11 @@ export function MetricsHistogramQueryNode(props: {
     attachTo?: LogicWrapper | BuiltLogic
     /** Set by dashboard tiles and notebooks, which reduce the UI to the data. */
     embedded?: boolean
+    /** Each change after the first render reloads the heatmap, unless a load is already running. */
+    refreshCount?: number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `MetricsHistogramQueryNode.${uniqueNode++}`)
+    const key = metricsDataNodeKey('MetricsHistogramQueryNode', props.query, props.context.insightProps)
     // A dashboard tile passes its saved insight, whose `result` cannot hold a heatmap. Then the node loads the query.
     const cachedHistogram =
         typeof props.cachedResults === 'object' && props.cachedResults !== null && 'times' in props.cachedResults
@@ -44,6 +61,7 @@ export function MetricsHistogramQueryNode(props: {
     useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading, responseError } = useValues(logic)
+    useReloadOnRefresh(logic, props.refreshCount)
     const histogram = response as MetricsHistogramQueryResponse | undefined
     const unit = props.query.unit
 

@@ -19,8 +19,15 @@ import { DestinationIcon, destinationTypeLabel } from './DestinationIcon'
 
 export function DestinationModal(props: DestinationModalLogicProps): JSX.Element {
     const logic = destinationModalLogic(props)
-    const { isOpen, editing, editingIntegration, isDestinationFormSubmitting, destinationForm, definition } =
-        useValues(logic)
+    const {
+        isOpen,
+        editing,
+        editingIntegration,
+        selectedIntegration,
+        isDestinationFormSubmitting,
+        destinationForm,
+        definition,
+    } = useValues(logic)
     const { closeModal, submitDestinationForm, deleteDestination, setDestinationType, setIntegrationKind } =
         useActions(logic)
 
@@ -136,7 +143,7 @@ export function DestinationModal(props: DestinationModalLogicProps): JSX.Element
                     }
                 </LemonField>
 
-                <Fields isNew={!editing} formValues={destinationForm} selectedIntegration={editingIntegration} />
+                <Fields isNew={!editing} formValues={destinationForm} selectedIntegration={selectedIntegration} />
 
                 {editing ? (
                     <LemonBanner type="info">

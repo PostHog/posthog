@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -159,12 +160,20 @@ def _normalize_property_value(prop: Property) -> None:
 
     if prop.type in ("person", "group"):
         if isinstance(prop.value, list):
-            prop.value = [str(v) for v in prop.value]
+            prop.value = [_as_property_string(v) for v in prop.value]
         elif not isinstance(prop.value, str | list | dict | type(None)):
-            prop.value = str(prop.value)
+            prop.value = _as_property_string(prop.value)
 
 
-def replace_proxy_properties(team: Team, feature_flag_condition: dict) -> PropertyGroup:
+def _as_property_string(value: object) -> str:
+    # HogQL reads only "true" and "false" as booleans, so str(True) would match no stored true value.
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def replace_proxy_properties(team: Team, feature_flag_condition: dict, now: Optional[datetime] = None) -> PropertyGroup:
+    """`now` is the time that relative dates such as "-7d" count back from. It defaults to the current time."""
     # Parse phase: everything here derives directly from the caller's filter JSON, so a
     # ValueError is caller input (malformed property shape, non-numeric cohort id) and becomes
     # a 400. Cohort ids are cast eagerly so a bad id fails here instead of surfacing as a bare
@@ -176,9 +185,10 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict) -> Proper
             if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
                 Cohort._meta.pk.get_prep_value(prop.value)
             if prop.operator in ("is_date_before", "is_date_after"):
-                relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value))
+                relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value), now=now)
                 if relative_date:
-                    prop.value = relative_date.strftime("%Y-%m-%d %H:%M:%S")
+                    # The offset keeps the time in UTC. HogQL reads a time without one in the team's timezone.
+                    prop.value = relative_date.isoformat()
             else:
                 _normalize_property_value(prop)
 

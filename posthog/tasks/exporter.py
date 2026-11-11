@@ -7,6 +7,7 @@ from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import EventSource, groups
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
@@ -14,7 +15,7 @@ from products.exports.backend.facade.exporters import get_export_format_handler
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks.failure_handler import (
-    USER_QUERY_ERRORS,
+    FAILURE_TYPE_USER,
     InvalidExportContext,
     classify_failure_type,
 )
@@ -99,6 +100,8 @@ def export_asset_direct(
         if current_task and current_task.request and current_task.request.id
         else None,
     }
+    if source == EventSource.SUBSCRIPTION:
+        analytics_props["$update_person_last_seen_at"] = False
 
     logger.info(
         "export_asset.starting",
@@ -121,16 +124,24 @@ def export_asset_direct(
     export_source = source or EventSource.EXPORT
 
     try:
+        if exported_asset.created_by is not None:
+            assert_creator_can_run(exported_asset.created_by, team, exported_asset.dashboard, exported_asset.insight)
+        elif export_source == EventSource.SUBSCRIPTION:
+            # A subscription copies its owner onto every asset, so an ownerless one means the owner's account
+            # was deleted. Other exports have no owner on purpose (logs, activity logs, sharing renders).
+            raise CreatorLeftOrganizationError()
         assert_export_authorization(exported_asset)
-        if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
+        export_handler = get_export_format_handler(
+            export_format=exported_asset.export_format, kind=exported_asset.export_kind
+        )
+        if export_handler is not None:
+            export_handler(exported_asset)
+        elif exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)
         elif exported_asset.export_format == ExportedAsset.ExportFormat.JSONL:
-            if not exported_asset.is_dataset_export:
-                raise InvalidExportContext("JSONL exports require a dataset export context.", reportable=True)
-            export_handler = get_export_format_handler(exported_asset.export_format)
-            if export_handler is None:
-                raise InvalidExportContext("No handler is registered for this export format.", reportable=True)
-            export_handler(exported_asset)
+            raise InvalidExportContext(
+                "This export can't be generated. Contact support if this keeps happening.", reportable=True
+            )
         else:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
 
@@ -154,7 +165,7 @@ def export_asset_direct(
         exported_asset.failure_type = None
         exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
     except Exception as e:
-        is_user_error = isinstance(e, USER_QUERY_ERRORS)
+        is_user_error = classify_failure_type(e) == FAILURE_TYPE_USER
 
         if is_user_error:
             logger.warning(

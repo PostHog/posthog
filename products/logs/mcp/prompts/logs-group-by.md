@@ -13,5 +13,6 @@ Dimensions in `groupBys`:
 - `source: "column"`: `service_name`, `severity_level`, `pattern` (the masked message template), `trace_id`, `span_id`.
 - `source: "log"`: a log attribute key, for example `session_id`.
 - `source: "resource"`: a resource attribute key, for example `k8s.pod.name`.
+- `source: "body"`: a dot-separated JSON path into the log body, for example `fields.message` for Rust `tracing` output or `error`. Use it when the message is in a JSON body rather than in an attribute. It reads the body, so narrow `serviceNames` and `dateRange` first.
 
 Rows without a value for a dimension are not counted. `orderGroupsBy` is `log_count`, `error_count` or `last_seen` (descending). Filter with `severityLevels`, `serviceNames`, `searchTerm` and `filterGroup`. Results are cached for 60 seconds.

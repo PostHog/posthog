@@ -11,8 +11,8 @@ import { App } from 'scenes/App'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { InsightModel } from '~/types'
 
 /** Spread into a `createInsightStory` story's `parameters`, merging `testOptions` for extra keys. */

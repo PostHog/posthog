@@ -14,7 +14,14 @@ import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/s
 import { initKeaTests } from '~/test/init'
 import type { AvailableColumn, ExternalDataSource, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
-import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    externalDataSourcesBulkUpdateSchemasPartialUpdate,
+    externalDataSourcesRetrieve,
+} from 'products/warehouse_sources/frontend/generated/api'
+import type {
+    ExternalDataSourceSerializersApi,
+    SourceConfigResponseApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
     buildCreateSourcePayload,
@@ -28,6 +35,12 @@ import {
     sourceWizardLogic,
     WIZARD_DESTINATION_STEP,
 } from '../sourceWizardLogic'
+
+jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
+    ...jest.requireActual('products/warehouse_sources/frontend/generated/api'),
+    externalDataSourcesRetrieve: jest.fn(),
+    externalDataSourcesBulkUpdateSchemasPartialUpdate: jest.fn(),
+}))
 
 type Deferred = {
     resolve: (schemas: ExternalDataSourceSyncSchema[]) => void
@@ -274,6 +287,135 @@ describe('sourceWizardLogic', () => {
         } finally {
             unmount()
         }
+    })
+
+    describe('webhook step', () => {
+        const stripeWithSecret = buildSourceConfig({
+            name: 'Stripe',
+            webhookFields: [{ name: 'signing_secret', label: 'Signing secret', type: 'password', required: true }],
+        } as Partial<SourceConfigResponseApi>)
+        const stripeWithoutFields = buildSourceConfig({ name: 'Stripe' })
+
+        it.each([
+            ['auto setup finished', stripeWithSecret, { success: true, webhook_url: 'u' }, false, true],
+            [
+                'a secret is still pending',
+                stripeWithSecret,
+                { success: true, webhook_url: 'u', pending_inputs: ['signing_secret'] },
+                true,
+                false,
+            ],
+            [
+                'manual setup with a required field to save',
+                stripeWithSecret,
+                { success: false, webhook_url: 'u', error: 'e' },
+                true,
+                false,
+            ],
+            [
+                'manual setup not confirmed',
+                stripeWithoutFields,
+                { success: false, webhook_url: 'u', error: 'e' },
+                false,
+                false,
+            ],
+            [
+                'manual setup confirmed',
+                stripeWithoutFields,
+                { success: false, webhook_url: 'u', error: 'e' },
+                true,
+                true,
+            ],
+            [
+                'request failed with no URL',
+                stripeWithoutFields,
+                { success: false, webhook_url: '', error: 'e' },
+                true,
+                false,
+            ],
+        ])('blocks Next unless the webhook works: %s', (_name, connector, result, confirmed, expected) => {
+            const logic = sourceWizardLogic({ availableSources: { Stripe: connector } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(connector)
+                logic.actions.setStep(4)
+                logic.actions.setWebhookResult(result)
+                logic.actions.setWebhookManualSetupConfirmed(confirmed)
+
+                expect(logic.values.webhookStepComplete).toBe(expected)
+                expect(logic.values.canGoNext).toBe(expected)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('switches only the syncing, pollable webhook tables to a polling sync method', async () => {
+            const schema = (overrides: Partial<ExternalDataSourceSyncSchema>): ExternalDataSourceSyncSchema =>
+                ({
+                    table: 'Customer',
+                    label: null,
+                    should_sync: true,
+                    sync_type: 'webhook',
+                    incremental_field: null,
+                    incremental_field_type: null,
+                    incremental_fields: [],
+                    incremental_available: false,
+                    append_available: false,
+                    supports_webhooks: true,
+                    available_columns: [],
+                    ...overrides,
+                }) as ExternalDataSourceSyncSchema
+            jest.mocked(externalDataSourcesRetrieve).mockResolvedValue({
+                schemas: [
+                    { id: 's1', name: 'Customer', sync_type: 'webhook', should_sync: true },
+                    { id: 's2', name: 'Invoice', sync_type: 'webhook', should_sync: true },
+                    { id: 's3', name: 'Charge', sync_type: 'incremental', should_sync: true },
+                    { id: 's4', name: 'Payout', sync_type: 'webhook', should_sync: false },
+                    { id: 's5', name: 'Discount', sync_type: 'webhook', should_sync: true },
+                ],
+            } as unknown as ExternalDataSourceSerializersApi)
+            const bulkUpdate = jest.mocked(externalDataSourcesBulkUpdateSchemasPartialUpdate).mockResolvedValue([])
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeWithSecret } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeWithSecret)
+                logic.actions.setDatabaseSchemas([
+                    schema({
+                        table: 'Customer',
+                        incremental_available: true,
+                        incremental_fields: [
+                            { label: 'created', type: 'datetime', field: 'created', field_type: 'integer' },
+                        ] as IncrementalField[],
+                    }),
+                    schema({ table: 'Invoice' }),
+                    schema({ table: 'Charge', sync_type: 'incremental' }),
+                    schema({ table: 'Payout', should_sync: false }),
+                    schema({ table: 'Discount', webhook_only: true }),
+                ])
+                logic.actions.setSourceId('source-1')
+                logic.actions.setStep(4)
+
+                await expectLogic(logic, () => logic.actions.switchWebhookTablesToPolling()).toFinishAllListeners()
+
+                expect(bulkUpdate).toHaveBeenCalledWith(expect.any(String), 'source-1', {
+                    schemas: [
+                        {
+                            id: 's1',
+                            sync_type: 'incremental',
+                            incremental_field: 'created',
+                            incremental_field_type: 'integer',
+                        },
+                        { id: 's2', sync_type: 'full_refresh', incremental_field: null, incremental_field_type: null },
+                    ],
+                })
+                expect(logic.values.databaseSchema.find((s) => s.table === 'Discount')?.sync_type).toBe('webhook')
+                expect(logic.values.currentStep).toBe(5)
+            } finally {
+                unmount()
+            }
+        })
     })
 
     it('does not hydrate the same source URL again after the wizard has started', () => {
@@ -1064,6 +1206,7 @@ describe('sourceWizardLogic', () => {
                 buildSchema({ table: 'vault.decrypted_secrets', should_sync_default: false }),
                 buildSchema({ table: 'vault.secrets', should_sync_default: false, should_sync: true }),
             ])
+            const toastInfo = jest.spyOn(lemonToast, 'info').mockImplementation(() => ({ id: 'x' }) as any)
 
             try {
                 logic.actions.toggleAllTables(true)
@@ -1071,11 +1214,15 @@ describe('sourceWizardLogic', () => {
                 expect(byTable['Customer'].should_sync).toBe(true)
                 expect(byTable['vault.decrypted_secrets'].should_sync).toBe(false)
                 expect(byTable['vault.secrets'].should_sync).toBe(true)
+                expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('off by default'))
 
+                toastInfo.mockClear()
                 logic.actions.toggleAllTables(false)
                 byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
                 expect(byTable['vault.secrets'].should_sync).toBe(false)
+                expect(toastInfo).not.toHaveBeenCalled()
             } finally {
+                toastInfo.mockRestore()
                 unmount()
             }
         })
@@ -1122,6 +1269,36 @@ describe('sourceWizardLogic', () => {
                 unmount()
             }
         })
+
+        it.each([
+            { name: 'cursor', incrementalField: 'Updated_At', primaryKeyColumns: null, kept: ['email'] },
+            { name: 'primary key', incrementalField: null, primaryKeyColumns: ['email'], kept: ['updated_at'] },
+        ])(
+            'choosing a masked column as the $name drops its mask, since the server refuses it',
+            ({ incrementalField, primaryKeyColumns, kept }) => {
+                const users = buildSchema({ table: 'users' })
+                const orders = buildSchema({ table: 'orders' })
+                const { logic, unmount } = mountWithSchemas([users, orders])
+
+                try {
+                    logic.actions.setSchemaMaskedColumns(users, ['email', 'updated_at'])
+                    logic.actions.setSchemaMaskedColumns(orders, ['email'])
+                    logic.actions.updateSchemaSyncType(
+                        users,
+                        'incremental',
+                        incrementalField,
+                        'datetime',
+                        primaryKeyColumns
+                    )
+
+                    const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                    expect(byTable['users'].masked_columns).toEqual(kept)
+                    expect(byTable['orders'].masked_columns).toEqual(['email'])
+                } finally {
+                    unmount()
+                }
+            }
+        )
 
         it('toggleSchemaGroup skips permission_error rows in a group', () => {
             const { logic, unmount } = mountWithSchemas([

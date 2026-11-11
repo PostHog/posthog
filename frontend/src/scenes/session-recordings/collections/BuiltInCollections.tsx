@@ -1,21 +1,12 @@
-import { IconClock, IconComment, IconDownload, IconRewindPlay, IconShare, IconWarning } from '@posthog/icons'
 import { LemonTable } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { SessionRecordingPlaylistType } from '~/types'
 
+import { BUILT_IN_COLLECTION_ICONS } from './builtInCollectionIcons'
 import { COLUMN_WIDTHS, countColumn, nameColumn, watchNextColumn } from './collectionColumns'
 import { CollectionSectionHeading } from './CollectionSectionHeading'
-
-const BUILT_IN_ICONS: Record<string, JSX.Element> = {
-    'synthetic-watch-history': <IconRewindPlay />,
-    'synthetic-commented': <IconComment />,
-    'synthetic-shared': <IconShare />,
-    'synthetic-exported': <IconDownload />,
-    'synthetic-expiring': <IconClock />,
-    'synthetic-frustrated': <IconWarning />,
-}
 
 const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
     {
@@ -23,7 +14,7 @@ const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         render: function Render(_, { short_id }) {
             return (
                 <span className="flex items-center justify-center w-9 h-8 text-xl text-secondary">
-                    {BUILT_IN_ICONS[short_id]}
+                    {BUILT_IN_COLLECTION_ICONS[short_id]}
                 </span>
             )
         },

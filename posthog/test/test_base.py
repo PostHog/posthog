@@ -1,6 +1,7 @@
 import pytest
 from posthog.test.base import (
     QueryMatchingTest,
+    _selective_flush,
     run_clickhouse_statement_in_parallel,
     skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
@@ -9,7 +10,7 @@ from posthog.test.base import (
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.db import reset_queries
+from django.db import DEFAULT_DB_ALIAS, reset_queries
 from django.test import TestCase
 
 from clickhouse_driver.errors import ServerException
@@ -22,7 +23,18 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_DATA_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
 )
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sequence_resetting_flush_never_reuses_a_team_id() -> None:
+    team_before_flush = Team.objects.create(organization=Organization.objects.create(name="before"))
+
+    _selective_flush(DEFAULT_DB_ALIAS, reset_sequences=True)
+
+    team_after_flush = Team.objects.create(organization=Organization.objects.create(name="after"))
+    assert team_after_flush.id > team_before_flush.id
 
 
 def test_snapshot_clickhouse_queries_skips_marked_methods() -> None:

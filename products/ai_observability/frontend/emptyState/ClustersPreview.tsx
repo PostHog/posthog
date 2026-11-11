@@ -5,7 +5,7 @@ import { useId } from 'react'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 interface PreviewCluster {
     id: string
@@ -82,7 +82,7 @@ const CLUSTERS: PreviewCluster[] = [
  * skill. In `waiting-for-data` a pinned row reads as listening for the first run.
  */
 export function ClustersPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
     // The preview can mount more than once on a page. Fixed ids and a shared radio
     // name would let one instance's labels select another instance's radios.
     const idPrefix = useId()

@@ -8,9 +8,8 @@ import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { createRef } from 'react'
 
-import { membersLogic } from 'scenes/organization/membersLogic'
-
 import { useMocks } from '~/mocks/jest'
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 
 import { Mentions } from './MentionsExtension'

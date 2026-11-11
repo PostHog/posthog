@@ -36,6 +36,7 @@ _DEPOT_INPUTS = FetchDepotJobLogInputs(
     job_name="Product tests (experiments)",
     run_attempt=1,
     head_sha="abc1234",
+    branch="feature-x",
 )
 
 
@@ -133,7 +134,7 @@ async def test_depot_attempt_fetches_by_attempt_id_and_emits_decoded_ids(monkeyp
         "job_id": 579485267642625,
         "run_id": 80213453736890,
         "repo": "PostHog/posthog",
-        "branch": "",
+        "branch": "feature-x",
         "conclusion": "failure",
         "job_name": "Product tests (experiments)",
         "workflow_name": "Backend CI on Depot",

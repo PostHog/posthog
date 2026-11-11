@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.property_value_visibility import PropertyValueVisibility
 
 
 class UserMinimalSerializer(serializers.ModelSerializer):
@@ -62,6 +63,13 @@ class ActivityLogSerializer(serializers.Serializer):
         allow_null=True,
         help_text="API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.",
     )
+
+    def to_representation(self, instance: ActivityLog) -> dict:
+        data = super().to_representation(instance)
+        visibility = PropertyValueVisibility.from_serializer_context(self.context)
+        if visibility is not None:
+            data["detail"] = visibility.apply(instance, data.get("detail"))
+        return data
 
     @extend_schema_field({"type": "object", "nullable": True})
     def get_user(self, activity_log: ActivityLog):

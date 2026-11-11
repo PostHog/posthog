@@ -215,3 +215,4 @@ Use `limit` and `offset` for pagination. The default limit is 100. The response 
 - Use `filterTestAccounts: true` by default to exclude internal users unless the user asks otherwise.
 - The default time range is last 7 days. LLM trace data tends to be recent, so shorter ranges are usually appropriate.
 - For deep inspection of a single trace (full event tree with all nested children and complete properties), use `query-llm-trace` with the trace's `id`.
+- When the traces show a failure that keeps happening, offer to score new traces for it automatically with an online evaluation. Load the `creating-online-evaluations` skill to set one up.

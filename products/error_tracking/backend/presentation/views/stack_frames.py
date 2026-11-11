@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 
@@ -12,7 +13,6 @@ from products.error_tracking.backend.facade import (
     api as error_tracking_api,
     contracts,
 )
-from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 
 class ErrorTrackingStackFrameSerializer(DataclassSerializer):
@@ -41,13 +41,10 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     scope_object_read_actions = ["list", "retrieve", "batch_get"]
     scope_object_write_actions: list = []
     serializer_class = ErrorTrackingStackFrameSerializer
+    pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request, *args, **kwargs):
-        return paginate_via_facade(
-            self,
-            request,
-            lambda limit, offset: error_tracking_api.list_stack_frames(self.team.id, limit=limit, offset=offset),
-        )
+        return facade_page_response(self, lambda page: error_tracking_api.list_stack_frames(self.team.id, page=page))
 
     def retrieve(self, request, *args, pk=None, **kwargs):
         frame = error_tracking_api.get_stack_frame(self.team.id, pk)

@@ -1,13 +1,46 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../../types'
 import { ReportStatusSection } from './ReportStatusSection'
 
 describe('ReportStatusSection', () => {
-    it('shows each pull request with one fact per row', () => {
+    afterEach(cleanup)
+
+    const owner = { id: 1, uuid: 'owner-1', first_name: 'Jane', last_name: 'Doe', email: 'jane@example.com' }
+
+    it.each([
+        {
+            name: 'an agent without a person',
+            responsibleUser: null,
+            user: null,
+            agent: 'Build agent',
+            label: 'Build agent',
+        },
+        {
+            name: 'an agent with a responsible person',
+            responsibleUser: owner,
+            user: null,
+            agent: 'Build agent',
+            label: 'Jane Doe (via Build agent)',
+        },
+        {
+            name: 'an agent with a legacy user',
+            responsibleUser: null,
+            user: owner,
+            agent: 'Build agent',
+            label: 'Jane Doe (via Build agent)',
+        },
+        {
+            name: 'an unnamed agent with a responsible person',
+            responsibleUser: owner,
+            user: null,
+            agent: '  ',
+            label: 'Jane Doe (via External agent)',
+        },
+    ])('shows pull requests and ownership for $name', ({ responsibleUser, user, agent, label }) => {
         const report = makeReport({
             status: SignalReportStatus.READY,
             priority: 'P1',
@@ -39,11 +72,11 @@ describe('ReportStatusSection', () => {
             assignee: {
                 claim_id: 'claim-1',
                 kind: 'agent',
-                user: null,
+                user,
                 task_id: null,
-                agent: 'Build agent',
+                agent,
                 claimed_at: '2026-06-11T10:00:00Z',
-                responsible_user: null,
+                responsible_user: responsibleUser,
             },
         })
 
@@ -54,7 +87,7 @@ describe('ReportStatusSection', () => {
         expect(screen.queryByText('Work')).not.toBeInTheDocument()
         expect(screen.queryByText('In review')).not.toBeInTheDocument()
         expect(screen.getByText('In progress by')).toBeInTheDocument()
-        expect(screen.getByText('Build agent')).toBeInTheDocument()
+        expect(screen.getByText(label)).toBeInTheDocument()
         expect(screen.getByText('P1')).toBeInTheDocument()
         expect(screen.queryByText('Actionability')).not.toBeInTheDocument()
         expect(screen.getByText('example/app#42')).toBeInTheDocument()

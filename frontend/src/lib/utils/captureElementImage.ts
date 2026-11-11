@@ -31,7 +31,14 @@ export const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BA
 
 const RESOURCE_FETCH_TIMEOUT_MS = 15000
 
-/** Rasterizes a live DOM element to an image blob. Throws when the element renders to nothing. */
+export class EmptyImageError extends Error {
+    constructor() {
+        super('Rendering the element to an image produced no data')
+        this.name = 'EmptyImageError'
+    }
+}
+
+/** Rasterizes a live DOM element to an image blob. Throws an `EmptyImageError` when the element renders to nothing. */
 export async function captureElementImage(element: HTMLElement, options?: CaptureImageOptions): Promise<Blob> {
     const blob = await toBlob(element, {
         includeStyleProperties: getStylePropertyNames(),
@@ -43,7 +50,7 @@ export async function captureElementImage(element: HTMLElement, options?: Captur
     })
 
     if (!blob) {
-        throw new Error('Rendering the element to an image produced no data')
+        throw new EmptyImageError()
     }
 
     return blob

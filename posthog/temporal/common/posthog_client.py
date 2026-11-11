@@ -42,6 +42,7 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
     {
         "trace_not_settled",
         "session_not_settled",
+        "TaskSpendPending",
         "TransientRepartitionError",
         "EmbeddingServiceUnavailable",
         "AIFeaturesCloudOnly",

@@ -96,6 +96,12 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .describe(
             'Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded \/ comma-separated list of user IDs to match any of them.'
         ),
+    deleted: zod
+        .enum(['false', 'true'])
+        .optional()
+        .describe(
+            'Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.'
+        ),
     eligible_for_experiment: zod
         .enum(['true'])
         .optional()
@@ -1487,6 +1493,10 @@ export const ScheduledChangesListQueryParams = () => zod.object({
         .describe('Filter by model type. Use \"FeatureFlag\" to see feature flag schedules.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     record_id: zod.string().optional().describe('Filter by the ID of a specific feature flag.'),
+    record_ids: zod
+        .string()
+        .optional()
+        .describe('Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.'),
 })
 
 /**

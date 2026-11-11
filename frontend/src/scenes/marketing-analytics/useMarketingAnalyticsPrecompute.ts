@@ -8,8 +8,8 @@ import { InsightLogicProps } from '~/types'
 export interface MarketingAnalyticsPrecomputeStatus {
     /** The window this read asked for has not been warmed yet. */
     notReady: boolean
-    /** ISO timestamp of the oldest precompute window behind the result, or null when nothing was read. */
-    computedAt: string | null
+    /** When the numbers for the latest day in the range were computed, or null when unknown. */
+    latestDayComputedAt: string | null
 }
 
 /** The precompute-only signals a marketing analytics response carries.
@@ -29,10 +29,10 @@ export function useMarketingAnalyticsPrecompute(
             dataNodeCollectionId: insightProps.dataNodeCollectionId,
         })
     )
-    const precomputeResponse = response as { precomputeNotReady?: boolean; dataComputedAt?: string } | null
+    const precomputeResponse = response as { precomputeNotReady?: boolean; latestDayComputedAt?: string } | null
 
     return {
         notReady: !responseLoading && precomputeResponse?.precomputeNotReady === true,
-        computedAt: precomputeResponse?.dataComputedAt ?? null,
+        latestDayComputedAt: precomputeResponse?.latestDayComputedAt ?? null,
     }
 }

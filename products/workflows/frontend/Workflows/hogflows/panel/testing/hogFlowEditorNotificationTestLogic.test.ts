@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { CyclotronJobInvocationGlobals } from '~/types'
+import { CyclotronJobInvocationGlobals, PersonType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
@@ -117,45 +117,6 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 logic.actions.setSampleGlobals(null)
             }).toMatchValues({
                 sampleGlobals: initialGlobals,
-            })
-        })
-    })
-
-    describe('emailAddressOverride reducer', () => {
-        it('should only be set manually, not automatically', async () => {
-            const globalsWithEmail: CyclotronJobInvocationGlobals = {
-                event: {
-                    uuid: 'test-uuid',
-                    distinct_id: 'test-distinct-id',
-                    timestamp: '2024-01-01T00:00:00Z',
-                    elements_chain: '',
-                    url: '',
-                    event: '$pageview',
-                    properties: {},
-                },
-                person: {
-                    id: 'person-1',
-                    properties: { email: 'new@example.com' },
-                    name: 'Test Person',
-                    url: '',
-                },
-                groups: {},
-                project: { id: 1, name: 'Test', url: '' },
-                source: { name: 'Test', url: '' },
-            }
-
-            // Loading a person should NOT automatically set emailAddressOverride
-            await expectLogic(logic, () => {
-                logic.actions.loadSamplePersonByDistinctIdSuccess(globalsWithEmail)
-            }).toMatchValues({
-                emailAddressOverride: null, // Should remain null, not automatically set
-            })
-
-            // Only manual setting should update it
-            await expectLogic(logic, () => {
-                logic.actions.setEmailAddressOverride('manual@example.com')
-            }).toMatchValues({
-                emailAddressOverride: 'manual@example.com',
             })
         })
     })
@@ -298,115 +259,74 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             source: { name: 'Test', url: '' },
         })
 
-        it('should reload person when sampleGlobals is null or does not match selectedPersonDistinctId', async () => {
-            const distinctId1 = 'person-1-id'
-            const distinctId2 = 'person-2-id'
-            const globalsForPerson1 = createGlobals(distinctId1)
+        const person1: PersonType = {
+            id: 'person-1',
+            uuid: 'person-1',
+            name: 'Person 1',
+            distinct_ids: ['person-1-id'],
+            properties: { email: 'person1@example.com' },
+        }
+        const person2: PersonType = {
+            id: 'person-2',
+            uuid: 'person-2',
+            name: 'Person 2',
+            distinct_ids: ['person-2-id'],
+            properties: { email: 'person2@example.com' },
+        }
 
-            // Wait for afterMount's loadSamplePersons to complete before proceeding
-            await expectLogic(logic)
-                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess'])
-                .toFinishAllListeners()
-
-            // Reload when sampleGlobals is null
+        const loadSamplePersons = async (): Promise<void> => {
             await expectLogic(logic, () => {
-                logic.actions.setSelectedPersonDistinctId(distinctId1)
-            }).toMatchValues({
-                selectedPersonDistinctId: distinctId1,
-                sampleGlobals: null,
-            })
+                logic.actions.loadSamplePersons()
+            }).toFinishAllListeners()
+        }
 
+        beforeEach(async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const persons = [person1, person2]
             useMocks({
                 get: {
-                    '/api/environments/:team_id/persons/': {
-                        results: [
-                            {
-                                id: 'person-1',
-                                distinct_ids: [distinctId1],
-                                properties: { email: 'person1@example.com' },
-                            },
-                        ],
+                    '/api/environments/:team_id/persons/': ({ request }) => {
+                        const url = new URL(request.url)
+                        const distinctId = url.searchParams.get('distinct_id')
+                        const limit = Number(url.searchParams.get('limit') ?? persons.length)
+                        const matching = distinctId
+                            ? persons.filter((person) => person.distinct_ids.includes(distinctId))
+                            : persons
+                        return [200, { results: matching.slice(0, limit) }]
                     },
                 },
             })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadSamplePersons()
-            })
-                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess', 'loadSamplePersonByDistinctId'])
-                .toFinishAllListeners()
-
-            // Reload when sampleGlobals doesn't match selectedPersonDistinctId
-            await expectLogic(logic, () => {
-                logic.actions.setSampleGlobals(JSON.stringify(globalsForPerson1, null, 2))
-                logic.actions.setSelectedPersonDistinctId(distinctId2)
-            }).toMatchValues({
-                sampleGlobals: globalsForPerson1,
-                selectedPersonDistinctId: distinctId2,
-            })
-
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/persons/': {
-                        results: [
-                            {
-                                id: 'person-2',
-                                distinct_ids: [distinctId2],
-                                properties: { email: 'person2@example.com' },
-                            },
-                        ],
-                    },
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadSamplePersons()
-            })
-                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess', 'loadSamplePersonByDistinctId'])
-                .toFinishAllListeners()
         })
 
-        it('should not reload person if sampleGlobals matches selectedPersonDistinctId', async () => {
-            const distinctId = 'person-1-id'
-            const globalsForPerson1 = createGlobals(distinctId)
+        it.each([
+            ['no sample globals are stored', null],
+            ['the stored sample globals belong to another person', createGlobals('person-1-id')],
+        ])('loads the selected person when %s', async (_, storedGlobals) => {
+            if (storedGlobals) {
+                logic.actions.setSampleGlobals(JSON.stringify(storedGlobals))
+            }
+            logic.actions.setSelectedPersonDistinctId('person-2-id')
 
-            // Wait for afterMount's loadSamplePersons to complete before proceeding
-            await expectLogic(logic)
-                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess'])
-                .toFinishAllListeners()
+            await loadSamplePersons()
 
-            await expectLogic(logic, () => {
-                logic.actions.setSampleGlobals(JSON.stringify(globalsForPerson1, null, 2))
-                logic.actions.setSelectedPersonDistinctId(distinctId)
-            }).toMatchValues({
-                sampleGlobals: globalsForPerson1,
-                selectedPersonDistinctId: distinctId,
-            })
-
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/persons/': {
-                        results: [
-                            {
-                                id: 'person-1',
-                                distinct_ids: [distinctId],
-                                properties: { email: 'person1@example.com' },
-                            },
-                        ],
-                    },
+            expect(logic.values).toMatchObject({
+                selectedPersonDistinctId: 'person-2-id',
+                sampleGlobalsLoading: false,
+                sampleGlobals: {
+                    event: { distinct_id: 'person-2-id' },
+                    person: { id: 'person-2', name: 'Person 2', properties: { email: 'person2@example.com' } },
                 },
             })
+        })
 
-            await expectLogic(logic, () => {
-                logic.actions.loadSamplePersons()
-            })
-                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess'])
-                .toNotHaveDispatchedActions(['loadSamplePersonByDistinctId'])
-                .toFinishAllListeners()
-                .toMatchValues({
-                    selectedPersonDistinctId: distinctId,
-                    sampleGlobals: globalsForPerson1,
-                })
+        it('keeps the stored sample globals when they belong to the selected person', async () => {
+            const storedGlobals = createGlobals('person-1-id')
+            logic.actions.setSampleGlobals(JSON.stringify(storedGlobals))
+            logic.actions.setSelectedPersonDistinctId('person-1-id')
+
+            await loadSamplePersons()
+
+            expect(logic.values.sampleGlobals).toEqual(storedGlobals)
         })
     })
 
@@ -457,6 +377,38 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             })
 
             newLogic.unmount()
+        })
+    })
+
+    describe('next step after a test run', () => {
+        it.each([
+            ['an unmet wait returns the selected step', 'wait_step', null],
+            ['a skipped run returns no step', null, null],
+            ['the response leaves out the next step', undefined, null],
+            ['the run moves on', 'step_c', 'step_c'],
+        ])('when %s', async (_, returnedStepId, expectedNextActionId) => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        const { current_action_id } = (await request.json()) as { current_action_id: string }
+                        const nextActionId = current_action_id === 'step_a' ? 'wait_step' : returnedStepId
+                        return [200, { status: 'success', logs: [], nextActionId }]
+                    },
+                },
+            })
+            logic.actions.setTestInvocationValue('globals', '{}')
+
+            const runTestOn = async (stepId: string): Promise<void> => {
+                logic.actions.setSelectedNodeId(stepId)
+                await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                    'submitTestInvocationSuccess',
+                ])
+            }
+
+            await runTestOn('step_a')
+            expect(logic.values.nextActionId).toBe('wait_step')
+            await runTestOn('wait_step')
+            expect(logic.values.nextActionId).toBe(expectedNextActionId)
         })
     })
 })

@@ -7,8 +7,11 @@
                 "backend/presentation/**",
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
+                "backend/apps.py",
+                "backend/logic/session.py",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/middleware.py"
             ],
             "outputs": [],
             "cache": true

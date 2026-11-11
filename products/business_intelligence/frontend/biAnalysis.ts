@@ -1,5 +1,6 @@
+import { escapeHogQLString, escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
+
 import { BIConfig, BIField, BITableCalculation, BIValue } from '~/queries/schema/schema-business-intelligence'
-import { escapeHogQLString, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { biComparisonSeries } from './biComparison'

@@ -1,5 +1,6 @@
-import { memo, type ReactElement, type ReactNode, useMemo, useRef } from 'react'
-import { ScrollView, Text, View } from 'react-native'
+import { memo, type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react'
+import type { ScrollViewInstance } from 'react-native'
+import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, Text, View } from 'react-native'
 
 import { PullRequestCard } from '@/features/handoff/PullRequestCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -10,6 +11,9 @@ import { iconSizes, type } from '@/ui/tokens'
 import { ChatErrorBubble } from '../ChatErrorBubble'
 import { ChatMarkdown } from '../ChatMarkdown'
 import { ChatProgressLine } from '../ChatProgressLine'
+import { CopyMessageButton } from '../CopyMessageButton'
+import { type ChatFeedbackContext, type ChatReplyActions, chatReplyActions } from '../chatFeedback'
+import { MessageFeedbackActions } from '../MessageFeedbackActions'
 import { UserBubble } from '../UserBubble'
 import { ActivityGroupRow } from './ActivityGroupRow'
 import { NoticeRow } from './NoticeRow'
@@ -17,19 +21,59 @@ import { ProgressRow } from './ProgressRow'
 import { errorItemText, groupSessionItems, shouldShowRunError } from './sessionDisplay'
 import type { Session, SessionAssistantItem, SessionDisplayItem, SessionErrorItem } from './types'
 
+export type SessionThreadState = Pick<
+    Session,
+    | 'history'
+    | 'items'
+    | 'invocations'
+    | 'phase'
+    | 'stage'
+    | 'decision'
+    | 'pullRequests'
+    | 'pullRequest'
+    | 'runStatus'
+    | 'runError'
+>
+
 interface SessionThreadProps {
-    session: Session
+    session: SessionThreadState
     onRetryHistory: () => void
+    topInset?: number
+    feedbackContext?: ChatFeedbackContext
 }
 
-const AssistantRow = memo(function AssistantRow({ item }: { item: SessionAssistantItem }): ReactElement {
-    const styles = useStyles()
-    return (
-        <View style={styles.assistant} testID="session-assistant">
-            <ChatMarkdown text={item.text} streaming={!item.complete} />
-        </View>
-    )
-})
+const AssistantRow = memo(
+    function AssistantRow({ item, actions }: { item: SessionAssistantItem; actions?: ChatReplyActions }): ReactElement {
+        const styles = useStyles()
+        const feedback = actions?.feedback
+        return (
+            <View style={actions ? undefined : styles.assistantWithoutActions} testID="session-assistant">
+                <ChatMarkdown text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
+                {actions ? (
+                    <View style={styles.actions}>
+                        <CopyMessageButton text={item.text} messageRole="assistant" />
+                        {feedback ? (
+                            <MessageFeedbackActions
+                                key={`${feedback.sessionId}:${feedback.traceId ?? feedback.turnIndex}`}
+                                target={feedback}
+                            />
+                        ) : null}
+                    </View>
+                ) : null}
+            </View>
+        )
+    },
+    (previous, next) =>
+        previous.item.text === next.item.text &&
+        previous.item.complete === next.item.complete &&
+        previous.item.projectUrl === next.item.projectUrl &&
+        Boolean(previous.actions) === Boolean(next.actions) &&
+        previous.actions?.feedback?.sessionId === next.actions?.feedback?.sessionId &&
+        previous.actions?.feedback?.runtime === next.actions?.feedback?.runtime &&
+        previous.actions?.feedback?.traceId === next.actions?.feedback?.traceId &&
+        previous.actions?.feedback?.runId === next.actions?.feedback?.runId &&
+        previous.actions?.feedback?.turnIndex === next.actions?.feedback?.turnIndex
+)
 
 const ErrorRow = memo(function ErrorRow({ item }: { item: SessionErrorItem }): ReactElement {
     return <ChatErrorBubble text={errorItemText(item)} />
@@ -40,38 +84,61 @@ const TurnEndRow = memo(function TurnEndRow(): ReactElement {
     return <View style={styles.turnEnd} />
 })
 
-function statusLine(session: Session): string | null {
+function statusLine(session: SessionThreadState): string | null {
     switch (session.phase) {
         case 'working':
             return session.stage ?? 'Thinking…'
         case 'reconnecting':
-            return 'Reconnecting…'
         case 'idle':
             return null
     }
 }
 
-export function SessionThread({ session, onRetryHistory }: SessionThreadProps): ReactElement {
+export function SessionThread({
+    session,
+    onRetryHistory,
+    topInset = 0,
+    feedbackContext,
+}: SessionThreadProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const scroll = useRef<ScrollView>(null)
+    const scroll = useRef<ScrollViewInstance>(null)
     const positioned = useRef(false)
+    const following = useRef(true)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])
+    const replyActions = useMemo(
+        () => chatReplyActions(session.items, feedbackContext, session.phase),
+        [session.items, feedbackContext, session.phase]
+    )
+    const pauseFollowing = useCallback((): void => {
+        following.current = false
+    }, [])
+    const updateFollowing = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
+        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+        following.current = contentSize.height - contentOffset.y - layoutMeasurement.height <= 24
+    }
 
     if (session.history.status === 'loading') {
         positioned.current = false
-        return <LoadingView label="Loading session" />
+        following.current = true
+        return (
+            <View style={[styles.scroll, { paddingTop: topInset }]}>
+                <LoadingView label="Loading session" />
+            </View>
+        )
     }
     if (session.history.status === 'error') {
         return (
-            <StateView
-                icon={<WarningIcon size={iconSizes.empty} color={colors.orange} />}
-                title="Couldn't load this session"
-                message={session.history.error?.message}
-                actionLabel="Try again"
-                onAction={onRetryHistory}
-                testID="session-history-error"
-            />
+            <View style={[styles.scroll, { paddingTop: topInset }]}>
+                <StateView
+                    icon={<WarningIcon size={iconSizes.empty} color={colors.orange} />}
+                    title="Couldn't load this session"
+                    message={session.history.error?.message}
+                    actionLabel="Try again"
+                    onAction={onRetryHistory}
+                    testID="session-history-error"
+                />
+            </View>
         )
     }
 
@@ -80,7 +147,7 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
             case 'user':
                 return <UserBubble key={item.id} text={item.text} attachments={item.attachments} />
             case 'assistant':
-                return <AssistantRow key={item.id} item={item} />
+                return <AssistantRow key={item.id} item={item} actions={replyActions.get(item.id)} />
             case 'activity':
                 return (
                     <ActivityGroupRow
@@ -95,7 +162,7 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
             case 'error':
                 return <ErrorRow key={item.id} item={item} />
             case 'notice':
-                return <NoticeRow key={item.id} item={item} />
+                return <NoticeRow key={item.id} item={item} onToggle={pauseFollowing} />
             case 'progress':
                 return <ProgressRow key={item.id} item={item} />
         }
@@ -109,8 +176,15 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
         <ScrollView
             ref={scroll}
             style={styles.scroll}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, { paddingTop: topInset + 12 }]}
+            scrollIndicatorInsets={{ top: topInset }}
+            onScrollBeginDrag={pauseFollowing}
+            onScrollEndDrag={updateFollowing}
+            onMomentumScrollEnd={updateFollowing}
             onContentSizeChange={() => {
+                if (!following.current) {
+                    return
+                }
                 scroll.current?.scrollToEnd({ animated: positioned.current })
                 positioned.current = true
             }}
@@ -139,10 +213,11 @@ const useStyles = createStyles(({ colors }) => ({
         paddingVertical: 12,
         gap: 14,
     },
-    assistant: {
+    assistantWithoutActions: {
         // Markdown blocks end with a 10pt bottom margin; this keeps the thread gap even.
         marginBottom: -10,
     },
+    actions: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 },
     turnEnd: {
         height: 8,
     },

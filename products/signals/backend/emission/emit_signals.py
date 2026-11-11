@@ -65,7 +65,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
 
 async def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:
     schema = await ExternalDataSchema.objects.prefetch_related("table", "source").aget(id=schema_id, team_id=team_id)
-    team = await Team.objects.aget(id=team_id)
+    team = await Team.objects.select_related("organization").aget(id=team_id)
     return schema, team
 
 

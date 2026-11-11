@@ -4,6 +4,7 @@ from .constants import (
     CrawlMode,
     EmbeddingStatus,
     GapStatus,
+    LearningBackfillStatus,
     LearningProvider,
     LearningRunResult,
     LearningRunStatus,
@@ -21,6 +22,7 @@ from .knowledge_library import KnowledgeLibrary
 from .knowledge_library_repository import KnowledgeLibraryRepository
 from .knowledge_library_source import KnowledgeLibrarySource
 from .knowledge_source import KnowledgeSource
+from .knowledge_usage_record import KnowledgeUsageKey, KnowledgeUsageRecord
 from .playground_chat import PlaygroundChat
 from .playground_turn import PlaygroundTurn
 from .team_business_knowledge_config import TeamBusinessKnowledgeConfig
@@ -39,6 +41,9 @@ __all__ = [
     "KnowledgeLibraryRepository",
     "KnowledgeLibrarySource",
     "KnowledgeSource",
+    "KnowledgeUsageKey",
+    "KnowledgeUsageRecord",
+    "LearningBackfillStatus",
     "LearningProvider",
     "PlaygroundChat",
     "PlaygroundTurn",

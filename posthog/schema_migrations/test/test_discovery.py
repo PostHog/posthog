@@ -77,7 +77,7 @@ def test_discover_migrations_recovers_after_failed_discovery():
 def test_frontend_latest_versions_file_in_sync():
     _discover_migrations()
 
-    path = Path(__file__).parents[3] / "frontend" / "src" / "queries" / "latest-versions.json"
+    path = Path(__file__).parents[3] / "frontend" / "src" / "queries" / "schema" / "latest-versions.json"
     committed = json.loads(path.read_text())
     committed.pop("//", None)
 
@@ -85,7 +85,7 @@ def test_frontend_latest_versions_file_in_sync():
     expected = json.loads(to_json(LATEST_VERSIONS))
 
     assert committed == expected, (
-        "frontend/src/queries/latest-versions.json is out of sync with posthog/schema_migrations. "
+        "frontend/src/queries/schema/latest-versions.json is out of sync with posthog/schema_migrations. "
         "Run `python bin/build-schema-latest-versions.py` (part of `pnpm run schema:build` / `hogli build:schema`) "
         "and commit the result."
     )

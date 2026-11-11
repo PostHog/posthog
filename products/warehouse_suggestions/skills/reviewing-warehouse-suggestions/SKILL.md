@@ -24,6 +24,16 @@ If the list is empty, call `warehouse-suggestions-status`: it says whether sugge
 Call `warehouse-suggestions-get` for a suggestion the user wants to discuss.
 Its `evidence` has the read counts behind it.
 
+### Suggestions on query responses
+
+A query that reads a view can return its open suggestions without a separate call.
+The `/query` response, `execute-sql` and the typed query tools carry them in `warehouse_suggestions`, on fresh runs only.
+A cached result has none. To see them again, call `warehouse-suggestions-list` with `status=proposed`, which runs no query.
+
+- Each item has `id`, `kind` (`materialize` or `unmaterialize`), `view_name`, `message`, `url` and `can_act`.
+- Mention them to the person. Do not accept or dismiss one unless the person asks.
+- To act on one, pass its `id` to `warehouse-suggestions-get`, then follow the steps below.
+
 ## 2. Explain it with its own numbers
 
 Tell the user what accepting does and what it costs, using the payload fields.
@@ -43,7 +53,10 @@ Do not invent a score or a confidence level.
   - Accepting stops the refreshes and deletes the stored table. The view definition stays, so it can be materialized again later.
   - A 409 on accept means the view changed since the suggestion was made, for example another view now reads from it. Explain the reason to the user and do not retry.
 - **certify**: many people read this view or table, from several places. Use the read counts in `evidence`.
-- **deprecate**: nobody reads this materialized view, but it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. Accepting marks it deprecated in the data catalog, stops its refreshes and deletes its stored table. The view definition stays, so it can be materialized again later. To keep it refreshing, pass `keep_materialized: true`. After accepting, `created_asset.stopped_materialization` says whether the refreshes stopped: they keep running when other views read from it or its refreshes feed person properties, a destination or a workflow.
+- **deprecate**: nobody read this view in the window.
+  - When `materialized` is true, it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. When `materialized` is false, it is a plain view and costs nothing to keep. It only adds clutter.
+  - Accepting marks it deprecated in the data catalog. For a materialized view, it also stops the refreshes and deletes the stored table. The view definition stays, so it can be materialized again later. To keep it refreshing, pass `keep_materialized: true`. After accepting, `created_asset.stopped_materialization` says whether the refreshes stopped: they keep running when other views read from it or its refreshes feed person properties, a destination or a workflow.
+  - To delete the view instead, pass `delete_view: true`. Ask the user first, because a deleted view cannot be restored. A 409 means another view now reads from it, or it now feeds person properties, account properties, a destination or a workflow, or it now reads a direct-connection source. Explain the reason to the user and do not retry. A 400 on `delete_view` means some days in the read window have no read data. Offer to mark it deprecated instead.
 
 ## 3. Change a materialize suggestion before accepting
 

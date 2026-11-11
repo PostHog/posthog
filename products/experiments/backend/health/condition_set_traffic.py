@@ -234,10 +234,10 @@ def _reads_exposure_copies(organization_id: UUID) -> bool:
 
 
 def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> ConditionSetTraffic | None:
-    launched_at = experiment.start_date
-    if launched_at is None or experiment.feature_flag.version is None:
+    start_date = experiment.start_date
+    if start_date is None or experiment.feature_flag.version is None:
         return None
-    cache_key = _cache_key(experiment, launched_at)
+    cache_key = _cache_key(experiment, start_date)
     hit, traffic = _cached(cache_key)
     if hit:
         return traffic
@@ -249,15 +249,15 @@ def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> C
     hit, traffic = _cached(cache_key)
     if hit:
         return traffic
-    return _scan(experiment, ctx, cache_key, launched_at)
+    return _scan(experiment, ctx, cache_key, start_date)
 
 
 def _scan(
-    experiment: Experiment, ctx: HealthContext, cache_key: str, launched_at: datetime
+    experiment: Experiment, ctx: HealthContext, cache_key: str, start_date: datetime
 ) -> ConditionSetTraffic | None:
     flag = experiment.feature_flag
     now = timezone.now()
-    window_start = max(launched_at, flag.updated_at or launched_at, now - TRAFFIC_WINDOW)
+    window_start = max(start_date, flag.updated_at or start_date, now - TRAFFIC_WINDOW)
     try:
         traffic = query_condition_set_traffic(experiment, window_start=window_start, window_end=now)
     except Exception as error:
@@ -289,13 +289,13 @@ def _wait_for_scan(cache_key: str) -> ConditionSetTraffic | None:
     return None
 
 
-def _cache_key(experiment: Experiment, launched_at: datetime) -> str:
+def _cache_key(experiment: Experiment, start_date: datetime) -> str:
     flag = experiment.feature_flag
     # Every input of the query except the end of the window, which moves with the clock.
     inputs = json.dumps(
         [
             _ANSWER_SHAPE,
-            launched_at.isoformat(),
+            start_date.isoformat(),
             flag.key,
             flag.version,
             flag.updated_at.isoformat() if flag.updated_at else None,

@@ -47,6 +47,7 @@ from django.db.models import Count
 
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
+    TeamUsageRows,
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
@@ -59,6 +60,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
+    get_teams_with_business_knowledge_usage_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
@@ -82,10 +84,12 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_replay_vision_observation_count_in_period,
+    get_teams_with_replay_vision_spend_projection,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
     get_teams_with_signals_credits_used_in_period,
+    get_teams_with_signals_spend_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
     get_teams_with_workflow_transactional_emails_sent_in_period,
@@ -229,6 +233,22 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
     }
 
 
+def _replay_vision_spend_projection(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    projection = get_teams_with_replay_vision_spend_projection(begin, end)
+    return {
+        "scanner_credits": projection.scanner_credits,
+        "backfill_credits": projection.backfill_credits,
+    }
+
+
+def _business_knowledge_usage(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    usage = get_teams_with_business_knowledge_usage_in_period(begin, end)
+    return {
+        "chunks": usage.chunks,
+        "queries": usage.queries,
+    }
+
+
 def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     usage = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
     return {
@@ -327,6 +347,7 @@ QUERIES: list[QuerySpec] = [
             "ruby_events": "teams_with_ruby_events_count_in_period",
             "python_events": "teams_with_python_events_count_in_period",
             "php_events": "teams_with_php_events_count_in_period",
+            "laravel_events": "teams_with_laravel_events_count_in_period",
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
@@ -383,6 +404,12 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_local_evaluation_requests_count_in_period",
         fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
+    ),
+    QuerySpec(
+        name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+        fn=lambda b, e: UsageCounterService().get_legacy(
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS, b, e
+        ),
     ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
@@ -521,6 +548,10 @@ QUERIES: list[QuerySpec] = [
         fn=get_teams_with_signals_credits_used_in_period,
     ),
     QuerySpec(
+        name="teams_with_signals_spend_credits_used_in_period",
+        fn=get_teams_with_signals_spend_credits_used_in_period,
+    ),
+    QuerySpec(
         name="teams_with_posthog_code_credits_used_in_period",
         fn=get_teams_with_posthog_code_credits_used_in_period,
     ),
@@ -543,6 +574,16 @@ QUERIES: list[QuerySpec] = [
             "credits": "teams_with_sandbox_compute_credits_used_in_period",
             "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
             "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+        },
+    ),
+    # ---- Postgres: business knowledge usage ledger --------------------------
+    QuerySpec(
+        name="business_knowledge_usage",
+        fn=_business_knowledge_usage,
+        output="multi",
+        multi_keys_mapping={
+            "chunks": "teams_with_business_knowledge_chunks_in_period",
+            "queries": "teams_with_business_knowledge_queries_in_period",
         },
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
@@ -731,6 +772,16 @@ QUERIES: list[QuerySpec] = [
         fn=_replay_vision_scanner_active_count,
         timeout_minutes=5,
         kind="snapshot",
+    ),
+    QuerySpec(
+        name="replay_vision_spend_projection",
+        fn=_replay_vision_spend_projection,
+        timeout_minutes=5,
+        output="multi",
+        multi_keys_mapping={
+            "scanner_credits": "teams_with_replay_vision_scanner_projected_credits",
+            "backfill_credits": "teams_with_replay_vision_backfill_committed_credits",
+        },
     ),
     QuerySpec(
         name="teams_with_issues_created_total",

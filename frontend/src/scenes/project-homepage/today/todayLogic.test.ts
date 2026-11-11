@@ -57,11 +57,9 @@ describe('todayLogic', () => {
     })
 
     it.each([
-        { status: 200, variant: 'test' },
-        { status: 500, variant: 'test' },
-        { status: 200, variant: 'control' },
-        { status: 200, variant: false },
-    ])('selects $variant ranking when the request returns $status', async ({ status, variant }) => {
+        { status: 200, mixed: true },
+        { status: 500, mixed: false },
+    ])('mixes frequent items into Jump back: $mixed when the request returns $status', async ({ status, mixed }) => {
         const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
             id,
             path: `Dashboards/${id}`,
@@ -69,12 +67,10 @@ describe('todayLogic', () => {
             ref: id,
         })
         frequentResponse = [status, status === 200 ? [entry('daily'), entry('weekly')] : {}]
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: variant })
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         recentItemsModel.actions.loadRecentsSuccess(['a', 'b', 'c', 'd'].map(entry))
-        const mixed = status === 200 && variant === 'test'
         expect(logic.values.recentObjects.map((item) => item.id)).toEqual(
             mixed ? ['a', 'b', 'daily', 'weekly', 'c', 'd'] : ['a', 'b', 'c', 'd']
         )
@@ -84,7 +80,6 @@ describe('todayLogic', () => {
             expect.objectContaining({
                 position: 3,
                 reason: mixed ? 'frequent' : 'recent',
-                ranking_variant: variant === 'test' ? 'test' : 'control',
             })
         )
     })
@@ -387,6 +382,31 @@ describe('todayLogic', () => {
         })
     })
 
+    it('asks for the personalized order with the personalized sort flag, and keeps its ranking for later pages', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+            [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+        })
+        listResponse = [200, { results: [makeReport({ id: 'a' })], count: 5, ranking_id: 'ranking-1' }]
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listParams!.get('sort')).toBe('personal')
+
+        listResponse = [200, { results: [makeReport({ id: 'b' })], count: 5, ranking_id: 'ranking-1' }]
+        await expectLogic(logic, () => {
+            logic.actions.loadMoreReports()
+        }).toDispatchActions(['loadMoreReportsSuccess'])
+        expect(Object.fromEntries(listParams!.entries())).toMatchObject({
+            sort: 'personal',
+            ranking_id: 'ranking-1',
+            exclude: 'a',
+        })
+        featureFlagLogic.actions.setFeatureFlags([], {})
+    })
+
     it('pages through the reports past the list without the ones it shows, and starts over when the list shows other reports', async () => {
         jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
         const page = (prefix: string, length: number): ReturnType<typeof makeReport>[] =>
@@ -473,6 +493,26 @@ describe('todayLogic', () => {
                 ...expected,
                 forYouRows: { rows: [expect.objectContaining({ kind: 'highlight', item })], limit: 1 },
             })
+    })
+
+    it('stops the For you loader when a poll fails before any rows arrive', async () => {
+        const pending = makeHighlights({ status: 'computing', generated_at: null, items: [], pulse: [] })
+        highlightResponses = [[200, pending]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.forYouReady).toBe(false)
+        expect(logic.values.forYouRows.rows).toEqual([])
+
+        highlightResponses = [[500, { detail: 'Request failed' }]]
+        await expectLogic(todayHighlightsLogic(), () => {
+            todayHighlightsLogic.actions.loadHighlights()
+        }).toDispatchActions(['loadHighlightsFailure'])
+
+        expect(todayHighlightsLogic.values.highlights).toEqual(pending)
+        expect(todayHighlightsLogic.values.highlightsPending).toBe(false)
+        expect(logic.values.forYouReady).toBe(true)
+        expect(logic.values.forYouFailedNote).toBe('Highlights didn’t load.')
     })
 
     it('remembers the report to focus and the home scroll only while the person stays on Today', async () => {

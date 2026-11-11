@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
+use personhog_coordination::types::ClusterEndpoint;
 
 use super::PersonCacheKey;
 
@@ -11,6 +12,7 @@ use super::PersonCacheKey;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stream {
     pub topic: Arc<str>,
+    pub cluster: Option<Arc<ClusterEndpoint>>,
     pub partition: u32,
 }
 
@@ -367,6 +369,7 @@ mod tests {
 
     fn stream(partition: u32) -> Stream {
         Stream {
+            cluster: None,
             topic: Arc::from("personhog_updates"),
             partition,
         }
@@ -603,6 +606,7 @@ mod tests {
     fn streams_under_one_partition_prune_apart_and_clear_together() {
         let index = DirtyIndex::new(1_000);
         let old = Stream {
+            cluster: None,
             topic: Arc::from("personhog_updates_old"),
             partition: 1,
         };
@@ -630,6 +634,7 @@ mod tests {
     #[test]
     fn pruning_a_stream_terminates_when_a_key_was_re_marked_on_a_newer_stream() {
         let old = Stream {
+            cluster: None,
             topic: Arc::from("personhog_updates_old"),
             partition: 0,
         };
@@ -667,6 +672,7 @@ mod tests {
     fn a_key_that_moved_home_survives_the_old_homes_clear_and_prune() {
         // Shrink 8 -> 4: old partition 5 and new partition 1 share keys.
         let old5 = Stream {
+            cluster: None,
             topic: Arc::from("personhog_updates_old"),
             partition: 5,
         };

@@ -1,4 +1,5 @@
 pub mod ai_endpoint;
+pub mod ai_event_limits;
 pub mod ai_rejection;
 pub mod api;
 pub mod config;

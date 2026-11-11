@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableRow, Text } from '@posthog/quill'
 
 import { DEFAULT_PAID_RESPONSE_TIME, getSupportPlanRows } from 'lib/components/Support/supportResponseTime'
 import { dayjs } from 'lib/dayjs'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 export function TodaySupportResponseTimes(): JSX.Element {

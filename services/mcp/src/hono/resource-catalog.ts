@@ -19,6 +19,7 @@ import {
     type ContextMillCacheResult,
     type SlimManifestEntry,
 } from './cache/ContextMillResourceCache'
+import type { OmnibusSkillsCache } from './cache/OmnibusSkillsCache'
 import type { RedisLike } from './cache/RedisCache'
 import {
     contextMillManifestEntries,
@@ -40,10 +41,13 @@ export class ResourceCatalog {
     private allResources: Resource[] = []
     private contextMillEntriesByUri = new Map<string, SlimManifestEntry>()
 
-    constructor(env: Env, redis: RedisLike) {
+    constructor(env: Env, redis: RedisLike, omnibusSkills?: OmnibusSkillsCache) {
         this.env = env
         const localUrl = this.contextMillLocalUrl()
-        this.contextMillCache = new ContextMillResourceCache(redis, localUrl ? { localUrl } : {})
+        this.contextMillCache = new ContextMillResourceCache(redis, {
+            ...(localUrl ? { localUrl } : {}),
+            ...(omnibusSkills ? { omnibusSkills } : {}),
+        })
     }
 
     get contextMillEntries(): readonly SlimManifestEntry[] {

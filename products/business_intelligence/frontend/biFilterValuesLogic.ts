@@ -15,11 +15,11 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { uuid } from 'lib/utils/dom'
+import { escapeHogQLString } from 'lib/utils/hogql'
 
 import { performQuery } from '~/queries/query'
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { HogQLQuery } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 
 import { captureBIWorksheetAction } from './biEditorAnalytics'
 

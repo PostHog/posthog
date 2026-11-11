@@ -1,4 +1,8 @@
+import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { objectsEqual } from 'lib/utils/objects'
+
 import {
+    AnyPropertyFilter,
     FeatureFlagRulesV2DraftConfig,
     FeatureFlagRulesV2DraftExperimentRule,
     FeatureFlagRulesV2DraftHoldout,
@@ -6,6 +10,7 @@ import {
     FeatureFlagRulesV2ReturnType,
     FeatureFlagRulesV2Variant,
     JsonType,
+    PropertyOperator,
 } from '~/types'
 
 import { isRulesV2Value } from 'products/feature_flags/frontend/featureFlagConfigFormat'
@@ -22,21 +27,58 @@ export function moved<T>(items: T[], from: number, to: number): T[] {
     return result
 }
 
-/** The value a new rule starts with. A string has no sensible default, so the user must enter one. */
+export function insertedAfter<T>(items: T[], index: number, item: T): T[] {
+    return [...items.slice(0, index + 1), item, ...items.slice(index + 1)]
+}
+
+/**
+ * A condition with no value: the server accepts it, but it never matches. Set and not-set conditions take no value,
+ * so they are complete.
+ */
+export function isIncompleteRulesV2Condition(property: AnyPropertyFilter): boolean {
+    return (
+        isEmptyProperty(property) &&
+        !(
+            isPropertyFilterWithOperator(property) &&
+            [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(property.operator)
+        )
+    )
+}
+
+/** The value a new rule starts with. A string or number has no sensible default, so the user must enter one. */
 export function rulesV2InitialValue(returnType: FeatureFlagRulesV2ReturnType): JsonType {
-    return returnType === 'boolean' ? true : ''
+    switch (returnType) {
+        case 'boolean':
+            return true
+        case 'number':
+            return null
+        case 'object':
+            return {}
+        default:
+            return ''
+    }
 }
 
 export function rulesV2InitialDefault(returnType: FeatureFlagRulesV2ReturnType): JsonType | null {
     return returnType === 'boolean' ? false : null
 }
 
-// A boolean experiment rule starts as control false and test true; a string variant serves its own key.
+// A boolean experiment rule starts as control false and test true, a number one as 0 and 1; a string variant
+// serves its own key.
 function initialVariantValue(returnType: FeatureFlagRulesV2ReturnType, key: string, index: number): JsonType {
-    return returnType === 'boolean' ? index > 0 : key
+    switch (returnType) {
+        case 'boolean':
+            return index > 0
+        case 'number':
+            return index
+        case 'string':
+            return key
+        default:
+            return rulesV2InitialValue(returnType)
+    }
 }
 
-export const NEW_TARGETED_RELEASE_RULE: FeatureFlagRulesV2DraftRule = {
+export const NEW_TARGETED_RELEASE_RULE: Extract<FeatureFlagRulesV2DraftRule, { rule_type: 'targeted_release' }> = {
     rule_type: 'targeted_release',
     targeting: { properties: [] },
     value: true,
@@ -51,6 +93,13 @@ const NEW_ROLLOUT_FIELDS = {
 } as const
 
 const NEW_EXPERIMENT_ROLLOUT_FIELDS = { ...NEW_ROLLOUT_FIELDS, rollout_percentage: 100 } as const
+
+export function newRulesV2Rule(
+    ruleType: FeatureFlagRulesV2DraftRule['rule_type'],
+    returnType: FeatureFlagRulesV2ReturnType
+): FeatureFlagRulesV2DraftRule {
+    return withRuleType({ ...NEW_TARGETED_RELEASE_RULE, value: rulesV2InitialValue(returnType) }, ruleType, returnType)
+}
 
 /**
  * Keeps the rule's identity and shared fields; type-specific fields come and go with the type. A rollout keeps its
@@ -97,6 +146,22 @@ export function withRuleType(
     }
 }
 
+/**
+ * A copy to insert after the original. It has no id, so the server treats it as a new rule, and no seeds, so its users
+ * are assigned independently of the original's.
+ */
+export function duplicatedRule(rule: FeatureFlagRulesV2DraftRule): FeatureFlagRulesV2DraftRule {
+    const { id: _id, ...copy } = rule
+    if (copy.rule_type === 'targeted_release') {
+        return copy
+    }
+    const { seed: _seed, ...withoutSeed } = copy
+    if (withoutSeed.rule_type === 'experiment' && withoutSeed.holdout) {
+        return { ...withoutSeed, holdout: { exclusion_percentage: withoutSeed.holdout.exclusion_percentage } }
+    }
+    return withoutSeed
+}
+
 export const NEW_HOLDOUT: FeatureFlagRulesV2DraftHoldout = { exclusion_percentage: 10 }
 
 export function newVariant(returnType: FeatureFlagRulesV2ReturnType, index: number): FeatureFlagRulesV2Variant {
@@ -111,6 +176,11 @@ export function withVariantKey(
 ): FeatureFlagRulesV2Variant {
     const followsKey = returnType === 'string' && variant.value === variant.key
     return { ...variant, key, ...(followsKey ? { value: key } : {}) }
+}
+
+/** The variants' total weight. Two decimals each, so a total in hundredths is exact where a float sum is not. */
+export function rulesV2VariantWeightTotal(variants: FeatureFlagRulesV2Variant[]): number {
+    return variants.reduce((sum, variant) => sum + Math.round(variant.weight * 100), 0) / 100
 }
 
 /** Equal weights in hundredths; the first variants absorb the remainder, so the total is exactly 100. */
@@ -160,7 +230,18 @@ function valueError(value: unknown, returnType: FeatureFlagRulesV2ReturnType): s
     if (isRulesV2Value(value, returnType)) {
         return null
     }
-    return returnType === 'boolean' ? 'Must be true or false.' : 'Enter a value.'
+    switch (returnType) {
+        case 'boolean':
+            return 'Must be true or false.'
+        case 'number':
+            return typeof value === 'number' && Number.isFinite(value)
+                ? `Must be between -${Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`
+                : 'Enter a number.'
+        case 'object':
+            return 'Enter a valid JSON object.'
+        default:
+            return 'Enter a value.'
+    }
 }
 
 function variantKeyError(key: string, seen: Set<string>): string | null {
@@ -190,8 +271,7 @@ function experimentErrors(
         addError(errors, `${variantPath}.weight`, weightError)
         addError(errors, `${variantPath}.value`, valueError(variant.value, returnType))
     })
-    // Two decimals each, so a total in hundredths is exact where a float sum is not.
-    const total = rule.variants.reduce((sum, variant) => sum + Math.round(variant.weight * 100), 0)
+    const total = rulesV2VariantWeightTotal(rule.variants)
     addError(
         errors,
         `${path}.variants`,
@@ -199,8 +279,8 @@ function experimentErrors(
             ? `Add at least ${MIN_VARIANTS} variants.`
             : rule.variants.length > MAX_VARIANTS
               ? `At most ${MAX_VARIANTS} variants are allowed.`
-              : weightsValid && total !== 10000
-                ? `Variant weights must total 100% (now ${total / 100}%).`
+              : weightsValid && total !== 100
+                ? `Variant weights must total 100% (now ${total}%).`
                 : null
     )
     if (rule.holdout) {
@@ -232,5 +312,48 @@ export function rulesV2DraftErrors(config: FeatureFlagRulesV2DraftConfig): Recor
             experimentErrors(rule, path, config.return_type, errors)
         }
     })
+    if (config.default_value !== null || config.return_type === 'boolean') {
+        addError(errors, 'filters.default_value', valueError(config.default_value, config.return_type))
+    }
     return errors
+}
+
+type RulesV2ReachabilityRule = Pick<FeatureFlagRulesV2DraftRule, 'rule_type' | 'targeting'> &
+    Partial<{ rollout_percentage: number; on_rollout_miss: 'continue' | 'return_default'; paused: boolean }>
+
+/** Whether every user a rule matches leaves it with a value, so later rules never see them. */
+function claimsEveryMatch(rule: RulesV2ReachabilityRule): boolean {
+    if (rule.rule_type === 'targeted_release' || (rule.rule_type === 'experiment' && rule.paused)) {
+        return true
+    }
+    return (rule.rollout_percentage ?? 0) >= 100 || rule.on_rollout_miss === 'return_default'
+}
+
+/** Whether `earlier` matches every user `later` matches: its conditions are a subset of the later rule's. */
+function matchesEveryoneOf(earlier: RulesV2ReachabilityRule, later: RulesV2ReachabilityRule): boolean {
+    return earlier.targeting.properties.every((property) =>
+        later.targeting.properties.some((candidate) => objectsEqual(property, candidate))
+    )
+}
+
+/**
+ * For each rule, the index of an earlier rule that claims every user it matches, or null when the rule can serve
+ * someone. It only spots shadowing it can prove from the conditions; overlapping conditions are not compared.
+ */
+export function rulesV2ShadowingRules(rules: RulesV2ReachabilityRule[]): (number | null)[] {
+    const claims = rules.map(
+        (rule) => claimsEveryMatch(rule) && !rule.targeting.properties.some(isIncompleteRulesV2Condition)
+    )
+    return rules.map((rule, index) => {
+        const shadowing = rules.findIndex(
+            (earlier, earlierIndex) => earlierIndex < index && claims[earlierIndex] && matchesEveryoneOf(earlier, rule)
+        )
+        return shadowing >= 0 ? shadowing : null
+    })
+}
+
+/** The first rule that claims every user, after which no one falls through to the default step; null if none does. */
+export function rulesV2CatchAllRule(rules: RulesV2ReachabilityRule[]): number | null {
+    const index = rules.findIndex((rule) => claimsEveryMatch(rule) && rule.targeting.properties.length === 0)
+    return index >= 0 ? index : null
 }

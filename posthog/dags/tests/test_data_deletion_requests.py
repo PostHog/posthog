@@ -92,7 +92,12 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TTL_DAYS,
 )
-from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
+from posthog.models.person.bulk_delete import (
+    DeletionRun,
+    PersonDeletionFailure,
+    PersonDeletionStep,
+    PersonProfileDeletionResult,
+)
 from posthog.test.persons import create_person
 
 TEAM_ID = 99999
@@ -801,7 +806,7 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-def test_verify_queued_request_promotes_when_events_gone():
+def test_verify_queued_request_promotes_when_events_gone(cluster: ClickhouseCluster):
     from posthog.models.data_deletion_request import verify_queued_request
 
     now = datetime.now()
@@ -3285,10 +3290,13 @@ def test_delete_person_profiles_op_calls_helper_when_enabled():
         drop_events=False,
         drop_recordings=False,
     )
+    op_context = build_op_context()
     with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
         deleter.return_value = PersonProfileDeletionResult(deleted_count=1)
-        delete_person_profiles_op(build_op_context(), ctx)
+        delete_person_profiles_op(op_context, ctx)
         deleter.assert_called_once()
+        # The Dagster run id keeps a retried run on the saga op it started.
+        assert deleter.call_args.kwargs["run"] == DeletionRun(run_id=op_context.run_id)
 
 
 @pytest.mark.django_db
@@ -3447,6 +3455,33 @@ def test_pickup_sensor_routes_person_removal_request():
     assert result.job_name == "data_deletion_request_person_removal"
     assert "load_person_removal_request" in result.run_config["ops"]
     assert result.run_key == f"{request.pk}:{request.attempt_count}"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("older_created_by_staff", [False, None])
+def test_pickup_sensor_launches_staff_request_before_older_non_staff_request(older_created_by_staff):
+    def approved_request(created_by_staff: bool | None, approved_at: datetime) -> DataDeletionRequest:
+        return DataDeletionRequest.objects.create(
+            team_id=TEAM_ID,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=approved_at - timedelta(days=7),
+            end_time=approved_at,
+            status=RequestStatus.APPROVED,
+            approved_at=approved_at,
+            created_by_staff=created_by_staff,
+        )
+
+    now = timezone.now()
+    approved_request(older_created_by_staff, now - timedelta(days=2))
+    staff_request = approved_request(True, now - timedelta(hours=1))
+
+    result = data_deletion_request_pickup_sensor(
+        dagster.build_sensor_context(instance=dagster.DagsterInstance.ephemeral())
+    )
+
+    assert isinstance(result, dagster.RunRequest)
+    assert result.tags["deletion_request_id"] == str(staff_request.pk)
 
 
 @pytest.mark.django_db

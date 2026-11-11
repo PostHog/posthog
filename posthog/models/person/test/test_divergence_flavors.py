@@ -11,6 +11,7 @@ from posthog.models.person.divergence.flavors import (
     Verdict,
     classify_mapping,
     classify_person,
+    owner_ch_state,
 )
 
 
@@ -132,13 +133,16 @@ def _pg_map(
     )
 
 
-def _ch_map(*, owner: str = "b", version: int = 0, deleted: bool = False, visible_rows: int = 1) -> ChMapping:
+def _ch_map(
+    *, owner: str = "b", version: int = 0, deleted: bool = False, visible_rows: int = 1, tied: bool = False
+) -> ChMapping:
     return ChMapping(
         max_version=version,
         visible_rows=visible_rows,
         winner_person_uuid=owner,
         winner_version=version,
         winner_deleted=deleted,
+        winner_tied=tied,
     )
 
 
@@ -172,18 +176,11 @@ class TestClassifyMapping(SimpleTestCase):
                 _v("ok_deleted", None, None),
             ),
             (
-                "stray_on_deleted_person",
-                _pg_map(owner_deleted=True),
-                _ch_map(),
-                None,
-                _v("stray", None, None),
-            ),
-            (
                 "orphan_with_ch_on_another_person",
                 _pg_map(owner=None, owner_deleted=None),
                 _ch_map(owner="a"),
                 "absent",
-                _v("stray", None, None),
+                _v("stray", "orphan", None),
             ),
             ("live_missing_in_ch", _pg_map(), None, None, _v("missing_in_ch", None, "republish")),
             ("live_and_swept", _pg_map(), _ch_map(visible_rows=0), None, _v("missing_in_ch", None, "republish")),
@@ -210,6 +207,133 @@ class TestClassifyMapping(SimpleTestCase):
     )
     def test_classifies(self, _name, pg, ch, owner_state, expected):
         assert classify_mapping(pg, ch, ch_owner_pg_state=owner_state) == expected
+
+    @parameterized.expand(
+        [
+            # (name, Postgres mapping, ClickHouse mapping, owner's ClickHouse state, expected)
+            ("stray_nothing_in_ch", _pg_map(owner_deleted=True), None, None, _v("stray", None, "detach")),
+            (
+                "stray_ch_rows_all_lightweight_deleted",
+                _pg_map(owner_deleted=True),
+                _ch_map(visible_rows=0),
+                None,
+                _v("stray", None, "detach"),
+            ),
+            (
+                "stray_live_on_pending_owner",
+                _pg_map(owner_deleted=True),
+                _ch_map(),
+                "pending",
+                _v("stray", None, "detach"),
+            ),
+            (
+                "stray_tombstone_naming_pending_owner",
+                _pg_map(owner_deleted=True),
+                _ch_map(deleted=True),
+                "pending",
+                _v("stray", None, "detach"),
+            ),
+            (
+                "stray_owner_visible",
+                _pg_map(owner_deleted=True),
+                _ch_map(),
+                "visible",
+                _v("stray", "owner_visible", None),
+            ),
+            (
+                "stray_rows_outlive_owner",
+                _pg_map(owner_deleted=True),
+                _ch_map(),
+                "absent",
+                _v("stray", "rows_outlive_owner", None),
+            ),
+            (
+                "stray_live_on_another_person",
+                _pg_map(owner_deleted=True),
+                _ch_map(owner="a"),
+                "pending",
+                _v("stray", "ch_owner_differs", None),
+            ),
+            (
+                "stray_tombstone_naming_another_person",
+                _pg_map(owner_deleted=True),
+                _ch_map(owner="a", deleted=True),
+                "pending",
+                _v("stray", "ch_owner_differs", None),
+            ),
+            (
+                "stray_owner_unchecked",
+                _pg_map(owner_deleted=True),
+                _ch_map(),
+                None,
+                _v("stray", "owner_unchecked", None),
+            ),
+            (
+                "stray_ch_top_version_tied",
+                _pg_map(owner_deleted=True),
+                _ch_map(tied=True),
+                "pending",
+                _v("stray", "ch_tie", None),
+            ),
+            (
+                "tombstoned_on_pending_owner_awaits_the_sweep",
+                _pg_map(version=6, deleted=True, owner_deleted=True),
+                _ch_map(version=5),
+                "pending",
+                _v("awaiting_sweep", None, None),
+            ),
+            (
+                "tombstoned_not_above_clickhouse_is_buried",
+                _pg_map(version=5, deleted=True, owner_deleted=True),
+                _ch_map(version=5),
+                "pending",
+                _v("deleted_visible", None, "bury"),
+            ),
+            (
+                "tombstoned_with_tied_clickhouse_rows_is_buried",
+                _pg_map(version=6, deleted=True, owner_deleted=True),
+                _ch_map(version=5, tied=True),
+                "pending",
+                _v("deleted_visible", None, "bury"),
+            ),
+            (
+                "tombstoned_on_visible_owner_is_buried",
+                _pg_map(version=6, deleted=True, owner_deleted=True),
+                _ch_map(version=5),
+                "visible",
+                _v("deleted_visible", None, "bury"),
+            ),
+            (
+                "tombstoned_on_live_owner_is_buried",
+                _pg_map(deleted=True),
+                _ch_map(),
+                None,
+                _v("deleted_visible", None, "bury"),
+            ),
+            (
+                "tombstoned_ch_names_another_person_is_buried",
+                _pg_map(deleted=True, owner_deleted=True),
+                _ch_map(owner="a"),
+                "pending",
+                _v("deleted_visible", None, "bury"),
+            ),
+        ]
+    )
+    def test_classifies_by_where_the_owner_stands_in_clickhouse(self, _name, pg, ch, owner_ch, expected):
+        assert classify_mapping(pg, ch, owner_ch=owner_ch) == expected
+
+    @parameterized.expand(
+        [
+            ("no_rows", None, "absent"),
+            ("only_lightweight_deleted_rows", _ch(tomb=4, visible_rows=0), "absent"),
+            ("tombstone_newest", _ch(live=3, tomb=4), "pending"),
+            ("only_a_tombstone", _ch(tomb=2), "pending"),
+            ("live_newest", _ch(live=5, tomb=4), "visible"),
+            ("live_and_tombstone_tie", _ch(live=4, tomb=4), "visible"),
+        ]
+    )
+    def test_owner_ch_state_follows_the_sweeps_rule(self, _name, state, expected):
+        assert owner_ch_state(state) == expected
 
     def test_ghost_of_a_deleted_team_is_left_alone(self):
         assert classify_mapping(None, _ch_map(owner="a"), ch_owner_pg_state="absent", team_exists=False) == _v(

@@ -282,6 +282,16 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         blank=True,
         help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
     )
+    filter_error = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.",
+    )
+    filter_error_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the filter error was recorded. Sweeps skip the scanner until it is a few hours old, then try the filter again.",
+    )
 
     # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
     # built-in scan's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
@@ -427,6 +437,8 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
         "estimate_attempted_at",
+        "filter_error",
+        "filter_error_at",
         "last_swept_at",
         "last_seen_session_id",
         "deep_swept_through",
@@ -485,7 +497,12 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                         # A config edit must not wait out a backoff the old config earned.
                         self.estimated_at = None
                         self.estimate_attempted_at = None
-                        extra_fields.extend(["estimated_at", "estimate_attempted_at"])
+                        # The filter changed, so the old filter's error no longer applies.
+                        self.filter_error = None
+                        self.filter_error_at = None
+                        extra_fields.extend(
+                            ["estimated_at", "estimate_attempted_at", "filter_error", "filter_error_at"]
+                        )
                     if track_enabled and not old.enabled and self.enabled:
                         # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
                         self.last_swept_at = initial_watermark()

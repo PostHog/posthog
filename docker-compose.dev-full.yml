@@ -199,6 +199,9 @@ services:
         depends_on:
             - redis7
             - db
+        environment:
+            # Answer /flags?v=4 with the v4 response, as production does
+            FLAGS_V4_RESPONSE_ENABLED: 'true'
 
     hypercache-server:
         extends:

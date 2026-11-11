@@ -1,10 +1,10 @@
 import { combineUrl } from 'kea-router'
 
+import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { BaseMathType, PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { CohortFiltersApi, PersonFilterApi } from 'products/cohorts/frontend/generated/api.schemas'

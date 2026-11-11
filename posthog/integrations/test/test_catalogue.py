@@ -146,6 +146,7 @@ SDK_FILES = (
     "enums.py",
     "kinds_generated.py",
     "manager.py",
+    "observability.py",
     "source_kinds.py",
     "usages.py",
 )

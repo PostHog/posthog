@@ -1,6 +1,9 @@
 import json
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 
 import pydantic
 from rest_framework import serializers
@@ -12,7 +15,16 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.facade.constants import (
+    HARNESS_LABELS,
+    MARKED_CLIENT_NAMES,
+    MAX_CUSTOM_HARNESSES,
+    UNIDENTIFIED_HARNESS_LABEL,
+)
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 _PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
     list[AnyPropertyFilterDiscriminated]
@@ -201,6 +213,43 @@ class MCPToolCallSerializer(serializers.Serializer):
     duration_ms = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="Duration of the tool call in milliseconds when captured."
     )
+    parameters = serializers.CharField(
+        read_only=True,
+        help_text="Arguments the client passed ($mcp_parameters) as JSON text, exactly as the SDK captured them after its redaction. Empty when not captured.",
+    )
+    response = serializers.CharField(
+        read_only=True,
+        help_text="Result the MCP server returned ($mcp_response) as JSON text, exactly as the SDK captured it after its redaction and truncation. Empty when not captured.",
+    )
+    error_type = serializers.CharField(
+        read_only=True,
+        help_text="Error category ($mcp_error_type) when the SDK classified the failure, otherwise empty.",
+    )
+    error_status = serializers.CharField(
+        read_only=True, help_text="HTTP status ($mcp_error_status) when the failure carried one, otherwise empty."
+    )
+    exec_verb = serializers.CharField(
+        read_only=True,
+        help_text="Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls.",
+    )
+    exec_target_tool = serializers.CharField(
+        read_only=True,
+        help_text="Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none.",
+    )
+    input_keys = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Argument names the client sent ($mcp_input_keys), without values. Empty when not captured.",
+    )
+    error_code = serializers.CharField(
+        read_only=True, help_text="Specific failure code ($mcp_error_code) when the server set one, otherwise empty."
+    )
+    error_field = serializers.CharField(
+        read_only=True, help_text="Argument the failure points at ($mcp_error_field), otherwise empty."
+    )
+    llm_model = serializers.CharField(
+        read_only=True, help_text="Model that made the call ($mcp_llm_model), otherwise empty."
+    )
 
 
 class MCPSessionListQuerySerializer(serializers.Serializer):
@@ -295,6 +344,13 @@ class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
         help_text=(
             "Absolute ISO timestamp lower bound for the event scan — pass the session's start so "
             "older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    )
+    date_to = LenientDateTimeField(
+        required=False,
+        help_text=(
+            "Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops "
+            "there instead of reading up to now. Unbounded when omitted or unparseable."
         ),
     )
     properties = PropertyFiltersField(
@@ -512,6 +568,11 @@ class MCPActivityOverviewQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
+    )
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.",
     )
 
 
@@ -858,3 +919,83 @@ class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializ
         default=True,
         help_text="Whether the missing capability blocked the user's progress.",
     )
+
+
+DUPLICATE_MATCH_PATTERN_ERROR = "A custom harness already uses this pattern."
+_BUILT_IN_HARNESS_LABELS = frozenset(
+    label.lower() for label in (*HARNESS_LABELS, *MARKED_CLIENT_NAMES, UNIDENTIFIED_HARNESS_LABEL)
+)
+
+
+class MCPCustomHarnessSerializer(serializers.ModelSerializer):
+    match_pattern = serializers.CharField(
+        max_length=100,
+        help_text=(
+            "Text to look for in the client name or User-Agent product that the harness reports. "
+            "Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`."
+        ),
+    )
+
+    class Meta:
+        model = MCPCustomHarness
+        fields = ["id", "name", "match_pattern", "icon", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "name": {"help_text": "Name to show for calls from this harness."},
+            "icon": {
+                "help_text": (
+                    "Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image "
+                    "with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows "
+                    "in one color, like the built-in harness logos. An empty string means no icon."
+                )
+            },
+        }
+
+    def _other_team_harnesses(self) -> "QuerySet[MCPCustomHarness]":
+        others = MCPCustomHarness.objects.for_team(self.context["get_team"]().id)
+        return others.exclude(pk=self.instance.pk) if self.instance is not None else others
+
+    def validate_name(self, value: str) -> str:
+        name = value.strip()
+        if self.instance is not None and name == self.instance.name:
+            return name
+        # The dashboard shows its own logo for a built-in label, so a team rule with that name would lose its icon.
+        if name.lower() in _BUILT_IN_HARNESS_LABELS:
+            raise serializers.ValidationError(f"{name} is a built-in label. Choose another name.")
+        # The dashboard finds a harness icon by name, so two rules with one name would share one icon.
+        if self._other_team_harnesses().filter(name__iexact=name).exists():
+            raise serializers.ValidationError("Another custom harness already uses this name.")
+        return name
+
+    def validate_match_pattern(self, value: str) -> str:
+        pattern = value.strip().lower()
+        try:
+            MCPCustomHarness._meta.get_field("match_pattern").run_validators(pattern)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages)
+        return pattern
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        others = self._other_team_harnesses()
+        if "match_pattern" in attrs and others.filter(match_pattern=attrs["match_pattern"]).exists():
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
+        if self.instance is None and others.count() >= MAX_CUSTOM_HARNESSES:
+            raise serializers.ValidationError(f"A project can have at most {MAX_CUSTOM_HARNESSES} custom harnesses.")
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> MCPCustomHarness:
+        # validate() already checked for a duplicate pattern, but a concurrent request can still
+        # win the race and insert first. The atomic block keeps the IntegrityError from poisoning
+        # an outer transaction, so the view can still return a normal 400.
+        try:
+            with transaction.atomic():
+                return MCPCustomHarness.objects.create(team_id=self.context["get_team"]().id, **validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
+
+    def update(self, instance: MCPCustomHarness, validated_data: dict[str, Any]) -> MCPCustomHarness:
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})

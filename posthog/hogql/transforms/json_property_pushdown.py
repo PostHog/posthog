@@ -1,6 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField
+from posthog.hogql.database.schema.events_with_flag_calls import union_table_of
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 # JSON-string extraction calls that are equivalent to a HogQL string property access.
@@ -35,6 +36,11 @@ def _matched_property_access(node: ast.AST, context: HogQLContext):
     while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
         table_type = table_type.table_type
     if not isinstance(table_type, (ast.LazyTableType, ast.LazyJoinType)):
+        return None
+    # On the union, property access applies event property types and decodes escapes unlike JSONExtractString. The
+    # union also validated its reads before this rewrite. A join to events keeps the rewrite, because its whole-field
+    # reads of `properties` and `person.properties` share one export name.
+    if union_table_of(table_type) is not None:
         return None
 
     if not isinstance(field_type.resolve_database_field(context), StringJSONDatabaseField):
