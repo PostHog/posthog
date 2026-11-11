@@ -242,7 +242,7 @@
         "feature": "customer_analytics",
         "summary": "List account notes across accounts",
         "title": "List account notes across accounts",
-        "required_scopes": ["account:read"],
+        "required_scopes": ["account_note:read"],
         "api_operations": ["GET /api/projects/{project_id}/account_notes/"],
         "annotations": {
             "destructiveHint": false,
@@ -429,12 +429,12 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-create": {
-        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of tag names, shared with account tags) to tag the note at creation time.",
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of tag names, shared with account tags) to tag the note at creation time. A note a scout writes is also tagged `scout` and `scout-<skill name>` by the server, so pass only topic tags.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account notebook",
         "title": "Create account notebook",
-        "required_scopes": ["account:write"],
+        "required_scopes": ["account_note:write"],
         "api_operations": ["POST /api/projects/{project_id}/accounts/{account_id}/notebooks/"],
         "annotations": {
             "destructiveHint": false,
@@ -450,7 +450,7 @@
         "feature": "customer_analytics",
         "summary": "Delete account notebook",
         "title": "Delete account notebook",
-        "required_scopes": ["account:write"],
+        "required_scopes": ["account_note:write"],
         "api_operations": ["DELETE /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
         "annotations": {
             "destructiveHint": true,
@@ -466,7 +466,7 @@
         "feature": "customer_analytics",
         "summary": "List account notebooks",
         "title": "List account notebooks",
-        "required_scopes": ["account:read"],
+        "required_scopes": ["account_note:read"],
         "api_operations": ["GET /api/projects/{project_id}/accounts/{account_id}/notebooks/"],
         "annotations": {
             "destructiveHint": false,
@@ -482,7 +482,7 @@
         "feature": "customer_analytics",
         "summary": "Update account notebook tags",
         "title": "Update account notebook tags",
-        "required_scopes": ["account:write"],
+        "required_scopes": ["account_note:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -498,7 +498,7 @@
         "feature": "customer_analytics",
         "summary": "Get account notebook",
         "title": "Get account notebook",
-        "required_scopes": ["account:read"],
+        "required_scopes": ["account_note:read"],
         "api_operations": ["GET /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
         "annotations": {
             "destructiveHint": false,
