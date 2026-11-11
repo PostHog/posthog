@@ -2,6 +2,8 @@
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import { Pool } from 'pg'
@@ -12,7 +14,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
-import { APP_METRICS_OUTPUT } from '~/common/outputs'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -3228,10 +3230,18 @@ describe('CDP API', () => {
             const scheduledTime = async (id: string): Promise<string> =>
                 new Date((await storedJob(id)).scheduled).toISOString()
 
-            const appMetricRows = (queueMessages: jest.SpyInstance) =>
-                queueMessages.mock.calls
-                    .filter(([output]) => output === APP_METRICS_OUTPUT)
-                    .flatMap(([, messages]) => messages.map((m: { value: Buffer }) => parseJSON(m.value.toString())))
+            const observeKafka = (): (() => Record<string, any>[]) => {
+                const outputs = api['emailStatusService']['outputs']['outputs'] as unknown as Record<
+                    string,
+                    { producer: KafkaProducerWrapper }
+                >
+                const observers = [...new Set(Object.values(outputs).map((output) => output.producer))].map(
+                    (producer) => new KafkaProducerObserver(producer)
+                )
+                observers.forEach((observer) => observer.resetKafkaProducer())
+                return () =>
+                    observers.flatMap((observer) => observer.getProducedKafkaMessages().map((message) => message.value))
+            }
 
             beforeEach(async () => {
                 await useRealQueue()
@@ -3245,15 +3255,14 @@ describe('CDP API', () => {
                 ['loads', true],
                 ['fails to load', false],
             ])(
-                'cancels a scheduled send before a worker claims it, and counts the run once, when its workflow %s',
+                'cancels a moved send before a worker claims it, and counts the run once, when its workflow %s',
                 async (_desc, flowLoads) => {
-                    const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
-                    const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockResolvedValue(undefined)
-                    const queueMessages = jest.spyOn(api['emailStatusService']['outputs'], 'queueMessages')
+                    const producedToKafka = observeKafka()
                     const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
                     hub.HOG_INVOCATION_RESULTS_ENABLED = true
                     try {
                         const messageId = await scheduleSend()
+                        expect((await manage('reschedule', messageId, { scheduled_at: inDays(5) })).status).toEqual(200)
                         if (!flowLoads) {
                             jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockRejectedValue(
                                 new Error('database unavailable')
@@ -3270,26 +3279,28 @@ describe('CDP API', () => {
                         expect((await storedJob(messageId)).status).toEqual('canceled')
                         expect(await idsAnEmailWorkerClaims()).toEqual([])
                         const versioned = versionedAppSourceId(hogFlow.id, hogFlow.version)
-                        expect(
-                            appMetricRows(queueMessages)
-                                .filter((row) => row.metric_name === 'canceled' || row.metric_name === 'triggered')
-                                .map((row) => [row.app_source, row.app_source_id, row.metric_name, row.count])
-                                .sort()
-                        ).toEqual(
-                            [
-                                ['hog_flow', hogFlow.id, 'canceled', 1],
-                                ['hog_flow', hogFlow.id, 'triggered', 1],
-                                ...(flowLoads
-                                    ? [
-                                          [HOG_FLOW_VERSION_APP_SOURCE, versioned, 'canceled', 1],
-                                          [HOG_FLOW_VERSION_APP_SOURCE, versioned, 'triggered', 1],
-                                      ]
-                                    : []),
-                            ].sort()
+                        await waitForExpect(() =>
+                            expect(
+                                producedToKafka()
+                                    .filter((row) => row.metric_name === 'canceled' || row.metric_name === 'triggered')
+                                    .map((row) => [row.app_source, row.app_source_id, row.metric_name, row.count])
+                                    .sort()
+                            ).toEqual(
+                                [
+                                    ['hog_flow', hogFlow.id, 'canceled', 1],
+                                    ['hog_flow', hogFlow.id, 'triggered', 1],
+                                    ...(flowLoads
+                                        ? [
+                                              [HOG_FLOW_VERSION_APP_SOURCE, versioned, 'canceled', 1],
+                                              [HOG_FLOW_VERSION_APP_SOURCE, versioned, 'triggered', 1],
+                                          ]
+                                        : []),
+                                ].sort()
+                            )
                         )
-                        const lifecycleRows = produceResultRow.mock.calls
-                            .filter(([output]) => output === 'hog_invocation_results')
-                            .map(([, message]) => parseJSON(message.value!.toString()))
+                        const lifecycleRows = producedToKafka().filter(
+                            (row) => row.function_kind && row.invocation_id === messageId
+                        )
                         const scheduledAt = lifecycleRows[0].scheduled_at
                         expect(lifecycleRows).toEqual(
                             ['running', 'canceled'].map((status) =>
@@ -3303,6 +3314,7 @@ describe('CDP API', () => {
                             )
                         )
                         expect(emailStatusRows()).toEqual([
+                            expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
                             expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
                             expect.objectContaining({
                                 message_id: messageId,
@@ -3352,6 +3364,34 @@ describe('CDP API', () => {
                         scheduled_at: toClickHouseTime(new Date(scheduledAt)),
                     })
                 )
+            })
+
+            it('replays a retry of the first request until a day after the latest time the send can be moved to', async () => {
+                const keys = api['transactionalEmailIdempotencyKeys']
+                const scope = `scope-${new UUIDT().toString()}`
+                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(keys['valkey'], scope)
+                try {
+                    const request = { ...body, scheduled_at: inDays(1), idempotency_key: `key-${scope}` }
+                    const sendFirstRequest = () =>
+                        send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, request)
+                    const first = await sendFirstRequest()
+                    const moved = await manage('reschedule', first.body.invocation_id, { scheduled_at: inDays(29.9) })
+
+                    const retry = await sendFirstRequest()
+
+                    expect(moved.status).toEqual(200)
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    const ttlSeconds = await keys['valkey']!.useClient({ name: 'test-ttl' }, async (client) => {
+                        const stored = await client.keys(`*${scope}*`)
+                        expect(stored).toHaveLength(1)
+                        return client.ttl(stored[0].slice(client.options.keyPrefix?.length ?? 0))
+                    })
+                    expect(ttlSeconds).toBeGreaterThan((31 * DAY_MS) / 1000 - 120)
+                    expect(ttlSeconds).toBeLessThanOrEqual((31 * DAY_MS) / 1000)
+                } finally {
+                    api['transactionalEmailIdempotencyKeys'] = keys
+                }
             })
 
             it('keeps the time of the reschedule that committed last when its status row arrives first', async () => {

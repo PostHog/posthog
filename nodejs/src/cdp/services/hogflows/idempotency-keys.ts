@@ -213,13 +213,15 @@ export class IdempotencyKeys {
         key: string,
         fingerprint: string,
         invocationId: string,
-        scheduledAt?: string
+        scheduledAt?: string,
+        latestDueAt?: Date
     ): Promise<void> {
+        const dueAt = latestDueAt?.getTime() ?? (scheduledAt ? Date.parse(scheduledAt) : 0)
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
             value: { fingerprint, invocationId, queued: true, ...(scheduledAt && { scheduledAt }) },
-            // A scheduled send keeps its key until a day after it is due, so a retry while it waits replays it.
-            expiresAt: Math.max(Date.now(), scheduledAt ? Date.parse(scheduledAt) : 0) + QUEUED_TTL_SECONDS * 1000,
+            // A scheduled send keeps its key until a day after it can last be due, so a retry while it waits replays it.
+            expiresAt: Math.max(Date.now(), dueAt) + QUEUED_TTL_SECONDS * 1000,
         }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
             try {

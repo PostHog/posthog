@@ -197,7 +197,8 @@ export class TransactionalSends {
                 idempotencyKey,
                 fingerprint,
                 invocation.id,
-                scheduledAt?.toISOString()
+                scheduledAt?.toISOString(),
+                scheduledAt ? new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS) : undefined
             )
         }
         stages.start('metrics_flush')
