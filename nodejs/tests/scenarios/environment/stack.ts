@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'child_process'
 import { closeSync, openSync } from 'fs'
 import Redis from 'ioredis'
+import { Producer } from 'node-rdkafka'
 import path from 'path'
 import { Client } from 'pg'
 import { promisify } from 'util'
@@ -140,7 +141,6 @@ export async function pingRedis({ host, port }: { host: string; port: number }):
 }
 
 async function pingKafka(): Promise<void> {
-    const { Producer } = await import('node-rdkafka')
     const producer = new Producer({ 'metadata.broker.list': STACK.kafkaHosts })
     await new Promise<void>((resolve, reject) =>
         producer.connect({ timeout: PROBE_TIMEOUT_MS }, (error) => (error ? reject(error) : resolve()))
