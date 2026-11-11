@@ -3063,12 +3063,13 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject', undefined],
-            ['a sensitive template', { sensitive: true }, undefined, undefined],
-            ['a workflow step', {}, 'Test Subject', 3],
+            ['an ordinary template', {}, 'Test Subject', undefined, false],
+            ['a sensitive template', { sensitive: true }, undefined, undefined, false],
+            ['a workflow step', {}, 'Test Subject', 3, false],
+            ['a transactional email', {}, 'Test Subject', undefined, true],
         ])(
             'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
-            async (_name, extraMetadata, subject, workflowVersion) => {
+            async (_name, extraMetadata, subject, workflowVersion, transactional) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
@@ -3076,6 +3077,9 @@ describe('EmailService', () => {
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
                 invocation.state.renderedWorkflowVersion = workflowVersion
+                if (transactional) {
+                    invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 expect(result.capturedPostHogEvents).toHaveLength(1)
@@ -3094,6 +3098,9 @@ describe('EmailService', () => {
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
                 expect(result.capturedPostHogEvents[0].properties.$workflow_version).toEqual(workflowVersion)
+                expect(result.capturedPostHogEvents[0].properties.$email_transactional).toEqual(
+                    transactional ? true : undefined
+                )
                 expect(
                     result.metrics.find((metric) => metric.metric_name === 'email_sent')?.app_source_version
                 ).toEqual(

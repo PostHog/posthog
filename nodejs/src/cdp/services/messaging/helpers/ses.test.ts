@@ -1255,14 +1255,15 @@ describe('SesWebhookHandler', () => {
         })
 
         it.each([
-            ['a transactional email', {}, 'inv456'],
+            ['a transactional email', {}, true],
             ['an email from a workflow step', { tags: baseMail.tags }, undefined],
-        ])('puts the message id on the event of %s', async (_desc, mailOverrides, expected) => {
+        ])('marks the event of %s as transactional', async (_desc, mailOverrides, expected) => {
             const body = [{ mail: { ...transactionalMail, ...mailOverrides }, ...delivery(['to@example.com']) }]
 
             const result = await handler.handleWebhook({ body, headers: {} })
 
-            expect(result.metrics?.[0].properties?.$email_message_id).toEqual(expected)
+            expect(result.metrics?.[0].properties?.$email_transactional).toEqual(expected)
+            expect(result.metrics?.[0].properties?.$email_message_id).toEqual(baseMail.messageId)
         })
     })
 

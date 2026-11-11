@@ -1056,6 +1056,7 @@ export class EmailService {
                     $workflow_invocation_id: invocation.id,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...(messageId ? { $email_message_id: messageId } : {}),
+                    ...(isTransactionalEmailSend(invocation) ? { $email_transactional: true } : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),

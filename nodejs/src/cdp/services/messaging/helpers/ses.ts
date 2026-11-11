@@ -267,13 +267,8 @@ export const SES_SENSITIVE_TAG = 'ph_sensitive'
 // and dashes in a tag, so the value is 'true' as for SES_SENSITIVE_TAG.
 export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 
-// A transactional email's run id is the message id its send API returned, so a delivery event carries it for the
-// sender to match against.
-const transactionalEmailMessageId = (
-    rec: { mail: { tags?: Record<string, string[]> } },
-    invocationId: string | undefined
-): { $email_message_id?: string } =>
-    invocationId && rec.mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true' ? { $email_message_id: invocationId } : {}
+const isTransactionalMail = (mail: { tags?: Record<string, string[]> }): boolean =>
+    mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true'
 
 export type SesEmailStatusUpdate = {
     teamId: string
@@ -991,7 +986,7 @@ export class SesWebhookHandler {
                     $email_to: rec.mail.destination?.[0],
                     $email_message_id: rec.mail.messageId,
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
-                    ...transactionalEmailMessageId(rec, invocationId),
+                    ...(isTransactionalMail(rec.mail) ? { $email_transactional: true } : {}),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -1192,7 +1187,7 @@ export class SesWebhookHandler {
             }
 
             // A status write is state-changing too, so it needs the signed code like the writes above.
-            if (suppressionAllowed && invocationId && rec.mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true') {
+            if (suppressionAllowed && invocationId && isTransactionalMail(rec.mail)) {
                 const update = resolveEmailStatusUpdate(rec)
                 if (update) {
                     emailStatusUpdates.push({ teamId, invocationId, ...update })
