@@ -594,15 +594,18 @@ describe('EmailTrackingService', () => {
                     const stubbedFetch = mockInternalFetch.getMockImplementation()
                     hub.CAPTURE_INTERNAL_URL = `http://127.0.0.1:${(capture.address() as AddressInfo).port}/capture`
                     mockInternalFetch.mockImplementation(jest.requireActual('~/common/utils/request').internalFetch)
-                    const tracked = jest.spyOn(api['emailTrackingService'], 'trackMetric')
+                    const directEventsTracked = async (): Promise<number> =>
+                        ((await register.getSingleMetric('email_tracking_events_total')?.get())?.values ?? [])
+                            .filter(({ labels }) => labels.source === 'direct')
+                            .reduce((total, { value }) => total + value, 0)
+                    const trackedBefore = await directEventsTracked()
                     try {
                         expect((await supertest(app).get(pathOf(pixel))).status).toBe(200)
                         const clicked = await supertest(app).get(pathOf(link))
 
                         expect(clicked.status).toBe(302)
                         expect(clicked.headers.location).toBe('https://example.com/docs')
-                        await waitForExpect(() => expect(tracked).toHaveBeenCalledTimes(2))
-                        await Promise.all(tracked.mock.results.map(({ value }) => value))
+                        await waitForExpect(async () => expect(await directEventsTracked()).toBe(trackedBefore + 2))
                         expect(
                             mockProducerObserver
                                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
@@ -616,7 +619,6 @@ describe('EmailTrackingService', () => {
                                 .sort()
                         ).toEqual(captured)
                     } finally {
-                        tracked.mockRestore()
                         mockInternalFetch.mockImplementation(stubbedFetch)
                         hub.CAPTURE_INTERNAL_URL = captureUrl
                         capture.close()
