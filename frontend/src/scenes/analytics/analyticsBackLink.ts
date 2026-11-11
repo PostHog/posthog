@@ -46,12 +46,8 @@ export function analyticsBackLink(
 }
 
 /**
- * The parent breadcrumb of an item that the Analytics pages list, such as an insight or a dashboard.
- *
- * With the Analytics pages on, the parent is the Analytics page the URL names as the way back, or the
- * Analytics list when the item was opened from anywhere else (search, recents, a pasted link). The old
- * "Product analytics" and "Dashboards" lists are not in that navigation, so they must not be the parent.
- * Without the flag this returns null, and the scene keeps the parent it always had.
+ * The old "Product analytics" and "Dashboards" lists are not in the Analytics navigation, so they must not be the
+ * parent. Returns null without the flag, so that the scene keeps its old parent.
  */
 export function analyticsParentBreadcrumb(
     searchParams: Record<string, unknown>,

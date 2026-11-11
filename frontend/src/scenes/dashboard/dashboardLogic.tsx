@@ -4578,8 +4578,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const backUrl = searchParams.backUrl as string | undefined
                 const backName = searchParams.backName as string | undefined
                 const analyticsParent = analyticsParentBreadcrumb(searchParams, featureFlags, 'dashboard')
-                // Other pages also link here with a way back, such as a flag's usage dashboard. That link
-                // still wins over the Analytics list, unless it is the Analytics link itself.
+                // A back link from another page, such as a flag's usage dashboard, wins over the Analytics list.
                 const otherBackUrl = backUrl && backUrl !== analyticsParent?.path ? backUrl : undefined
                 return [
                     otherBackUrl
