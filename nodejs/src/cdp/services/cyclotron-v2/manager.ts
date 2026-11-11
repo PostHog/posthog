@@ -139,8 +139,8 @@ export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<s
 // error do not increment this counter. The `kind` label splits failures into:
 //   - "logical": schema drift, constraint violation, anything that won't fix
 //     itself. Any non-zero rate is page-worthy.
-//   - "transient": PG / pgbouncer connection issues (matched against
-//     POSTGRES_UNAVAILABLE_ERROR_MESSAGES). Brief blips are noise; sustained
+//   - "transient": PG / pgbouncer connection issues (matched by
+//     isTransientPgError). Brief blips are noise; sustained
 //     rate indicates the database is unhealthy.
 const dbWriteFailureCounter = new Counter({
     name: 'cdp_cyclotron_v2_db_write_failure',
