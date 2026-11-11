@@ -39053,7 +39053,7 @@
             "additionalProperties": false,
             "properties": {
                 "benchmark": {
-                    "description": "CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions.",
+                    "description": "CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`, so rules about brand overlap, budget, policy, rank or organic search have none.",
                     "type": ["number", "null"]
                 },
                 "benchmarkSource": {
@@ -39072,7 +39072,7 @@
                     "type": ["number", "null"]
                 },
                 "value": {
-                    "description": "Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet.",
+                    "description": "Cost per conversion of the subject. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA. Null when it has no conversions.",
                     "type": ["number", "null"]
                 },
                 "worstCampaign": {

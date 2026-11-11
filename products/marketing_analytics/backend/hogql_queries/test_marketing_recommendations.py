@@ -86,15 +86,25 @@ class TestMarketingRecommendations(SimpleTestCase):
         if expected:
             assert rules[0].action == "Raise the daily budget from $100 to $300"
             assert rules[0].impact == 6000
+            assert rules[0].cpa is None
 
     @parameterized.expand(
         [
-            ("cheap_campaign_losing_impressions", "Cheap", None, "scale_campaign", 50.0, 133.33, "account", "$133"),
+            (
+                "cheap_campaign_losing_impressions",
+                "Cheap",
+                None,
+                "scale_campaign",
+                50.0,
+                133.33,
+                "account",
+                "at or below the account's",
+            ),
             ("expensive_campaign", "Expensive", None, "review_campaign", 600.0, 133.33, "account", "4.5x"),
             ("bids_to_a_target_cpa", "Expensive", 150.0, "review_campaign", 600.0, 150.0, "target_cpa", "4.0x"),
         ]
     )
-    def test_campaign_cpa_fields_match_the_reason(
+    def test_campaign_cpa_fields_and_reason_name_the_benchmark(
         self,
         _name: str,
         subject: str,
@@ -122,7 +132,6 @@ class TestMarketingRecommendations(SimpleTestCase):
             "bestCampaign": 50.0,
             "worstCampaign": 600.0,
         }
-        assert f"CPA is ${value:.0f}" in rec.reason
         assert reason_benchmark in rec.reason
 
     @parameterized.expand(
@@ -132,7 +141,7 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "spent_past_the_bar",
                 360.0,
                 0.0,
-                "Spent $360 (4.3x the account's non-brand CPA of $84) with no non-brand conversions.",
+                "Spent $360 (4.3x the account's non-brand CPA) with no non-brand conversions.",
             ),
             ("only_brand_spend_past_the_bar", 360.0, 160.0, None),
         ]
@@ -349,6 +358,7 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         rules = {rec.rule for rec in recs if rec.subject == "funnel analysis"} & {"content_gap", "striking_distance"}
         assert rules == expected
+        assert all(rec.cpa is None for rec in recs if rec.rule == "striking_distance")
 
     @parameterized.expand(
         [
@@ -374,6 +384,7 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         assert [(rec.subject, rec.impactDirection) for rec in overlap] == [("example", direction)]
         assert overlap[0].action.startswith(action_start)
+        assert overlap[0].cpa is None
 
     @parameterized.expand(
         [
@@ -423,6 +434,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("scale_campaign", "Raise the target CPA or improve its asset groups"),
             ("policy_limited", "Check the affected ads in Policy manager"),
         }
+        assert all(rec.cpa is None for rec in recs)
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
 

@@ -388,7 +388,6 @@ class _Recommender:
                         None,
                         "gain",
                         "measured",
-                        cpa=self._campaign_cpa(campaign),
                     )
                 )
 
@@ -447,7 +446,6 @@ class _Recommender:
             (recommended - budget) * 30,
             "invest",
             "estimated",
-            cpa=self._campaign_cpa(campaign),
         )
 
     def _brand_leak(
@@ -498,12 +496,11 @@ class _Recommender:
             campaign.name,
             action,
             f'{share:.0%} of its search term spend goes to brand searches such as "{top_term}", '
-            f"with {conversions:.0f} conversions. {follow_up}",
+            f"with {conversions:,.0f} conversions. {follow_up}",
             cost * self.per_month,
             "save",
             "measured",
             steps=steps,
-            cpa=self._campaign_cpa(campaign),
         )
 
     def _scale(
@@ -516,7 +513,7 @@ class _Recommender:
             "campaign",
             campaign.name,
             "Raise the budget" if budget_bound else "Raise bids or improve ad quality",
-            f"Its {benchmark.compared} is {self._money(cpa)}, against {benchmark.label} of {self._money(benchmark.cpa)}. "
+            f"Its {benchmark.compared} is at or below {benchmark.label}. "
             f"It loses {campaign.lost_to_budget or 0:.0%} of impressions to budget "
             f"and {campaign.lost_to_rank or 0:.0%} to ad rank.",
             extra * self.per_month,
@@ -540,18 +537,16 @@ class _Recommender:
             extra * self.per_month,
             "invest",
             "estimated",
-            cpa=self._cpa(cpa, self._campaign_benchmark(campaign)),
         )
 
     def _review(
         self, campaign: CampaignStats, cpa: float | None, compared_cost: float, benchmark: _Benchmark
     ) -> MarketingAnalyticsRecommendation:
         reason = (
-            f"Spent {self._money(compared_cost)} ({compared_cost / benchmark.cpa:.1f}x {benchmark.label} "
-            f"of {self._money(benchmark.cpa)}) with no {benchmark.compared_conversions}."
+            f"Spent {self._money(compared_cost)} ({compared_cost / benchmark.cpa:.1f}x {benchmark.label}) "
+            f"with no {benchmark.compared_conversions}."
             if cpa is None
-            else f"Its {benchmark.compared} is {self._money(cpa)}, {cpa / benchmark.cpa:.1f}x {benchmark.label} "
-            f"of {self._money(benchmark.cpa)}."
+            else f"Its {benchmark.compared} is {cpa / benchmark.cpa:.1f}x {benchmark.label}."
         )
         return self._recommendation(
             MarketingAnalyticsRecommendationRule.REVIEW_CAMPAIGN,
@@ -653,7 +648,7 @@ class _Recommender:
         competitors = self._competitor_names()
 
         rules: dict[MarketingAnalyticsRecommendationRule, list[MarketingAnalyticsRecommendation]] = defaultdict(list)
-        rules[MarketingAnalyticsRecommendationRule.BRAND_OVERLAP] = self._brand_overlap(terms, benchmarks)
+        rules[MarketingAnalyticsRecommendationRule.BRAND_OVERLAP] = self._brand_overlap(terms)
         rules[MarketingAnalyticsRecommendationRule.CONTENT_GAP] = [
             self._term_recommendation(
                 MarketingAnalyticsRecommendationRule.CONTENT_GAP,
@@ -661,8 +656,7 @@ class _Recommender:
                 benchmark,
                 "Create or improve a page for this search",
                 f"You pay {self._money(term.cost * self.per_month)}/mo in Ads for this search, which converts "
-                f"at a CPA of {self._money(term.cost / term.conversions)} ({benchmark.label} is "
-                f"{self._money(benchmark.cpa)}). "
+                f"at a CPA at or below {benchmark.label}. "
                 + (
                     f"It ranks #{term.organic.position:.1f} organically, so moving that page into the top 3 "
                     if term.organic
@@ -689,7 +683,7 @@ class _Recommender:
                 benchmark,
                 advice.action,
                 f"Spent {self._money(term.cost)} ({term.cost / benchmark.cpa:.1f}x {benchmark.label}) "
-                f"on {term.clicks:.0f} clicks with no conversions",
+                f"on {term.clicks:,.0f} clicks with no conversions",
                 term.cost,
                 "save",
                 "measured",
@@ -713,10 +707,10 @@ class _Recommender:
                 self._term_recommendation(
                     MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE,
                     term,
-                    benchmarks.get(term.term),
+                    None,
                     "Improve the ranking page to reach the top 3",
-                    f"Position {term.organic.position:.1f} with {term.organic.impressions:.0f} impressions "
-                    f"and {term.organic.clicks:.0f} clicks. Paid CPC {self._money(term.cost / term.clicks)}",
+                    f"Position {term.organic.position:.1f} with {term.organic.impressions:,.0f} impressions "
+                    f"and {term.organic.clicks:,.0f} clicks. Paid CPC {self._money(term.cost / term.clicks)}",
                     max(term.organic.impressions * TOP3_CTR - term.organic.clicks, 0) * term.cost / term.clicks,
                     "gain",
                     "estimated",
@@ -797,14 +791,11 @@ class _Recommender:
             ),
         )
 
-    def _brand_overlap(
-        self, terms: list[_Term], benchmarks: dict[str, _Benchmark]
-    ) -> list[MarketingAnalyticsRecommendation]:
+    def _brand_overlap(self, terms: list[_Term]) -> list[MarketingAnalyticsRecommendation]:
         recommendations = []
         min_cost = BRAND_OVERLAP_MIN_SPEND_SHARE * sum(term.cost for term in terms)
         for term in terms:
             organic = term.organic
-            benchmark = benchmarks.get(term.term)
             if (
                 term.term not in self.brand_terms
                 or not organic
@@ -814,8 +805,8 @@ class _Recommender:
             ):
                 continue
             reason = (
-                f"Ranks #{organic.position:.1f} organically with {organic.clicks:.0f} clicks. "
-                f"Ads cost {self._money(term.cost)} for {term.clicks:.0f} clicks."
+                f"Ranks #{organic.position:.1f} organically with {organic.clicks:,.0f} clicks. "
+                f"Ads cost {self._money(term.cost)} for {term.clicks:,.0f} clicks."
             )
             # Another ad above yours on your own brand search means someone bids on it, so pausing hands them the top spot.
             if term.absolute_top is not None and term.absolute_top < BRAND_DEFENSE_ABSOLUTE_TOP:
@@ -823,7 +814,7 @@ class _Recommender:
                     self._term_recommendation(
                         MarketingAnalyticsRecommendationRule.BRAND_OVERLAP,
                         term,
-                        benchmark,
+                        None,
                         "Keep the ad: another ad often shows above yours",
                         f"{reason} When your ad shows, another ad is above it {1 - term.absolute_top:.0%} of the time.",
                         term.cost,
@@ -837,7 +828,7 @@ class _Recommender:
                     self._term_recommendation(
                         MarketingAnalyticsRecommendationRule.BRAND_OVERLAP,
                         term,
-                        benchmark,
+                        None,
                         "Check whether other ads show above yours before you test pausing",
                         f"{reason} Top position data for this term is not synced yet.",
                         term.cost,
@@ -850,7 +841,7 @@ class _Recommender:
                     self._term_recommendation(
                         MarketingAnalyticsRecommendationRule.BRAND_OVERLAP,
                         term,
-                        benchmark,
+                        None,
                         "Test pausing the ad in alternating weeks and compare total clicks",
                         f"{reason} Your ad is at the very top {term.absolute_top:.0%} of the time it shows.",
                         term.cost,
@@ -914,14 +905,13 @@ class _Recommender:
                     "search_term",
                     query.query,
                     "Add as a keyword in Google Ads" if has_search else "Add as a search theme in Performance Max",
-                    f"{query.impressions:.0f} organic impressions at position {query.position:.1f}, not bought. "
+                    f"{query.impressions:,.0f} organic impressions at position {query.position:.1f}, not bought. "
                     "Its words all appear in paid searches that convert at or below their CPA benchmark",
                     query.impressions * TOP3_CTR * average_cpc * self.per_month,
                     "invest",
                     "estimated",
                     campaign.name if campaign else None,
                     steps=steps,
-                    cpa=self._cpa(None, self._search_term_benchmark(campaign)),
                 )
             )
         return recommendations
@@ -1180,7 +1170,7 @@ class _Recommender:
             impact_type,
             self._campaign_name(term),
             steps=steps,
-            cpa=self._cpa(term.cost / term.conversions if term.conversions else None, benchmark),
+            cpa=self._cpa(term.cost / term.conversions if term.conversions else None, benchmark) if benchmark else None,
         )
 
     def _recommendation(
@@ -1225,10 +1215,6 @@ class _Recommender:
         spend = self._compared_spend(campaign, benchmark)
         return spend.cost / spend.conversions if spend.conversions else None
 
-    def _campaign_cpa(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendationCpa:
-        benchmark = self._campaign_benchmark(campaign)
-        return self._cpa(self._compared_cpa(campaign, benchmark), benchmark)
-
     def _account_nonbrand_cpa(self) -> float | None:
         # An account without Search campaigns, such as one that only runs Performance Max, still needs a benchmark.
         campaigns = self.search_campaigns or [
@@ -1258,11 +1244,11 @@ class _Recommender:
             return _Benchmark(cpa=own, source=BenchmarkSource.CAMPAIGN)
         return self._campaign_benchmark(campaign)
 
-    def _cpa(self, value: float | None, benchmark: _Benchmark | None) -> MarketingAnalyticsRecommendationCpa:
+    def _cpa(self, value: float | None, benchmark: _Benchmark) -> MarketingAnalyticsRecommendationCpa:
         return MarketingAnalyticsRecommendationCpa(
             value=_round_money(value),
-            benchmark=_round_money(benchmark.cpa if benchmark else None),
-            benchmarkSource=benchmark.source if benchmark else None,
+            benchmark=_round_money(benchmark.cpa),
+            benchmarkSource=benchmark.source,
             bestCampaign=_round_money(self.best_campaign_cpa),
             worstCampaign=_round_money(self.worst_campaign_cpa),
         )
