@@ -333,8 +333,8 @@ class TestSplitChangedMidRun(TestCase):
             ),
             (
                 "not_checked",
-                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
-                "exposure_filters",
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
+                "exposure_action",
                 {
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
@@ -362,11 +362,11 @@ class TestSplitChangedMidRun(TestCase):
     @parameterized.expand(
         [
             (
-                "exposure_filters",
-                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                "exposure_action",
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
                 f"The variant split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
-                "This check can't tell whether anyone was exposed before the change, because the exposure criteria "
-                "filter by properties. Review the change in the flag history.",
+                "This check can't tell whether anyone was exposed before the change, because exposures come from an "
+                "action. Review the change in the flag history.",
             ),
             (
                 "exposure_action_after_several_changes",
@@ -471,7 +471,7 @@ class TestSplitChangedMidRun(TestCase):
             ),
             (
                 "rollout_not_checked",
-                _context(EVEN, SHIPPED, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, SHIPPED, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
                 FIRST_CHANGE,
                 "control 50% / test 50%",
             ),
@@ -637,7 +637,7 @@ class TestSrmAfterSplitChange(TestCase):
             ),
             (
                 "history_not_checked",
-                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
                 _totals(MATCHES_THE_NEW_SPLIT),
                 (
                     "split_changed",
@@ -649,7 +649,7 @@ class TestSrmAfterSplitChange(TestCase):
                 _context(
                     EVEN,
                     UNEVEN,
-                    not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                    not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION,
                     start_date=FIRST_CHANGE_AT - timedelta(days=2),
                     first_change_at=FIRST_CHANGE_AT - timedelta(days=1),
                 ),
@@ -694,7 +694,7 @@ class TestSrmAfterSplitChange(TestCase):
             ),
             (
                 "split_change_not_checked_with_a_failed_retest",
-                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
                 {"control": 250, "test": 250},
                 0.00001,
                 (True, True, FIRST_CHANGE_AT.date()),
@@ -792,7 +792,7 @@ class TestSrmAfterSplitChange(TestCase):
                 None,
                 f" Move the start date to {FIRST_CHANGE}, or reset the experiment. A reset returns it to draft, and "
                 "once you launch it again, the results count only users exposed from then on.",
-                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                FlagHistoryNotCheckedReason.EXPOSURE_ACTION,
                 NOT_CHECKED_CAUSE,
             ),
             (
@@ -800,7 +800,7 @@ class TestSrmAfterSplitChange(TestCase):
                 ENDED,
                 FIRST_CHANGE_AT + timedelta(days=3),
                 f" Move the start date to {FIRST_CHANGE}.",
-                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                FlagHistoryNotCheckedReason.EXPOSURE_ACTION,
                 NOT_CHECKED_CAUSE,
             ),
         ]
