@@ -1,0 +1,81 @@
+import pytest
+
+from products.subscriptions.evals.styling import (
+    ARM_RAW,
+    DatesStyled,
+    NamesTagged,
+    NotMisstyled,
+    TextPreserved,
+    ValuesStyled,
+    extract_input_values,
+)
+
+
+def _output(rendered: str, *, source: str | None = None) -> dict:
+    arms = {ARM_RAW: rendered, "normalised": rendered}
+    if source is not None:
+        arms[ARM_RAW] = source
+    return {
+        "arms": arms,
+        "input_values": ["1,463", "18%", "4d 4h"],
+        "input_names": ["Weekly signups", "Upgrades this week"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("rendered", "expected"),
+    [
+        (
+            "• Weekly signups rose 18% to 1,463 on Nov 9, taking 4d 4h.",
+            {"values_styled": 0.0, "dates_styled": 0.0, "names_tagged": 0.0, "not_misstyled": 1.0},
+        ),
+        (
+            "• *Weekly signups* rose *18%* to *1,463* on _Nov 9_, taking _4d 4h_.",
+            {"values_styled": 1.0, "dates_styled": 1.0, "names_tagged": 1.0, "not_misstyled": 1.0},
+        ),
+        (
+            "• *Weekly signups* rose *18%* to 1,463 on *Nov 9*.",
+            {"values_styled": 0.5, "dates_styled": 0.0, "names_tagged": 1.0, "not_misstyled": 0.0},
+        ),
+        (
+            "• *Upgrades this week* hit *1,463*, see `*18%*`.",
+            {"values_styled": 1.0, "dates_styled": None, "names_tagged": 1.0, "not_misstyled": 0.0},
+        ),
+    ],
+    ids=["untagged", "fully_styled", "bold_date_and_unstyled_value", "date_word_in_name_and_styled_code"],
+)
+def test_scorers_read_styles_as_slack_renders_them(rendered: str, expected: dict) -> None:
+    output = _output(rendered)
+    scores = {
+        scorer.metric: scorer._run_eval_sync(output).score
+        for scorer in (
+            ValuesStyled("normalised"),
+            DatesStyled("normalised"),
+            NamesTagged("normalised"),
+            NotMisstyled("normalised"),
+        )
+    }
+
+    assert scores == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "normalised", "expected"),
+    [
+        ("• Signups hit 512 on Nov 4.", "• Signups hit *512* on _Nov 4_.", 1.0),
+        ("• Signups hit 512 on Nov 4.", "• Signups hit *521* on _Nov 4_.", 0.0),
+    ],
+    ids=["markers_only", "changed_word"],
+)
+def test_text_preserved_ignores_markers_but_not_words(source: str, normalised: str, expected: float) -> None:
+    score = TextPreserved("normalised")._run_eval_sync(_output(normalised, source=source))
+
+    assert score.score == expected
+
+
+def test_input_values_keep_thousands_separators_and_durations() -> None:
+    summary = (
+        "- signed_up: latest=1,463 (2026-11-09), change=up 18%, avg=$1,067.50, max=4d 4h, window trend=up (4 points)"
+    )
+
+    assert set(extract_input_values([summary])) == {"1,463", "18%", "$1,067.50", "4d 4h"}

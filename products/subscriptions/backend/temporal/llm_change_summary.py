@@ -426,20 +426,20 @@ def _previous_states_rendered_in_current_delivery(
     return [state for state in previous_states if state["insight_id"] in current_insight_ids]
 
 
-def generate_change_summary(
+SUMMARY_OUTPUT_INSTRUCTIONS = (
+    f"{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend."
+)
+
+
+def build_summary_messages(
     previous_states: list[dict] | None,
     current_states: list[dict],
     subscription_title: str | None = None,
     prompt_guide: str = "",
     team: Team | None = None,
-    delivery_id: str | None = None,
-    insight_images: dict[int, bytes] | None = None,
     core_memory_text: str = "",
     annotations_section: str = "",
-    slack_formatting: bool = False,
-) -> str:
-    team_id = team.id if team else 0
-
+) -> list[dict]:
     previous_states = _previous_states_rendered_in_current_delivery(previous_states, current_states)
 
     if previous_states:
@@ -465,29 +465,39 @@ def generate_change_summary(
     messages[0]["content"] += f"\n\n{SUMMARY_CONTENT_INSTRUCTIONS}\n\n{SUMMARY_INTERPRETATION_INSTRUCTIONS}"
     if any(is_time_series_query(state.get("query_kind", "")) for state in current_states):
         messages[0]["content"] += f"\n\n{TREND_FIELD_INSTRUCTIONS}"
-    messages[0]["content"] += (
-        f"\n\n{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend."
-    )
+    messages[0]["content"] += f"\n\n{SUMMARY_OUTPUT_INSTRUCTIONS}"
+    return messages
 
-    attached = _attach_images_to_user_message(messages, current_states, insight_images)
 
-    logger.info(
-        "change_summary_prompt_ready",
-        team_id=team_id,
-        delivery_id=delivery_id,
-        has_previous=bool(previous_states),
-        insight_count=len(current_states),
-        image_count=attached.image_count,
-        image_bytes_total=attached.bytes_total,
-        user_message_length=attached.user_text_length,
-    )
+def summary_response_format() -> dict:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "subscription_summary",
+            "strict": True,
+            "schema": to_strict_json_schema(ReportSummary),
+        },
+    }
 
+
+def summary_user_tag(team_id: int, delivery_id: str | None) -> str:
     instance_region = get_instance_region() or "HOBBY"
     user_tag = f"{instance_region}/subscription-summary-team-{team_id}"
     if delivery_id:
         user_tag = f"{user_tag}-delivery-{delivery_id}"
+    return user_tag
 
+
+def request_summary_completion(
+    messages: list[dict],
+    *,
+    team: Team | None,
+    delivery_id: str | None,
+    user_tag: str,
+    response_format: dict | None,
+) -> str:
     client = _get_openai_client(team=team, delivery_id=delivery_id, user_tag=user_tag)
+    extra: dict = {"response_format": response_format} if response_format is not None else {}
 
     prompt_tokens, completion_tokens = 0, 0
     with client:
@@ -496,17 +506,10 @@ def generate_change_summary(
                 model="gpt-6-luna",
                 reasoning_effort="low",
                 max_completion_tokens=max_completion_tokens,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "subscription_summary",
-                        "strict": True,
-                        "schema": to_strict_json_schema(ReportSummary),
-                    },
-                },
                 timeout=30,
                 messages=cast(list[ChatCompletionMessageParam], messages),
                 user=user_tag,
+                **extra,
             )
             if result.usage:
                 prompt_tokens += result.usage.prompt_tokens
@@ -514,16 +517,83 @@ def generate_change_summary(
             if not result.choices or result.choices[0].finish_reason != "length":
                 break
 
-    content: str = ""
-    if result.choices and result.choices[0].message.content:
-        content = result.choices[0].message.content
-    if content:
-        content = ReportSummary.model_validate_json(content).render(slack_formatting=slack_formatting)
-
     logger.info(
         "change_summary_generated",
-        team_id=team_id,
+        team_id=team.id if team else 0,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
     )
-    return content
+    if result.choices and result.choices[0].message.content:
+        return result.choices[0].message.content
+    return ""
+
+
+def generate_report_summary(
+    previous_states: list[dict] | None,
+    current_states: list[dict],
+    subscription_title: str | None = None,
+    prompt_guide: str = "",
+    team: Team | None = None,
+    delivery_id: str | None = None,
+    insight_images: dict[int, bytes] | None = None,
+    core_memory_text: str = "",
+    annotations_section: str = "",
+) -> ReportSummary | None:
+    team_id = team.id if team else 0
+
+    messages = build_summary_messages(
+        previous_states,
+        current_states,
+        subscription_title,
+        prompt_guide,
+        team=team,
+        core_memory_text=core_memory_text,
+        annotations_section=annotations_section,
+    )
+    attached = _attach_images_to_user_message(messages, current_states, insight_images)
+
+    logger.info(
+        "change_summary_prompt_ready",
+        team_id=team_id,
+        delivery_id=delivery_id,
+        has_previous=bool(_previous_states_rendered_in_current_delivery(previous_states, current_states)),
+        insight_count=len(current_states),
+        image_count=attached.image_count,
+        image_bytes_total=attached.bytes_total,
+        user_message_length=attached.user_text_length,
+    )
+
+    content = request_summary_completion(
+        messages,
+        team=team,
+        delivery_id=delivery_id,
+        user_tag=summary_user_tag(team_id, delivery_id),
+        response_format=summary_response_format(),
+    )
+    return ReportSummary.model_validate_json(content) if content else None
+
+
+def generate_change_summary(
+    previous_states: list[dict] | None,
+    current_states: list[dict],
+    subscription_title: str | None = None,
+    prompt_guide: str = "",
+    team: Team | None = None,
+    delivery_id: str | None = None,
+    insight_images: dict[int, bytes] | None = None,
+    core_memory_text: str = "",
+    annotations_section: str = "",
+    slack_formatting: bool = False,
+) -> str:
+    summary = generate_report_summary(
+        previous_states,
+        current_states,
+        subscription_title,
+        prompt_guide,
+        team=team,
+        delivery_id=delivery_id,
+        insight_images=insight_images,
+        core_memory_text=core_memory_text,
+        annotations_section=annotations_section,
+    )
+    return summary.render(slack_formatting=slack_formatting) if summary else ""
