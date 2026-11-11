@@ -33,6 +33,7 @@ from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
+    GroupKeyLookupBudget,
     resolved_group_key_expr,
     resolved_hogql_group_key_expr,
 )
@@ -131,6 +132,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         events_timestamp_floor: Optional[datetime] = None,
         resolve_group_properties: ClickHouseUser | None = None,
         user: User | None = None,
+        group_key_budget: GroupKeyLookupBudget | None = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
@@ -142,6 +144,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
         self._user = user
+        self._group_key_budget = group_key_budget
         self.emitted_sampled_subquery = False
 
     def _events_join(self, sample: bool = True, scope_session_ids: list[str] | None = None) -> ast.JoinExpr:
@@ -655,7 +658,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             if skip_negative_properties and is_negative_prop(p):
                 continue
             resolved = (
-                resolved_group_key_expr(self._team, p, self._resolve_group_properties, self._user)
+                resolved_group_key_expr(
+                    self._team, p, self._resolve_group_properties, self._user, self._group_key_budget
+                )
                 if self._resolve_group_properties is not None
                 else None
             )
@@ -1014,7 +1019,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _resolved_hogql_group_filter(self, p: AnyPropertyFilter) -> ast.Expr | None:
         if self._resolve_group_properties is None or not isinstance(p, HogQLPropertyFilter):
             return None
-        return resolved_hogql_group_key_expr(self._team, p, self._resolve_group_properties, self._user)
+        return resolved_hogql_group_key_expr(
+            self._team, p, self._resolve_group_properties, self._user, self._group_key_budget
+        )
 
     @property
     def event_properties(self):

@@ -7,6 +7,7 @@ a column instead is measurably cheaper and returns the same sessions.
 """
 
 import json
+import time
 import hashlib
 from collections.abc import Callable
 from typing import Any, cast
@@ -38,8 +39,10 @@ GROUP_KEY_CACHE_TTL_SECONDS = 3600
 # Past this the key list stops being cheaper than the join, and it starts crowding `max_query_size`.
 MAX_RESOLVED_GROUP_KEYS = 10_000
 
-# The key query runs before the listing query and inside its budget, so it must stay well under a preview's.
+# The key queries run before the listing query, so all of one listing's lookups share this much time.
 GROUP_KEY_RESOLUTION_MAX_SECONDS = 5
+# A listing with more uncached group filters than this keeps the join for the rest.
+MAX_GROUP_KEY_LOOKUPS = 5
 # A failed resolution is remembered for a while, so a slow groups table is not queried again on every listing.
 GROUP_KEY_FAILURE_TTL_SECONDS = 600
 
@@ -68,8 +71,28 @@ _NUMERIC_OPERATORS = {
 _FALLBACK = "fallback"
 
 
+class GroupKeyLookupBudget:
+    """The time and lookup count one listing may spend resolving keys, so many group filters cannot multiply it."""
+
+    def __init__(self) -> None:
+        self._deadline = time.monotonic() + GROUP_KEY_RESOLUTION_MAX_SECONDS
+        self._lookups_left = MAX_GROUP_KEY_LOOKUPS
+
+    def take(self) -> int | None:
+        """Seconds for the next lookup, or None when the budget is spent and the filter should keep the join."""
+        seconds_left = int(self._deadline - time.monotonic())
+        if self._lookups_left <= 0 or seconds_left < 1:
+            return None
+        self._lookups_left -= 1
+        return seconds_left
+
+
 def resolved_group_key_expr(
-    team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser, user: User | None = None
+    team: Team,
+    prop: GroupPropertyFilter,
+    ch_user: ClickHouseUser,
+    user: User | None = None,
+    budget: GroupKeyLookupBudget | None = None,
 ) -> ast.Expr | None:
     """`$group_N IN (keys)` for this filter, or None when the caller should keep the join."""
     if prop.operator not in _RESOLVABLE_OPERATORS or prop.group_type_index is None:
@@ -83,11 +106,16 @@ def resolved_group_key_expr(
         lambda: _resolution_predicate(team, prop),
         ch_user,
         user,
+        budget or GroupKeyLookupBudget(),
     )
 
 
 def resolved_hogql_group_key_expr(
-    team: Team, prop: HogQLPropertyFilter, ch_user: ClickHouseUser, user: User | None = None
+    team: Team,
+    prop: HogQLPropertyFilter,
+    ch_user: ClickHouseUser,
+    user: User | None = None,
+    budget: GroupKeyLookupBudget | None = None,
 ) -> ast.Expr | None:
     """`$group_N IN (keys)` for a HogQL filter that only reads one group type's properties, or None to keep the join.
 
@@ -114,6 +142,7 @@ def resolved_hogql_group_key_expr(
         lambda: _GroupPrefixStripper().visit(expr),
         ch_user,
         user,
+        budget or GroupKeyLookupBudget(),
     )
 
 
@@ -125,13 +154,15 @@ def _resolved_key_in(
     predicate: Callable[[], ast.Expr],
     ch_user: ClickHouseUser,
     user: User | None,
+    budget: GroupKeyLookupBudget,
 ) -> ast.Expr | None:
     keys = _group_keys(
         team,
         property_key,
         # Per user, because the lookup applies that user's property restrictions as the join would.
         _cache_key(team, [*cache_parts, user.pk if user is not None else None]),
-        lambda: _query_group_keys(team, group_type_index, predicate(), ch_user, user),
+        budget,
+        lambda seconds: _query_group_keys(team, group_type_index, predicate(), ch_user, user, seconds),
     )
     return None if keys is None else _group_key_in(group_type_index, keys)
 
@@ -224,7 +255,18 @@ def _false_without_group(expr: ast.Expr) -> bool:
         # A nested comparison such as `(group_0.properties.plan = 'pro') = false` is true when the group is missing.
         if _has_nested_logic(expr.left) or _has_nested_logic(expr.right):
             return False
-        return _reads_fields(expr.left) != _reads_fields(expr.right)
+        # The side without fields must be a literal: a call such as `toInt('invalid')` can be null, and null equals null.
+        if _reads_fields(expr.left):
+            return _is_literal(expr.right)
+        return _reads_fields(expr.right) and _is_literal(expr.left)
+    return False
+
+
+def _is_literal(expr: ast.Expr) -> bool:
+    if isinstance(expr, ast.Constant):
+        return expr.value is not None
+    if isinstance(expr, ast.Tuple | ast.Array):
+        return bool(expr.exprs) and all(_is_literal(item) for item in expr.exprs)
     return False
 
 
@@ -271,14 +313,24 @@ class _GroupPrefixStripper(CloningVisitor):
         return ast.Field(chain=node.chain[1:])
 
 
-def _group_keys(team: Team, property_key: str, cache_key: str, resolve: Callable[[], list[str]]) -> list[str] | None:
+def _group_keys(
+    team: Team,
+    property_key: str,
+    cache_key: str,
+    budget: GroupKeyLookupBudget,
+    resolve: Callable[[int], list[str]],
+) -> list[str] | None:
     cached = _swallowing_failure("group_key_cache_read_failed", team, property_key, lambda: cache.get(cache_key))
     if cached == _FALLBACK:
         return None
     if cached is not None:
         return _cast_keys(cached)
 
-    keys = _swallowing_failure("group_key_resolution_failed", team, property_key, resolve)
+    seconds = budget.take()
+    if seconds is None:
+        # Not cached as a failure: a later listing with budget left can still resolve this filter.
+        return None
+    keys = _swallowing_failure("group_key_resolution_failed", team, property_key, lambda: resolve(seconds))
     if keys is None:
         _swallowing_failure(
             "group_key_cache_write_failed",
@@ -330,7 +382,12 @@ def _resolution_predicate(team: Team, prop: GroupPropertyFilter) -> ast.Expr:
 
 
 def _query_group_keys(
-    team: Team, group_type_index: int, predicate: ast.Expr, ch_user: ClickHouseUser, user: User | None
+    team: Team,
+    group_type_index: int,
+    predicate: ast.Expr,
+    ch_user: ClickHouseUser,
+    user: User | None,
+    max_seconds: int,
 ) -> list[str]:
     query = ast.SelectQuery(
         select=[ast.Field(chain=["key"])],
@@ -357,9 +414,7 @@ def _query_group_keys(
         # Types `properties.x` from this group type's property definitions, as the join path types `group_N.properties.x`.
         context=HogQLContext(team_id=team.pk, user=user, globals={"group_id": group_type_index}),
         # Throw rather than break, so a lookup that runs out of time falls back instead of caching a partial key list.
-        settings=HogQLGlobalSettings(
-            max_execution_time=GROUP_KEY_RESOLUTION_MAX_SECONDS, timeout_overflow_mode="throw"
-        ),
+        settings=HogQLGlobalSettings(max_execution_time=max_seconds, timeout_overflow_mode="throw"),
     )
     return [row[0] for row in (response.results or []) if row[0]]
 
