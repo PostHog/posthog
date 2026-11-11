@@ -225,6 +225,14 @@ def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
         capture_exception(e)
 
 
+def _drop_notebook_table_lineage(table: DataWarehouseTable) -> None:
+    try:
+        delete_notebook_table_node(table.team_id, str(table.id))
+    except Exception as e:
+        # The table is already deleted, so a failed lineage cleanup must not fail the request.
+        capture_exception(e)
+
+
 def _is_legacy_upload_table(table: DataWarehouseTable) -> bool:
     """Whether the legacy `file` action could have made the table: no source, no credential, and a
     file in the team's own `managed/` folder."""
@@ -697,11 +705,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         instance.soft_delete()
         log_table_activity(instance, "deleted")
         _delete_hosted_upload_file(instance)
-        try:
-            delete_notebook_table_node(instance.team_id, str(instance.id))
-        except Exception as e:
-            # The table is already deleted, so a failed lineage cleanup must not fail the request.
-            capture_exception(e)
+        _drop_notebook_table_lineage(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -755,6 +759,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         except Exception as err:
             raise serializers.ValidationError(str(err))
         log_table_activity(instance, "updated", before=before, credential_changed=bool(credential_data))
+        if instance.deleted and not before.get("deleted"):
+            _drop_notebook_table_lineage(instance)
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
