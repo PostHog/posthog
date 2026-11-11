@@ -15,10 +15,11 @@ import { CdpApi } from '~/cdp/cdp-api'
 import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_APP_METRICS_2 } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { flush as flushAnalytics } from '~/common/utils/posthog'
 import { FetchResponse } from '~/common/utils/request'
+import { TeamManager } from '~/common/utils/team-manager'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -218,11 +219,12 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
         analyticsReceiver.close()
     })
 
-    const startApi = (config: { allowed?: string; from?: string } = {}): void => {
+    const startApi = (config: { allowed?: string; from?: string; teamManager?: TeamManager } = {}): void => {
         server?.close()
         hub.SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS = config.allowed ?? TOPIC_ARN
         hub.SES_SANDBOX_FROM_ADDRESS = config.from ?? FROM_ADDRESS
-        const api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+        const deps = createCdpConsumerDeps(hub)
+        const api = new CdpApi(hub, config.teamManager ? { ...deps, teamManager: config.teamManager } : deps, {
             hogQueue: createMockJobQueue(),
             hogflowQueue: createMockJobQueue(),
         })
@@ -635,17 +637,21 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
 
         it('answers 200 once the suppression write lands while Kafka and the team lookup stall', async () => {
             jest.mocked((mockProducer as any).producer.produce).mockImplementationOnce(() => undefined)
-            const lockHolder = await hub.postgres.connect(PostgresUse.COMMON_WRITE)
-            await lockHolder.query('BEGIN')
-            await lockHolder.query('LOCK TABLE posthog_team IN ACCESS EXCLUSIVE MODE')
+            const teamPool = new PostgresRouter(
+                { ...hub, POSTGRES_CONNECTION_POOL_SIZE: 1 },
+                'sandbox-feedback-team-stall'
+            )
+            const onlyTeamConnection = await teamPool.connect(PostgresUse.COMMON_READ)
             try {
+                startApi({ teamManager: new TeamManager(teamPool) })
+
                 const res = await post(notification(sesRecord(team.id, complaint())))
 
                 expect(res.status).toBe(200)
                 expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
             } finally {
-                await lockHolder.query('ROLLBACK')
-                lockHolder.release()
+                onlyTeamConnection.release()
+                await teamPool.end()
             }
         })
     })
