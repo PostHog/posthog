@@ -2675,6 +2675,8 @@ def sync_old_schemas_with_new_schemas(
             # disabled, because soft-deleting it would silently discard the user's selection (e.g.
             # a scope-gated table the source stopped offering before its first successful sync).
             if s.table_id is None and not s.should_sync:
+                # A table recreated upstream under the same name revives this row, so it must not come back live.
+                s.live_query_enabled = False
                 s.soft_delete()
                 deleted_schemas.append(schema)
             elif s.should_sync:

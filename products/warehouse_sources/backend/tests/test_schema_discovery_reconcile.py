@@ -294,6 +294,21 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert revived.pk != tombstone.pk
         assert SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY not in (revived.sync_type_config or {}).get("schema_metadata", {})
 
+    def test_live_only_table_dropped_upstream_comes_back_not_live(self) -> None:
+        source = self._make_source()
+        live_only = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source_id=source.pk, name="invoices", should_sync=False, live_query_enabled=True
+        )
+
+        sync_old_schemas_with_new_schemas({"contacts": None}, source_id=str(source.pk), team_id=self.team.pk)
+        sync_old_schemas_with_new_schemas(
+            {"contacts": None, "invoices": None}, source_id=str(source.pk), team_id=self.team.pk
+        )
+
+        live_only.refresh_from_db()
+        assert live_only.deleted is False
+        assert live_only.live_query_enabled is False
+
     def test_failed_pause_leaves_the_table_on_and_still_pauses_the_others(self) -> None:
         # A row written off while its schedule still runs keeps billing, and the next discovery run
         # would skip it as already off, so a failed pause has to leave the row on for that retry.

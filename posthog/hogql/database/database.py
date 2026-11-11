@@ -1475,6 +1475,30 @@ class Database(BaseModel):
                 self._denied_tables.add(table_key)
         return True
 
+    def _is_live_only_table_denied(self, schema: ExternalDataSchema) -> bool:
+        """
+        `_is_warehouse_table_denied` for a dual-mode table that is queryable live but has no synced table row.
+        The reference carries the schema id, which no table rule can name, so resolution starts at the
+        table's source and then the resource defaults.
+        Userless context (no UserAccessControl) fails closed.
+        """
+        # Lazy import, like the other access-control imports in this module.
+        from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef  # noqa: PLC0415
+
+        uac = self.user_access_control
+        ref = ObjectAccessRef(
+            resource="warehouse_table",
+            id=str(schema.id),
+            team_id=schema.team_id,
+            created_by_id=None,
+            fallback_parent=FallbackParent(resource="external_data_source", id=str(schema.source_id)),
+        )
+        if uac is not None and (uac.is_organization_admin or uac.check_access_level_for_ref(ref, "viewer")):
+            return False
+
+        self._denied_tables.add(schema.name)
+        return True
+
     def _is_warehouse_view_denied(self, saved_query: Any) -> bool:
         """
         View counterpart of `_is_warehouse_table_denied`.
@@ -2198,7 +2222,7 @@ class Database(BaseModel):
                         # Dual-mode live queries run under warehouse table-level access control. The
                         # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
                         # `available_table_functions` (FROM func() via OpaqueFunctionCallTable) both let a
-                        # user execute arbitrary SQL against the upstream DB, bypassing the should_sync /
+                        # user execute arbitrary SQL against the upstream DB, bypassing the table selection /
                         # row-filter / column / warehouse-object checks enforced when virtual tables are
                         # built. Drop both so only built-in safe functions pass through; DIRECT sources
                         # (full DB access by design) keep introspected passthrough.
@@ -2834,15 +2858,22 @@ class Database(BaseModel):
                 virtual_source = sources.virtual_source
                 with timings.measure("build_virtual_tables", emit_span=True):
                     for schema_row in sources.virtual_schemas:
-                        # Warehouse access control is granted on the synced table row. A schema row
-                        # without one yet (discovered but not synced) has nothing to check permission
-                        # against, so fail closed and deny it rather than let it slip through unchecked.
+                        # Warehouse access control is granted on the synced table row. A synced schema
+                        # row without one yet has no table rules to check, so it is denied until its first
+                        # sync. A live-only row never gets a table row, so it is checked against its
+                        # source's rules and the resource defaults instead.
                         if (
                             sources.is_hogql_warehouse_access_control_enabled
                             and not sources.bypass_warehouse_access_control
-                            and (schema_row.table is None or database._is_warehouse_table_denied(schema_row.table))
                         ):
-                            continue
+                            if schema_row.table is not None:
+                                denied = database._is_warehouse_table_denied(schema_row.table)
+                            elif schema_row.live_query_enabled:
+                                denied = database._is_live_only_table_denied(schema_row)
+                            else:
+                                denied = True
+                            if denied:
+                                continue
 
                         virtual_table = build_direct_table_for_schema(schema_row, virtual_source)
                         if virtual_table is None:

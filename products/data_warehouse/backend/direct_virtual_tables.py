@@ -9,6 +9,8 @@ objects the pure-direct path derives from physical rows, but from each
 
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
+
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -59,7 +61,8 @@ if TYPE_CHECKING:
 
 
 def eligible_direct_query_schemas(team_id: int, source_id: str) -> list[ExternalDataSchema]:
-    """The synced schema rows a dual-mode connection exposes as live virtual tables.
+    """The schema rows a dual-mode connection exposes as live virtual tables: every synced row, and
+    the unsynced rows the user turned live queries on for.
 
     Single source of truth for both the build path (``_fetch_sources``) and the serialize
     catalog, so the two selections can't drift. Excludes rows without usable ``schema_metadata``
@@ -71,9 +74,9 @@ def eligible_direct_query_schemas(team_id: int, source_id: str) -> list[External
     return [
         schema_row
         for schema_row in ExternalDataSchema.objects.filter(
+            Q(should_sync=True) | Q(live_query_enabled=True),
             team_id=team_id,
             source_id=source_id,
-            should_sync=True,
         )
         .exclude(deleted=True)
         # `table` is the synced S3 row backing the warehouse access-control check on the build path.

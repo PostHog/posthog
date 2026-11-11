@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     UNREADABLE_SOURCE_CONFIG_ERROR,
     ExternalDataSchemaSerializer,
     ExternalDataSchemaViewset,
+    live_query_unavailable_reason,
     masked_columns_error,
     schema_display_status,
 )
@@ -5872,6 +5873,61 @@ class TestMaskedColumnsError(SimpleTestCase):
             incremental_fields=[],
         )
         assert error is not None and "columns are known" in error
+
+
+class TestLiveQueryUnavailableReason(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("allowed", {}, None),
+            ("source_without_live_queries", {"source_serves_live_queries": False}, "live queries turned on"),
+            ("row_filters", {"has_row_filters": True}, "row filters"),
+            ("masked_columns", {"has_masked_columns": True}, "masked columns"),
+            ("no_column_metadata", {"has_column_metadata": False}, "Pull new schemas"),
+        ]
+    )
+    def test_live_query_unavailable_reason(self, _name: str, overrides: dict[str, bool], expected: str | None) -> None:
+        inputs = {
+            "source_serves_live_queries": True,
+            "has_row_filters": False,
+            "has_masked_columns": False,
+            "has_column_metadata": True,
+            **overrides,
+        }
+
+        reason = live_query_unavailable_reason(**inputs)
+
+        if expected is None:
+            assert reason is None
+        else:
+            assert reason is not None and expected in reason
+
+
+class TestExternalDataSchemaLiveQuery(APIBaseTest):
+    @parameterized.expand([("live_queries_on", True, 200), ("live_queries_off", False, 400)])
+    def test_patch_live_query_enabled(self, _name: str, direct_query_enabled: bool, expected_status: int) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=direct_query_enabled,
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="invoices",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type_config={"schema_metadata": {"columns": [{"name": "id", "data_type": "integer"}]}},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"live_query_enabled": True}
+        )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.live_query_enabled is (expected_status == 200)
+        if expected_status == 400:
+            assert response.json()["attr"] == "live_query_enabled"
 
 
 class TestExternalDataSchemaMaskedColumns(APIBaseTest):

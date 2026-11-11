@@ -931,6 +931,55 @@ class TestWarehouseTableAccessControl(BaseTest):
         with self.assertRaises(TableAccessDeniedError):
             database.get_table("denied_table")
 
+    @parameterized.expand(
+        [
+            ("no_rules", None, True),
+            ("source_denied", "external_data_source", False),
+            ("all_tables_denied", "warehouse_objects", False),
+        ]
+    )
+    def test_dual_mode_live_only_table_follows_its_source(
+        self, _label: str, denied_resource: str | None, expected_visible: bool
+    ) -> None:
+        from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="pg",
+            job_inputs={"schema": "public"},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="public.invoices",
+            source=source,
+            should_sync=False,
+            live_query_enabled=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "source_schema": "public",
+                    "source_table_name": "invoices",
+                }
+            },
+        )
+        if denied_resource == "external_data_source":
+            self._create_ac(
+                resource=denied_resource, resource_id=str(source.id), access_level="none", member=self._membership()
+            )
+        elif denied_resource is not None:
+            self._create_ac(resource=denied_resource, access_level="none")
+
+        database = Database.create_for(team=self.team, user=self.user, connection_id=str(source.id))
+
+        assert database.has_table("public.invoices") is expected_visible
+        if not expected_visible:
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table("public.invoices")
+
 
 class TestWarehouseTableAccessControlFlagOff(BaseTest):
     """Regression guard: with hogql-warehouse-access-control off, nothing is filtered."""
