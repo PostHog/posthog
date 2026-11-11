@@ -1,5 +1,11 @@
 import { slackChannelId, slackChannelName } from 'lib/integrations/slackChannel'
 
+import {
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
+    pagerDutyRoutingKeyError,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+
 import type {
     PlatformAlertCreateDestinationApi,
     PlatformAlertDestinationApi,
@@ -7,18 +13,23 @@ import type {
 } from '../generated/api.schemas'
 import { RECEIVER_TYPE_OPTIONS } from '../routing/platformAlertRoutingFormat'
 
-/** The destination types an alert's own form offers. PagerDuty needs its incident settings, so it is left to the API for now. */
-export type DestinationFormType = Exclude<PlatformAlertDestinationTypeEnumApi, 'pagerduty'>
-
-export const DESTINATION_TYPE_OPTIONS = RECEIVER_TYPE_OPTIONS as { value: DestinationFormType; label: string }[]
+// Routes only send messages, so their receiver types leave PagerDuty out. An alert's own destinations are
+// the only place an incident manager can be set up.
+export const DESTINATION_TYPE_OPTIONS: { value: PlatformAlertDestinationTypeEnumApi; label: string }[] = [
+    ...RECEIVER_TYPE_OPTIONS,
+    { value: 'pagerduty', label: 'PagerDuty' },
+]
 
 export interface DestinationForm {
-    type: DestinationFormType
+    type: PlatformAlertDestinationTypeEnumApi
     // Null picks the project's first Slack workspace.
     slackWorkspaceId: number | null
     // `<channel id>|#<channel name>`, the value `SlackChannelPicker` reads and writes.
     slackChannel: string | null
     webhookUrl: string
+    pagerDutyRoutingKey: string
+    pagerDutySeverity: AlertPagerDutySeverity
+    pagerDutyRegion: AlertPagerDutyRegion
 }
 
 // Mirrors the API's cap, so a new alert's pending destinations never exceed what its create can save.
@@ -29,11 +40,18 @@ export const EMPTY_DESTINATION_FORM: DestinationForm = {
     slackWorkspaceId: null,
     slackChannel: null,
     webhookUrl: '',
+    pagerDutyRoutingKey: '',
+    pagerDutySeverity: 'critical',
+    pagerDutyRegion: 'us',
 }
 
 export function validateDestinationForm(form: DestinationForm): Partial<Record<keyof DestinationForm, string>> {
     if (form.type === 'slack') {
         return form.slackChannel ? {} : { slackChannel: 'Pick a channel' }
+    }
+    if (form.type === 'pagerduty') {
+        const keyError = pagerDutyRoutingKeyError(form.pagerDutyRoutingKey)
+        return keyError ? { pagerDutyRoutingKey: keyError } : {}
     }
     const url = form.webhookUrl.trim()
     if (!url) {
@@ -53,6 +71,14 @@ export function destinationBody(
             slack_workspace_id: slackWorkspaceId,
             slack_channel_id: channelId,
             slack_channel_name: slackChannelName(form.slackChannel ?? '') ?? channelId,
+        }
+    }
+    if (form.type === 'pagerduty') {
+        return {
+            type: 'pagerduty',
+            pagerduty_routing_key: form.pagerDutyRoutingKey.trim(),
+            pagerduty_severity: form.pagerDutySeverity,
+            pagerduty_region: form.pagerDutyRegion,
         }
     }
     return { type: form.type, webhook_url: form.webhookUrl.trim() }
@@ -78,7 +104,9 @@ export function destinationTarget(
         return `#${(destination.slack_channel_name ?? destination.slack_channel_id ?? '').replace(/^#/, '')}`
     }
     if (destination.type === 'pagerduty') {
-        return destination.pagerduty_routing_key ? `Key ending ${destination.pagerduty_routing_key}` : ''
+        // A saved key comes back as its last four characters. A pending one is the whole secret, so show only those.
+        const key = destination.pagerduty_routing_key ?? ''
+        return key ? `Key ending ${key.slice(-4)}, ${destination.pagerduty_severity ?? 'critical'}` : ''
     }
     return destination.webhook_url ?? ''
 }
