@@ -121,25 +121,27 @@ describe('IntegrationManagerService', () => {
             expect(source.load).toHaveBeenCalledTimes(2)
         })
 
-        it('serves a pinned integration past its TTL while the source is down, until the pin is released', async () => {
-            const release = await manager.pin([5])
-            source.load.mockRejectedValue(new Error('connection refused'))
-            advanceTo(72_001)
+        it('serves a preloaded integration past its TTL while the source is down, only inside its scope', async () => {
+            const served = await manager.withPreloaded([5], async () => {
+                source.load.mockRejectedValue(new Error('connection refused'))
+                advanceTo(72_001)
+                return await manager.get(5)
+            })
 
-            expect(await manager.get(5)).toBe(source.records['5'].integration)
-
-            release()
+            expect(served).toBe(source.records['5'].integration)
             await expect(manager.get(5)).rejects.toThrow('connection refused')
         })
 
-        it('does not serve a pinned integration past its expiry', async () => {
+        it('does not serve a preloaded integration past its expiry', async () => {
             source.records['5'].expiresAt = now + 10_000
-            const release = await manager.pin([5])
-            source.load.mockRejectedValue(new Error('connection refused'))
-            advanceTo(10_001)
 
-            await expect(manager.get(5)).rejects.toThrow('connection refused')
-            release()
+            const served = manager.withPreloaded([5], async () => {
+                source.load.mockRejectedValue(new Error('connection refused'))
+                advanceTo(10_001)
+                return await manager.get(5)
+            })
+
+            await expect(served).rejects.toThrow('connection refused')
         })
 
         it('reloads an id from a reload message, given as a number', async () => {

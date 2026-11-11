@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter } from 'prom-client'
 
 import { IntegrationType } from '~/cdp/types'
@@ -16,14 +17,9 @@ const integrationDecryptFailures = new Counter({
     labelNames: ['source', 'kind', 'reason'],
 })
 
-type PinnedIntegration = {
-    record: IntegrationSourceRecord | null
-    holders: number
-}
-
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationSourceRecord>
-    private pinned = new Map<IntegrationReference, PinnedIntegration>()
+    private preloaded = new AsyncLocalStorage<Record<IntegrationReference, IntegrationSourceRecord | null>>()
 
     constructor(
         private pubSub: PubSub,
@@ -65,48 +61,26 @@ export class IntegrationManagerService {
         return result
     }
 
-    public async pin(ids: IntegrationIdInput[]): Promise<() => void> {
-        const references = toReferences(ids)
-        if (references.length === 0) {
-            return () => {}
-        }
-        const records = await this.lazyLoader.getMany(references, { flush: true })
-        for (const reference of references) {
-            const holders = this.pinned.get(reference)?.holders ?? 0
-            this.pinned.set(reference, { record: records[reference] ?? null, holders: holders + 1 })
-        }
-        return () => this.unpin(references)
-    }
-
-    private unpin(references: IntegrationReference[]): void {
-        for (const reference of references) {
-            const pin = this.pinned.get(reference)
-            if (!pin) {
-                continue
-            }
-            if (pin.holders <= 1) {
-                this.pinned.delete(reference)
-            } else {
-                pin.holders--
-            }
-        }
+    public async withPreloaded<T>(ids: IntegrationIdInput[], run: () => Promise<T>): Promise<T> {
+        const records = await this.lazyLoader.getMany(toReferences(ids), { flush: true })
+        return await this.preloaded.run(records, run)
     }
 
     private async getRecords(
         references: IntegrationReference[]
     ): Promise<Record<IntegrationReference, IntegrationSourceRecord | null>> {
         const records: Record<IntegrationReference, IntegrationSourceRecord | null> = Object.create(null)
-        const unpinned: IntegrationReference[] = []
+        const preloaded = this.preloaded.getStore()
+        const toLoad: IntegrationReference[] = []
         for (const reference of references) {
-            const pin = this.pinned.get(reference)
-            if (pin && !isExpired(pin.record)) {
-                records[reference] = pin.record
+            if (preloaded && reference in preloaded && !isExpired(preloaded[reference])) {
+                records[reference] = preloaded[reference]
             } else {
-                unpinned.push(reference)
+                toLoad.push(reference)
             }
         }
-        if (unpinned.length > 0) {
-            Object.assign(records, await this.lazyLoader.getMany(unpinned))
+        if (toLoad.length > 0) {
+            Object.assign(records, await this.lazyLoader.getMany(toLoad))
         }
         return records
     }
