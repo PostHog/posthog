@@ -16,7 +16,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
-import { withTimeout } from 'lib/utils/async'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { isUUIDLike } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -96,6 +96,21 @@ const LEGACY_PARAMS = [...LEGACY_FILTER_PARAMS, 'page']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
 const QUERY_FACETS = buildWorkflowListFacets([])
+
+function withRequestDeadline<T>(
+    controller: AbortController,
+    request: (signal: AbortSignal) => Promise<T>,
+    message?: string
+): Promise<T> {
+    return withTimeout(
+        (deadline) => {
+            deadline.addEventListener('abort', () => controller.abort(), { once: true })
+            return request(controller.signal)
+        },
+        SUMMARY_REQUEST_TIMEOUT_MS,
+        message
+    )
+}
 
 function nextOffsetOf(page: PaginatedHogFlowListSummaryListApi): number | null {
     const nextOffset = page.next ? new URL(page.next, window.location.origin).searchParams.get('offset') : null
@@ -419,16 +434,14 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                             (offset) => {
                                 // Stops paging once a newer load starts or the list closes.
                                 breakpoint()
-                                return withTimeout(
-                                    (deadline) => {
-                                        deadline.addEventListener('abort', () => loadAbort.abort(), { once: true })
-                                        return hogFlowsSummariesList(
+                                return withRequestDeadline(
+                                    loadAbort,
+                                    (signal) =>
+                                        hogFlowsSummariesList(
                                             teamId,
                                             { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset },
-                                            { signal: loadAbort.signal }
-                                        )
-                                    },
-                                    SUMMARY_REQUEST_TIMEOUT_MS,
+                                            { signal }
+                                        ),
                                     'Workflows took too long to load. Check your connection and try again.'
                                 )
                             },
@@ -484,19 +497,21 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                     const teamId = String(values.currentTeamId)
                     try {
                         const workflows = await loadAllPages((offset) =>
-                            hogFlowsSummariesList(
-                                teamId,
-                                { type: WORKFLOWS_PAGE_TYPES, search: text, limit: PAGE_LIMIT, offset },
-                                { signal: controller.signal }
+                            withRequestDeadline(controller, (signal) =>
+                                hogFlowsSummariesList(
+                                    teamId,
+                                    { type: WORKFLOWS_PAGE_TYPES, search: text, limit: PAGE_LIMIT, offset },
+                                    { signal }
+                                )
                             )
                         )
                         breakpoint()
                         return { text, ids: workflows.map((workflow) => workflow.id), failed: false }
-                    } catch {
-                        // `breakpoint()` drops a search that a newer one aborted. Other failures keep the client
-                        // matches and show a notice instead of an error toast.
+                    } catch (error) {
+                        // `breakpoint()` drops a search that a newer one aborted. Other failures, a passed deadline
+                        // included, keep the client matches and show a notice instead of an error toast.
                         breakpoint()
-                        if (controller.signal.aborted) {
+                        if (controller.signal.aborted && !(error instanceof PromiseTimeoutError)) {
                             return values.serverSearch
                         }
                         return { text, ids: [], failed: true }

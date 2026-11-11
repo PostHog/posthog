@@ -738,6 +738,29 @@ describe('workflowsListV2Logic', () => {
         expect(screen.queryByRole('alert')).toBeNull()
     })
 
+    it('fails a stalled server search at its deadline and aborts it, and a new search for the text succeeds', async () => {
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+        serverSearch = () => new Promise(() => {})
+        jest.useFakeTimers()
+        try {
+            logic.actions.setValue({ filters: [], text: 'invoice' })
+            await jest.advanceTimersByTimeAsync(1000 + SUMMARY_REQUEST_TIMEOUT_MS)
+            expect(logic.values.serverSearchStatus).toEqual('failed')
+            expect(searchSignals.map((signal) => signal.aborted)).toEqual([true])
+        } finally {
+            jest.useRealTimers()
+        }
+
+        serverSearch = async () => ['wf-sync']
+        logic.actions.setValue({ filters: [], text: '' })
+        await expectLogic(logic, () => logic.actions.setValue({ filters: [], text: 'invoice' })).toFinishAllListeners()
+        expect(logic.values.serverSearchStatus).toEqual('done')
+        expect(shownIds(logic)).toEqual(['wf-sync'])
+    })
+
     const RENEWAL_ACTIONS = [
         { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
         { id: 'action_email', name: 'Send reminder', type: 'function_email', config: { inputs: {} } },
