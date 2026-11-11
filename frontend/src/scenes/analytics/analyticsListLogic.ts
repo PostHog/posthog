@@ -183,8 +183,8 @@ export interface analyticsListLogicValues {
     loading: boolean
     mode: AnalyticsListMode
     narrowingFiltersActive: boolean
-    scope: AnalyticsListScope
     rowSelection: Record<string, boolean>
+    scope: AnalyticsListScope
     searchInput: string
     selectedCount: number
     shownQuery: AnalyticsFeedQuery | null
@@ -237,6 +237,9 @@ export interface analyticsListLogicActions {
         value: true
     }
     clearNarrowingFilters: () => {
+        value: true
+    }
+    clearSelection: () => {
         value: true
     }
     itemOpened: (
@@ -309,9 +312,6 @@ export interface analyticsListLogicActions {
     }
     setRowSelection: (rowSelection: Record<string, boolean>) => {
         rowSelection: Record<string, boolean>
-    }
-    clearSelection: () => {
-        value: true
     }
     setScope: (scope: AnalyticsListScope) => {
         scope: AnalyticsListScope
