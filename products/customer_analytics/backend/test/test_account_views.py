@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from posthog.test.base import APIBaseTest
 
@@ -149,11 +150,22 @@ class TestAccountViewContentValidation(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("scoped", {"query": "select * from engagements where org_id = {account_external_id}"}, None),
+            *[
+                (
+                    case["name"],
+                    {"query": case["query"]},
+                    None
+                    if case["valid"]
+                    else "SQL query must filter by {account_external_id} in every SELECT's WHERE.",
+                )
+                for case in json.loads(
+                    (Path(__file__).parents[2] / "frontend/components/Accounts/accountSqlQuery.test.json").read_text()
+                )
+            ],
             (
-                "unscoped",
-                {"query": "select * from engagements"},
-                "SQL query must filter by {account_external_id}.",
+                "invalid_sql",
+                {"query": "select * from engagements where"},
+                "Enter a valid SQL query.",
             ),
             ("blank", {"query": "  "}, "SQL query config needs a query."),
             ("not_a_string", {"query": 1}, "SQL query config needs a query."),

@@ -1,0 +1,87 @@
+[
+    { "name": "equality", "query": "select * from engagements where org_id = {account_external_id}", "valid": true },
+    {
+        "name": "reversed equality",
+        "query": "select * from engagements where {account_external_id} = org_id",
+        "valid": true
+    },
+    {
+        "name": "scoped conjunction",
+        "query": "select * from engagements where org_id = {account_external_id} and (active or recent)",
+        "valid": true
+    },
+    {
+        "name": "scoped disjunction",
+        "query": "select * from engagements where (org_id = {account_external_id} and active) or (org_id = {account_external_id} and recent)",
+        "valid": true
+    },
+    {
+        "name": "scoped union",
+        "query": "select * from first_table where org_id = {account_external_id} union all select * from second_table where org_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "scoped subquery",
+        "query": "select * from (select * from engagements where org_id = {account_external_id}) e where e.org_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "scoped aggregation",
+        "query": "select count() from engagements where org_id = {account_external_id}",
+        "valid": true
+    },
+    { "name": "no filter", "query": "select * from engagements", "valid": false },
+    { "name": "select placeholder", "query": "select {account_external_id}, * from engagements", "valid": false },
+    { "name": "comment placeholder", "query": "select * from engagements -- {account_external_id}", "valid": false },
+    {
+        "name": "string placeholder",
+        "query": "select * from engagements where name = '{account_external_id}'",
+        "valid": false
+    },
+    {
+        "name": "unscoped disjunction",
+        "query": "select * from engagements where org_id = {account_external_id} or true",
+        "valid": false
+    },
+    { "name": "not equal", "query": "select * from engagements where org_id != {account_external_id}", "valid": false },
+    {
+        "name": "negated filter",
+        "query": "select * from engagements where not (org_id = {account_external_id})",
+        "valid": false
+    },
+    {
+        "name": "constant comparison",
+        "query": "select * from engagements where {account_external_id} = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "select alias",
+        "query": "select {account_external_id} as org_id, * from engagements where org_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "with alias",
+        "query": "with {account_external_id} as org_id select * from engagements where org_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "where alias",
+        "query": "select * from engagements where org_id = {account_external_id} and ({account_external_id} as org_id)",
+        "valid": false
+    },
+    {
+        "name": "unscoped union branch",
+        "query": "select * from first_table where org_id = {account_external_id} union all select * from second_table",
+        "valid": false
+    },
+    {
+        "name": "unscoped subquery",
+        "query": "select (select count() from other_table) from engagements where org_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "unscoped cte",
+        "query": "with other as (select * from other_table) select * from other where org_id = {account_external_id}",
+        "valid": false
+    }
+]

@@ -1,0 +1,5 @@
+version: 1
+owners: []
+rules:
+    - match: ['/hogqlParser.ts', '/hogqlParser.test.ts']
+      owners: team-data-stack

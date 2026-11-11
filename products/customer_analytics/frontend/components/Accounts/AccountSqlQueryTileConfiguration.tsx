@@ -10,8 +10,9 @@ export function AccountSqlQueryTileConfiguration({ config, onChange }: AccountVi
         <div className="flex flex-col gap-1">
             <LemonLabel>SQL query</LemonLabel>
             <p className="m-0 text-xs text-secondary">
-                Use {ACCOUNT_SQL_QUERY_PLACEHOLDER} where the account's ID goes. Each account shows only its own rows,
-                for example: <code>where organization_id = {ACCOUNT_SQL_QUERY_PLACEHOLDER}</code>
+                Filter an account ID column in every SELECT's WHERE clause, including subqueries and UNION branches. For
+                example: <code>where organization_id = {ACCOUNT_SQL_QUERY_PLACEHOLDER}</code>. Every OR branch must keep
+                this filter. Use the column directly, without a SELECT or WITH alias.
             </p>
             <CodeEditorResizeable
                 language="hogQL"
