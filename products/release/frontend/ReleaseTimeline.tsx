@@ -57,14 +57,45 @@ interface PlacedSpan extends ReleaseSpan {
     width: number
 }
 
+const SPANS_PER_KIND = 3
+
+function boundSpans(spans: ReleaseSpan[]): ReleaseSpan[] {
+    const byKind = new Map<ReleaseSpan['kind'], ReleaseSpan[]>()
+    for (const span of spans) {
+        const kindSpans = byKind.get(span.kind)
+        if (kindSpans) {
+            kindSpans.push(span)
+        } else {
+            byKind.set(span.kind, [span])
+        }
+    }
+    const bounded: ReleaseSpan[] = []
+    for (const [kind, kindSpans] of byKind) {
+        if (kindSpans.length <= SPANS_PER_KIND) {
+            bounded.push(...kindSpans)
+            continue
+        }
+        const sorted = [...kindSpans].sort((a, b) => a.from.localeCompare(b.from))
+        const shown = sorted.slice(0, SPANS_PER_KIND - 1)
+        const rest = sorted.slice(SPANS_PER_KIND - 1)
+        bounded.push(...shown, {
+            key: `${kind}-more`,
+            kind,
+            from: rest[0].from,
+            to: rest.map((span) => span.to).sort()[rest.length - 1],
+            label: `${rest.length} more`,
+            href: rest[0].href,
+        })
+    }
+    return bounded
+}
+
 function placeSpans(spans: ReleaseSpan[], start: dayjs.Dayjs, total: number): PlacedSpan[] {
     const end = start.add(total, 'day')
     const x = (date: string): number => Math.max(0, Math.min(total, dayjs(date).diff(start, 'day'))) * DAY
+    const visible = spans.filter((span) => !dayjs(span.to).isBefore(start) && !dayjs(span.from).isAfter(end))
     const placed: PlacedSpan[] = []
-    for (const span of spans) {
-        if (dayjs(span.to).isBefore(start) || dayjs(span.from).isAfter(end)) {
-            continue
-        }
+    for (const span of boundSpans(visible)) {
         const left = x(span.from)
         const width = Math.max(x(span.to) + DAY / 2 - left, span.kind === 'flag' ? 0 : DAY)
         if (width > 0) {
