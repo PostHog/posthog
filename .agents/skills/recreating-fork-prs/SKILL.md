@@ -25,6 +25,7 @@ The push and the new PR act in the user's name. Get the user's go-ahead for each
 - [ ] 2. Rebuild the change on a new branch
 - [ ] 3. Compare the branch with the reviewed SHA
 - [ ] 4. Open the new PR
+- [ ] 5. Ask the fork PR's approver for a stamp
 ```
 
 ## 1. Pin, then review
@@ -112,3 +113,42 @@ When the new PR merges, the `Thank fork contributor` job in `.github/workflows/p
 It comments on the fork PR with a link to the merged PR, then closes the fork PR.
 Leave the fork PR open until then.
 If that job fails, a rerun reuses the failed run's workflow file, so fix the cause and then run `gh workflow run pr-closed.yml -f merged_pr_number=<new PR number>`.
+
+## 5. Ask the approver for a stamp
+
+The new PR needs its own approval.
+The fastest one comes from the person who already approved the fork PR.
+
+Find who approved it, and on which commit:
+
+```sh
+gh api repos/PostHog/posthog/pulls/<n>/reviews \
+  --jq '.[] | select(.state == "APPROVED") | {login: .user.login, commit: .commit_id}'
+```
+
+When the approval is on the pinned SHA, add this note under the "Contributed by" line, and request their review:
+
+```text
+> [!NOTE]
+> @<approver> approved #<n> at `<short sha>`, the same commit this PR contains, with no changes. This only needs a quick stamp.
+```
+
+```sh
+gh pr edit <new PR number> --add-reviewer <approver>
+```
+
+When the approval is on an older SHA, do not claim it covers this PR. Say which commits came after it, and request their review without the note.
+
+Then draft a Slack DM to the approver, so they see the request before GitHub's notification.
+Use the Slack connector: look up the approver's name with `gh api users/<approver> --jq .name`, then find them with a Slack user search.
+If the search returns more than one person, or none, ask the user which person it is.
+Create the DM as a draft, never send it. The user reviews and sends it:
+
+```text
+Hi <first name>! Mind giving this a stamp? <new PR URL>
+
+It's a PR you already reviewed and approved for an external contributor, but to get it through CI checks we needed to create the branch from this repo instead of a fork.
+```
+
+Give the user the link to the draft.
+If no Slack connector is available, give the user the message text to send.
