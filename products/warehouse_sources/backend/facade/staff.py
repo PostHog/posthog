@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.logic.auto_disabled_schemas import (
     DAYS_CHOICES,
     DEFAULT_DAYS,
     MAX_REENABLE_PER_RUN,
+    REENABLE_TIME_BUDGET_SECONDS,
     AutoDisabledSchemas,
 )
 from products.warehouse_sources.backend.logic.schema_staff_actions import (
@@ -34,6 +35,7 @@ __all__ = [
     "DAYS_CHOICES",
     "DEFAULT_DAYS",
     "MAX_REENABLE_PER_RUN",
+    "REENABLE_TIME_BUDGET_SECONDS",
     "PARTITION_FORMAT_CHOICES",
     "PARTITION_MODE_CHOICES",
     "get_schema_for_staff",
@@ -103,5 +105,7 @@ def select_auto_disabled_schemas_for_staff(selection: AutoDisabledSchemaFilter) 
     return AutoDisabledSchemas.select(selection)
 
 
-def reenable_schemas_for_staff(targets: Sequence[SchemaReenableTarget]) -> SchemaReenableResult:
-    return AutoDisabledSchemas.reenable(targets)
+def reenable_schemas_for_staff(
+    targets: Sequence[SchemaReenableTarget], time_budget_seconds: float | None = None
+) -> SchemaReenableResult:
+    return AutoDisabledSchemas.reenable(targets, time_budget_seconds)

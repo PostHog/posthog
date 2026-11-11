@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.facade.staff import (
     MAX_REENABLE_PER_RUN,
     PARTITION_FORMAT_CHOICES,
     PARTITION_MODE_CHOICES,
+    REENABLE_TIME_BUDGET_SECONDS,
     get_schema_for_staff,
     get_source_for_staff,
     list_auto_disabled_schemas_for_staff,
@@ -806,9 +807,24 @@ def _result_page(result: SchemaReenableResult, selection: AutoDisabledSchemaFilt
                 Stat(label="Re-enabled", value=str(len(result.reenabled)), tone=Tone.SUCCESS),
                 Stat(label="Skipped", value=str(len(result.skipped))),
                 Stat(label="Failed", value=str(len(result.failed)), tone=Tone.DESTRUCTIVE if result.failed else None),
+                Stat(
+                    label="Not attempted",
+                    value=str(len(result.not_attempted)),
+                    tone=Tone.WARNING if result.not_attempted else None,
+                ),
             )
         )
     ]
+    if result.not_attempted:
+        blocks.append(
+            Notice(
+                text=(
+                    f"The run reached its {REENABLE_TIME_BUDGET_SECONDS} second limit and stopped starting schemas. "
+                    "The schemas it did not start are unchanged. Run the operation again for them."
+                ),
+                tone=Tone.WARNING,
+            )
+        )
     if result.skipped:
         blocks.append(
             Notice(text="Skipped schemas were turned on, deleted or stopped again after the preview. Nothing changed.")
@@ -846,7 +862,8 @@ def reenable_schemas(request: HttpRequest, form: forms.Form | None) -> HttpRespo
     if not targets:
         messages.error(request, "Nothing was previewed. Preview the schemas again before you re-enable them.")
         return HttpResponse(status=400)
-    return _result_page(reenable_schemas_for_staff(targets), form.selection())
+    result = reenable_schemas_for_staff(targets, time_budget_seconds=REENABLE_TIME_BUDGET_SECONDS)
+    return _result_page(result, form.selection())
 
 
 @console.register_tool
@@ -877,7 +894,8 @@ class ReenableAutoDisabledSchemasTool(ConsoleTool):
                 description=(
                     "Turns syncing back on for the auto-disabled schemas that match the filters, the newest "
                     f"{MAX_REENABLE_PER_RUN} per run. Their schedules are unpaused, so the customer's syncs start "
-                    "again on the normal cadence. You see each schema before anything changes."
+                    "again on the normal cadence. You see each schema before anything changes. A run stops starting "
+                    f"new schemas after {REENABLE_TIME_BUDGET_SECONDS} seconds."
                 ),
                 undo_hint=(
                     "To undo for a schema, open it in the Warehouse sources tool and use Pause schedule, or ask the "

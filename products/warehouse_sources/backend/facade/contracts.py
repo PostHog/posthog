@@ -843,6 +843,8 @@ class SchemaReenableResult:
     # Turned on, deleted, or stopped again since staff saw them.
     skipped: tuple[UUID, ...]
     failed: tuple[UUID, ...]
+    # Not started because the run reached its time budget. They are unchanged.
+    not_attempted: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)

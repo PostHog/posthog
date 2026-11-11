@@ -7,6 +7,7 @@ with the stamp set is ever listed here.
 import re
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from time import monotonic
 from uuid import UUID
 
 from django.core.paginator import Paginator
@@ -37,6 +38,9 @@ DAYS_CHOICES = (1, 3, 7, 14, 30)
 # Each re-enable runs `update_should_sync`: about four Postgres queries, two new Temporal connections and two
 # Temporal calls. At a few hundred milliseconds each, 200 schemas finish in about a minute, inside one request.
 MAX_REENABLE_PER_RUN = 200
+# The console stops starting re-enables after this long. Envoy cuts a response on /admin/ at 300 seconds and the
+# ALB idles out at 300 seconds, so this leaves room for the last call and the result page when Temporal is slow.
+REENABLE_TIME_BUDGET_SECONDS = 180
 SCHEMAS_PER_PAGE = 50
 # Grouping reads one row per schema. Past this many, the groups cover only the newest schemas.
 MAX_GROUPED_SCHEMAS = 50_000
@@ -172,15 +176,23 @@ class AutoDisabledSchemas:
         return AutoDisabledSchemaSelection(rows=rows, total=total)
 
     @staticmethod
-    def reenable(targets: Sequence[SchemaReenableTarget]) -> SchemaReenableResult:
+    def reenable(
+        targets: Sequence[SchemaReenableTarget], time_budget_seconds: float | None = None
+    ) -> SchemaReenableResult:
         """Turns syncing on for each target that is still off, not deleted, and has the stop time staff saw.
 
-        A failure on one schema is logged and reported, and the others still run.
+        A failure on one schema is logged and reported, and the others still run. With a time budget, targets
+        not started when it runs out are returned as not attempted, and nothing is done to them.
         """
         reenabled: list[UUID] = []
         skipped: list[UUID] = []
         failed: list[UUID] = []
+        not_attempted: list[UUID] = []
+        deadline = monotonic() + time_budget_seconds if time_budget_seconds is not None else None
         for target in targets:
+            if deadline is not None and monotonic() >= deadline:
+                not_attempted.append(target.schema_id)
+                continue
             # Read right before the write, so a schema that changed since staff saw it stays as it is. The tool
             # sends only stamped targets, and a stamp never equals null, so it cannot turn on a schema the user
             # turned off. The command also sends null stamps, for schemas it matched by error alone.
@@ -207,4 +219,11 @@ class AutoDisabledSchemas:
                 continue
             logger.info("auto_disabled_schema_reenabled", schema_id=str(target.schema_id), team_id=target.team_id)
             reenabled.append(target.schema_id)
-        return SchemaReenableResult(reenabled=tuple(reenabled), skipped=tuple(skipped), failed=tuple(failed))
+        if not_attempted:
+            logger.warning("auto_disabled_schema_reenable_out_of_time", not_attempted=len(not_attempted))
+        return SchemaReenableResult(
+            reenabled=tuple(reenabled),
+            skipped=tuple(skipped),
+            failed=tuple(failed),
+            not_attempted=tuple(not_attempted),
+        )

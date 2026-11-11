@@ -9,6 +9,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -112,13 +114,17 @@ class TestReenableAutoDisabledSchemasTool(BaseTest):
         assert not any(name in content for name in ("public.users", "public.events", "public.accounts"))
         assert self._syncing(stopped) == [False]
 
-        result = self._confirm(preview)
+        with self.captureOnCommitCallbacks(execute=True):
+            result = self._confirm(preview)
 
         assert "Re-enabled" in result.content.decode()
         assert self._syncing(stopped, user_disabled, deleted, old) == [True, False, False, False]
         stopped.refresh_from_db()
         assert stopped.auto_disabled_at is None
         assert "failure_streak" not in stopped.sync_type_config
+        # Each save leaves an audit row for the staff member, so a run cut off by a timeout stays recorded.
+        logged = ActivityLog.objects.filter(scope="ExternalDataSchema", item_id=str(stopped.id), activity="updated")
+        assert [log.user_id for log in logged] == [self.user.id]
 
     def test_preview_with_no_match_shows_the_form_again(self) -> None:
         self._schema("public.users", stopped_hours_ago=None)
@@ -187,6 +193,29 @@ class TestReenableAutoDisabledSchemasTool(BaseTest):
         assert f"{SCHEMA_TOOL_URL}?schema={first.id}" in content
         assert self._syncing(second) == [True]
         assert unpause.call_count == 2
+
+    @patch(f"{_TEMPORAL}.unpause_external_data_schedule")
+    @patch(f"{_TEMPORAL}.external_data_workflow_exists", return_value=True)
+    def test_run_stops_starting_schemas_at_the_time_budget(self, _exists, unpause) -> None:
+        first = self._schema("public.orders", stopped_hours_ago=1)
+        second = self._schema("public.users", stopped_hours_ago=2)
+        preview = self._preview()
+        clock = {"now": 0.0}
+
+        def slow_unpause(schema_id: str) -> None:
+            clock["now"] += 10_000
+
+        unpause.side_effect = slow_unpause
+        with patch(
+            "products.warehouse_sources.backend.logic.auto_disabled_schemas.monotonic", side_effect=lambda: clock["now"]
+        ):
+            result = self._confirm(preview)
+
+        content = result.content.decode()
+        assert "Not attempted" in content
+        assert "reached its 180 second limit" in content
+        assert self._syncing(first, second) == [True, False]
+        assert unpause.call_count == 1
 
 
 class TestReenableSyncingOnSchemaPage(BaseTest):
