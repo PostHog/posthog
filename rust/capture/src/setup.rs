@@ -31,6 +31,7 @@ use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::registry::OutputTable;
 use crate::sinks::s3::S3Sink;
+use crate::v1::constants::CAPTURE_V1_LEGACY_PROPERTY_SPLICE;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -377,6 +378,7 @@ pub async fn build_components(
         ai_byte_rate_limiter,
         replay_overflow_limiter,
         config.capture_v1_scatter_gather_min_batch,
+        config.capture_v1_legacy_property_splice,
         config.ai_gateway_signing_secret.clone(),
         ingestion_warning_emitter,
     );
@@ -384,6 +386,15 @@ pub async fn build_components(
     info!(
         "config: is_mirror_deploy == {:?} ; log_level == {:?}",
         config.is_mirror_deploy, config.log_level
+    );
+    gauge!(CAPTURE_V1_LEGACY_PROPERTY_SPLICE).set(if config.capture_v1_legacy_property_splice {
+        1.0
+    } else {
+        0.0
+    });
+    info!(
+        capture_v1_legacy_property_splice = config.capture_v1_legacy_property_splice,
+        "capture v1 legacy property splice"
     );
 
     CaptureComponents {
@@ -809,6 +820,36 @@ mod tests {
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
         envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config")
+    }
+
+    #[rstest]
+    #[case(None, true)]
+    #[case(Some("true"), true)]
+    #[case(Some("false"), false)]
+    fn capture_v1_legacy_property_splice_reads_its_env_var(
+        #[case] value: Option<&str>,
+        #[case] expected: bool,
+    ) {
+        let mut cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        if let Some(value) = value {
+            cfg_env.insert(
+                "CAPTURE_V1_LEGACY_PROPERTY_SPLICE".to_string(),
+                value.to_string(),
+            );
+        }
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        assert_eq!(config.capture_v1_legacy_property_splice, expected);
     }
 
     /// The emitter gauge as `(reason, value)`, or `None` if never emitted.

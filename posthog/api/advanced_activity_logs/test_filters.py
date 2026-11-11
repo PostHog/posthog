@@ -11,7 +11,7 @@ from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
+from .filters import AdvancedActivityLogFilterManager, filters_match_change_values, validate_detail_filters
 from .viewset import AdvancedActivityLogFiltersSerializer
 
 
@@ -249,6 +249,30 @@ class TestDetailFilterValidation(SimpleTestCase):
         detail_filters = {field_path: {"operation": "exact", "value": "x"}}
 
         self.assertEqual(validate_detail_filters(detail_filters), detail_filters)
+
+
+class TestFiltersMatchChangeValues(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_filters", {}, False),
+            ("search_text", {"search_text": "x"}, True),
+            ("after_in_array", {"detail_filters": {"changes[].after": {"value": "x"}}}, True),
+            ("before_by_index", {"detail_filters": {"changes.0.before": {"value": "x"}}}, True),
+            ("after_by_negative_index", {"detail_filters": {"changes.-1.after": {"value": "x"}}}, True),
+            ("nested_after", {"detail_filters": {"changes[].after.plan": {"value": "x"}}}, True),
+            ("whole_changes", {"detail_filters": {"changes[]": {"operation": "contains", "value": "x"}}}, True),
+            ("change_field", {"detail_filters": {"changes[].field": {"operation": "contains", "value": "x"}}}, True),
+            (
+                "array_without_dot",
+                {"detail_filters": {"changes[]before": {"operation": "contains", "value": "x"}}},
+                True,
+            ),
+            ("name", {"detail_filters": {"name": {"value": "x"}}}, False),
+            ("unset_value", {"detail_filters": {"changes[].after": {"value": None}}}, False),
+        ]
+    )
+    def test_detects_filters_on_change_values(self, _name: str, filters: dict[str, Any], expected: bool) -> None:
+        assert filters_match_change_values(filters) is expected
 
 
 class TestIpAddressFilter(BaseTest):

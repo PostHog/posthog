@@ -587,7 +587,12 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'soft' })
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },
+            {
+                teamId: '1',
+                emailAddresses: ['to@example.com'],
+                diagnostic: 'temp',
+                bounceTimestamp: '2025-10-03T12:04:00Z',
+            },
         ])
     })
 

@@ -271,6 +271,42 @@ class TestGetPropertyAccessLevel(BaseTest):
         level = get_property_access_level(property=self.prop_def, user=self.user)
         assert level == PropertyAccessLevel.READ_WRITE
 
+    @parameterized.expand(
+        [
+            (
+                "read_role_first",
+                [PropertyAccessLevel.READ, PropertyAccessLevel.READ_WRITE],
+                PropertyAccessLevel.READ_WRITE,
+            ),
+            (
+                "read_write_role_first",
+                [PropertyAccessLevel.READ_WRITE, PropertyAccessLevel.READ],
+                PropertyAccessLevel.READ_WRITE,
+            ),
+            ("none_and_read", [PropertyAccessLevel.NONE, PropertyAccessLevel.READ], PropertyAccessLevel.READ),
+            ("all_none", [PropertyAccessLevel.NONE, PropertyAccessLevel.NONE], PropertyAccessLevel.NONE),
+        ]
+    )
+    def test_most_permissive_role_rule_wins(
+        self, _name: str, role_levels: list[PropertyAccessLevel], expected_level: PropertyAccessLevel
+    ) -> None:
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        for i, role_level in enumerate(role_levels):
+            role = Role.objects.create(name=f"Role {i}", organization=self.organization)
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=self.prop_def,
+                access_level=role_level.value,
+                role=role,
+            )
+        level = get_property_access_level(property=self.prop_def, user=self.user)
+        assert level == expected_level
+
     def test_user_rule_takes_priority_over_role_rule(self):
         from products.access_control.backend.models.role import Role, RoleMembership
 

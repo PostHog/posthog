@@ -38,6 +38,15 @@ export type InternalLogs = InternalSourcePolicy & { source: string }
 export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePolicy>> = {
     hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows' },
     hog_function: { billed: false, teamRules: false, serviceName: 'posthog-internal-hog-functions' },
+    external_data_jobs: { billed: false, teamRules: false, serviceName: 'posthog-internal-data-imports' },
+    data_modeling_run: { billed: false, teamRules: false, serviceName: 'posthog-internal-data-modeling' },
+    batch_exports: { billed: false, teamRules: false, serviceName: 'posthog-internal-batch-exports' },
+    batch_exports_backfill: { billed: false, teamRules: false, serviceName: 'posthog-internal-batch-exports' },
+    dwh_cdp_producer_job: { billed: false, teamRules: false, serviceName: 'posthog-internal-warehouse-cdp' },
+    temporal_workflow: { billed: false, teamRules: false, serviceName: 'posthog-internal-temporal' },
+    endpoints: { billed: false, teamRules: false, serviceName: 'posthog-internal-endpoints' },
+    alert_destination: { billed: false, teamRules: false, serviceName: 'posthog-internal-alerts' },
+    session_replay: { billed: false, teamRules: false, serviceName: 'posthog-internal-session-replay' },
 }
 
 type NotInternalReason =

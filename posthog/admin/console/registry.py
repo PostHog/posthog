@@ -7,7 +7,7 @@ from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.tools import ConsoleTool
 
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
-TOOL_GROUPS = frozenset({"Data", "Billing", "Organizations"})
+TOOL_GROUPS = frozenset({"Data", "Billing", "Organizations", "Access"})
 KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -79,12 +79,20 @@ class ConsoleRegistry:
         if self._discovered:
             return
         # Core panels register first, so they lead each page.
+        import posthog.admin.console.oauth_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.team_panels  # noqa: F401, PLC0415 — registers the core Team panels
+        import posthog.admin.console.tophog_tool  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.user_panels  # noqa: F401, PLC0415 — registers the core User panels
+        import posthog.admin.console.api_key_panels  # noqa: F401, PLC0415 — registers the core API key panels
+        import posthog.admin.console.project_panels  # noqa: F401, PLC0415 — registers the core Project panels
         import posthog.admin.console.health_checks_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.organization_tools  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.remote_config_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.usage_reports_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.organization_panels  # noqa: F401, PLC0415 — registers the core Organization panels
         import posthog.admin.console.events_retention_tool  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.organization_deletion  # noqa: F401, PLC0415 — registers the core Organization deletion panel
+        import posthog.admin.console.distinct_id_usage_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.deletion_request_panels  # noqa: F401, PLC0415 — registers the core deletion request panels
 
         autodiscover_modules("console")

@@ -533,6 +533,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_enabled": "PR generation",
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
+        "default_slack_notification_min_priority": "team Slack minimum priority",
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
@@ -1122,8 +1123,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
-        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
-        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",

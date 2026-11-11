@@ -31,6 +31,7 @@ from products.slack_app.backend.temporal import (
     discover_posthog_code_repository_via_agent_activity,
     enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
+    offer_slack_app_tool_connections_activity,
     post_posthog_code_internal_error_activity,
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
@@ -48,6 +49,9 @@ if TYPE_CHECKING:
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
+# A person who ignores the connect offer still gets the answer, without the tool.
+SLACK_APP_CONNECT_TOOL_WAIT = timedelta(minutes=10)
+CONNECT_TOOL_FROM_CHAT_PATCH = "slack-app-connect-tool-from-chat-2026-11"
 
 
 @workflow.defn(name="slack-app-mention-processing")
@@ -55,6 +59,11 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._selected_repo: str | None = None
         self._repo_selection_resolved = False
+        self._tool_connection_resolved = False
+
+    @workflow.signal
+    async def tool_connection_resolved(self) -> None:
+        self._tool_connection_resolved = True
 
     @workflow.signal
     async def repo_selected(self, repository: str) -> None:
@@ -236,6 +245,24 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                     model_override=model_override,
                 ),
             )
+
+            if workflow.patched(CONNECT_TOOL_FROM_CHAT_PATCH):
+                offered = await _execute_posthog_code_activity(
+                    offer_slack_app_tool_connections_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    user_id,
+                    workflow.info().workflow_id,
+                )
+                if offered:
+                    try:
+                        await workflow.wait_condition(
+                            lambda: self._tool_connection_resolved, timeout=SLACK_APP_CONNECT_TOOL_WAIT
+                        )
+                    except TimeoutError:
+                        pass
 
             created = await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,

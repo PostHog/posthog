@@ -1341,7 +1341,12 @@ describe('runInteractionLogic', () => {
             expect(tasksRunCreate).toHaveBeenCalledWith(
                 '997',
                 TASK_ID,
-                { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here', ...selection },
+                {
+                    resume_from_run_id: RUN_ID,
+                    pending_user_message: 'continue from here',
+                    mode: 'interactive',
+                    ...selection,
+                },
                 expect.objectContaining({ signal: expect.any(AbortSignal) })
             )
         })
@@ -1377,6 +1382,7 @@ describe('runInteractionLogic', () => {
                 initial_permission_mode: 'auto',
                 resume_from_run_id: RUN_ID,
                 pending_user_message: 'continue from here',
+                mode: 'interactive',
             },
             expect.objectContaining({ signal: expect.any(AbortSignal) })
         )

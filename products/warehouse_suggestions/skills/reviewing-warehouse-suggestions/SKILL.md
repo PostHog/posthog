@@ -24,6 +24,16 @@ If the list is empty, call `warehouse-suggestions-status`: it says whether sugge
 Call `warehouse-suggestions-get` for a suggestion the user wants to discuss.
 Its `evidence` has the read counts behind it.
 
+### Suggestions on query responses
+
+A query that reads a view can return its open suggestions without a separate call.
+The `/query` response, `execute-sql` and the typed query tools carry them in `warehouse_suggestions`, on fresh runs only.
+A cached result has none. To see them again, call `warehouse-suggestions-list` with `status=proposed`, which runs no query.
+
+- Each item has `id`, `kind` (`materialize` or `unmaterialize`), `view_name`, `message`, `url` and `can_act`.
+- Mention them to the person. Do not accept or dismiss one unless the person asks.
+- To act on one, pass its `id` to `warehouse-suggestions-get`, then follow the steps below.
+
 ## 2. Explain it with its own numbers
 
 Tell the user what accepting does and what it costs, using the payload fields.

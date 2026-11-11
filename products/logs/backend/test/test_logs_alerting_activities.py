@@ -11,11 +11,6 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from hypothesis import (
-    given,
-    settings,
-    strategies as st,
-)
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -32,7 +27,6 @@ from products.logs.backend.temporal.activities import (
     _AlertCohort,
     _AlertEvaluation,
     _build_notified_from_saved,
-    _derive_breaches,
     _dispatch_for_alert,
     _DispatchedAlert,
     _evaluate_single_alert,
@@ -386,7 +380,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
         )
 
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_falls_back_to_per_alert_on_non_transient_failure(
@@ -426,7 +420,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
         assert bad.error is not None and "alert-1 also bad" in str(bad.error)
 
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_skips_fallback_on_transient_error(
@@ -492,7 +486,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
             assert prefetched.query_duration_ms == 42
 
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_one_cohorts_failure_isolated_from_others(
@@ -566,7 +560,7 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         )
 
     @time_machine.travel("2026-01-01T10:05:00Z", tick=False)
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_fallback_runs_per_alert_queries_against_real_clickhouse(self, mock_batched, _mock_counter, mock_classify):
@@ -602,7 +596,7 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert prefetch_b.query_duration_ms is not None and prefetch_b.query_duration_ms >= 0
 
     @time_machine.travel("2026-01-01T10:05:00Z", tick=False)
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_fallback_isolates_one_alerts_per_alert_failure(self, mock_batched, _mock_counter, mock_classify):
@@ -937,7 +931,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_alert_internal_event")
     @patch(
-        "products.logs.backend.alert_error_classifier.classify_query_error",
+        "products.alerts_platform.backend.facade.check_errors.classify_query_error",
         return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     )
     def test_clickhouse_failure_creates_error_event_row(self, _mock_classify, mock_produce, mock_query_cls):
@@ -1230,7 +1224,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         )
 
         with patch(
-            "products.logs.backend.alert_error_classifier.classify_query_error",
+            "products.alerts_platform.backend.facade.check_errors.classify_query_error",
             return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
         ):
             _evaluate_and_save_one(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
@@ -1347,7 +1341,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         self._make_alert()
 
         with patch(
-            "products.logs.backend.alert_error_classifier.classify_query_error",
+            "products.alerts_platform.backend.facade.check_errors.classify_query_error",
             return_value=classifier_category,
         ):
             _evaluate_and_save_one(
@@ -1471,7 +1465,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert = self._make_alert()
 
         with patch(
-            "products.logs.backend.alert_error_classifier.classify_query_error",
+            "products.alerts_platform.backend.facade.check_errors.classify_query_error",
             return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
         ):
             _evaluate_and_save_one(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
@@ -1499,7 +1493,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         with (
             patch("products.logs.backend.temporal.activities.produce_alert_internal_event") as mock_produce,
             patch(
-                "products.logs.backend.alert_error_classifier.classify_query_error",
+                "products.alerts_platform.backend.facade.check_errors.classify_query_error",
                 return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
             ),
         ):
@@ -1529,7 +1523,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         with (
             patch("products.logs.backend.temporal.activities.produce_alert_internal_event") as mock_produce,
             patch(
-                "products.logs.backend.alert_error_classifier.classify_query_error",
+                "products.alerts_platform.backend.facade.check_errors.classify_query_error",
                 return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
             ),
         ):
@@ -1561,7 +1555,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         with (
             patch("products.logs.backend.temporal.activities.produce_alert_internal_event") as mock_produce,
             patch(
-                "products.logs.backend.alert_error_classifier.classify_query_error",
+                "products.alerts_platform.backend.facade.check_errors.classify_query_error",
                 return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
             ),
         ):
@@ -1603,7 +1597,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         self._make_alert(state=initial_state, consecutive_failures=initial_failures)
 
         with patch(
-            "products.logs.backend.alert_error_classifier.classify_query_error",
+            "products.alerts_platform.backend.facade.check_errors.classify_query_error",
             return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
         ):
             _evaluate_and_save_one(
@@ -1611,110 +1605,6 @@ class TestEvaluateSingleAlert(APIBaseTest):
             )
 
         mock_notif_failures.assert_called_once_with(expected_action)
-
-
-class TestDeriveBreachesProperties(unittest.TestCase):
-    """Property-based coverage of `_derive_breaches`.
-
-    The activity's bucket → state-machine seam: takes ASC-ordered CH buckets,
-    applies the threshold predicate, returns a newest-first breach tuple. Pure
-    function so we can exercise the full input space without DB or mocks.
-    """
-
-    @given(
-        bucket_counts=st.lists(st.integers(min_value=0, max_value=10_000), min_size=0, max_size=10),
-        threshold=st.integers(min_value=1, max_value=5_000),
-        operator=st.sampled_from(["above", "below"]),
-    )
-    @settings(max_examples=500, deadline=None)
-    def test_length_preserved_when_no_padding_needed(
-        self, bucket_counts: list[int], threshold: int, operator: str
-    ) -> None:
-        # When evaluation_periods == len(buckets), no pad fires; result length
-        # matches input. Padding behavior covered by a separate property below.
-        buckets = [BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=c) for c in bucket_counts]
-        result = _derive_breaches(buckets, threshold, operator, len(buckets))
-        assert len(result) == len(buckets)
-
-    @given(
-        bucket_counts=st.lists(st.integers(min_value=0, max_value=10_000), min_size=1, max_size=10),
-        threshold=st.integers(min_value=1, max_value=5_000),
-        operator=st.sampled_from(["above", "below"]),
-    )
-    @settings(max_examples=500, deadline=None)
-    def test_newest_first_ordering(self, bucket_counts: list[int], threshold: int, operator: str) -> None:
-        # The first element of the returned tuple corresponds to the LAST bucket
-        # in the ASC input — i.e., the newest. State machine reads window
-        # newest-first, so getting this wrong silently flips N-of-M decisions.
-        buckets = [BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=c) for c in bucket_counts]
-        result = _derive_breaches(buckets, threshold, operator, len(buckets))
-        newest_breach = buckets[-1].count > threshold if operator == "above" else buckets[-1].count < threshold
-        assert result[0] == newest_breach
-
-    @given(
-        bucket_counts=st.lists(st.integers(min_value=0, max_value=10_000), min_size=1, max_size=10),
-        threshold=st.integers(min_value=1, max_value=5_000),
-        operator=st.sampled_from(["above", "below"]),
-    )
-    @settings(max_examples=500, deadline=None)
-    def test_breach_count_matches_threshold_predicate_when_no_padding(
-        self, bucket_counts: list[int], threshold: int, operator: str
-    ) -> None:
-        # When the bucket list is already M long, no padding fires and the
-        # breach count exactly matches the count of inputs satisfying the
-        # threshold predicate. Catches drop / duplicate bugs.
-        buckets = [BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=c) for c in bucket_counts]
-        result = _derive_breaches(buckets, threshold, operator, len(buckets))
-        if operator == "above":
-            expected_count = sum(1 for c in bucket_counts if c > threshold)
-        else:
-            expected_count = sum(1 for c in bucket_counts if c < threshold)
-        assert sum(result) == expected_count
-
-    @given(
-        bucket_counts=st.lists(st.integers(min_value=1, max_value=10_000), min_size=1, max_size=10),
-        threshold=st.integers(min_value=1, max_value=10_000),
-    )
-    @settings(max_examples=300, deadline=None)
-    def test_above_and_below_are_complementary_at_strict_inequality(
-        self, bucket_counts: list[int], threshold: int
-    ) -> None:
-        # `above` = count > threshold; `below` = count < threshold. For any count
-        # ≠ threshold, exactly one of the two is True. Sum of breach counts across
-        # the two operators equals the number of buckets that aren't EQ to threshold.
-        buckets = [BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=c) for c in bucket_counts]
-        above = _derive_breaches(buckets, threshold, "above", len(buckets))
-        below = _derive_breaches(buckets, threshold, "below", len(buckets))
-        not_equal = sum(1 for c in bucket_counts if c != threshold)
-        assert sum(above) + sum(below) == not_equal
-
-    @given(
-        bucket_counts=st.lists(st.integers(min_value=0, max_value=10_000), min_size=0, max_size=5),
-        threshold=st.integers(min_value=1, max_value=5_000),
-        m_extra=st.integers(min_value=1, max_value=8),
-    )
-    @settings(max_examples=300, deadline=None)
-    def test_padding_fills_to_evaluation_periods_with_correct_implicit_breach(
-        self, bucket_counts: list[int], threshold: int, m_extra: int
-    ) -> None:
-        # When `evaluation_periods > len(buckets)`, the result is padded to length
-        # M with the implicit count=0 outcome:
-        #   - above: pad = False (0 is not above threshold)
-        #   - below: pad = True (0 is below threshold, given threshold >= 1)
-        # This is the load-bearing fix for `below` alerts on silent services —
-        # without it, an empty bucket list yields no breaches and silence detection
-        # would never fire.
-        m = len(bucket_counts) + m_extra
-        buckets = [BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=c) for c in bucket_counts]
-
-        above = _derive_breaches(buckets, threshold, "above", m)
-        below = _derive_breaches(buckets, threshold, "below", m)
-
-        assert len(above) == m
-        assert len(below) == m
-        # The trailing `m_extra` entries are pure padding.
-        assert above[len(buckets) :] == (False,) * m_extra
-        assert below[len(buckets) :] == (True,) * m_extra
 
 
 class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
@@ -1992,7 +1882,7 @@ class TestCohortManifest(unittest.TestCase):
 
         with (
             patch("products.logs.backend.temporal.activities.is_projection_eligible", return_value=True),
-            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities.resolve_check_end", return_value=now),
         ):
             manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
 
@@ -2021,7 +1911,7 @@ class TestCohortManifest(unittest.TestCase):
 
         with (
             patch("products.logs.backend.temporal.activities.is_projection_eligible", return_value=True),
-            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities.resolve_check_end", return_value=now),
             patch("products.logs.backend.temporal.activities.MAX_ALERT_COHORT_SIZE", 2),
         ):
             manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
@@ -2060,7 +1950,7 @@ class TestCohortManifest(unittest.TestCase):
         now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
 
         with (
-            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities.resolve_check_end", return_value=now),
             patch("products.logs.backend.temporal.activities._mark_alert_broken_for_bad_config") as mark_broken,
         ):
             manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
@@ -2097,7 +1987,7 @@ class TestCohortManifest(unittest.TestCase):
         ]
         now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
 
-        with patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now):
+        with patch("products.logs.backend.temporal.activities.resolve_check_end", return_value=now):
             manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
 
         all_alert_ids = [aid for m in manifests for aid in m.alert_ids]
