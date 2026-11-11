@@ -89,6 +89,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.person_sampling import SPILL_GROUP_BY_AFTER_BYTES
 from products.feature_flags.backend.realtime_targeting import REALTIME_COHORT_FLAG_TARGETING_FLAG
 from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag, set_trigger_groups, trigger_groups
 from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
@@ -9597,16 +9598,22 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
-    def test_persons_seen_so_far_ignores_team_v2_argmax_modifier(self):
+    def test_persons_seen_so_far_pins_v1_and_bounds_memory(self):
         team = Team.objects.create(organization=self.organization, modifiers={"personsArgMaxVersion": "v2"})
         for i in range(3):
             _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
 
+        def assert_memory_bounded(query: str) -> None:
+            query_settings = query.rsplit("SETTINGS", 1)[-1]
+            assert "optimize_aggregation_in_order=1" in query_settings
+            assert f"max_bytes_before_external_group_by={SPILL_GROUP_BY_AFTER_BYTES}" in query_settings
+
         with self.capture_select_queries() as queries:
-            assert team.count_persons_seen_so_far() == 3
+            assert get_user_blast_radius(team, {"properties": []}).total == 3
 
         assert queries
         for query in queries:
+            assert_memory_bounded(query)
             # A truncated start of the v2 dedup semi-join, on purpose. The expression continues
             # with a subquery, so a balanced paren would build a string that never occurs and
             # the assertion would always pass.
@@ -9627,6 +9634,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         assert denominator_queries
         for query in denominator_queries:
             assert "in(tuple(person.id, person.version)" not in query
+        total_count_queries = [query for query in denominator_queries if "argMax(person.is_deleted" in query]
+        assert total_count_queries
+        for query in total_count_queries:
+            assert_memory_bounded(query)
 
     @parameterized.expand(
         [

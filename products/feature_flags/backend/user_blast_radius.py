@@ -32,6 +32,7 @@ from posthog.ph_client import feature_enabled_or_false
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
 from products.feature_flags.backend.person_sampling import (
+    bounded_memory_settings,
     build_person_count_query,
     count_matching_persons,
     count_settings,
@@ -249,7 +250,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
 
     if len(properties) == 0:
         # No filters means all persons are affected
-        total_users = team.count_persons_seen_so_far()
+        total_users = team.count_persons_seen_so_far(settings=bounded_memory_settings())
         return BlastRadiusResult(affected=total_users, total=total_users)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -268,7 +269,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
         estimate = _run_exact_person_count(team, prop_group, database, weight=None)
     # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
     total_count = int(round(estimate))
-    total_users = team.count_persons_seen_so_far(database=database)
+    total_users = team.count_persons_seen_so_far(database=database, settings=bounded_memory_settings())
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)
