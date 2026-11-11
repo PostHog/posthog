@@ -42,6 +42,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
+    const { movePinned } = useActions(analyticsPinnedLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const listFilters =
@@ -140,6 +141,10 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             sections={{ isOpen: isSectionOpen, toggle: toggleSection, dataAttrPrefix: 'analytics-section' }}
             navigation={{
                 lists,
+                reorder: {
+                    pinned: (fromIndex, toIndex) =>
+                        movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId),
+                },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
                     return target
