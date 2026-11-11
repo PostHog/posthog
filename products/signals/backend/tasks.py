@@ -411,6 +411,8 @@ def reconcile_inbox_report_ready_events() -> None:
     retry_backoff=True,
     retry_backoff_max=900,
     max_retries=8,
+    acks_late=True,
+    reject_on_worker_lost=True,
     soft_time_limit=60,
     time_limit=90,
 )

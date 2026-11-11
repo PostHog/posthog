@@ -1860,9 +1860,11 @@ class EmitInboxReportReadyInput:
 @scoped_temporal()
 @close_db_connections
 async def emit_inbox_report_ready_activity(input: EmitInboxReportReadyInput) -> None:
-    await database_sync_to_async(emit_inbox_report_ready_event, thread_sensitive=False)(
+    handed_off = await database_sync_to_async(emit_inbox_report_ready_event, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, source_products=input.source_products
     )
+    if not handed_off:
+        raise RuntimeError(f"The ready event for report {input.report_id} was neither sent nor queued for a retry")
 
 
 @dataclass

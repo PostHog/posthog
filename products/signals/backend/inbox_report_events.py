@@ -59,15 +59,16 @@ class _ReadyEventClaim:
     source_products: list[str]
 
 
-def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_products: list[str]) -> None:
+def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_products: list[str]) -> bool:
     try:
         send_inbox_report_ready_events(team_id=team_id, report_id=report_id, source_products=source_products)
     except Exception:
         logger.exception("inbox_report_ready_event_failed", team_id=team_id, report_id=report_id)
-        _schedule_retry(team_id=team_id, report_id=report_id, source_products=source_products)
+        return _schedule_retry(team_id=team_id, report_id=report_id, source_products=source_products)
+    return True
 
 
-def _schedule_retry(*, team_id: int, report_id: str, source_products: list[str]) -> None:
+def _schedule_retry(*, team_id: int, report_id: str, source_products: list[str]) -> bool:
     from products.signals.backend.tasks import retry_inbox_report_ready_event  # noqa: PLC0415
 
     try:
@@ -77,6 +78,8 @@ def _schedule_retry(*, team_id: int, report_id: str, source_products: list[str])
         )
     except Exception:
         logger.exception("inbox_report_ready_event_retry_not_scheduled", team_id=team_id, report_id=report_id)
+        return False
+    return True
 
 
 def send_inbox_report_ready_events(*, team_id: int, report_id: str, source_products: list[str]) -> None:

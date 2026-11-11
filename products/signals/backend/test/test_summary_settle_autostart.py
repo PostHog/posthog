@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from kombu.exceptions import OperationalError as KombuOperationalError
 from temporalio import activity, workflow
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.exceptions import ApplicationError
@@ -24,6 +25,7 @@ from products.signals.backend.github_optional import RepositoryAccessTemporarily
 from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.report_generation.research import ActionabilityChoice, Priority
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.tasks import retry_inbox_report_ready_event
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
 from products.signals.backend.temporal.inbox_notification import (
@@ -401,6 +403,22 @@ async def test_only_the_settled_summary_reaches_destinations(
     assert [
         (event["report_id"], event["title"], event["source_products"]) for event in inbox_report_ready_events(sent)
     ] == [(str(report.id), title, ["error_tracking"]) for title in expected_titles]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_a_ready_event_that_is_neither_sent_nor_queued_fails_for_temporal_to_retry(ateam):
+    with (
+        recorded_internal_events() as (sent, _),
+        patch.object(retry_inbox_report_ready_event, "apply_async", side_effect=KombuOperationalError("broker down")),
+        pytest.raises(RuntimeError),
+    ):
+        await ActivityEnvironment().run(
+            emit_inbox_report_ready_activity,
+            EmitInboxReportReadyInput(team_id=ateam.id, report_id="not-a-report-id", source_products=["scout"]),
+        )
+
+    assert sent == []
 
 
 @pytest.mark.asyncio
