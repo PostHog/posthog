@@ -1,0 +1,132 @@
+{
+    "scenario": "workflow",
+    "about": "A workflow last saved before #72913 (2026-07-27) moved secret step inputs into `encrypted_inputs`. No migration moved them and `migrate_hog_flow_secret_inputs` (#83804) only runs by hand, so the secret can still sit in plaintext `actions`; its inputs and filters also predate the `bytecode_contract` stamp (#105759).",
+    "stored": {
+        "posthog_hogflow": {
+            "trigger": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ],
+                    "source": "events",
+                    "bytecode": [
+                        "_H",
+                        1,
+                        32,
+                        "$pageview",
+                        32,
+                        "event",
+                        1,
+                        1,
+                        11
+                    ]
+                }
+            },
+            "edges": [
+                {
+                    "to": "fetch",
+                    "from": "trigger",
+                    "type": "continue"
+                },
+                {
+                    "to": "exit",
+                    "from": "fetch",
+                    "type": "continue"
+                }
+            ],
+            "actions": [
+                {
+                    "id": "trigger",
+                    "name": "trigger",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {
+                            "events": [
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ],
+                            "source": "events",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "$pageview",
+                                32,
+                                "event",
+                                1,
+                                1,
+                                11
+                            ]
+                        }
+                    },
+                    "filters": null,
+                    "on_error": null,
+                    "description": "",
+                    "output_variable": null
+                },
+                {
+                    "id": "fetch",
+                    "name": "fetch",
+                    "type": "function",
+                    "config": {
+                        "inputs": {
+                            "url": {
+                                "order": 0,
+                                "value": "https://example.com/stored-program/workflow",
+                                "bytecode": [
+                                    "_H",
+                                    1,
+                                    32,
+                                    "https://example.com/stored-program/workflow"
+                                ]
+                            },
+                            "api_key": {
+                                "order": 1,
+                                "value": "stored-program-fake-workflow-key",
+                                "bytecode": [
+                                    "_H",
+                                    1,
+                                    32,
+                                    "stored-program-fake-workflow-key"
+                                ]
+                            }
+                        },
+                        "template_id": "template-stored-program-fetch"
+                    },
+                    "filters": null,
+                    "on_error": "abort",
+                    "description": "",
+                    "output_variable": null
+                },
+                {
+                    "id": "exit",
+                    "name": "exit",
+                    "type": "exit",
+                    "config": {},
+                    "filters": null,
+                    "on_error": null,
+                    "description": "",
+                    "output_variable": null
+                }
+            ],
+            "variables": [],
+            "exit_condition": "exit_on_conversion",
+            "billable_action_types": [
+                "function"
+            ],
+            "abort_action": null,
+            "encrypted_inputs": null
+        }
+    }
+}
