@@ -224,21 +224,12 @@ async def test_file_download_retrieve_returns_files(
         records_completed=1234,
     )
 
-    earliest_expiry = dt.datetime(2026, 1, 8, tzinfo=dt.UTC)
-    expiries = [
-        earliest_expiry + dt.timedelta(hours=2),
-        None,
-        earliest_expiry,
-        earliest_expiry + dt.timedelta(hours=1),
-        earliest_expiry + dt.timedelta(hours=3),
-    ]
     file_downloads = []
-    for index, expires_at in enumerate(expiries):
+    for index in range(5):
         file_download = await BatchExportFileDownload.objects.acreate(
             team=team,
             batch_export_run=run,
             key=f"batch-exports/{index}",
-            expires_at=expires_at,
         )
         file_downloads.append(file_download)
 
@@ -251,7 +242,6 @@ async def test_file_download_retrieve_returns_files(
     assert data["status"] == "Completed", status_response.json()
     assert data["files"] == [str(file_download.id) for file_download in file_downloads]
     assert data["records_completed"] == 1234
-    assert data["expires_at"] == "2026-01-08T00:00:00Z"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -284,7 +274,6 @@ async def test_file_download_retrieve_returns_empty_when_no_data_exported(
     data = status_response.json()
     assert data["status"] == "Completed", status_response.json()
     assert data["files"] == []
-    assert data["expires_at"] is None
 
 
 @pytest.mark.django_db(transaction=True)

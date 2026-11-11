@@ -2148,11 +2148,6 @@ export interface RetrieveCompletedOutputApi {
      * @nullable
      */
     records_completed: number | null
-    /**
-     * When the first of this run's files expires. After this time, at least one file can no longer be downloaded. Null when no file reports an expiry, for example when the run exported no rows.
-     * @nullable
-     */
-    expires_at: string | null
 }
 
 export type RetrieveFailedOutputApiStatus =
