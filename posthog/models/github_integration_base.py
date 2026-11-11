@@ -2291,6 +2291,7 @@ class GitHubIntegrationBase:
         endpoint: str,
         timeout: int = 10,
         retry_transient: bool = True,
+        priority: Priority | None = None,
     ) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
@@ -2311,6 +2312,7 @@ class GitHubIntegrationBase:
                 json_body={"query": query, "variables": variables},
                 timeout=timeout,
                 retry_transient=retry_transient,
+                priority=priority,
             )
             if response.status_code != 200:
                 raise GitHubIntegrationError(
