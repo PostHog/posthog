@@ -239,11 +239,42 @@ describe('workflowsSavedViewsLogic', () => {
 
         await expectLogic(logic, () => applyViewById(VIEW_ID)).toFinishAllListeners()
 
-        expect(logic.values.conflictedViewId).toBeNull()
+        expect(logic.values.conflictedViewIds).toEqual([])
         expect(workflowsListV2Logic.values.value).toEqual({
             filters: [status('active'), eventTrigger],
             text: 'renewal',
         })
+    })
+
+    it('refreshes each view whose update conflicted when the user returns to it', async () => {
+        const otherId = '00000000-0000-4000-8000-000000000007'
+        storedViews = [savedView, { ...savedView, id: otherId, name: 'Other view' }]
+        const refreshed: string[] = []
+        useMocks({
+            patch: { '/api/projects/:team_id/workflow_views/:id/': () => [409, { detail: 'View changed' }] },
+            get: {
+                '/api/projects/:team_id/workflow_views/:id/': ({ params }) => {
+                    refreshed.push(String(params.id))
+                    return [200, { ...storedViews.find((view) => view.id === params.id), version: 2 }]
+                },
+            },
+        })
+        router.actions.push(urls.workflows(), { view: VIEW_ID })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        workflowsListV2Logic.actions.setValue({ filters: [status('active'), eventTrigger], text: '' })
+        await logic.asyncActions.updateActiveView()
+        applyViewById(otherId)
+        workflowsListV2Logic.actions.setValue({ filters: [status('draft')], text: '' })
+        await logic.asyncActions.updateActiveView()
+
+        await expectLogic(logic, () => applyViewById(VIEW_ID)).toFinishAllListeners()
+
+        expect(refreshed).toEqual([VIEW_ID])
+        expect(logic.values.activeViewConflicted).toBe(false)
+        await expectLogic(logic, () => applyViewById(otherId)).toFinishAllListeners()
+        expect(refreshed).toEqual([VIEW_ID, otherId])
     })
 
     it.each([
@@ -1261,7 +1292,7 @@ describe('workflowsSavedViewsLogic', () => {
         release!()
         await save
         expect(logic.values.activeViewId).toEqual('drafts')
-        expect(logic.values.conflictedViewId).toEqual(VIEW_ID)
+        expect(logic.values.conflictedViewIds).toEqual([VIEW_ID])
         expect(logic.values.sharedSaveDisabledReason).toBeUndefined()
     })
 
