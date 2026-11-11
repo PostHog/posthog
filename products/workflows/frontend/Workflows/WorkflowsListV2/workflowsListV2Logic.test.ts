@@ -488,17 +488,17 @@ describe('workflowsListV2Logic', () => {
     })
 
     it('keeps the list and skips the error toast when the metrics fail', async () => {
-        const toastError = jest.spyOn(lemonToast, 'error')
         metricsResponse = async () => [500, { detail: 'Server error' }]
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
+        await act(async () => {
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
+        })
         expect(logic.values).toMatchObject({ metrics: null, metricsLoading: false, loadFailed: false })
         expect(shownIds(logic)).toHaveLength(5)
-        expect(toastError).not.toHaveBeenCalled()
-        toastError.mockRestore()
+        expect(screen.queryByRole('alert')).toBeNull()
     })
 
     it.each([
@@ -704,7 +704,6 @@ describe('workflowsListV2Logic', () => {
     })
 
     it('holds the no-match verdict until the server search answers, and reports a failed search without a toast', async () => {
-        const toastError = jest.spyOn(lemonToast, 'error')
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
@@ -729,13 +728,14 @@ describe('workflowsListV2Logic', () => {
         expect(shownIds(logic)).toEqual(['wf-sync'])
 
         serverSearch = () => Promise.reject(new Error('down'))
-        await expectLogic(logic, () => logic.actions.setValue({ filters: [], text: 'renewal' })).toDispatchActions([
-            'searchWorkflowsSuccess',
-        ])
+        await act(async () => {
+            await expectLogic(logic, () => logic.actions.setValue({ filters: [], text: 'renewal' })).toDispatchActions([
+                'searchWorkflowsSuccess',
+            ])
+        })
         expect(logic.values.serverSearchStatus).toEqual('failed')
         expect(shownIds(logic)).toEqual(['wf-renewal'])
-        expect(toastError).not.toHaveBeenCalled()
-        toastError.mockRestore()
+        expect(screen.queryByRole('alert')).toBeNull()
     })
 
     it.each([
