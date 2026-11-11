@@ -255,12 +255,18 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const keyResolvable = !keyRequired || !!(schema.primary_key_columns?.length || resolvedDetectedPks?.length)
 
     const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
+    // A model pick is a column that changes on update, so append, which wants a column that never
+    // changes, defaults to the next candidate instead.
+    const defaultAppendField =
+        schema.incremental_field ??
+        schema.incremental_fields.find((field) => !field.picked_by_model)?.field ??
+        defaultField
 
     const [radioValue, setRadioValue] = useState(() =>
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled, keyResolvable)
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
-    const [appendFieldValue, setAppendFieldValue] = useState(defaultField)
+    const [appendFieldValue, setAppendFieldValue] = useState(defaultAppendField)
     // Prefill detected PKs only when the selector is editable. A locked schema already has a key
     // the backend refuses to swap, so prefilling from detected would silently turn unrelated edits
     // into "Primary key cannot be changed" errors.
@@ -284,7 +290,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             )
         )
         setIncrementalFieldValue(defaultField)
-        setAppendFieldValue(defaultField)
+        setAppendFieldValue(defaultAppendField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
         const resetLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
         setLookbackAmount(resetLookback.amount)

@@ -77,6 +77,40 @@ describe('SyncMethodForm', () => {
         expect(getInitialRadioState({ ...baseSchema, xmin_available: false }, true, true, keyResolvable)).toBe(expected)
     })
 
+    it('defaults append-only to a field other than the model pick, which changes on update', () => {
+        const onSave = jest.fn()
+        render(
+            <SyncMethodForm
+                schema={{
+                    ...baseSchema,
+                    sync_type: 'append',
+                    incremental_available: true,
+                    append_available: true,
+                    incremental_fields: [
+                        {
+                            field: 'fecha_actualizacion',
+                            field_type: 'timestamp',
+                            label: 'fecha_actualizacion',
+                            type: 'timestamp',
+                            recommended: true,
+                            picked_by_model: true,
+                        },
+                        { field: 'created_at', field_type: 'timestamp', label: 'created_at', type: 'timestamp' },
+                    ],
+                    primary_key_columns: ['id'],
+                }}
+                availableColumns={[]}
+                onClose={() => {}}
+                onSave={onSave}
+            />
+        )
+
+        fireEvent.click(screen.getByText('Save'))
+
+        expect(onSave).toHaveBeenCalledWith('append', 'created_at', 'timestamp', null)
+        cleanup()
+    })
+
     describe('output tables of an incremental table', () => {
         afterEach(cleanup)
 
