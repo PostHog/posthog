@@ -3147,6 +3147,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("pilot_without_access", True, "example/app", None, True, False),
             ("pilot_with_access", True, "example/app", "example/app", True, True),
             ("pilot_temporary_failure", True, "example/app", None, True, True, True),
+            ("selected_repo_nondefault_account", True, "example/app", "example/app", False, True, False, True),
         ]
     )
     def test_create_signal_report_task_resolves_repository_when_none_provided(
@@ -3158,10 +3159,20 @@ class TestTaskAPI(BaseTaskAPITest):
         pilot=False,
         repository_available=True,
         temporary_failure=False,
+        nondefault_account=False,
     ):
         from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
+        if nondefault_account:
+            Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="gh-default",
+                config={"installation_id": "gh-default", "account": {"type": "Organization"}},
+                repository_cache=[{"full_name": "example/other", "name": "other", "id": 2}],
+                repository_cache_updated_at=django_timezone.now(),
+            )
         integration = Integration.objects.create(
             team=self.team,
             kind="github",
@@ -3219,7 +3230,7 @@ class TestTaskAPI(BaseTaskAPITest):
             return
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["repository"], expected_repository)
-        if pilot:
+        if pilot or nondefault_account:
             self.assertEqual(Task.objects.get(id=response.json()["id"]).github_integration_id, integration.id)
 
     @parameterized.expand(
@@ -18499,6 +18510,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status, response.json())
         if expected_status == status.HTTP_400_BAD_REQUEST:
             self.assertEqual(response.json()["detail"], tasks_facade.REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED)
+            self.assertEqual(response.json()["code"], "report_implementation_repository_unresolved")
             self.assertFalse(Task.objects.filter(signal_report=report).exists())
             self.assertFalse(SignalReportTask.objects.filter(report=report).exists())
             return
