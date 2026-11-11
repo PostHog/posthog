@@ -1,4 +1,8 @@
 from collections.abc import Mapping
+from datetime import datetime
+
+from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from pydantic import JsonValue
@@ -11,7 +15,11 @@ from posthog.ph_client import feature_enabled_or_false
 from products.signals.backend.filter_catalog_schema import CatalogBundle
 from products.signals.backend.filter_expression import FilterExpression, FilterValidationError
 from products.signals.backend.filter_recipes import FilterPredicate, WarehouseFilterBindings
-from products.signals.backend.models import SignalFilterCatalogVersion, SignalFilterSourceDefinition
+from products.signals.backend.models import (
+    SignalFilterCatalogVersion,
+    SignalFilterSourceDefinition,
+    SignalSourceFilterState,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -107,3 +115,49 @@ def saved_filter_predicate(
         CatalogBundle.model_validate(catalog_version.bundle), columns, source_alias=source_alias
     )
     return bindings.predicate(saved.expression)
+
+
+def pending_window_start(*, team_id: int, source_product: str, source_type: str) -> datetime | None:
+    return (
+        SignalSourceFilterState.objects.for_team(team_id)
+        .filter(source_product=source_product, source_type=source_type)
+        .values_list("pending_window_start", flat=True)
+        .first()
+    )
+
+
+def record_fetch_failure(
+    *, team_id: int, source_product: str, source_type: str, window_start: datetime, error: Exception
+) -> None:
+    """Keep the earliest window that failed to fetch, so the next fetch reads it again."""
+    if isinstance(error, FilterValidationError):
+        code, message = error.code, str(error)
+    else:
+        code, message = "query_failed", type(error).__name__
+    with transaction.atomic():
+        state, _ = (
+            SignalSourceFilterState.objects.for_team(team_id)
+            .select_for_update()
+            .get_or_create(team_id=team_id, source_product=source_product, source_type=source_type)
+        )
+        if state.pending_window_start is None or window_start < state.pending_window_start:
+            state.pending_window_start = window_start
+        state.last_error_code = code[:64]
+        state.last_error_message = message[:500]
+        state.last_error_at = timezone.now()
+        state.save()
+
+
+def record_fetch_success(*, team_id: int, source_product: str, source_type: str, malformed_count: int) -> None:
+    SignalSourceFilterState.objects.for_team(team_id).update_or_create(
+        team_id=team_id,
+        source_product=source_product,
+        source_type=source_type,
+        defaults={
+            "pending_window_start": None,
+            "last_error_code": "",
+            "last_error_message": "",
+            "last_malformed_count": malformed_count,
+            "last_success_at": timezone.now(),
+        },
+    )

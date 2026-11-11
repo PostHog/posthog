@@ -23,6 +23,8 @@ logger = structlog.get_logger(__name__)
 
 FILTER_SOURCE_ALIAS = "signal_filter_source"
 MALFORMED_COLUMN = "__signal_filter_malformed"
+# A filtered fetch writes the number of rows it dropped for malformed filter fields to this context key.
+MALFORMED_COUNT_KEY = "malformed_count"
 
 
 def escape_table_name(table_name: str) -> str:
@@ -155,6 +157,7 @@ def data_warehouse_record_fetcher(
     if filter_context is None:
         return records
     passing = [record for record in records if not record.pop(MALFORMED_COLUMN)]
+    context[MALFORMED_COUNT_KEY] = len(records) - len(passing)
     if len(passing) < len(records):
         logger.warning(
             "Excluded records with malformed filter fields",
