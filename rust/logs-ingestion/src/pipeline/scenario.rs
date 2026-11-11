@@ -515,6 +515,15 @@ pub struct ScenarioConsumer {
     pub recorded: Arc<Recorded>,
 }
 
+/// The service tests swap the outputs for Kafka ones.
+pub struct ScenarioParts {
+    pub identity: LogsConsumerIdentity,
+    pub config: LogsIngestionConsumerConfig,
+    pub deps: LogsIngestionConsumerDeps,
+    pub outputs: Arc<CapturingOutputs>,
+    pub recorded: Arc<Recorded>,
+}
+
 /// `discard` counts produced messages instead of keeping them.
 pub fn build_scenario_consumer(
     scenario: &JsValue,
@@ -522,6 +531,20 @@ pub fn build_scenario_consumer(
     clock: Clock,
     discard: bool,
 ) -> ScenarioConsumer {
+    let parts = scenario_parts(scenario, redis, clock, discard);
+    ScenarioConsumer {
+        consumer: LogsIngestionConsumer::new(parts.identity, parts.config, parts.deps),
+        outputs: parts.outputs,
+        recorded: parts.recorded,
+    }
+}
+
+pub fn scenario_parts(
+    scenario: &JsValue,
+    redis: Arc<dyn TokenBucketRedis>,
+    clock: Clock,
+    discard: bool,
+) -> ScenarioParts {
     let recorded = Arc::new(Recorded::default());
     let outputs = Arc::new(CapturingOutputs {
         faults: arr(get(scenario, "produce_faults"))
@@ -649,27 +672,28 @@ pub fn build_scenario_consumer(
         token_bucket_redis: redis,
         key_root: KeyRoot::Test,
         clock,
+        source_offset_header: false,
     };
     let config = match get(scenario, "config") {
         Some(JsValue::Object(o)) => o.clone(),
         _ => JsObject::new(),
     };
     let traces = s(get(scenario, "consumer")).as_deref() == Some("traces");
-    let consumer = if traces {
-        LogsIngestionConsumer::new(
+    let (identity, config) = if traces {
+        (
             LogsConsumerIdentity::traces(),
             LogsIngestionConsumerConfig::from_traces_config(&config),
-            deps,
         )
     } else {
-        LogsIngestionConsumer::new(
+        (
             LogsConsumerIdentity::logs(),
             LogsIngestionConsumerConfig::from_logs_config(&config),
-            deps,
         )
     };
-    ScenarioConsumer {
-        consumer,
+    ScenarioParts {
+        identity,
+        config,
+        deps,
         outputs,
         recorded,
     }

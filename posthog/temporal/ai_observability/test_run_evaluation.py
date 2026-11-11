@@ -74,9 +74,9 @@ from .evaluation_llm_judge import (
     TransientJudgeError,
     _build_errored_trace_result,
     _build_output_limit_skip_result,
-    _execute_llm_judge_activity,
     call_llm_judge,
     get_output_type_config,
+    run_generation_llm_judge,
 )
 from .evaluation_types import GENERATION_NOT_FOUND, build_generation_not_found_result, build_skipped_evaluation_result
 from .evaluation_workflow_activities import (
@@ -1580,18 +1580,17 @@ class TestRunEvaluationWorkflow:
             mock_client.complete.assert_called_once()
 
     @pytest.mark.parametrize(
-        ("flag_enabled", "evaluation_config", "attaches_image"),
+        ("evaluation_config", "attaches_image"),
         [
-            pytest.param(True, {"prompt": "Is the chart described correctly?"}, True, id="flag_on"),
-            pytest.param(False, {"prompt": "Is the chart described correctly?"}, False, id="flag_off"),
+            pytest.param({"prompt": "Is the chart described correctly?"}, True, id="default"),
             pytest.param(
-                True, {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
+                {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
             ),
         ],
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_attaches_images_when_enabled(
-        self, flag_enabled, evaluation_config, attaches_image, setup_data, active_key_config
+        self, evaluation_config, attaches_image, setup_data, active_key_config
     ):
         team = setup_data["team"]
         evaluation = {
@@ -1631,10 +1630,6 @@ class TestRunEvaluationWorkflow:
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
             patch(
-                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
-                return_value=flag_enabled,
-            ) as feature_enabled,
-            patch(
                 "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url",
                 return_value="https://signed",
             ),
@@ -1647,9 +1642,6 @@ class TestRunEvaluationWorkflow:
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         content = mock_client.complete.call_args.args[0].messages[0]["content"]
-        if "include_media" not in evaluation_config:
-            # Team ids repeat across regions, so the flag is checked against the project uuid.
-            assert feature_enabled.call_args.kwargs["groups"] == {"project": str(team.uuid)}
         if attaches_image:
             assert AttachmentPart(mime_type="image/jpeg", url="https://signed") in content
             assert "user: [image 1] What does this chart show?" in content[-1]["text"]
@@ -2334,7 +2326,7 @@ class TestRunEvaluationWorkflow:
             ),
         ):
             with pytest.raises(AssertionError, match="stop after hydration"):
-                _execute_llm_judge_activity(
+                run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(
                         evaluation=_local_evaluation(
                             evaluation_type="llm_judge", evaluation_config={"prompt": "grade it"}
@@ -2401,7 +2393,7 @@ class TestRunEvaluationWorkflow:
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as call_judge,
         ):
             if evaluation_type == "llm_judge":
-                result = _execute_llm_judge_activity(
+                result = run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=dict(THIN_REFERENCE))
                 )
             else:
@@ -4148,7 +4140,7 @@ class TestEvalResultModels:
                 parsed=schema.model_validate({"reasoning": "Resolution", "categories": categories}),
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
-            result = _execute_llm_judge_activity(
+            result = run_generation_llm_judge(
                 ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
             )
         assert result["result_type"] == "categorical"
@@ -4198,7 +4190,7 @@ class TestEvalResultModels:
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
             inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
-            result = _execute_llm_judge_activity(inputs)
+            result = run_generation_llm_judge(inputs)
             increment_errors.assert_not_called()
         assert result["result_type"] == "numeric"
         assert "verdict" not in result
@@ -4742,14 +4734,7 @@ class TestJudgePromptAssembly:
             },
         )
 
-        with (
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge,
-            patch(
-                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
-            patch("posthog.temporal.ai_observability.judge_attachments._project_uuid", return_value="uuid"),
-        ):
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge:
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         attachment_prompt = judge.call_args.kwargs["attachment_prompt"]

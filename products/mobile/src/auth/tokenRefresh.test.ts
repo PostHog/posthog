@@ -1,10 +1,19 @@
+import { waitFor } from '@testing-library/react-native'
 import * as SecureStore from 'expo-secure-store'
+import { AppState, type AppStateStatus } from 'react-native'
 import { apiJson, NotSignedInError, projectPath } from '@/api/client'
 import { TransportError } from '@/api/transport'
 
 import { addSessionEndTask, addSignOutTask, installAuthProvider, useAuthStore } from './authStore'
 import { authorize, OAuthError, refreshTokens } from './oauth'
-import { getSessionIdentity, getSessionTokens, loadTokens, saveTokens, setSessionTokens } from './tokens'
+import {
+    getSessionIdentity,
+    getSessionTokens,
+    loadTokens,
+    type SessionTokens,
+    saveTokens,
+    setSessionTokens,
+} from './tokens'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -155,6 +164,40 @@ describe('token refresh through the API client', () => {
 
         expect(useAuthStore.getState()).toMatchObject({ status, signedOutReason: reason })
         expect(getSessionTokens()?.accessToken).toBe(accessToken)
+    })
+
+    test.each([
+        { name: 'a foreground refreshes a token that ends within a day, once', expiresIn: 60_000, refreshes: 1 },
+        { name: 'a foreground leaves a token with more than a day left', expiresIn: 2 * 86_400_000, refreshes: 0 },
+    ])('$name', async ({ expiresIn, refreshes }) => {
+        const tokenRequests: string[] = []
+        fetchMock.mockImplementation(async (url) => {
+            if (url !== `${HOST}/oauth/token`) {
+                return json(404, {})
+            }
+            tokenRequests.push(url)
+            return json(200, { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 604800 })
+        })
+        await saveTokens({ ...(getSessionTokens() as SessionTokens), expiresAt: Date.now() + expiresIn })
+        let onAppState: ((state: AppStateStatus) => void) | undefined
+        const subscribe = jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
+            onAppState = listener
+            return { remove: () => undefined }
+        })
+        try {
+            installAuthProvider()
+
+            onAppState?.('background')
+            onAppState?.('active')
+            onAppState?.('active')
+
+            expect(tokenRequests).toHaveLength(refreshes)
+            await waitFor(() =>
+                expect(getSessionTokens()?.accessToken).toBe(refreshes > 0 ? 'new-access' : 'old-access')
+            )
+        } finally {
+            subscribe.mockRestore()
+        }
     })
 
     test.each([

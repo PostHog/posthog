@@ -13,7 +13,7 @@ from posthog.schema import (
     HumanMessage,
 )
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.retention.nodes import RetentionGeneratorNode, RetentionSchemaGeneratorOutput
@@ -26,7 +26,7 @@ class TestRetentionGeneratorNode(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.action = Action.objects.create(team=self.team, name="Test Action")
+        self.action = create_action(team=self.team, name="Test Action")
         self.schema = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
                 targetEntity=AssistantRetentionEventsNode(id="targetEntity"),

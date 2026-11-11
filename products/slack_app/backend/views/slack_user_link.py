@@ -45,13 +45,16 @@ from posthog.models.user_integration import user_slack_integration_from_identity
 from posthog.views import login_required
 
 from products.slack_app.backend.analytics import alias_slack_user, capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_link_search_scopes_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
+from products.slack_app.backend.logic.onboarding.work_focus import start_work_focus
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
     SlackUserOAuthError,
     build_authorize_url,
     exchange_code,
+    granted_user_scopes,
 )
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -129,6 +132,7 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
     if not is_slack_app_oauth_enabled(workspace_integration):
         return _settings_redirect(error="flag_off")
 
+    search_scopes = is_slack_app_link_search_scopes_enabled(workspace_integration)
     callback_state = CallbackState(
         slack_team_id=invite.slack_team_id,
         posthog_team_id=invite.posthog_team_id,
@@ -136,10 +140,16 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
         slack_user_id=invite.slack_user_id,
         channel=invite.channel,
         thread_ts=invite.thread_ts,
+        search_scopes=search_scopes,
     ).encode()
 
     try:
-        authorize_url = build_authorize_url(redirect_uri=_callback_redirect_uri(), state=callback_state)
+        authorize_url = build_authorize_url(
+            redirect_uri=_callback_redirect_uri(),
+            state=callback_state,
+            slack_team_id=invite.slack_team_id,
+            search_scopes=search_scopes,
+        )
     except SlackUserOAuthError:
         logger.exception("slack_app_user_link_authorize_misconfigured")
         return _settings_redirect(error="not_configured")
@@ -179,7 +189,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         return _link_failed(workspace_integration, "flag_off", slack_user_id=state.slack_user_id)
 
     try:
-        identity = exchange_code(code=code, redirect_uri=_callback_redirect_uri())
+        identity = exchange_code(code=code, redirect_uri=_callback_redirect_uri(), search_scopes=state.search_scopes)
     except SlackUserOAuthError as exc:
         logger.warning("slack_app_user_link_callback_exchange_failed", error=str(exc))
         return _link_failed(workspace_integration, "exchange_failed", slack_user_id=state.slack_user_id)
@@ -270,6 +280,9 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         channel=state.channel,
         thread_ts=state.thread_ts,
     )
+    request_onboarding(workspace_integration, identity.slack_user_id, may_start=False)
+    if state.search_scopes and "search:read.public" in granted_user_scopes(identity.user_scopes):
+        start_work_focus(workspace_integration, identity.slack_user_id)
 
     return _settings_redirect()
 

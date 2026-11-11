@@ -128,6 +128,14 @@ fn qualify(name: &str, namespace: Option<&str>) -> String {
 }
 
 impl Parser {
+    /// avsc rejects a second definition of a name. Without this check, a redefinition that refers to the previous one can grow the schema exponentially.
+    fn check_unique(&self, name: &str) -> Result<(), AvroError> {
+        if self.named.contains_key(name) {
+            return Err(schema_error(format!("duplicate type name: {name}")));
+        }
+        Ok(())
+    }
+
     fn parse(&mut self, value: &JsValue, namespace: Option<&str>) -> Result<Schema, AvroError> {
         match value {
             JsValue::String(name) => self.parse_name(&name.to_string(), namespace),
@@ -173,6 +181,7 @@ impl Parser {
                     get_str(object, "name").ok_or_else(|| schema_error("missing record name"))?,
                     get_str(object, "namespace").or(namespace),
                 );
+                self.check_unique(&name)?;
                 let ns = name.rsplit_once('.').map(|(ns, _)| ns.to_string());
                 let mut fields = Vec::new();
                 let Some(JsValue::Array(raw_fields)) = object.get("fields") else {
@@ -228,6 +237,7 @@ impl Parser {
                     get_str(object, "name").ok_or_else(|| schema_error("missing enum name"))?,
                     get_str(object, "namespace").or(namespace),
                 );
+                self.check_unique(&name)?;
                 let schema = Schema::Enum(Arc::new(EnumSchema {
                     name: name.clone(),
                     symbols: get_strings(object, "symbols"),
@@ -243,6 +253,7 @@ impl Parser {
                     get_str(object, "name").ok_or_else(|| schema_error("missing fixed name"))?,
                     get_str(object, "namespace").or(namespace),
                 );
+                self.check_unique(&name)?;
                 let size = match object.get("size") {
                     Some(JsValue::Number(n)) if *n >= 0.0 => *n as usize,
                     _ => return Err(schema_error("invalid fixed size")),

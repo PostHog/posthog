@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
 
 import posthog.tasks.tasks
 from posthog.redis import get_client
@@ -59,6 +61,8 @@ class TestPollQueryPerformance(SimpleTestCase):
         )
 
 
+# Tests default to the hobby run mode, which waits 10 seconds between polls instead of 2.
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestPollQueryPerformanceTask(SimpleTestCase):
     @patch("posthog.tasks.tasks.logger.error")
     def test_poll_query_performance_does_not_run_if_last_update_does_not_match(
@@ -74,20 +78,31 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
     # ClickHouse test database that this SimpleTestCase never sets up, so the call raises, gets
     # logged, and the logging consumes a value from the fixed-length `time.time_ns` side_effect —
     # exhausting it and surfacing as StopIteration under --reruns.
+    @parameterized.expand([("cloud", "US", 2), ("hobby", None, 10)])
     @patch("posthog.tasks.poll_query_performance.poll_query_performance")
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.apply_async")
     def test_poll_query_performance_runs_and_restarts_itself_with_delay(
-        self, mock_apply_async: MagicMock, mock_logger_error: MagicMock, mock_poll_query_performance_nontask: MagicMock
+        self,
+        _name: str,
+        deployment: str | None,
+        seconds_between_runs: int,
+        mock_apply_async: MagicMock,
+        mock_logger_error: MagicMock,
+        mock_poll_query_performance_nontask: MagicMock,
     ) -> None:
         redis_client = get_client()
         key = 1234
         redis_client.set(Polling._SINGLETON_REDIS_KEY, Polling._encode_redis_key(key))
-        posthog.tasks.tasks.poll_query_performance(key)
+        with self.settings(CLOUD_DEPLOYMENT=deployment, DEBUG=False):
+            posthog.tasks.tasks.poll_query_performance(key)
 
         mock_logger_error.assert_not_called()
+        mock_poll_query_performance_nontask.assert_called_once()
         mock_apply_async.assert_called_once()
-        self.assertTrue(0 < mock_apply_async.call_args.kwargs["countdown"] < 2)
+        self.assertTrue(
+            seconds_between_runs - 1 < mock_apply_async.call_args.kwargs["countdown"] < seconds_between_runs
+        )
         self.assertEqual(
             redis_client.get(Polling._SINGLETON_REDIS_KEY),
             Polling._encode_redis_key(mock_apply_async.call_args.kwargs["args"][0]),

@@ -110,11 +110,6 @@ enum_glob_use = "deny"
 # `cohort-stream-processor`, whose list confines async code to the `StoreHandle` facade).
 disallowed_methods = "deny"
 
-# this is needed until getsentry/symbolic update the js-source-scopes to >0.6.0
-# I made a PR for the upstream fix here https://github.com/getsentry/symbolic/pull/945
-[patch.crates-io]
-js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev = "abea51a0e74840a8d1ec96a61ff36b488994f68c" }
-
 # Emit DWARF line tables in release builds so backtrace-rs can resolve frame
 # symbols for continuous profiling (pyroscope). Without this, release binaries
 # on Linux expose raw _ZN…E names in the pyroscope UI because gimli-symbolize
@@ -180,7 +175,7 @@ async-stream = "0.3"
 async-trait = "0.1.74"
 axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
-base64 = "0.22.0"
+base64 = "0.23.1"
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4.44", features = ["default", "serde"] }
@@ -267,9 +262,9 @@ aws-sdk-dynamodb = "1.55.0"
 aws-sdk-kms = "1"
 aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
-mockall = "0.13.0"
+mockall = "0.15.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.30.0", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.31.3", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

@@ -14,12 +14,13 @@ from rest_framework import status
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import EventDefinition, PersonalAPIKey
+from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
@@ -1010,7 +1011,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
     def test_an_action_named_in_the_goal_comes_back_with_its_id(self):
         # An action is the team's own curated definition of a behavior, so a goal naming one is the
         # sharpest filter available and must come back with the id the query needs.
-        action = Action.objects.create(team=self.team, name="Completed checkout")
+        action = create_action(team=self.team, name="Completed checkout")
 
         matches = _goal_entity_matches(
             self.team, "sessions where someone completed checkout", _access_control(allow=True)
@@ -1021,7 +1022,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
     def test_an_entity_the_caller_cannot_read_is_never_named_back(self):
         # Surveys and actions are access-controlled, so naming one back would leak its existence.
         self._survey("Pricing feedback")
-        Action.objects.create(team=self.team, name="Pricing feedback click")
+        create_action(team=self.team, name="Pricing feedback click")
 
         matches = _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False))
         assert (matches.surveys, matches.actions, matches.cohorts) == ([], [], [])
@@ -1044,7 +1045,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         # A token with scanner and recording scopes but not survey:read must not learn a survey's
         # name or id through the draft. RBAC alone would allow it; the scope gate is what stops it.
         self._survey("Pricing feedback")
-        Action.objects.create(team=self.team, name="Pricing feedback click")
+        create_action(team=self.team, name="Pricing feedback click")
         Cohort.objects.create(team=self.team, name="Pricing feedback cohort")
 
         matches = _goal_entity_matches(
@@ -1081,7 +1082,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         # the recordings query drops a cohort filter it cannot resolve, so the scan widens to every
         # session while the rationale still describes an audience.
         Cohort.objects.create(team=self.team, name="Power users", deleted=True)
-        Action.objects.create(team=self.team, name="Power users click", deleted=True)
+        create_action(team=self.team, name="Power users click", deleted=True)
 
         matches = _goal_entity_matches(self.team, "what do power users struggle with", _access_control(allow=True))
 

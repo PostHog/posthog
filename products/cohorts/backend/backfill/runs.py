@@ -159,6 +159,10 @@ def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
     properties = (cohort.filters or {}).get("properties")
     if not any(leaf.get("type") == "behavioral" for leaf in walk_filter_leaves(properties)):
         return NO_BEHAVIORAL_FILTER
+    # The flags service reads membership only for a cohort whose `condition_type` flags a behavioral
+    # leaf. A stamp on an unclassified cohort makes it read as ready while flags match nobody.
+    if cohort.condition_type is None:
+        return "has a null condition_type"
     return _catalog_refusal_reason(cohort)
 
 

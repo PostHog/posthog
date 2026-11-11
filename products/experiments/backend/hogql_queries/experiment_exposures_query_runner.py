@@ -2,7 +2,7 @@ import uuid
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from functools import cached_property
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -13,14 +13,15 @@ from posthog.schema import (
     DateRange,
     ExperimentExposureHealthCheck,
     ExperimentExposureHealthCheckKey,
+    ExperimentExposureHealthCheckRule,
     ExperimentExposureHealthCheckStatus,
     ExperimentExposureHealthFinding,
     ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity,
-    ExperimentExposureHealthMeasurement,
-    ExperimentExposureHealthMeasurementSide,
-    ExperimentExposureHealthMeasurementUnit,
+    ExperimentExposureHealthRuleMinimum,
+    ExperimentExposureHealthRuleSide,
+    ExperimentExposureHealthValueKey,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
@@ -48,7 +49,12 @@ from products.access_control.backend.facade.api import (
 )
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.experiments.backend.facade.contracts import ExperimentHealth, ExperimentHealthReaderAccess
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealth,
+    ExperimentHealthCheckRule,
+    ExperimentHealthReaderAccess,
+    ExperimentHealthRuleTest,
+)
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.checks.srm import (
@@ -252,7 +258,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
         tag_queries(experiment_exposures_path="direct_scan")
-        return builder.get_exposure_timeseries_query()
+        return builder.get_exposure_timeseries_query(with_library=True)
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
         """Chi-squared goodness-of-fit test of the observed variant counts against the rollout
@@ -351,7 +357,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return load_split_history(self.experiment, reader_access=reader_access)
 
     def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:
-        context = load_health_context(self.experiment, exposures)
+        context = load_health_context(self.experiment, exposures, can_read_flag_history=self._can_read_flag_history())
         if reads_flag_history(context):
             context = replace(context, flag_history=self._flag_history())
         # These queries run for every reader, a userless run included. The findings depend on them, and the cache key
@@ -463,6 +469,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 evidence=dict(finding.evidence),
                 actions=[ExperimentExposureHealthFindingActionKind(action.value) for action in finding.actions],
                 diagnostic_ref=finding.diagnostic_ref,
+                check=ExperimentExposureHealthCheckKey(finding.check.value) if finding.check else None,
             )
             for finding in health.findings
         ]
@@ -476,17 +483,25 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 description=check.description,
                 status=ExperimentExposureHealthCheckStatus(check.status.value),
                 reason=check.reason,
-                measurement=ExperimentExposureHealthMeasurement(
-                    value=check.measurement.value,
-                    threshold=check.measurement.threshold,
-                    unit=ExperimentExposureHealthMeasurementUnit(check.measurement.unit.value),
-                    warns=ExperimentExposureHealthMeasurementSide(check.measurement.warns.value),
-                )
-                if check.measurement
-                else None,
+                values={key.value: value for key, value in check.values.items()},
+                rule=ExperimentExposuresQueryRunner._health_check_rule(check.rule) if check.rule else None,
             )
             for check in health.checks
         ]
+
+    @staticmethod
+    def _health_check_rule(rule: ExperimentHealthCheckRule) -> ExperimentExposureHealthCheckRule:
+        return ExperimentExposureHealthCheckRule(
+            value=ExperimentExposureHealthValueKey(rule.value.value),
+            threshold=rule.threshold,
+            warns=ExperimentExposureHealthRuleSide(rule.warns.value),
+            test=_RULE_TESTS[rule.test] if rule.test else None,
+            minimum=ExperimentExposureHealthRuleMinimum(
+                value=ExperimentExposureHealthValueKey(rule.minimum.value.value), threshold=rule.minimum.threshold
+            )
+            if rule.minimum
+            else None,
+        )
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
@@ -519,7 +534,10 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             settings=HogQLGlobalSettings(max_execution_time=600),
         )
 
-        response.results = self._fill_date_gaps(response.results)
+        # The precomputed exposures carry no library, and with an activation the timeseries reads none.
+        reads_library = not self._reads_precomputed_exposures and exposure_params.activation_config is None
+        exposed_by_library = _exposed_by_library(response.results) if reads_library else None
+        response.results = self._fill_date_gaps([row[:3] for row in response.results])
         variant_series: dict[str, ExperimentExposureTimeSeries] = {}
 
         variant_data: dict[str, dict[str, int]] = {}
@@ -567,7 +585,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
                 sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
                 daily_exposures=daily_exposures,
-                hours_since_launch=self.experiment.hours_since_launch,
+                hours_since_launch=self.experiment.hours_since_launch(read_activity_log=self._can_read_flag_history()),
                 counts_groups=aggregates_by_group(self.group_type_index),
                 filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
                 has_positive_test_account_filter=has_positive_test_account_filter(self.team),
@@ -584,6 +602,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             bias_risk=bias_risk,
             health_findings=self._health_findings(health),
             health_checks=self._health_checks(health),
+            exposed_by_library=exposed_by_library,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -631,3 +650,18 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if applies_test_account_filters(self.team, self.exposure_criteria):
             payload["test_account_filters"] = self.team.test_account_filters
         return payload
+
+
+# The exposure schema types a single choice as a literal rather than an enum.
+_RULE_TESTS: dict[ExperimentHealthRuleTest, Literal["chi_squared"]] = {
+    ExperimentHealthRuleTest.CHI_SQUARED: "chi_squared"
+}
+
+
+def _exposed_by_library(rows: list[Any]) -> dict[str, int]:
+    """Sums the `exposed_by_library` column of the timeseries rows over the days and the variants."""
+    exposed: dict[str, int] = {}
+    for *_, (libraries, counts) in rows:
+        for library, count in zip(libraries, counts):
+            exposed[library] = exposed.get(library, 0) + int(count)
+    return exposed

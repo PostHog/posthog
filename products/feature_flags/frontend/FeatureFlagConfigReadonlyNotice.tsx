@@ -12,13 +12,7 @@ import {
     isRulesV2EditableConfig,
 } from './featureFlagConfigFormat'
 
-export function FeatureFlagConfigReadonlyNotice({
-    filters,
-    hasEditButton = false,
-}: {
-    filters: FeatureFlagConfig
-    hasEditButton?: boolean
-}): JSX.Element {
+export function FeatureFlagConfigReadonlyNotice({ filters }: { filters: FeatureFlagConfig }): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const label = featureFlagConfigFormatLabel(filters)
     const editable = isRulesV2EditableConfig(filters, featureFlags)
@@ -27,11 +21,6 @@ export function FeatureFlagConfigReadonlyNotice({
             {featureFlagConfigFormat(filters) !== 'v2' ? (
                 <>
                     This flag is stored as <strong>{label}</strong>, which this page cannot display or change.
-                </>
-            ) : editable && hasEditButton ? (
-                <>
-                    This flag is stored as <strong>{label}</strong>. Use Edit to change its rules; archiving is not
-                    available yet.
                 </>
             ) : editable ? (
                 <>

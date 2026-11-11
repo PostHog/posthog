@@ -19,6 +19,7 @@ import {
     type TaskRunCreateRequestApi,
 } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
+import { sessionProjectScope } from '@/auth/projectScope'
 import { sessionGeneration } from '@/auth/tokens'
 import { useDemoMode } from '@/demo/demoMode'
 import { DEMO_ANSWER_REPLY, DEMO_REPLY, demoSessionLog, demoSessionRunId } from '@/demo/sessionThreads'
@@ -274,6 +275,7 @@ async function sendConfigOption(run: RunRef, params: SetConfigOptionParams, sign
     for (;;) {
         try {
             const response = await sendTaskRunCommand(
+                sessionProjectScope(),
                 run.taskId,
                 run.runId,
                 { method: 'set_config_option', params },
@@ -408,7 +410,7 @@ async function readConnection(
     const result: ConnectionResult = { progressed: false }
     try {
         resetIdle()
-        const response = await openTaskRunStream(taskId, runId, {
+        const response = await openTaskRunStream(sessionProjectScope(), taskId, runId, {
             lastEventId: cursor.cursor,
             signal: connection.signal,
         })
@@ -520,7 +522,7 @@ async function followSessionRun(
         }
         let state = handlers.getState()
         try {
-            const run = await getTaskRun(taskId, runId, signal)
+            const run = await getTaskRun(sessionProjectScope(), taskId, runId, signal)
             if (isTerminalRunStatus(run.status) && control?.type !== 'ended') {
                 // A dropped connection can hide the last frames and its completion marker.
                 const entries = await getTaskRunLogs(taskId, runId, signal)
@@ -674,7 +676,7 @@ export function useSession(options: SessionOptions): Session {
                 return
             }
             try {
-                const run = await getTaskRun(id, runId)
+                const run = await getTaskRun(sessionProjectScope(), id, runId)
                 if (epoch.current === mine && scopeIsCurrent()) {
                     applySnapshot(run)
                 }
@@ -703,6 +705,7 @@ export function useSession(options: SessionOptions): Session {
                 }
                 try {
                     const outcome = await deliverPermissionResponse(
+                        sessionProjectScope(),
                         run,
                         { requestId: effect.requestId, optionId: effect.optionId },
                         { signal }
@@ -831,7 +834,7 @@ export function useSession(options: SessionOptions): Session {
         bootController.current = controller
         const { signal } = controller
         try {
-            const task = await getTask(taskId, signal)
+            const task = await getTask(sessionProjectScope(), taskId, signal)
             if (epoch.current !== mine || !scopeIsCurrent()) {
                 return
             }
@@ -839,7 +842,7 @@ export function useSession(options: SessionOptions): Session {
             runSource.current = runSourceFields(task.signal_report)
             const run =
                 requestedRunId && requestedRunId !== task.latest_run?.id
-                    ? await getTaskRun(taskId, requestedRunId, signal)
+                    ? await getTaskRun(sessionProjectScope(), taskId, requestedRunId, signal)
                     : task.latest_run
             if (epoch.current !== mine || !scopeIsCurrent()) {
                 return
@@ -1098,7 +1101,7 @@ export function useSession(options: SessionOptions): Session {
                     if (!scopeIsCurrent()) {
                         throw abortError()
                     }
-                    return startTaskRun(id, body, { headers, signal })
+                    return startTaskRun(sessionProjectScope(), id, body, { headers, signal })
                 },
                 { signal }
             )
@@ -1153,7 +1156,7 @@ export function useSession(options: SessionOptions): Session {
      */
     const adoptLatestRun = useCallback(
         async (id: string, signal: AbortSignal, mine: number): Promise<RunStreamState | null> => {
-            const task = await getTask(id, signal)
+            const task = await getTask(sessionProjectScope(), id, signal)
             const run = task.latest_run
             if (!run || epoch.current !== mine || !scopeIsCurrent()) {
                 return null
@@ -1257,7 +1260,7 @@ export function useSession(options: SessionOptions): Session {
                         if (!scopeIsCurrent() || controller.signal.aborted) {
                             return false
                         }
-                        const outcome = await sendUserMessage(run, content, {
+                        const outcome = await sendUserMessage(sessionProjectScope(), run, content, {
                             id: randomUUID(),
                             signal: controller.signal,
                             steer,
@@ -1395,7 +1398,7 @@ export function useSession(options: SessionOptions): Session {
                     if (!scopeIsCurrent()) {
                         throw abortError()
                     }
-                    return createTask(requests.task, { headers })
+                    return createTask(sessionProjectScope(), requests.task, { headers })
                 })
                 if (epoch.current !== mine || !scopeIsCurrent()) {
                     // An empty task cannot start a run after its composer has gone.
@@ -1436,7 +1439,12 @@ export function useSession(options: SessionOptions): Session {
                             if (!scopeIsCurrent()) {
                                 throw abortError()
                             }
-                            return startTaskRun(task.id, withPendingArtifacts(requests.run, artifactIds), { headers })
+                            return startTaskRun(
+                                sessionProjectScope(),
+                                task.id,
+                                withPendingArtifacts(requests.run, artifactIds),
+                                { headers }
+                            )
                         })
                         run = response.run ?? response.latest_run ?? null
                     } catch (error) {
@@ -1559,9 +1567,14 @@ export function useSession(options: SessionOptions): Session {
                 if (!(await approval.request()) || epoch.current !== mine || !scopeIsCurrent()) {
                     return
                 }
-                const outcome = await deliverPermissionResponse({ taskId, runId: current.runId }, plan.params, {
-                    signal: controller.signal,
-                })
+                const outcome = await deliverPermissionResponse(
+                    sessionProjectScope(),
+                    { taskId, runId: current.runId },
+                    plan.params,
+                    {
+                        signal: controller.signal,
+                    }
+                )
                 if (epoch.current !== mine || !scopeIsCurrent()) {
                     return
                 }
@@ -1625,7 +1638,13 @@ export function useSession(options: SessionOptions): Session {
         turnTracker.markStopped(true)
         stopTimer.current = setTimeout(endStopping, STOP_TIMEOUT_MS)
         const mine = epoch.current
-        sendTaskRunCommand(taskId, current.runId, { method: 'cancel' }, { id: `cancel-${randomUUID()}` })
+        sendTaskRunCommand(
+            sessionProjectScope(),
+            taskId,
+            current.runId,
+            { method: 'cancel' },
+            { id: `cancel-${randomUUID()}` }
+        )
             .then((response) => {
                 if (response.error) {
                     throw new CommandFailedError(response.error.message ?? 'The agent did not stop.')

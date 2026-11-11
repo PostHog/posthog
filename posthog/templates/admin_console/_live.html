@@ -1,0 +1,4 @@
+{# A Live block. console.js fetches `live_url` again while data-refresh-seconds is set and swaps this element. #}
+<div data-console-live="{{ live_url }}"
+     {% if live.refresh_seconds %}data-refresh-seconds="{{ live.refresh_seconds }}"{% endif %}
+     aria-live="polite">{% include "admin_console/_block.html" with block=live.block %}</div>
