@@ -592,7 +592,7 @@ export class EmailService {
             const owns = await settledBeforeAbort(deadline, this.stillOwnsJob(invocation))
             return owns ? 'owner' : 'lost_job'
         } catch (error) {
-            logger.warn('Could not check job ownership before an email send, so the send waits for a retry', {
+            logger.warn('Could not check job ownership before an email send', {
                 invocationId: invocation.id,
                 error: String(error),
             })
