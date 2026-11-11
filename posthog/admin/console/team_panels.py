@@ -37,9 +37,18 @@ class TeamOverviewPanel(Panel):
             .first()
         )
         return [
-            Fact(label="Owner", value=owner.user.email if owner else "No owner"),
+            Fact(
+                label="Owner", value=owner.user.email, href=reverse("admin_console_user", kwargs={"pk": owner.user_id})
+            )
+            if owner
+            else Fact(label="Owner", value="No owner"),
             Fact(label="Members", value=str(obj.organization.members.count())),
-            Fact(label="Project", value=str(obj.project_id), mono=True),
+            Fact(
+                label="Project",
+                value=str(obj.project_id),
+                mono=True,
+                href=reverse("admin_console_project", kwargs={"pk": obj.project_id}),
+            ),
             Fact(label="Created", value=obj.created_at.strftime("%b %-d, %Y")),
             Fact(label="Timezone", value=obj.timezone),
             Fact(

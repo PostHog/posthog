@@ -216,9 +216,11 @@ jobs:
 
             - name: Install system OpenSSL
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
             # `parallel:` block. Concurrent writes crash the GitHub Actions runner
@@ -870,9 +872,11 @@ jobs:
 
             - name: Install system OpenSSL
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
             # `parallel:` block. Concurrent writes crash the GitHub Actions runner
