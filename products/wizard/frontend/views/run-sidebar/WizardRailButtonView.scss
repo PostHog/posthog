@@ -9,16 +9,16 @@
 
 .WizardRailButton__ring {
     position: absolute;
-    inset: -3px;
-    padding: 2px;
+    inset: -2px;
+    padding: 1.5px;
     pointer-events: none;
     background: conic-gradient(
         var(--primary, var(--primary-3000)) 0deg calc(var(--wizard-rail-progress) * 1turn),
         var(--border) calc(var(--wizard-rail-progress) * 1turn) 1turn
     );
 
-    // The ring sits 3px outside the button, so its corners grow by the same amount.
-    border-radius: calc(var(--radius-sm) + 3px);
+    // The ring sits 2px outside the button, so its corners grow by the same amount.
+    border-radius: calc(var(--radius-sm) + 2px);
     mask:
         linear-gradient(#000 0 0) content-box exclude,
         linear-gradient(#000 0 0);
@@ -38,7 +38,7 @@
 
 .WizardRailButton__badge svg {
     color: white;
-    transform: scale(0.5);
+    transform: scale(0.45);
 }
 
 @media (prefers-reduced-motion: reduce) {

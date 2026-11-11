@@ -66,7 +66,7 @@ export function WizardRailButtonView({
                             <span
                                 aria-hidden
                                 className={cn(
-                                    'WizardRailButton__badge absolute -end-1 -bottom-1 flex size-3 items-center justify-center rounded-full',
+                                    'WizardRailButton__badge absolute -end-1 -bottom-1 flex size-2.5 items-center justify-center rounded-full',
                                     `WizardRailButton__badge--${state}`
                                 )}
                             >
