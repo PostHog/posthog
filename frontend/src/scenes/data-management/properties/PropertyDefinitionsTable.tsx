@@ -6,13 +6,13 @@ import { LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TZLabel } from 'lib/components/TZLabel'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { PropertyDefinitionsQueryUsageStatus } from 'scenes/data-management/properties/PropertyDefinitionsQueryUsageStatus'
 import {
     PropertyDefinitionWithQueryUsage,
     QUERY_USAGE_COLUMN_KEY,
@@ -37,9 +37,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
         showVerifiedFilter,
         showQueryUsage,
         queryUsageSorting,
-        queryUsageFreshness,
-        queryUsageCoverageDays,
-        usageSortError,
     } = useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
 
@@ -182,34 +179,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     )}
                 </div>
             </div>
-            {usageSortError && (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        children: 'Clear sort',
-                        onClick: () => setFilters({ ordering: undefined }, false),
-                        'data-attr': 'property-definitions-clear-usage-sort',
-                    }}
-                >
-                    {usageSortError}
-                </LemonBanner>
-            )}
-            {showQueryUsage && queryUsageFreshness && (
-                <div
-                    className="flex flex-wrap items-center gap-x-1 text-xs text-secondary"
-                    data-attr="property-definitions-query-usage-freshness"
-                >
-                    <span>Query counts updated</span>
-                    <TZLabel time={queryUsageFreshness.computed_at} />
-                    {queryUsageCoverageDays !== null && (
-                        <span data-attr="property-definitions-query-usage-coverage">
-                            {`· Counts cover only the last ${queryUsageCoverageDays} ${
-                                queryUsageCoverageDays === 1 ? 'day' : 'days'
-                            }, so a property at 0 may still be in use.`}
-                        </span>
-                    )}
-                </div>
-            )}
+            <PropertyDefinitionsQueryUsageStatus />
             <LemonTable
                 columns={columns}
                 className="event-properties-definition-table"
