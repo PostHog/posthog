@@ -14,6 +14,13 @@ if TYPE_CHECKING:
     from posthog.admin.console.tools import Page
 
 
+def is_internal_path(href: str) -> bool:
+    # Browsers read a leading "/\\" like "//" and drop tabs and newlines anywhere, so "/\t/host" leaves the site too.
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in href):
+        return False
+    return href.startswith("/") and not href.startswith(("//", "/\\"))
+
+
 class Tone(StrEnum):
     DEFAULT = "default"
     INFO = "info"
@@ -49,8 +56,7 @@ class Fact:
         if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
             raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
         # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
-        # Browsers read a leading "/\\" like "//", so both would leave the site.
-        if self.href is not None and (not self.href.startswith("/") or self.href.startswith(("//", "/\\"))):
+        if self.href is not None and not is_internal_path(self.href):
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
@@ -112,9 +118,15 @@ def check_danger(key: str, danger: bool, form_class: type[forms.Form] | None, un
 
 
 class OperationHandler(Protocol):
-    """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response."""
+    """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response.
 
-    def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
+    It may return a `Page` instead, which the console shows once as the result, for example a password that
+    staff must copy now in a `Secret` block.
+    """
+
+    def __call__(
+        self, request: "HttpRequest", obj: "Model", form: forms.Form | None
+    ) -> "HttpResponse | Page | None": ...
 
 
 class RecordPreviewHandler(Protocol):
