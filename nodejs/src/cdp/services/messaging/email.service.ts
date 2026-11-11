@@ -178,6 +178,7 @@ const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
 const MAX_OWNERSHIP_CHECK_RETRIES = 5
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
+const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
 class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
@@ -446,6 +447,7 @@ export interface EmailServiceConfig {
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
     attachmentSendDeadlineMs?: number
+    ownershipCheckTimeoutMs?: number
 }
 
 /**
@@ -565,11 +567,10 @@ export class EmailService {
 
     private async jobOwnershipBeforeSend(
         invocation: CyclotronJobInvocation,
-        deadline: AbortSignal | undefined
+        deadline: AbortSignal
     ): Promise<'owner' | 'lost_job' | 'check_failed'> {
         try {
-            const check = this.stillOwnsJob(invocation)
-            const owns = await (deadline ? settledBeforeAbort(deadline, check) : check)
+            const owns = await settledBeforeAbort(deadline, this.stillOwnsJob(invocation))
             return owns ? 'owner' : 'lost_job'
         } catch (error) {
             logger.warn('Could not check job ownership before an email send, so the send waits for a retry', {
@@ -918,7 +919,11 @@ export class EmailService {
             const ownership =
                 isTest || ownershipCheckRetries >= MAX_OWNERSHIP_CHECK_RETRIES
                     ? 'owner'
-                    : await this.jobOwnershipBeforeSend(invocation, deadline)
+                    : await this.jobOwnershipBeforeSend(
+                          invocation,
+                          deadline ??
+                              AbortSignal.timeout(this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS)
+                      )
             if (ownership !== 'owner') {
                 const retries = ownershipCheckRetries + 1
                 emailSendsStoppedForJobOwnershipTotal.inc({ reason: ownership })

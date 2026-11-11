@@ -1414,10 +1414,12 @@ describe('EmailService', () => {
                 teamDailyCap,
                 teamConfigDb,
                 attachmentSendDeadlineMs,
+                ownershipCheckTimeoutMs,
             }: {
                 teamDailyCap?: number
                 teamConfigDb?: PostgresRouter
                 attachmentSendDeadlineMs?: number
+                ownershipCheckTimeoutMs?: number
             } = {}): EmailService =>
                 createService(
                     {
@@ -1425,6 +1427,7 @@ describe('EmailService', () => {
                             ? { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [teamDailyCap] }
                             : {}),
                         attachmentSendDeadlineMs,
+                        ownershipCheckTimeoutMs,
                     },
                     {
                         workflowEmailRateLimiter: createRateLimiter('workflow-email-test'),
@@ -1781,14 +1784,17 @@ describe('EmailService', () => {
             const retriedLoad = { finished: false, error: undefined, retryLater: true }
 
             it.each([
-                ['fails', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
-                ['does not answer before the send deadline', () => new Promise<boolean>(() => undefined)],
+                ['fails', 'with files', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
+                ['does not answer before the send deadline', 'with files', () => new Promise<boolean>(() => undefined)],
+                ['fails', 'without files', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
+                ['does not answer in time', 'without files', () => new Promise<boolean>(() => undefined)],
             ])(
-                'when the check that this worker still holds the job %s, it sends nothing and keeps the send for a retry',
-                async (_name, stillOwnsJob) => {
-                    const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
+                'when the check that this worker still holds the job %s, a send %s sends nothing and keeps the send for a retry',
+                async (_name, withFiles, stillOwnsJob) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 1_000, ownershipCheckTimeoutMs: 1_000 })
                     emailService.checkJobOwnershipBeforeSend(stillOwnsJob)
-                    send([pdf])
+                    const files = withFiles === 'with files' ? [pdf] : []
+                    send(files)
 
                     const result = await emailService.executeSendEmail(invocation)
 
@@ -1796,7 +1802,9 @@ describe('EmailService', () => {
                         finished: false,
                         error: undefined,
                     })
-                    expect(result.invocation.queueParameters).toMatchObject({ attachments: [pdf.metadata] })
+                    expect(result.invocation.queueParameters).toMatchObject({
+                        attachments: files.map((file) => file.metadata),
+                    })
                     expect(deliveredTo(ses, recipient)).toEqual([])
                 }
             )
