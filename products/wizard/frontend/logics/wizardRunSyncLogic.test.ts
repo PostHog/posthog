@@ -458,6 +458,9 @@ describe('wizardRunSyncLogic', () => {
             head_branch: 'setup',
             base_branch: 'main',
             created_at: '2026-09-23T10:05:00Z',
+            state: 'open',
+            merged_at: null,
+            closed_at: null,
         }
         jest.mocked(loadWizardRunArtifacts).mockResolvedValueOnce([]).mockResolvedValueOnce([artifact])
         logic.actions.loadRunData(logic.values.userRuns[0])
