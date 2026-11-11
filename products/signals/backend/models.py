@@ -504,14 +504,8 @@ class SignalReport(UUIDModel):
     # once and never cleared, so it survives past Temporal's history retention window — a workflow
     # ID de-duplication would not. Null for reports that never notified or predate the field.
     inbox_notified_at = models.DateTimeField(null=True, blank=True)
-    # The claim on the report's one `$inbox_report_ready` event. Set once and never cleared for the
-    # same reason as `inbox_notified_at`: each research pass settles the report again, and each settle
-    # would otherwise deliver it to every subscribed destination again.
     ready_event_emitted_at = models.DateTimeField(null=True, blank=True)
-    # Set once the broker confirmed the event. A claim without it is what the reconcile sweep re-sends.
     ready_event_delivered_at = models.DateTimeField(null=True, blank=True)
-    # The products the claimed event named, so a re-send carries them unchanged: a custom-agent
-    # report has no signals to derive them from again.
     ready_event_source_products = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
     # The emit key of the scout `emit_report` call that authored this report. An emission can take
@@ -599,7 +593,6 @@ class SignalReport(UUIDModel):
                 condition=models.Q(created_by__isnull=False),
                 name="signals_report_created_by",
             ),
-            # Partial: the reconcile sweep reads only claims the broker never confirmed.
             models.Index(
                 fields=["ready_event_emitted_at"],
                 condition=models.Q(ready_event_emitted_at__isnull=False, ready_event_delivered_at__isnull=True),
