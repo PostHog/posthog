@@ -1,6 +1,6 @@
 {
     "scenario": "workflow",
-    "about": "A workflow last saved before #72913 (2026-07-27) moved secret step inputs into `encrypted_inputs`. No migration moved them and `migrate_hog_flow_secret_inputs` (#83804) only runs by hand, so the secret can still sit in plaintext `actions`; its inputs and filters also predate the `bytecode_contract` stamp (#105759).",
+    "about": "A workflow last saved before #105759 (2026-09-25) added the `bytecode_contract` stamp. Only a save restamps a workflow, so its trigger filters and step inputs still carry unstamped bytecode.",
     "stored": {
         "posthog_hogflow": {
             "trigger": {
@@ -15,7 +15,17 @@
                         }
                     ],
                     "source": "events",
-                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+                    "bytecode": [
+                        "_H",
+                        1,
+                        32,
+                        "$pageview",
+                        32,
+                        "event",
+                        1,
+                        1,
+                        11
+                    ]
                 }
             },
             "edges": [
@@ -47,7 +57,17 @@
                                 }
                             ],
                             "source": "events",
-                            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "$pageview",
+                                32,
+                                "event",
+                                1,
+                                1,
+                                11
+                            ]
                         }
                     },
                     "filters": null,
@@ -64,12 +84,12 @@
                             "url": {
                                 "order": 0,
                                 "value": "https://example.com/stored-program/workflow",
-                                "bytecode": ["_H", 1, 32, "https://example.com/stored-program/workflow"]
-                            },
-                            "api_key": {
-                                "order": 1,
-                                "value": "stored-program-fake-workflow-key",
-                                "bytecode": ["_H", 1, 32, "stored-program-fake-workflow-key"]
+                                "bytecode": [
+                                    "_H",
+                                    1,
+                                    32,
+                                    "https://example.com/stored-program/workflow"
+                                ]
                             }
                         },
                         "template_id": "template-stored-program-fetch"
@@ -92,9 +112,11 @@
             ],
             "variables": [],
             "exit_condition": "exit_on_conversion",
-            "billable_action_types": ["function"],
+            "billable_action_types": [
+                "function"
+            ],
             "abort_action": null,
-            "encrypted_inputs": null
+            "encrypted_inputs": "gAAAAABq9CZLHpiR6htf5kzh9NphWlS8dcarvogEnnCTs0snaG4RC-jM3kvz52p0rM_NPaDQJwhyPLaGS7Fc46stkYohJAQz1QHZIJrLguid7frBzByXns5ldadjV7PaGhEu6AVluI1EIYLuZkQ7ZYL1EqDoFWeKLm2FgUkbYVEbImFH2r1COzKCoRdZ93NZuS8iKiWdRtoshVr3fQT-AWRa_Da7i1lSD-GIiPZA3gogeyNv5VPK1Exk6uv7nC6vwYvLhRP8ukP2_wnYm6C4PdP1zxpmvHQmiGu9Je4nynyqCanoHj86XvvFYFuXiqLmlrGVObJfU1cb"
         }
     }
 }
